@@ -2,9 +2,37 @@ import { createSignal, For, onMount, Show, createEffect } from 'solid-js';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 // Configure marked to use highlight.js via a custom renderer
 const renderer = new marked.Renderer();
+
+// Custom math rendering helper
+const renderMath = (text: string) => {
+  // Block math: $$ ... $$
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+    try {
+      return `<div class="math-block my-4 overflow-x-auto">` + 
+             katex.renderToString(math, { displayMode: true, throwOnError: false }) + 
+             `</div>`;
+    } catch (e) {
+      return `<span class="text-red-500">${math}</span>`;
+    }
+  });
+
+  // Inline math: $ ... $ (avoiding common false positives like $100)
+  // This regex matches $...$ where the content doesn't start or end with a space
+  text = text.replace(/\$([^\s$](?:[^$]*[^\s$])?)\$/g, (_, math) => {
+    try {
+      return katex.renderToString(math, { displayMode: false, throwOnError: false });
+    } catch (e) {
+      return `<span class="text-red-500">${math}</span>`;
+    }
+  });
+
+  return text;
+};
 renderer.code = ({ text, lang }) => {
   const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
   const highlighted = hljs.highlight(text, { language }).value;
@@ -113,11 +141,27 @@ export default function Chat() {
   });
 
   const [userHasScrolledUp, setUserHasScrolledUp] = createSignal(false);
-  const handleScroll = (e: Event) => {
-    const target = e.currentTarget as HTMLDivElement;
-    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 50;
-    setUserHasScrolledUp(!isAtBottom);
-  };
+   const handleScroll = (e: Event) => {
+     const target = e.currentTarget as HTMLDivElement;
+     const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 50;
+     setUserHasScrolledUp(!isAtBottom);
+   };
+
+   // Helper to split thought and content
+   const parseThoughtAndContent = (text: string) => {
+     const thoughtMatch = text.match(/<thought>([\s\S]*?)(?:<\/thought>|$)/);
+     if (thoughtMatch) {
+       const thought = thoughtMatch[1];
+       const rest = text.replace(/<thought>[\s\S]*?(?:<\/thought>|$)/, "").trim();
+       return { thought, content: rest };
+     }
+     return { thought: null, content: text };
+   };
+
+   const [expandedThoughts, setExpandedThoughts] = createSignal<Record<number, boolean>>({});
+   const toggleThought = (index: number) => {
+     setExpandedThoughts(prev => ({ ...prev, [index]: !prev[index] }));
+   };
 
   const filteredAgents = () => {
     const filter = agentFilter().toLowerCase();
@@ -494,11 +538,45 @@ export default function Chat() {
                   {msg.role === 'user' ? (
                      <div class="whitespace-pre-wrap">{msg.content}</div>
                   ) : (
-                     <div class="relative">
-                        <div 
-                          innerHTML={marked.parse(msg.content) as string} 
-                          class="prose prose-sm max-w-none prose-p:my-1 prose-headings:mb-2 prose-headings:mt-4 prose-code:text-emerald-600 prose-code:bg-emerald-50 prose-code:px-1 prose-code:rounded prose-pre:p-0 prose-pre:bg-transparent" 
-                        />
+                     <div class="relative space-y-3">
+                        {(() => {
+                          const { thought, content } = parseThoughtAndContent(msg.content);
+                          return (
+                            <>
+                              <Show when={thought}>
+                                <div class="thought-container bg-gray-50 border-l-2 border-gray-300 rounded-r-lg overflow-hidden transition-all duration-300">
+                                  <button 
+                                    onClick={() => toggleThought(index())}
+                                    class="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+                                  >
+                                    <div class="flex items-center gap-2">
+                                      <svg xmlns="http://www.w3.org/2000/svg" class={`h-3.5 w-3.5 transition-transform ${expandedThoughts()[index()] ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                                      </svg>
+                                      <span>{isTyping() && !content ? 'Thinking...' : 'Thought Process'}</span>
+                                    </div>
+                                    <Show when={!expandedThoughts()[index()]}>
+                                      <span class="text-[10px] opacity-50 truncate max-w-[200px]">{thought?.slice(0, 50)}...</span>
+                                    </Show>
+                                  </button>
+                                  <Show when={expandedThoughts()[index()]}>
+                                    <div class="px-3 pb-3 text-xs text-gray-600 italic leading-relaxed border-t border-gray-100 mt-1 pt-2 animate-in fade-in slide-in-from-top-1">
+                                      {thought}
+                                    </div>
+                                  </Show>
+                                </div>
+                              </Show>
+                              
+                              <Show when={content || (isTyping() && !thought)}>
+                                <div 
+                                  innerHTML={marked.parse(renderMath(content)) as string} 
+                                  class="prose prose-sm max-w-none prose-p:my-1 prose-headings:mb-2 prose-headings:mt-4 prose-code:text-emerald-600 prose-code:bg-emerald-50 prose-code:px-1 prose-code:rounded prose-pre:p-0 prose-pre:bg-transparent" 
+                                />
+                              </Show>
+                            </>
+                          );
+                        })()}
+                        
                         <Show when={isTyping() && index() === messages().length - 1}>
                           <span class="inline-block w-1.5 h-4 ml-1 bg-emerald-500 animate-pulse align-middle"></span>
                         </Show>
