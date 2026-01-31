@@ -89,79 +89,104 @@ export default function Notebook() {
   };
 
   return (
-    <div class="flex h-full bg-white">
+    <div class="flex h-full bg-background transition-colors duration-250">
       {/* Sidebar List */}
-      <div class="w-1/3 border-r bg-gray-50 flex flex-col">
-        <div class="p-4 border-b flex justify-between items-center bg-white">
-          <h2 class="font-bold text-lg text-gray-800">Notebook</h2>
+      <div class="w-1/3 border-r border-border bg-surface/50 flex flex-col transition-colors duration-250">
+        <div class="p-6 border-b border-border flex justify-between items-center bg-surface transition-colors duration-250">
+          <h2 class="font-bold text-xl text-text-primary">Notebook</h2>
           <button 
             onClick={createNote}
-            class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+            class="bg-primary text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-primary-hover active:scale-95 transition-all shadow-lg shadow-primary/10"
           >
             + New Note
           </button>
         </div>
-        <div class="flex-1 overflow-y-auto">
+        <div class="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border/50">
           <For each={notes()}>
             {note => (
               <div 
                 onClick={() => selectNote(note)}
-                class={`p-4 border-b cursor-pointer hover:bg-white transition-colors ${
-                  selectedNote()?.id === note.id ? 'bg-white border-l-4 border-l-emerald-500 shadow-sm' : 'border-l-4 border-l-transparent'
+                class={`p-5 border-b border-border/60 cursor-pointer hover:bg-surface transition-all duration-200 relative group ${
+                  selectedNote()?.id === note.id ? 'bg-surface shadow-sm' : ''
                 }`}
               >
-                <h3 class={`font-medium ${!note.title ? 'text-gray-400 italic' : 'text-gray-800'}`}>
-                  {note.title || "Untitled Note"}
-                </h3>
-                <p class="text-xs text-gray-500 mt-1 truncate">
-                  {note.content || "No content"}
-                </p>
-                <div class="flex justify-between items-center mt-2">
-                  <span class="text-[10px] text-gray-400">
-                    {new Date(note.updated_at).toLocaleDateString()}
-                  </span>
+                <div class={`absolute left-0 top-0 bottom-0 w-1 bg-primary transition-transform duration-300 ${
+                  selectedNote()?.id === note.id ? 'scale-y-100' : 'scale-y-0'
+                }`} />
+                
+                <div class="flex justify-between items-start mb-1">
+                  <h3 class={`font-semibold text-base truncate pr-6 ${!note.title ? 'text-text-secondary/50 italic' : 'text-text-primary'}`}>
+                    {note.title || "Untitled Note"}
+                  </h3>
                   <button 
                     onClick={(e) => deleteNote(note.id, e)}
-                    class="text-gray-400 hover:text-red-600 px-2"
+                    class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 rounded-md hover:bg-red-50 transition-all"
+                    title="Delete note"
                   >
-                    ×
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
                   </button>
+                </div>
+                
+                <p class="text-sm text-text-secondary mt-1 line-clamp-2 leading-relaxed">
+                  {note.content || "No content"}
+                </p>
+                
+                <div class="flex items-center mt-3 text-[11px] text-text-secondary/70 font-medium">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {new Date(note.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
               </div>
             )}
           </For>
           <Show when={notes().length === 0}>
-            <div class="p-8 text-center text-gray-400 text-sm">
-              No notes yet. Create one to get started!
+            <div class="p-12 text-center">
+              <div class="w-16 h-16 bg-surface border border-border rounded-2xl flex items-center justify-center mx-auto mb-4 text-text-secondary/30">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </div>
+              <p class="text-text-secondary text-sm">No notes yet. Create one to get started!</p>
             </div>
           </Show>
         </div>
       </div>
 
       {/* Editor Area */}
-      <div class="flex-1 flex flex-col bg-white">
+      <div class="flex-1 flex flex-col bg-surface transition-colors duration-250">
         <Show when={selectedNote()} fallback={
-          <div class="flex-1 flex flex-col items-center justify-center text-gray-300">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-            <p>Select a note to view or edit</p>
+          <div class="flex-1 flex flex-col items-center justify-center text-text-secondary/30 bg-background/50">
+            <div class="w-24 h-24 rounded-3xl border-2 border-dashed border-border flex items-center justify-center mb-6">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </div>
+            <p class="text-lg font-medium">Select a note to view or edit</p>
+            <p class="text-sm mt-2">All your thoughts, neatly organized in one place.</p>
           </div>
         }>
-          <div class="p-4 border-b flex justify-between items-center">
+          <div class="px-8 py-6 border-b border-border flex justify-between items-center bg-surface/80 backdrop-blur-sm sticky top-0 z-10">
             <input 
               type="text" 
               value={editTitle()}
               onInput={(e) => setEditTitle(e.currentTarget.value)}
               placeholder="Note Title"
-              class="text-xl font-bold text-gray-800 bg-transparent border-none focus:ring-0 focus:outline-none w-full"
+              class="text-2xl font-bold text-text-primary bg-transparent border-none focus:ring-0 focus:outline-none w-full placeholder:text-text-secondary/30"
             />
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-emerald-600 font-medium">{saveStatus()}</span>
+            <div class="flex items-center gap-4">
+              <span class={`text-sm font-medium transition-opacity duration-300 ${saveStatus() ? 'opacity-100' : 'opacity-0'} ${saveStatus() === 'Error saving' ? 'text-red-500' : 'text-primary'}`}>
+                {saveStatus()}
+              </span>
               <button 
                 onClick={saveNote}
-                class="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
+                class="bg-primary text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-primary-hover active:scale-95 transition-all shadow-lg shadow-primary/20 flex items-center gap-2"
               >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
                 Save
               </button>
             </div>
@@ -169,8 +194,8 @@ export default function Notebook() {
           <textarea
             value={editContent()}
             onInput={(e) => setEditContent(e.currentTarget.value)}
-            placeholder="Start writing..."
-            class="flex-1 p-6 resize-none focus:outline-none text-gray-700 leading-relaxed font-mono text-sm"
+            placeholder="Start writing your thoughts..."
+            class="flex-1 p-8 lg:p-12 resize-none focus:outline-none text-text-primary bg-transparent leading-relaxed font-sans text-lg placeholder:text-text-secondary/20"
           />
         </Show>
       </div>

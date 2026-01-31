@@ -134,16 +134,21 @@ const App: Component<{children?: any}> = (props) => {
        {/* Main Area */}
        <main class="flex-1 overflow-hidden relative flex flex-col min-w-0">
           {/* Mobile Header */}
-          <header class="lg:hidden flex items-center h-14 px-4 bg-surface border-b border-border">
+          <header class="lg:hidden flex items-center h-16 px-6 bg-surface/80 backdrop-blur-md border-b border-border z-30 sticky top-0">
             <button 
               onClick={() => setIsSidebarOpen(true)}
-              class="p-2 -ml-2 hover:bg-gray-100 rounded-lg"
+              class="p-2 -ml-2 hover:bg-primary/10 text-text-secondary hover:text-primary rounded-xl transition-all active:scale-90"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <span class="ml-4 font-bold text-primary">Yue</span>
+            <div class="ml-4 flex items-center gap-2">
+              <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10 flex items-center justify-center font-black text-primary text-sm">
+                Y
+              </div>
+              <span class="font-black text-text-primary tracking-tight">Yue</span>
+            </div>
           </header>
           
           <div class="flex-1 relative overflow-hidden">
