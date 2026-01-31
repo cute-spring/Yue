@@ -10,7 +10,6 @@ type Note = {
 export default function Notebook() {
   const [notes, setNotes] = createSignal<Note[]>([]);
   const [selectedNote, setSelectedNote] = createSignal<Note | null>(null);
-  const [isEditing, setIsEditing] = createSignal(false);
   
   // Editor State
   const [editTitle, setEditTitle] = createSignal("");
@@ -33,7 +32,6 @@ export default function Notebook() {
     setSelectedNote(note);
     setEditTitle(note.title);
     setEditContent(note.content);
-    setIsEditing(false);
     setSaveStatus("");
   };
 
@@ -48,7 +46,6 @@ export default function Notebook() {
       const data = await res.json();
       await loadNotes();
       selectNote(data);
-      setIsEditing(true);
     } catch (e) {
       console.error("Failed to create note", e);
     }

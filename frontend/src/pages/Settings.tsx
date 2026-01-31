@@ -1,6 +1,6 @@
 import { createSignal, onMount, For, Show } from 'solid-js';
 
-type Tab = 'general' | 'agents' | 'mcp' | 'llm';
+type Tab = 'general' | 'mcp' | 'llm';
 
 type Agent = {
   id: string;
@@ -30,8 +30,6 @@ export default function Settings() {
   
   // Agents State
   const [agents, setAgents] = createSignal<Agent[]>([]);
-  const [providerOptions, setProviderOptions] = createSignal<string[]>([]);
-  const [isEditingAgent, setIsEditingAgent] = createSignal<string | null>(null);
   
   // General Preferences State
   const [prefs, setPrefs] = createSignal({
@@ -57,10 +55,6 @@ export default function Settings() {
       // Fetch Agents
       const agentsRes = await fetch('/api/agents/');
       setAgents(await agentsRes.json());
-      
-      // Fetch Supported Providers
-      const supportedRes = await fetch('/api/models/supported');
-      setProviderOptions(await supportedRes.json());
       
       // Fetch Preferences
       const prefsRes = await fetch('/api/config/preferences');
@@ -109,12 +103,6 @@ export default function Settings() {
     setLlmForm(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleAgentDelete = async (id: string) => {
-    if (!confirm("Delete agent?")) return;
-    await fetch(`/api/agents/${id}`, { method: 'DELETE' });
-    fetchData();
-  };
-
   return (
     <div class="p-8 h-full flex flex-col bg-gray-50 overflow-hidden">
       <div class="flex justify-between items-center mb-8">
@@ -126,7 +114,7 @@ export default function Settings() {
 
       {/* Tabs */}
       <div class="flex space-x-1 mb-6 bg-gray-200 p-1 rounded-lg w-fit">
-        <For each={['general', 'agents', 'mcp', 'llm']}>
+        <For each={['general', 'mcp', 'llm']}>
           {(tab) => (
             <button
               onClick={() => setActiveTab(tab as Tab)}
@@ -172,7 +160,12 @@ export default function Settings() {
                 </select>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Default Agent</label>
+                <div class="flex items-center justify-between gap-3 mb-1">
+                  <label class="block text-sm font-medium text-gray-700">Default Agent</label>
+                  <a href="/agents" class="text-emerald-600 hover:underline text-sm font-medium">
+                    Manage agents →
+                  </a>
+                </div>
                 <select 
                   class="w-full border rounded-lg p-2 bg-gray-50"
                   value={prefs().default_agent}
@@ -190,45 +183,6 @@ export default function Settings() {
             >
               Save Preferences
             </button>
-          </div>
-        </Show>
-
-        {/* Agents Tab */}
-        <Show when={activeTab() === 'agents'}>
-          <div class="space-y-6">
-            <div class="flex justify-between items-center border-b pb-2">
-              <h3 class="text-xl font-semibold">Agent Definitions</h3>
-              <a href="/agents" class="text-emerald-600 hover:underline text-sm font-medium">
-                Manage in full page →
-              </a>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <For each={agents()}>
-                {agent => (
-                  <div class="p-4 border rounded-xl hover:border-emerald-300 transition-colors bg-gray-50 group">
-                    <div class="flex justify-between items-start mb-2">
-                      <h4 class="font-bold text-gray-800">{agent.name}</h4>
-                      <button 
-                        onClick={() => handleAgentDelete(agent.id)}
-                        class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                    <div class="text-xs text-gray-500 mb-2 font-mono truncate">{agent.id}</div>
-                    <div class="text-sm text-gray-600 line-clamp-2 mb-3 h-10 italic">"{agent.system_prompt}"</div>
-                    <div class="flex items-center gap-2">
-                      <span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
-                        {agent.provider}:{agent.model}
-                      </span>
-                      <span class="text-xs text-gray-400">
-                        {agent.enabled_tools.length} tools enabled
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
           </div>
         </Show>
 
