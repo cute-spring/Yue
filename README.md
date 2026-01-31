@@ -13,7 +13,17 @@ cp backend/.env.example backend/.env
 
 ### 2. 本地开发运行
 
-#### 后端
+#### 一键启动
+项目提供了便捷的脚本来同时启动前后端服务：
+```bash
+./start.sh
+```
+要停止所有服务，可以运行：
+```bash
+./stop.sh
+```
+
+#### 分步启动 (可选)
 ```bash
 cd backend
 python -m venv venv
