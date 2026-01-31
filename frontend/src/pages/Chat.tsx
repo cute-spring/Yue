@@ -1,4 +1,4 @@
-import { createSignal, For, onMount, Show } from 'solid-js';
+import { createSignal, For, onMount, Show, createEffect } from 'solid-js';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
@@ -8,12 +8,55 @@ const renderer = new marked.Renderer();
 renderer.code = ({ text, lang }) => {
   const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
   const highlighted = hljs.highlight(text, { language }).value;
-  return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
+  
+  return `
+    <div class="code-block-container relative group my-4 rounded-lg overflow-hidden border border-gray-700 bg-[#0d1117]">
+      <div class="flex items-center justify-between px-4 py-2 bg-[#161b22] border-b border-gray-700">
+        <div class="flex items-center gap-1.5">
+          <div class="w-2.5 h-2.5 rounded-full bg-[#ff5f56]"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#27c93f]"></div>
+          <span class="ml-2 text-xs font-mono text-gray-400 uppercase tracking-wider">${language}</span>
+        </div>
+        <button 
+          onclick="window.copyToClipboard(this)" 
+          class="p-1.5 rounded hover:bg-gray-700 text-gray-400 transition-colors flex items-center gap-1"
+          title="Copy code"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+          </svg>
+          <span class="text-[10px] font-medium">Copy</span>
+        </button>
+      </div>
+      <pre class="p-4 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-700"><code class="hljs language-${language}">${highlighted}</code></pre>
+    </div>
+  `;
 };
 
 marked.setOptions({
   renderer
 });
+
+// Global helper for copying code
+(window as any).copyToClipboard = (btn: HTMLButtonElement) => {
+  const container = btn.closest('.code-block-container');
+  const code = container?.querySelector('code')?.innerText;
+  if (code) {
+    navigator.clipboard.writeText(code).then(() => {
+      const span = btn.querySelector('span');
+      if (span) {
+        const originalText = span.innerText;
+        span.innerText = 'Copied!';
+        btn.classList.add('text-emerald-400');
+        setTimeout(() => {
+          span.innerText = originalText;
+          btn.classList.remove('text-emerald-400');
+        }, 2000);
+      }
+    });
+  }
+};
 
 type Agent = {
   id: string;
@@ -55,7 +98,26 @@ export default function Chat() {
   const [selectedModel, setSelectedModel] = createSignal("gpt-4o");
   
   let textareaRef: HTMLTextAreaElement | undefined;
+  let chatContainerRef: HTMLDivElement | undefined;
   let abortController: AbortController | null = null;
+
+  // Auto-scroll logic
+  createEffect(() => {
+    messages(); // Dependency
+    if (chatContainerRef && !userHasScrolledUp()) {
+      chatContainerRef.scrollTo({
+        top: chatContainerRef.scrollHeight,
+        behavior: isTyping() ? 'auto' : 'smooth'
+      });
+    }
+  });
+
+  const [userHasScrolledUp, setUserHasScrolledUp] = createSignal(false);
+  const handleScroll = (e: Event) => {
+    const target = e.currentTarget as HTMLDivElement;
+    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 50;
+    setUserHasScrolledUp(!isAtBottom);
+  };
 
   const filteredAgents = () => {
     const filter = agentFilter().toLowerCase();
@@ -407,7 +469,11 @@ export default function Chat() {
           </div>
         </div>
         
-        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+        <div 
+          ref={chatContainerRef}
+          onScroll={handleScroll}
+          class="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth"
+        >
           <Show when={messages().length === 0}>
             <div class="h-full flex flex-col items-center justify-center text-gray-400 opacity-50">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -418,7 +484,7 @@ export default function Chat() {
           </Show>
 
           <For each={messages()}>
-            {(msg) => (
+            {(msg, index) => (
               <div class={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div class={`max-w-[85%] px-5 py-3 rounded-2xl shadow-sm ${
                   msg.role === 'user' 
@@ -428,14 +494,24 @@ export default function Chat() {
                   {msg.role === 'user' ? (
                      <div class="whitespace-pre-wrap">{msg.content}</div>
                   ) : (
-                     <div innerHTML={marked.parse(msg.content) as string} class="prose prose-sm max-w-none prose-p:my-1 prose-pre:bg-gray-800 prose-pre:text-gray-100" />
+                     <div class="relative">
+                        <div 
+                          innerHTML={marked.parse(msg.content) as string} 
+                          class="prose prose-sm max-w-none prose-p:my-1 prose-headings:mb-2 prose-headings:mt-4 prose-code:text-emerald-600 prose-code:bg-emerald-50 prose-code:px-1 prose-code:rounded prose-pre:p-0 prose-pre:bg-transparent" 
+                        />
+                        <Show when={isTyping() && index() === messages().length - 1}>
+                          <span class="inline-block w-1.5 h-4 ml-1 bg-emerald-500 animate-pulse align-middle"></span>
+                        </Show>
+                     </div>
                   )}
                 </div>
               </div>
             )}
           </For>
           
-          <Show when={isTyping()}>
+          {/* Typing Indicator moved inside the loop for smoother flow, 
+              but we keep this for initial "thinking" phase if needed */}
+          <Show when={isTyping() && messages().length > 0 && messages()[messages().length-1].content === ""}>
             <div class="flex justify-start">
               <div class="bg-white px-4 py-3 rounded-2xl rounded-bl-none border shadow-sm flex items-center gap-1">
                 <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
