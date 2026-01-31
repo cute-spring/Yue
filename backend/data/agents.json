@@ -1,0 +1,12 @@
+[
+  {
+    "id": "4a6f472a-bd80-4308-87c8-b3bc46ae7e3c",
+    "name": "DeepSeek Agent",
+    "system_prompt": "You are a helpful assistant.",
+    "provider": "deepseek",
+    "model": "deepseek-chat",
+    "enabled_tools": [],
+    "created_at": "2026-01-31T07:32:08.555814",
+    "updated_at": "2026-01-31T07:32:08.555818"
+  }
+]

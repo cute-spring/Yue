@@ -1,0 +1,9 @@
+# Docker ignore
+**/node_modules
+**/venv
+**/.env
+**/__pycache__
+**/.git
+**/dist
+backend/data/*.json
+!backend/data/mcp_configs.json
