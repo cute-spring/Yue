@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models
+from app.api import chat, agents, mcp, models, config
 from app.mcp.manager import mcp_manager
 
 # Load .env from backend directory
@@ -38,6 +38,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
+app.include_router(config.router, prefix="/api/config", tags=["config"])
 
 # Mount Static Files (Frontend)
 # In production, we expect the frontend build to be in 'static' folder

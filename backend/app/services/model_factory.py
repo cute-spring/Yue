@@ -7,6 +7,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from typing import List, Dict
+from app.services.config_service import config_service
 
 class LLMProvider(str, Enum):
     DEEPSEEK = "deepseek"
@@ -43,35 +44,39 @@ def get_model(provider_name: str, model_name: Optional[str] = None):
         provider = LLMProvider.OPENAI
 
     if provider == LLMProvider.DEEPSEEK:
-        api_key = os.getenv('DEEPSEEK_API_KEY')
+        llm_config = config_service.get_llm_config()
+        api_key = llm_config.get('deepseek_api_key') or os.getenv('DEEPSEEK_API_KEY')
         if not api_key:
             raise ValueError("DEEPSEEK_API_KEY is not set.")
         return OpenAIChatModel(
-            model_name or 'deepseek-chat',
+            model_name or llm_config.get('deepseek_model') or 'deepseek-chat',
             provider=DeepSeekProvider(api_key=api_key, http_client=_get_http_client()),
         )
         
     elif provider == LLMProvider.OPENAI:
-        api_key = os.getenv('OPENAI_API_KEY')
+        llm_config = config_service.get_llm_config()
+        api_key = llm_config.get('openai_api_key') or os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY is not set.")
         return OpenAIChatModel(
-            model_name or 'gpt-4o', 
+            model_name or llm_config.get('openai_model') or 'gpt-4o', 
             provider=OpenAIProvider(api_key=api_key, http_client=_get_http_client())
         )
         
     elif provider == LLMProvider.OLLAMA:
-        base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
+        llm_config = config_service.get_llm_config()
+        base_url = llm_config.get('ollama_base_url') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
         return OpenAIChatModel(
-            model_name or 'llama3',
+            model_name or llm_config.get('ollama_model') or 'llama3',
             provider=OllamaProvider(base_url=base_url, http_client=_get_http_client()),
         )
 
     elif provider == LLMProvider.ZHIPU:
-        api_key = os.getenv('ZHIPU_API_KEY')
-        base_url = os.getenv('ZHIPU_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4/')
+        llm_config = config_service.get_llm_config()
+        api_key = llm_config.get('zhipu_api_key') or os.getenv('ZHIPU_API_KEY')
+        base_url = llm_config.get('zhipu_base_url') or os.getenv('ZHIPU_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4/')
         return OpenAIChatModel(
-            model_name or 'glm-4v',
+            model_name or llm_config.get('zhipu_model') or 'glm-4v',
             provider=OpenAIProvider(
                 base_url=base_url,
                 api_key=api_key,
@@ -92,23 +97,30 @@ def list_supported_providers() -> List[str]:
 
 def list_providers() -> List[Dict]:
     providers = []
+    llm_config = config_service.get_llm_config()
     for name in list_supported_providers():
         configured = False
         requirements: List[str] = []
         if name == LLMProvider.OPENAI.value:
-            configured = bool(os.getenv('OPENAI_API_KEY'))
+            configured = bool(llm_config.get('openai_api_key') or os.getenv('OPENAI_API_KEY'))
             requirements = ['OPENAI_API_KEY']
         elif name == LLMProvider.DEEPSEEK.value:
-            configured = bool(os.getenv('DEEPSEEK_API_KEY'))
+            configured = bool(llm_config.get('deepseek_api_key') or os.getenv('DEEPSEEK_API_KEY'))
             requirements = ['DEEPSEEK_API_KEY']
-        elif name == LLMProvider.OLLAMA.value:
-            configured = bool(os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1'))
-            requirements = ['OLLAMA_BASE_URL (optional, defaults to localhost)']
         elif name == LLMProvider.ZHIPU.value:
-            configured = bool(os.getenv('ZHIPU_API_KEY'))
+            configured = bool(llm_config.get('zhipu_api_key') or os.getenv('ZHIPU_API_KEY'))
             requirements = ['ZHIPU_API_KEY', 'ZHIPU_BASE_URL (optional)']
+        elif name == LLMProvider.OLLAMA.value:
+            configured = True # Ollama is usually local
+            requirements = ['OLLAMA_BASE_URL (optional)']
         elif name == LLMProvider.CUSTOM.value:
             configured = all([os.getenv('LLM_BASE_URL'), os.getenv('LLM_API_KEY'), os.getenv('LLM_MODEL_NAME')])
             requirements = ['LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL_NAME']
-        providers.append({'name': name, 'configured': configured, 'requirements': requirements})
+        
+        providers.append({
+            "name": name,
+            "configured": configured,
+            "requirements": requirements,
+            "current_model": llm_config.get(f"{name}_model")
+        })
     return providers
