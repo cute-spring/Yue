@@ -12,6 +12,10 @@ CONFIG_PATH = mcp_manager.config_path
 async def list_configs():
     return mcp_manager.load_config()
 
+@router.get("/tools")
+async def list_tools():
+    return await mcp_manager.get_available_tools()
+
 @router.post("/")
 async def update_configs(configs: List[Dict[str, Any]]):
     try:

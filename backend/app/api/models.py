@@ -10,9 +10,9 @@ async def supported():
 
 @router.get("/providers")
 async def providers():
-    return list_providers()
+    return await list_providers()
 
 @router.post("/reload-env")
 async def reload_env():
     load_dotenv(override=True)
-    return {"status": "env reloaded", "providers": list_providers()}
+    return {"status": "env reloaded", "providers": await list_providers()}

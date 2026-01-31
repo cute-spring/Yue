@@ -97,6 +97,26 @@ class McpManager:
         # TODO: Implement SSE
         return None
 
+    async def get_available_tools(self) -> List[Dict[str, Any]]:
+        """
+        Returns a list of all available tools from connected servers.
+        Used for UI configuration.
+        """
+        tools = []
+        for name, session in self.sessions.items():
+            try:
+                result = await session.list_tools()
+                for tool in result.tools:
+                    tools.append({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "server": name,
+                        "input_schema": tool.inputSchema
+                    })
+            except Exception as e:
+                print(f"Error listing tools for {name}: {e}")
+        return tools
+
     async def get_tools_for_agent(self, agent_id: str) -> List[Any]:
         """
         Dynamically connects to MCP servers authorized for the agent

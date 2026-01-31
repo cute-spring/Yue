@@ -1,12 +1,12 @@
 import os
 import httpx
+import asyncio
 from enum import Enum
-from typing import Optional
+from typing import Optional, List, Dict
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.ollama import OllamaProvider
-from typing import List, Dict
 from app.services.config_service import config_service
 
 class LLMProvider(str, Enum):
@@ -32,6 +32,25 @@ def _get_http_client() -> Optional[httpx.AsyncClient]:
             timeout=httpx.Timeout(60.0)
         )
     return _shared_http_client
+
+async def fetch_ollama_models() -> List[str]:
+    """
+    Tries to connect to local Ollama and fetch available models.
+    """
+    llm_config = config_service.get_llm_config()
+    base_url = llm_config.get('ollama_base_url') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+    # Normalize base_url for API call (remove /v1 if present)
+    api_url = base_url.replace('/v1', '') + '/api/tags'
+    
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(api_url)
+            if response.status_code == 200:
+                data = response.json()
+                return [m['name'] for m in data.get('models', [])]
+    except Exception as e:
+        print(f"Ollama not detected or error: {e}")
+    return []
 
 def get_model(provider_name: str, model_name: Optional[str] = None):
     """
@@ -95,24 +114,34 @@ def get_model(provider_name: str, model_name: Optional[str] = None):
 def list_supported_providers() -> List[str]:
     return [LLMProvider.OPENAI.value, LLMProvider.DEEPSEEK.value, LLMProvider.OLLAMA.value, LLMProvider.ZHIPU.value, LLMProvider.CUSTOM.value]
 
-def list_providers() -> List[Dict]:
+async def list_providers() -> List[Dict]:
     providers = []
     llm_config = config_service.get_llm_config()
+    
+    # Pre-fetch Ollama models
+    ollama_models = await fetch_ollama_models()
+    
     for name in list_supported_providers():
         configured = False
         requirements: List[str] = []
+        available_models: List[str] = []
+        
         if name == LLMProvider.OPENAI.value:
             configured = bool(llm_config.get('openai_api_key') or os.getenv('OPENAI_API_KEY'))
             requirements = ['OPENAI_API_KEY']
+            available_models = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o3-mini']
         elif name == LLMProvider.DEEPSEEK.value:
             configured = bool(llm_config.get('deepseek_api_key') or os.getenv('DEEPSEEK_API_KEY'))
             requirements = ['DEEPSEEK_API_KEY']
+            available_models = ['deepseek-chat', 'deepseek-reasoner']
         elif name == LLMProvider.ZHIPU.value:
             configured = bool(llm_config.get('zhipu_api_key') or os.getenv('ZHIPU_API_KEY'))
             requirements = ['ZHIPU_API_KEY', 'ZHIPU_BASE_URL (optional)']
+            available_models = ['glm-4v', 'glm-4-plus']
         elif name == LLMProvider.OLLAMA.value:
-            configured = True # Ollama is usually local
+            configured = len(ollama_models) > 0
             requirements = ['OLLAMA_BASE_URL (optional)']
+            available_models = ollama_models
         elif name == LLMProvider.CUSTOM.value:
             configured = all([os.getenv('LLM_BASE_URL'), os.getenv('LLM_API_KEY'), os.getenv('LLM_MODEL_NAME')])
             requirements = ['LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL_NAME']
@@ -121,6 +150,7 @@ def list_providers() -> List[Dict]:
             "name": name,
             "configured": configured,
             "requirements": requirements,
+            "available_models": available_models,
             "current_model": llm_config.get(f"{name}_model")
         })
     return providers

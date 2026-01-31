@@ -7,6 +7,8 @@ import Chat from './pages/Chat';
 import Agents from './pages/Agents';
 import Settings from './pages/Settings';
 
+import Notebook from './pages/Notebook';
+
 const root = document.getElementById('root');
 
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -20,5 +22,6 @@ render(() => (
     <Route path="/" component={Chat} />
     <Route path="/agents" component={Agents} />
     <Route path="/settings" component={Settings} />
+    <Route path="/notebook" component={Notebook} />
   </Router>
 ), root!);
