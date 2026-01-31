@@ -122,6 +122,7 @@ export default function Chat() {
 
   // LLM State
   const [providers, setProviders] = createSignal<any[]>([]);
+  const [showLLMSelector, setShowLLMSelector] = createSignal(false);
   const [selectedProvider, setSelectedProvider] = createSignal("openai");
   const [selectedModel, setSelectedModel] = createSignal("gpt-4o");
   
@@ -249,11 +250,17 @@ export default function Chat() {
       const res = await fetch('/api/models/providers');
       const data = await res.json();
       setProviders(data);
-      // Initialize with first configured provider if not set
-      if (data.length > 0 && !selectedProvider()) {
-        const first = data.find((p: any) => p.configured) || data[0];
-        setSelectedProvider(first.name);
-        setSelectedModel(first.current_model || 'default');
+      
+      // If current selection is not in the list or is the default, pick the best available
+      const currentProvider = data.find((p: any) => p.name === selectedProvider());
+      if (!currentProvider || !currentProvider.configured) {
+        const firstConfigured = data.find((p: any) => p.configured) || data[0];
+        if (firstConfigured) {
+          setSelectedProvider(firstConfigured.name);
+          if (firstConfigured.available_models?.length > 0) {
+            setSelectedModel(firstConfigured.available_models[0]);
+          }
+        }
       }
     } catch (e) {
       console.error("Failed to load providers", e);
@@ -295,6 +302,14 @@ export default function Chat() {
     loadAgents();
     loadHistory();
     loadProviders();
+
+    // Global click listener to close dropdowns
+    const handleGlobalClick = () => {
+      setShowLLMSelector(false);
+      setShowAgentSelector(false);
+    };
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
   });
 
   const stopGeneration = () => {
@@ -660,70 +675,81 @@ export default function Chat() {
                   </button>
 
                   {/* LLM Switcher (Integrated) */}
-                  <div class="relative group/llm">
+                  <div class="relative">
                     <button 
                       type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowLLMSelector(!showLLMSelector());
+                      }}
                       class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 text-xs font-bold hover:bg-blue-100 transition-colors"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 11-2 0 1 1 0 012 0zM8 16v-1a1 1 0 10-2 0v1a1 1 0 102 0zM13.657 15.657a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM16 10a1 1 0 11-2 0 1 1 0 012 0z" />
                       </svg>
                       {selectedModel().toUpperCase()}
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8M8 12h8m-8 5h8" />
+                      <svg xmlns="http://www.w3.org/2000/svg" class={`h-3 w-3 ml-0.5 transition-transform ${showLLMSelector() ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                       </svg>
                     </button>
                     
                     {/* LLM Dropdown */}
-                    <div class="absolute bottom-full left-0 mb-2 w-64 bg-white border rounded-xl shadow-xl opacity-0 invisible group-hover/llm:opacity-100 group-hover/llm:visible transition-all z-30 overflow-hidden">
-                      <div class="p-2 border-b bg-gray-50 flex justify-between items-center">
-                        <span class="text-[10px] font-bold text-gray-400 uppercase">Select Model</span>
-                        <span class="text-[10px] text-blue-500 font-medium">Auto-detected</span>
-                      </div>
-                      <div class="max-h-80 overflow-y-auto p-1">
-                        <For each={providers()}>
-                          {p => (
-                            <div class="mb-2 last:mb-0">
-                              <div class={`px-2 py-1 text-[10px] font-bold uppercase flex items-center justify-between ${p.configured ? 'text-gray-400' : 'text-gray-300'}`}>
-                                <span>{p.name}</span>
-                                <Show when={!p.configured}>
-                                  <span class="text-[8px] border border-gray-200 px-1 rounded">Offline</span>
-                                </Show>
+                    <Show when={showLLMSelector()}>
+                      <div 
+                        class="absolute bottom-full left-0 mb-2 w-64 bg-white border rounded-xl shadow-xl transition-all z-30 overflow-hidden animate-in fade-in slide-in-from-bottom-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div class="p-2 border-b bg-gray-50 flex justify-between items-center">
+                          <span class="text-[10px] font-bold text-gray-400 uppercase">Select Model</span>
+                          <span class="text-[10px] text-blue-500 font-medium cursor-pointer hover:underline" onClick={loadProviders}>Refresh</span>
+                        </div>
+                        <div class="max-h-80 overflow-y-auto p-1">
+                          <For each={providers()}>
+                            {p => (
+                              <div class="mb-2 last:mb-0">
+                                <div class={`px-2 py-1 text-[10px] font-bold uppercase flex items-center justify-between ${p.configured ? 'text-gray-400' : 'text-gray-300'}`}>
+                                  <span>{p.name}</span>
+                                  <Show when={!p.configured}>
+                                    <span class="text-[8px] border border-gray-200 px-1 rounded font-normal">API Key Missing</span>
+                                  </Show>
+                                </div>
+                                <div class="space-y-0.5">
+                                  <For each={p.available_models}>
+                                    {model => (
+                                      <button 
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedProvider(p.name);
+                                          setSelectedModel(model);
+                                          setShowLLMSelector(false);
+                                        }}
+                                        class={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-between ${
+                                          selectedProvider() === p.name && selectedModel() === model 
+                                            ? 'bg-blue-50 text-blue-700 font-bold' 
+                                            : 'hover:bg-gray-50 text-gray-600'
+                                        }`}
+                                      >
+                                        <span class="truncate">{model}</span>
+                                        <Show when={selectedProvider() === p.name && selectedModel() === model}>
+                                          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                          </svg>
+                                        </Show>
+                                      </button>
+                                    )}
+                                  </For>
+                                  <Show when={p.available_models.length === 0 && p.name === 'ollama'}>
+                                    <div class="px-3 py-2 text-[10px] text-gray-400 italic bg-gray-50 rounded">
+                                      Ollama not found or no models.
+                                    </div>
+                                  </Show>
+                                </div>
                               </div>
-                              <div class="space-y-0.5">
-                                <For each={p.available_models}>
-                                  {model => (
-                                    <button 
-                                      onClick={() => {
-                                        setSelectedProvider(p.name);
-                                        setSelectedModel(model);
-                                      }}
-                                      class={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-between ${
-                                        selectedProvider() === p.name && selectedModel() === model 
-                                          ? 'bg-blue-50 text-blue-700 font-bold' 
-                                          : 'hover:bg-gray-50 text-gray-600'
-                                      }`}
-                                    >
-                                      <span class="truncate">{model}</span>
-                                      <Show when={selectedProvider() === p.name && selectedModel() === model}>
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                                          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                        </svg>
-                                      </Show>
-                                    </button>
-                                  )}
-                                </For>
-                                <Show when={p.available_models.length === 0 && p.name === 'ollama'}>
-                                  <div class="px-3 py-2 text-[10px] text-gray-400 italic bg-gray-50 rounded">
-                                    Ollama not found or no models pulled.
-                                  </div>
-                                </Show>
-                              </div>
-                            </div>
-                          )}
-                        </For>
+                            )}
+                          </For>
+                        </div>
                       </div>
-                    </div>
+                    </Show>
                   </div>
                 </div>
 
