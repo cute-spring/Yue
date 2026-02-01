@@ -310,15 +310,27 @@ export default function Chat() {
       const data = await res.json();
       setProviders(data);
       
-      // If current selection is not in the list or is the default, pick the best available
-      const currentProvider = data.find((p: any) => p.name === selectedProvider());
-      if (!currentProvider || !currentProvider.configured) {
-        const firstConfigured = data.find((p: any) => p.configured) || data[0];
-        if (firstConfigured) {
-          setSelectedProvider(firstConfigured.name);
-          if (firstConfigured.available_models?.length > 0) {
-            setSelectedModel(firstConfigured.available_models[0]);
+      // 1. Find if the current selected provider is valid and configured
+      let currentProvider = data.find((p: any) => p.name === selectedProvider());
+      
+      // 2. If current provider not found or not configured, OR if no provider is selected yet, switch to the first configured one
+      if (!currentProvider || !currentProvider.configured || !selectedProvider()) {
+        currentProvider = data.find((p: any) => p.configured) || data[0];
+        if (currentProvider) {
+          setSelectedProvider(currentProvider.name);
+          // When switching provider, also set the first available model
+          if (currentProvider.available_models?.length > 0) {
+             setSelectedModel(currentProvider.available_models[0]);
           }
+        }
+      }
+
+      // 3. Ensure the selected model is actually available in the current provider
+      // Also handle the case where provider is valid but model is empty
+      if (currentProvider && currentProvider.available_models?.length > 0) {
+        const isModelAvailable = currentProvider.available_models.includes(selectedModel());
+        if (!isModelAvailable || !selectedModel()) {
+          setSelectedModel(currentProvider.available_models[0]);
         }
       }
     } catch (e) {
@@ -965,7 +977,7 @@ export default function Chat() {
                         class="flex items-center gap-2.5 px-4 py-2.5 bg-background border border-border hover:border-primary/30 hover:bg-primary/5 rounded-2xl transition-all active:scale-95 shadow-sm"
                       >
                         <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-                        <span class="text-xs font-bold text-text-primary uppercase tracking-wider">{selectedModel()}</span>
+                        <span class="text-xs font-bold text-text-primary uppercase tracking-wider">{selectedModel() || "Select Model"}</span>
                         <svg xmlns="http://www.w3.org/2000/svg" class={`h-3.5 w-3.5 text-text-secondary transition-transform duration-300 ${showLLMSelector() ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
                         </svg>
