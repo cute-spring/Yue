@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Body
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, ValidationError, field_validator
 import json
 import os
 from app.mcp.manager import mcp_manager
@@ -20,13 +21,31 @@ async def list_tools():
 async def status():
     return mcp_manager.get_status()
 
+class ServerConfig(BaseModel):
+    name: str
+    transport: str = "stdio"
+    command: str
+    args: List[str] = []
+    enabled: bool = True
+    env: Optional[Dict[str, str]] = None
+
+    @field_validator("transport")
+    @classmethod
+    def validate_transport(cls, v: str):
+        if v not in {"stdio"}:
+            raise ValueError("unsupported transport")
+        return v
+
 @router.post("/")
 async def update_configs(configs: List[Dict[str, Any]]):
     try:
+        validated = [ServerConfig(**c).model_dump() for c in configs]
         with open(CONFIG_PATH, 'w') as f:
-            json.dump(configs, f, indent=2)
+            json.dump(validated, f, indent=2)
         # Note: Changes require server restart to take full effect for now
-        return configs
+        return validated
+    except ValidationError as ve:
+        raise HTTPException(status_code=400, detail=ve.errors())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
