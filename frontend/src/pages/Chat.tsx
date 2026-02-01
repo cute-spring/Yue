@@ -38,7 +38,8 @@ renderer.code = ({ text, lang }) => {
   const highlighted = hljs.highlight(text, { language }).value;
   
   const isPreviewable = ['html', 'svg', 'xml'].includes(language);
-  const encodedContent = isPreviewable ? encodeURIComponent(text) : '';
+  // Encode content and escape single quotes to prevent breaking the onclick attribute
+  const encodedContent = isPreviewable ? encodeURIComponent(text).replace(/'/g, '%27') : '';
 
   return `
     <div class="code-block-container relative group my-6 rounded-xl overflow-hidden border border-border/50 bg-[#0d1117] shadow-xl transition-all duration-300 hover:border-primary/30">
@@ -166,6 +167,7 @@ export default function Chat() {
   const [showKnowledge, setShowKnowledge] = createSignal(false);
   const [intelligenceTab, setIntelligenceTab] = createSignal<'notes' | 'graph' | 'actions' | 'preview'>('actions');
   const [previewContent, setPreviewContent] = createSignal<{lang: string, content: string} | null>(null);
+  const [isArtifactExpanded, setIsArtifactExpanded] = createSignal(false);
   
   // Responsive State
   const [windowWidth, setWindowWidth] = createSignal(window.innerWidth);
@@ -205,11 +207,11 @@ export default function Chat() {
   };
 
    // Helper to split thought and content
-   const parseThoughtAndContent = (text: string) => {
-    const thoughtMatch = text.match(/<(thought|think)>([\s\S]*?)(?:<\/\1>|$)/);
+  const parseThoughtAndContent = (text: string) => {
+    const thoughtMatch = text.match(/<(?:thought|think)>([\s\S]*?)(?:<\/(?:thought|think)>|$)/);
     if (thoughtMatch) {
-      const thought = thoughtMatch[2];
-      const rest = text.replace(/<(thought|think)>[\s\S]*?(?:<\/\1>|$)/, "").trim();
+      const thought = thoughtMatch[1];
+      const rest = text.replace(/<(?:thought|think)>[\s\S]*?(?:<\/(?:thought|think)>|$)/, "").trim();
       return { thought, content: rest };
     }
     return { thought: null, content: text };
@@ -367,10 +369,14 @@ export default function Chat() {
 
     // Register global artifact opener
     (window as any).openArtifact = (lang: string, encodedContent: string) => {
-      const content = decodeURIComponent(encodedContent);
-      setPreviewContent({ lang, content });
-      setIntelligenceTab('preview');
-      setShowKnowledge(true);
+      try {
+        const content = decodeURIComponent(encodedContent);
+        setPreviewContent({ lang, content });
+        setIntelligenceTab('preview');
+        setShowKnowledge(true);
+      } catch (e) {
+        console.error("Failed to open artifact:", e);
+      }
     };
 
     // Global click listener to close dropdowns
@@ -1027,7 +1033,9 @@ export default function Chat() {
                         <button type="button" class="relative p-3 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Upload images"
                           onClick={() => imageInputRef?.click()}>
                           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4-4a3 3 0 014 0l4 4M2 20h20M14 7a2 2 0 11-4 0 2 2 0 014 0z" />
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-width="2" />
+                            <circle cx="8.5" cy="8.5" r="1.5" stroke-width="2" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15l-5-5L5 21" />
                           </svg>
                           <Show when={imageAttachments().length > 0}>
                             <span class="absolute -top-1 -right-1 text-[10px] bg-primary text-white rounded-full px-1.5 py-0.5 border border-background shadow-sm">{imageAttachments().length}</span>
@@ -1094,20 +1102,34 @@ export default function Chat() {
       <div 
         class={`
           fixed lg:relative inset-y-0 right-0 bg-surface border-l border-border transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-30
-          ${showKnowledge() ? 'translate-x-0 w-knowledge opacity-100' : 'translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
+          ${showKnowledge() ? (isArtifactExpanded() ? 'translate-x-0 w-[55vw] opacity-100' : 'translate-x-0 w-[420px] opacity-100') : 'translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
         `}
       >
-        <div class="w-knowledge h-full flex flex-col">
+        <div class={`${isArtifactExpanded() ? 'w-[55vw]' : 'w-[420px]'} h-full flex flex-col transition-all duration-300`}>
           <div class="p-5 border-b border-border flex justify-between items-center bg-surface/50 backdrop-blur-md sticky top-0 z-10">
             <h2 class="font-black text-text-primary text-xs uppercase tracking-[0.2em] flex items-center gap-2.5">
               <div class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
               Intelligence Hub
             </h2>
-            <button onClick={() => setShowKnowledge(false)} class="text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-xl transition-all active:scale-90">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <div class="flex items-center gap-1">
+              <button 
+                onClick={() => setIsArtifactExpanded(!isArtifactExpanded())} 
+                class="text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-xl transition-all active:scale-90"
+                title={isArtifactExpanded() ? "Collapse view" : "Expand view"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  {isArtifactExpanded() 
+                    ? <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    : <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                  }
+                </svg>
+              </button>
+              <button onClick={() => setShowKnowledge(false)} class="text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-xl transition-all active:scale-90">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Intelligence Tabs */}
@@ -1155,7 +1177,7 @@ export default function Chat() {
                       <iframe 
                         srcdoc={previewContent()?.content} 
                         class="w-full h-full border-0" 
-                        sandbox="allow-scripts"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
                       />
                     </Show>
                     <Show when={previewContent()?.lang === 'svg'}>
