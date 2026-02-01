@@ -16,6 +16,10 @@ async def list_configs():
 async def list_tools():
     return await mcp_manager.get_available_tools()
 
+@router.get("/status")
+async def status():
+    return mcp_manager.get_status()
+
 @router.post("/")
 async def update_configs(configs: List[Dict[str, Any]]):
     try:

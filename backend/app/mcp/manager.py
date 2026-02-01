@@ -25,6 +25,7 @@ class McpManager:
         self.config_path = os.path.join(os.path.dirname(__file__), "../../data/mcp_configs.json")
         self.exit_stack = AsyncExitStack()
         self.sessions: Dict[str, ClientSession] = {}
+        self.last_errors: Dict[str, str] = {}
         self.initialized = True
 
     async def initialize(self):
@@ -33,9 +34,12 @@ class McpManager:
         print(f"Loading MCP configs from {self.config_path}: {configs}")
         for config in configs:
             try:
-                await self.connect_to_server(config)
+                if config.get("enabled", True):
+                    await self.connect_to_server(config)
             except Exception as e:
                 print(f"Failed to connect to {config.get('name')}: {e}")
+                name = config.get("name") or "unknown"
+                self.last_errors[name] = str(e)
 
     async def cleanup(self):
         """Close all connections."""
@@ -108,6 +112,7 @@ class McpManager:
                 result = await session.list_tools()
                 for tool in result.tools:
                     tools.append({
+                        "id": f"{name}:{tool.name}",
                         "name": tool.name,
                         "description": tool.description,
                         "server": name,
@@ -137,7 +142,8 @@ class McpManager:
             try:
                 result = await session.list_tools()
                 for tool in result.tools:
-                    if allowed_tools is not None and tool.name not in allowed_tools:
+                    composite_id = f"{name}:{tool.name}"
+                    if allowed_tools is not None and (composite_id not in allowed_tools and tool.name not in allowed_tools):
                         continue
                     tools.append(self._convert_tool(name, session, tool))
             except Exception as e:
@@ -147,6 +153,25 @@ class McpManager:
         tools.append(self.get_current_time)
         
         return tools
+
+    def get_status(self) -> List[Dict[str, Any]]:
+        """
+        Returns per-server status derived from config and active sessions.
+        """
+        configs = self.load_config()
+        status_list = []
+        for cfg in configs:
+            name = cfg.get("name")
+            enabled = cfg.get("enabled", True)
+            connected = name in self.sessions
+            status_list.append({
+                "name": name,
+                "enabled": enabled,
+                "connected": connected,
+                "transport": cfg.get("transport", "stdio"),
+                "last_error": self.last_errors.get(name)
+            })
+        return status_list
 
     def _convert_tool(self, server_name: str, session: ClientSession, tool_def: Any) -> Tool:
         

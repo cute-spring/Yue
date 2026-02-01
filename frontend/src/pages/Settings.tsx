@@ -23,6 +23,7 @@ export default function Settings() {
   
   // MCP State
   const [mcpConfig, setMcpConfig] = createSignal("");
+  const [mcpStatus, setMcpStatus] = createSignal<{name:string;enabled:boolean;connected:boolean;transport:string;last_error?:string}[]>([]);
   
   // LLM State
   const [providers, setProviders] = createSignal<LLMProvider[]>([]);
@@ -43,6 +44,8 @@ export default function Settings() {
       // Fetch MCP
       const mcpRes = await fetch('/api/mcp/');
       setMcpConfig(JSON.stringify(await mcpRes.json(), null, 2));
+      const mcpStatusRes = await fetch('/api/mcp/status');
+      setMcpStatus(await mcpStatusRes.json());
       
       // Fetch LLM Providers
       const providersRes = await fetch('/api/models/providers');
@@ -75,6 +78,9 @@ export default function Settings() {
         body: JSON.stringify(parsed)
       });
       alert("MCP Configuration saved!");
+      await fetch('/api/mcp/reload', { method: 'POST' });
+      const mcpStatusRes = await fetch('/api/mcp/status');
+      setMcpStatus(await mcpStatusRes.json());
     } catch (e) {
       alert("Invalid JSON: " + e);
     }
@@ -101,6 +107,38 @@ export default function Settings() {
 
   const handleLlmInput = (key: string, value: string) => {
     setLlmForm(prev => ({ ...prev, [key]: value }));
+  };
+
+  const testProvider = async (name: string) => {
+    const res = await fetch(`/api/models/test/${name}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: llmForm()[`${name}_model`] || undefined })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      alert(`${name} connection OK`);
+    } else {
+      alert(`${name} failed: ${data.error || 'Unknown error'}`);
+    }
+  };
+
+  const toggleMcpEnabled = async (serverName: string, enabled: boolean) => {
+    try {
+      const parsed = JSON.parse(mcpConfig());
+      const updated = parsed.map((cfg: any) => cfg.name === serverName ? { ...cfg, enabled } : cfg);
+      setMcpConfig(JSON.stringify(updated, null, 2));
+      await fetch('/api/mcp/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated)
+      });
+      await fetch('/api/mcp/reload', { method: 'POST' });
+      const mcpStatusRes = await fetch('/api/mcp/status');
+      setMcpStatus(await mcpStatusRes.json());
+    } catch (e) {
+      alert("Failed to toggle server: " + e);
+    }
   };
 
   return (
@@ -193,6 +231,32 @@ export default function Settings() {
               <h3 class="text-xl font-semibold">MCP Integration</h3>
               <p class="text-sm text-gray-500">Model Context Protocol server configurations</p>
             </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <For each={mcpStatus()}>
+                {(s) => (
+                  <div class="p-4 border rounded-xl bg-white flex items-center justify-between">
+                    <div>
+                      <div class="font-bold text-gray-800">{s.name}</div>
+                      <div class="text-xs text-gray-500">Transport: {s.transport}</div>
+                      <div class="text-xs mt-1">
+                        <span class={`px-2 py-0.5 rounded ${s.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
+                          {s.connected ? 'Online' : 'Offline'}
+                        </span>
+                        {s.last_error && <span class="ml-2 text-red-600">{s.last_error}</span>}
+                      </div>
+                    </div>
+                    <label class="flex items-center gap-2">
+                      <span class="text-sm text-gray-600">Enabled</span>
+                      <input 
+                        type="checkbox" 
+                        checked={s.enabled} 
+                        onChange={e => toggleMcpEnabled(s.name, e.currentTarget.checked)} 
+                      />
+                    </label>
+                  </div>
+                )}
+              </For>
+            </div>
             <div class="flex-1">
               <textarea
                 class="w-full h-[400px] font-mono border rounded-xl p-4 bg-gray-900 text-emerald-400 focus:ring-2 focus:ring-emerald-500 outline-none shadow-inner"
@@ -269,6 +333,14 @@ export default function Settings() {
                           />
                         </div>
                       </Show>
+                      <div class="pt-2">
+                        <button 
+                          onClick={() => testProvider(p.name)}
+                          class="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                        >
+                          Test Connection
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

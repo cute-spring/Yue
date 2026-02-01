@@ -24,6 +24,23 @@ This document serves as a structured task list for AI development. Each phase is
 ## Phase 2: Management Centers & Tooling (管理中心与工具体系) - [IN PROGRESS]
 *Goal: Provide visual interfaces for managing models, agents, and MCP servers.*
 
+- ### Status Snapshot — Phase 2 (2026-02-01)
+  - Completed
+    - LLM config security: GET returns redacted values; POST ignores empty/masked keys to prevent accidental secret erasure.
+    - Provider health check: `POST /api/models/test/{provider}` validates configuration by constructing the model.
+    - MCP status API: `GET /api/mcp/status` reports `enabled/connected/last_error` per server; initialization respects `enabled`.
+    - Stable tool IDs: `/api/mcp/tools` now returns `id = "server:name"`. Agent filtering accepts both legacy names and composite IDs.
+    - Frontend: Settings → MCP status cards with Enable toggle; Save triggers reload and refresh. Settings → LLM adds “Test Connection”.
+  - Verified
+    - Backend hot-reload clean; endpoints tested successfully.
+    - Frontend dev server running; production build succeeded via `npm run build`.
+  - Known Notes
+    - A transient cancellation error was observed during one MCP reload; subsequent reloads succeeded and status remained correct.
+  - Next Steps
+    - Add schema validation on MCP config saves for friendlier errors.
+    - Migrate existing agents’ `enabled_tools` to composite IDs on edit/save for full consistency.
+    - Extend backend tests to cover provider tests, MCP status, and config updates.
+
 - [ ] **2.1 Model Management Center**
   - [ ] Create a management page with grouped lists: Premium, Advanced, and Custom models.
   - [ ] Build a modal for adding custom models (Provider, Model ID, API Key fields).

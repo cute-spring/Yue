@@ -31,9 +31,21 @@ class ConfigService:
         return self._config.get("llm", {})
 
     def update_llm_config(self, llm_config: Dict[str, Any]) -> Dict[str, Any]:
-        if "llm" not in self._config:
-            self._config["llm"] = {}
-        self._config["llm"].update(llm_config)
+        existing = self._config.get("llm", {})
+        # Merge updates while protecting secrets from being cleared unintentionally
+        for k, v in llm_config.items():
+            if k.endswith("_api_key"):
+                # Ignore empty or masked values to avoid overwriting existing secrets
+                if v is None:
+                    continue
+                if isinstance(v, str):
+                    masked = v.strip()
+                    if masked == "" or masked.startswith("****"):
+                        continue
+                existing[k] = v
+            else:
+                existing[k] = v
+        self._config["llm"] = existing
         self.update_config(self._config)
         return self._config["llm"]
 

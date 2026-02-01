@@ -10,6 +10,7 @@ type Agent = {
 };
 
 type McpTool = {
+  id: string;
   name: string;
   description: string;
   server: string;
@@ -110,12 +111,16 @@ export default function Agents() {
     loadAgents();
   };
 
-  const toggleTool = (toolName: string) => {
+  const toggleTool = (toolId: string) => {
     const current = formTools();
-    if (current.includes(toolName)) {
-      setFormTools(current.filter(t => t !== toolName));
+    // Also handle legacy name entries by removing both id and name if present
+    const legacyName = toolId.includes(":") ? toolId.split(":").slice(1).join(":") : toolId;
+    const hasId = current.includes(toolId);
+    const hasLegacy = current.includes(legacyName);
+    if (hasId || hasLegacy) {
+      setFormTools(current.filter(t => t !== toolId && t !== legacyName));
     } else {
-      setFormTools([...current, toolName]);
+      setFormTools([...current, toolId]);
     }
   };
 
@@ -201,15 +206,15 @@ export default function Agents() {
                 <For each={availableTools()}>
                   {tool => (
                     <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
-                      formTools().includes(tool.name) 
+                      (formTools().includes(tool.id) || formTools().includes(tool.name)) 
                       ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' 
                       : 'hover:bg-gray-50'
                     }`}>
                       <input 
                         type="checkbox" 
                         class="mt-1 mr-3 text-emerald-600 focus:ring-emerald-500 rounded"
-                        checked={formTools().includes(tool.name)}
-                        onChange={() => toggleTool(tool.name)}
+                        checked={formTools().includes(tool.id) || formTools().includes(tool.name)}
+                        onChange={() => toggleTool(tool.id)}
                       />
                       <div>
                         <div class="font-medium text-sm text-gray-900">{tool.name}</div>
