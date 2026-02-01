@@ -377,6 +377,39 @@ export default function Chat() {
     const text = input().trim();
     if (!text) return;
     
+    if (text.startsWith('/')) {
+      const cmd = text.split(/\s+/)[0].toLowerCase();
+      if (cmd === '/help') {
+        setMessages([...messages(), { role: 'assistant', content: 'Commands: /help /note /clear' }]);
+        setInput('');
+        return;
+      }
+      if (cmd === '/clear') {
+        startNewChat();
+        return;
+      }
+      if (cmd === '/note') {
+        const last = [...messages()].reverse().find(m => m.role === 'assistant' && m.content && m.content.trim().length > 0);
+        if (last) {
+          const title = last.content.slice(0, 50);
+          try {
+            await fetch('/api/notebook/', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: title || 'Saved from chat', content: last.content })
+            });
+            setMessages([...messages(), { role: 'assistant', content: 'Saved to notes.' }]);
+          } catch (e) {
+            setMessages([...messages(), { role: 'assistant', content: 'Save failed.' }]);
+          }
+        } else {
+          setMessages([...messages(), { role: 'assistant', content: 'No assistant message to save.' }]);
+        }
+        setInput('');
+        return;
+      }
+    }
+    
     if (isTyping()) {
       stopGeneration();
       return;
