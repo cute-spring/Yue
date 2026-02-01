@@ -12,43 +12,51 @@ type Agent = {
 };
 
 type LLMProvider = {
-  name: string;
-  configured: boolean;
-  requirements: string[];
-  current_model?: string;
-  available_models?: string[];
-};
-
-export default function Settings() {
-  const [activeTab, setActiveTab] = createSignal<Tab>('general');
-  const TAB_LABEL: Record<Tab, string> = {
-    general: 'General',
-    mcp: 'MCP',
-    llm: 'Models'
+    name: string;
+    configured: boolean;
+    requirements: string[];
+    current_model?: string;
+    available_models?: string[];
+    models?: string[];
   };
-  
-  // MCP State
-  const [mcpConfig, setMcpConfig] = createSignal("");
-  const [mcpStatus, setMcpStatus] = createSignal<{name:string;enabled:boolean;connected:boolean;transport:string;last_error?:string}[]>([]);
-  const [mcpTools, setMcpTools] = createSignal<{id:string;name:string;description:string;server:string}[]>([]);
-  const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
-  const [showManual, setShowManual] = createSignal(false);
-  const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-server\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    }\n  }\n}`);
-  const [showRaw, setShowRaw] = createSignal(false);
-  const [showAddMenu, setShowAddMenu] = createSignal(false);
-  const [showMarketplace, setShowMarketplace] = createSignal(false);
-  const [hoveredServer, setHoveredServer] = createSignal<string | null>(null);
-  
-  // LLM State
+
+  export default function Settings() {
+    const [activeTab, setActiveTab] = createSignal<Tab>('general');
+    const TAB_LABEL: Record<Tab, string> = {
+      general: 'General',
+      mcp: 'MCP',
+      llm: 'Models'
+    };
+    
+    // MCP State
+    const [mcpConfig, setMcpConfig] = createSignal("");
+    const [mcpStatus, setMcpStatus] = createSignal<{name:string;enabled:boolean;connected:boolean;transport:string;last_error?:string}[]>([]);
+    const [mcpTools, setMcpTools] = createSignal<{id:string;name:string;description:string;server:string}[]>([]);
+    const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
+    const [showManual, setShowManual] = createSignal(false);
+    const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-server\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    }\n  }\n}`);
+    const [showRaw, setShowRaw] = createSignal(false);
+    const [showAddMenu, setShowAddMenu] = createSignal(false);
+    const [showMarketplace, setShowMarketplace] = createSignal(false);
+    const [hoveredServer, setHoveredServer] = createSignal<string | null>(null);
+    
+    // LLM State
   const [providers, setProviders] = createSignal<LLMProvider[]>([]);
-  const [llmForm, setLlmForm] = createSignal<Record<string, string>>({});
+  const [llmForm, setLlmForm] = createSignal<Record<string, any>>({});
   const [customModels, setCustomModels] = createSignal<{name:string;base_url?:string;api_key?:string;model?:string}[]>([]);
-  const [showAddCustom, setShowAddCustom] = createSignal(false);
-  const [newCM, setNewCM] = createSignal<{name:string;provider:string;model:string;base_url?:string;api_key?:string}>({name:"",provider:"openai",model:""});
-  const [newCMStatus, setNewCMStatus] = createSignal<string>("");
-  
-  // Agents State
-  const [agents, setAgents] = createSignal<Agent[]>([]);
+    const [showAddCustom, setShowAddCustom] = createSignal(false);
+    const [newCM, setNewCM] = createSignal<{name:string;provider:string;model:string;base_url?:string;api_key?:string}>({name:"",provider:"openai",model:""});
+    const [newCMStatus, setNewCMStatus] = createSignal<string>("");
+    
+    // Model Management State
+    const [showModelManager, setShowModelManager] = createSignal(false);
+    const [managingProvider, setManagingProvider] = createSignal<string | null>(null);
+    const [managedModels, setManagedModels] = createSignal<string[]>([]);
+    const [enabledModels, setEnabledModels] = createSignal<Set<string>>(new Set());
+    const [isSavingModels, setIsSavingModels] = createSignal(false);
+    
+    // Agents State
+    const [agents, setAgents] = createSignal<Agent[]>([]);
   
   // General Preferences State
   const [prefs, setPrefs] = createSignal({
@@ -132,6 +140,35 @@ export default function Settings() {
     alert("Preferences saved!");
   };
 
+
+  const openModelManager = (provider: LLMProvider) => {
+    setManagingProvider(provider.name);
+    setManagedModels(provider.models || []);
+    setEnabledModels(new Set(provider.available_models || []));
+    setShowModelManager(true);
+  };
+
+  const saveManagedModels = async () => {
+    const providerName = managingProvider();
+    if (!providerName) return;
+    
+    // Update config locally first
+    const key = `${providerName}_enabled_models`;
+    const currentConfig = llmForm();
+    const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()) };
+    setLlmForm(newConfig);
+    
+    // Save to backend
+    await fetch('/api/config/llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newConfig)
+    });
+    
+    alert(`Models for ${providerName} updated!`);
+    setShowModelManager(false);
+    fetchData(); // Refresh to get updated available_models from backend
+  };
 
   const testProvider = async (name: string) => {
     const res = await fetch(`/api/models/test/${name}`, {
@@ -507,12 +544,22 @@ export default function Settings() {
                           {p.requirements.join(', ')}
                         </td>
                         <td class="px-4 py-2">
-                          <button 
-                            onClick={() => testProvider(p.name)}
-                            class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
-                          >
-                            Test
-                          </button>
+                          <div class="flex items-center gap-2">
+                            <button 
+                              onClick={() => testProvider(p.name)}
+                              class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                            >
+                              Test
+                            </button>
+                            <button 
+                              onClick={() => openModelManager(p)}
+                              class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                              disabled={!p.models || p.models.length === 0}
+                              title={(!p.models || p.models.length === 0) ? "No models discovered" : "Manage available models"}
+                            >
+                              Manage
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -620,6 +667,88 @@ export default function Settings() {
                       class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
                     >
                       Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Show>
+
+            {/* Model Manager Modal */}
+            <Show when={showModelManager()}>
+              <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                <div class="w-[600px] bg-white rounded-2xl border shadow-xl overflow-hidden flex flex-col max-h-[80vh]">
+                  <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+                    <div class="font-bold text-lg">Manage Models: {managingProvider()}</div>
+                    <button onClick={() => setShowModelManager(false)} class="text-gray-500 hover:text-gray-700">✕</button>
+                  </div>
+                  
+                  <div class="p-4 border-b bg-white flex justify-between items-center">
+                    <div class="text-sm text-gray-500">
+                      Select models to make available in the chat interface.
+                    </div>
+                    <div class="flex gap-2">
+                      <button 
+                        onClick={() => setEnabledModels(new Set(managedModels()))}
+                        class="text-xs px-2 py-1 text-emerald-600 hover:bg-emerald-50 rounded"
+                      >
+                        Select All
+                      </button>
+                      <button 
+                        onClick={() => setEnabledModels(new Set())}
+                        class="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded"
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="flex-1 overflow-y-auto p-2">
+                    <div class="grid grid-cols-1 gap-1">
+                      <For each={managedModels()}>
+                        {(model) => (
+                          <label class="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer transition-colors">
+                            <input 
+                              type="checkbox" 
+                              class="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300"
+                              checked={enabledModels().has(model)} 
+                              onChange={(e) => {
+                                const newSet = new Set(enabledModels());
+                                if (e.currentTarget.checked) {
+                                  newSet.add(model);
+                                } else {
+                                  newSet.delete(model);
+                                }
+                                setEnabledModels(newSet);
+                              }}
+                            />
+                            <span class={`text-sm ${enabledModels().has(model) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
+                              {model}
+                            </span>
+                          </label>
+                        )}
+                      </For>
+                      <Show when={managedModels().length === 0}>
+                        <div class="p-8 text-center text-gray-500">
+                          No models found for this provider.
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+
+                  <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2">
+                    <button 
+                      onClick={() => setShowModelManager(false)} 
+                      class="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-sm font-medium"
+                      disabled={isSavingModels()}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={saveManagedModels} 
+                      class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={isSavingModels()}
+                    >
+                      {isSavingModels() ? 'Saving...' : 'Save Changes'}
                     </button>
                   </div>
                 </div>

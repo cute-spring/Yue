@@ -234,35 +234,49 @@ async def list_providers(refresh: bool = False) -> List[Dict]:
         if name == LLMProvider.OPENAI.value:
             configured = bool(llm_config.get('openai_api_key') or os.getenv('OPENAI_API_KEY'))
             requirements = ['OPENAI_API_KEY']
-            available_models = openai_models
+            models = openai_models
         elif name == LLMProvider.DEEPSEEK.value:
             configured = bool(llm_config.get('deepseek_api_key') or os.getenv('DEEPSEEK_API_KEY'))
             requirements = ['DEEPSEEK_API_KEY']
-            available_models = ['deepseek-chat', 'deepseek-reasoner']
+            models = ['deepseek-chat', 'deepseek-reasoner']
         elif name == LLMProvider.GEMINI.value:
             configured = bool(llm_config.get('gemini_api_key') or os.getenv('GEMINI_API_KEY'))
             requirements = ['GEMINI_API_KEY', 'GEMINI_BASE_URL (optional)']
-            available_models = gemini_models
+            models = gemini_models
         elif name == LLMProvider.ZHIPU.value:
             configured = bool(llm_config.get('zhipu_api_key') or os.getenv('ZHIPU_API_KEY'))
             requirements = ['ZHIPU_API_KEY', 'ZHIPU_BASE_URL (optional)']
-            available_models = ['glm-4v', 'glm-4-plus']
+            models = ['glm-4v', 'glm-4-plus']
         elif name == LLMProvider.OLLAMA.value:
             configured = len(ollama_models) > 0
             requirements = ['OLLAMA_BASE_URL (optional)']
-            available_models = ollama_models
+            models = ollama_models
         elif name == LLMProvider.CUSTOM.value:
             # available custom models from persisted config
             custom_models = llm_config.get("custom_models", []) or []
             configured = len(custom_models) > 0
             requirements = ['BASE_URL (optional)', 'API_KEY', 'MODEL']
-            available_models = [m.get("name") for m in custom_models if m.get("name")]
+            models = [m.get("name") for m in custom_models if m.get("name")]
         
+        # Determine enabled models
+        # If config is present, use it. Otherwise default to all models.
+        config_enabled = llm_config.get(f"{name}_enabled_models")
+        if config_enabled is not None and isinstance(config_enabled, list):
+            # Filter enabled models to ensure they still exist in the full list (optional, but good practice)
+            # Or just trust the config if models might be offline (like ollama)
+            # For now, we trust the config but also include any that are in config
+            available_models = [m for m in models if m in config_enabled]
+            # If the user enabled a model that is not in 'models' (e.g. offline ollama), should we show it?
+            # Probably strictly following 'models' (discovered) is safer for availability.
+        else:
+            available_models = models
+
         providers.append({
             "name": name,
             "configured": configured,
             "requirements": requirements,
             "available_models": available_models,
+            "models": models,
             "current_model": llm_config.get(f"{name}_model")
         })
     return providers
