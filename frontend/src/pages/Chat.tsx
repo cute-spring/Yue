@@ -857,7 +857,7 @@ export default function Chat() {
                             </Show>
                           </div>
                           <div class="p-2 max-h-80 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-white/10">
-                            <For each={providers().filter(p => p.name === selectedProvider())}>
+                            <For each={providers().filter(p => p.available_models && p.available_models.length > 0)}>
                               {provider => (
                                 <div>
                                   <div class="px-3 py-2 text-[10px] font-bold text-primary uppercase bg-primary/10 rounded-lg mb-1 tracking-wider">{provider.name}</div>
