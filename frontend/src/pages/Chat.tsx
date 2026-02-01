@@ -333,7 +333,9 @@ export default function Chat() {
       setCurrentChatId(data.id);
       setMessages(data.messages);
       setSelectedAgent(data.agent_id);
-      setShowHistory(false); // On mobile, close sidebar
+      if (isMobile()) {
+        setShowHistory(false); // On mobile, close sidebar after selection
+      }
     } catch (e) {
       console.error("Failed to load chat", e);
     }
