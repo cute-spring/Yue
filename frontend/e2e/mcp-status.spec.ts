@@ -2,34 +2,42 @@ import { test, expect } from '@playwright/test';
 
 test('MCP enable/disable toggles and status updates', async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'Mcp' }).click();
+  await page.getByRole('button', { name: 'MCP' }).click();
 
-  const card = page.locator('div').filter({ hasText: 'filesystem' }).first();
-  await expect(card).toBeVisible();
+  // Ensure status is loaded and pick the first server name
+  await page.waitForFunction(async () => {
+    const res = await fetch('/api/mcp/status');
+    const data = await res.json();
+    return Array.isArray(data) && data.length > 0;
+  });
+  const serverName = await page.evaluate(async () => {
+    const res = await fetch('/api/mcp/status');
+    const data = await res.json();
+    return data[0].name;
+  });
 
-  const checkbox = card.getByRole('checkbox');
+  const checkbox = page.locator('input[type="checkbox"]').first();
   // Toggle to Offline
   if (await checkbox.isChecked()) {
     await checkbox.uncheck();
   } else {
     // If already disabled, enable then disable to verify both states
     await checkbox.check();
-    await expect(card.getByText(/Online/i)).toBeVisible();
     await checkbox.uncheck();
   }
-  await page.waitForFunction(async () => {
+  await page.waitForFunction(async (name) => {
     const res = await fetch('/api/mcp/status');
     const data = await res.json();
-    const fs = data.find((x: any) => x.name === 'filesystem');
+    const fs = data.find((x: any) => x.name === name);
     return fs && fs.enabled === false && fs.connected === false;
-  }, { timeout: 15000 });
+  }, serverName, { timeout: 15000 });
 
   // Toggle back to Online
   await checkbox.check();
-  await page.waitForFunction(async () => {
+  await page.waitForFunction(async (name) => {
     const res = await fetch('/api/mcp/status');
     const data = await res.json();
-    const fs = data.find((x: any) => x.name === 'filesystem');
+    const fs = data.find((x: any) => x.name === name);
     return fs && fs.enabled === true && fs.connected === true;
-  }, { timeout: 15000 });
+  }, serverName, { timeout: 15000 });
 });

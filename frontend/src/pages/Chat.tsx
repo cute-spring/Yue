@@ -132,6 +132,11 @@ export default function Chat() {
   const [showLLMSelector, setShowLLMSelector] = createSignal(false);
   const [selectedProvider, setSelectedProvider] = createSignal("openai");
   const [selectedModel, setSelectedModel] = createSignal("gpt-4o");
+  const [isRefreshingModels, setIsRefreshingModels] = createSignal(false);
+  const [isDeepThinking, setIsDeepThinking] = createSignal(false);
+  // keep selected images in memory for future send
+  const [imageAttachments, setImageAttachments] = createSignal<File[]>([]);
+  let imageInputRef: HTMLInputElement | undefined;
   
   // History & Knowledge State
   const [chats, setChats] = createSignal<ChatSession[]>([]);
@@ -275,9 +280,9 @@ export default function Chat() {
     }
   };
 
-  const loadProviders = async () => {
+  const loadProviders = async (refresh = false) => {
     try {
-      const res = await fetch('/api/models/providers');
+      const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
       const data = await res.json();
       setProviders(data);
       
@@ -805,7 +810,7 @@ export default function Chat() {
               </div>
             </Show>
 
-            <form onSubmit={handleSubmit} class="relative group">
+            <form onSubmit={handleSubmit} class="relative">
               <div class={`
                 relative bg-surface/80 backdrop-blur-xl border-2 rounded-[28px] transition-all duration-500 p-2 shadow-2xl
                 ${isTyping() ? 'border-primary/40 ring-8 ring-primary/5 shadow-primary/10' : 'border-border focus-within:border-primary/40 focus-within:ring-8 focus-within:ring-primary/5'}
@@ -816,60 +821,173 @@ export default function Chat() {
                   onInput={handleInput}
                   onKeyDown={handleKeyDown}
                   placeholder="Ask Yue anything... (Type @ to mention agents)"
-                  class="w-full bg-transparent px-6 pt-4 pb-14 focus:outline-none resize-none min-h-[88px] max-h-[300px] overflow-y-auto text-text-primary leading-relaxed text-[16px] font-medium placeholder:text-text-secondary/30"
+                  class="w-full bg-transparent px-6 pt-5 pb-20 focus:outline-none resize-none min-h-[96px] max-h-[400px] overflow-y-auto text-text-primary leading-relaxed text-lg font-medium placeholder:text-text-secondary/30"
                   rows={1}
                 />
                 
                 {/* Unified Action Bar */}
-                <div class="absolute bottom-3 left-4 right-4 flex items-center justify-between">
-                  <div class="flex items-center gap-1">
-                    <button type="button" class="p-2 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-xl transition-all active:scale-90" title="Attach Context">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                      </svg>
-                    </button>
-                    <button type="button" class="p-2 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-xl transition-all active:scale-90" title="Voice Input">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                      </svg>
-                    </button>
-                    <div class="h-5 w-[1px] bg-border/60 mx-1"></div>
-                    
+                <div class="absolute bottom-4 left-5 right-5 flex items-center justify-between">
+                  {/* Left Side: Configuration */}
+                  <div class="flex items-center gap-3">
                     {/* Model Selector */}
-                    <button 
+                    <div class="relative">
+                      <button 
+                        type="button"
+                        onClick={(e) => { 
+                          e.stopPropagation();
+                          setShowLLMSelector(!showLLMSelector());
+                          // Trigger background refresh without blocking UI
+                          setIsRefreshingModels(true);
+                          loadProviders(true).finally(() => setIsRefreshingModels(false));
+                        }}
+                        class="flex items-center gap-2.5 px-4 py-2.5 bg-background border border-border hover:border-primary/30 hover:bg-primary/5 rounded-2xl transition-all active:scale-95 shadow-sm"
+                      >
+                        <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+                        <span class="text-xs font-bold text-text-primary uppercase tracking-wider">{selectedModel()}</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class={`h-3.5 w-3.5 text-text-secondary transition-transform duration-300 ${showLLMSelector() ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      <Show when={showLLMSelector()}>
+                        <div class="absolute bottom-full left-0 mb-3 w-72 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+                          <div class="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+                            <span class="text-xs font-bold text-white/70 uppercase tracking-widest">Quick Switch</span>
+                            <Show when={isRefreshingModels()}>
+                              <div class="w-4 h-4 border-2 border-white/20 border-t-primary rounded-full animate-spin"></div>
+                            </Show>
+                          </div>
+                          <div class="p-2 max-h-80 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-white/10">
+                            <For each={providers().filter(p => p.name === selectedProvider())}>
+                              {provider => (
+                                <div>
+                                  <div class="px-3 py-2 text-[10px] font-bold text-primary uppercase bg-primary/10 rounded-lg mb-1 tracking-wider">{provider.name}</div>
+                                  <For each={provider.available_models || []}>
+                                    {model => (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedProvider(provider.name);
+                                          setSelectedModel(model);
+                                          setShowLLMSelector(false);
+                                        }}
+                                        class={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all flex items-center justify-between group ${
+                                          selectedModel() === model
+                                            ? 'bg-primary text-white font-bold shadow-lg shadow-primary/20'
+                                            : 'hover:bg-white/5 text-gray-300 hover:text-white'
+                                        }`}
+                                      >
+                                        <span>{model}</span>
+                                        <Show when={selectedModel() === model}>
+                                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                          </svg>
+                                        </Show>
+                                      </button>
+                                    )}
+                                  </For>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+
+                    {/* Deep Thinking Toggle */}
+                    <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setShowLLMSelector(!showLLMSelector()); }}
-                      class="flex items-center gap-2 px-3 py-1.5 bg-background border border-border hover:border-primary/30 hover:bg-primary/5 rounded-xl transition-all active:scale-95"
+                      onClick={() => setIsDeepThinking(!isDeepThinking())}
+                      class={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl transition-all active:scale-95 border shadow-sm ${
+                        isDeepThinking() 
+                          ? 'bg-primary/10 border-primary/30 text-primary' 
+                          : 'bg-background border-border text-text-secondary hover:text-primary hover:bg-primary/5'
+                      }`}
                     >
-                      <div class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></div>
-                      <span class="text-[10px] font-black text-text-primary uppercase tracking-wider">{selectedModel()}</span>
-                      <svg xmlns="http://www.w3.org/2000/svg" class={`h-3 w-3 text-text-secondary transition-transform duration-300 ${showLLMSelector() ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                       </svg>
+                      <span class="text-xs font-bold uppercase tracking-wider">Deep Thinking</span>
                     </button>
                   </div>
 
-                  <button 
-                    type="submit"
-                    disabled={!input().trim() && !isTyping()}
-                    class={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-2xl transition-all duration-500 shadow-lg
-                      ${input().trim() || isTyping() 
-                        ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/20 hover:scale-[1.02] active:scale-95' 
-                        : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}
-                    `}
-                  >
-                    <Show when={isTyping()} fallback={
-                      <>
-                        <span class="text-xs font-black uppercase tracking-[0.1em] hidden sm:inline">Execute</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  {/* Right Side: Tools + Action */}
+                  <div class="flex items-center gap-4">
+                    {/* Tools Group */}
+                    <div class="flex items-center gap-2">
+                      <div class="relative group/tooltip">
+                        <button type="button" class="p-3 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                          </svg>
+                        </button>
+                        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
+                          <span class="font-bold text-white/90">快速理解总结文件</span>
+                          <span class="block text-[11px] text-white/50 mt-1">PDF, Word, Excel, PPT, Code</span>
+                          <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
+                        </div>
+                      </div>
+                      <div class="relative group/tooltip">
+                        <input ref={el => imageInputRef = el} type="file" accept="image/*" multiple class="hidden" 
+                          onChange={e => {
+                            const files = Array.from(e.currentTarget.files || []);
+                            const maxCount = 10;
+                            const maxSize = 10 * 1024 * 1024;
+                            const valid = files.filter(f => f.size <= maxSize);
+                            if (files.length > maxCount) {
+                              alert(`最多选择 ${maxCount} 张图片`);
+                            }
+                            if (valid.length !== files.length) {
+                              alert('部分文件超过 10MB 大小限制，已忽略');
+                            }
+                            setImageAttachments(valid.slice(0, maxCount));
+                            e.currentTarget.value = '';
+                          }} />
+                        <button type="button" class="relative p-3 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Upload images"
+                          onClick={() => imageInputRef?.click()}>
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4-4a3 3 0 014 0l4 4M2 20h20M14 7a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                          <Show when={imageAttachments().length > 0}>
+                            <span class="absolute -top-1 -right-1 text-[10px] bg-primary text-white rounded-full px-1.5 py-0.5 border border-background shadow-sm">{imageAttachments().length}</span>
+                          </Show>
+                        </button>
+                        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
+                          <span class="font-bold text-white/90">上传图片</span>
+                          <span class="block text-[11px] text-white/50 mt-1">JPG, PNG (Max 10)</span>
+                          <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
+                        </div>
+                      </div>
+                      <div class="relative group/tooltip">
+                        <button type="button" class="p-3 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Voice input">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                          </svg>
+                        </button>
+                        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
+                          <span class="font-bold text-white/90">语音输入 (Beta)</span>
+                          <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button 
+                      type="submit"
+                      disabled={!input().trim() && !isTyping()}
+                      class={`
+                        flex items-center justify-center p-4 rounded-2xl transition-all duration-500 shadow-lg
+                        ${input().trim() || isTyping() 
+                          ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/30 hover:scale-[1.02] active:scale-95' 
+                          : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}
+                      `}
+                    >
+                      <Show when={isTyping()} fallback={
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
                         </svg>
-                      </>
-                    }>
-                      <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    </Show>
-                  </button>
+                      }>
+                        <div class="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      </Show>
+                    </button>
+                  </div>
                 </div>
               </div>
             </form>
@@ -884,46 +1002,7 @@ export default function Chat() {
                </p>
             </div>
 
-            {/* Model Selector Popover */}
-            <Show when={showLLMSelector()}>
-              <div class="absolute bottom-full right-0 mb-4 w-64 bg-surface border border-border rounded-2xl shadow-2xl z-50 animate-in zoom-in-95 duration-200">
-                <div class="p-3 border-b border-border bg-background/50 rounded-t-2xl">
-                  <span class="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Select Model</span>
-                </div>
-                <div class="p-2 space-y-1 max-h-80 overflow-y-auto">
-                  <For each={providers()}>
-                    {provider => (
-                      <div class="space-y-1">
-                        <div class="px-3 py-1 text-[10px] font-bold text-primary uppercase bg-primary/5 rounded">{provider.name}</div>
-                        <For each={provider.available_models}>
-                          {model => (
-                            <button
-                              onClick={() => {
-                                setSelectedProvider(provider.name);
-                                setSelectedModel(model);
-                                setShowLLMSelector(false);
-                              }}
-                              class={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between ${
-                                selectedModel() === model && selectedProvider() === provider.name
-                                  ? 'bg-primary text-white font-bold'
-                                  : 'hover:bg-primary/5 text-text-primary'
-                              }`}
-                            >
-                              <span>{model}</span>
-                              <Show when={selectedModel() === model && selectedProvider() === provider.name}>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                </svg>
-                              </Show>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </div>
-            </Show>
+            {/* (Removed) Full Model Selector Popover to avoid duplicate menus; quick switch near button remains */}
           </div>
         </div>
       </div>

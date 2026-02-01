@@ -17,10 +17,11 @@ class TestMcpAndModels(unittest.TestCase):
             self.assertIn("name", tools[0])
 
     def test_models_provider_test(self):
-        r = requests.post(f"{BASE}/api/models/test/openai", json={})
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertIn("ok", data)
+        for name in ["openai", "gemini", "deepseek", "ollama"]:
+            r = requests.post(f"{BASE}/api/models/test/{name}", json={})
+            self.assertEqual(r.status_code, 200)
+            data = r.json()
+            self.assertIn("ok", data)
 
 if __name__ == "__main__":
     unittest.main()

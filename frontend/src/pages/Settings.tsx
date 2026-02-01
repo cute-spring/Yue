@@ -16,10 +16,16 @@ type LLMProvider = {
   configured: boolean;
   requirements: string[];
   current_model?: string;
+  available_models?: string[];
 };
 
 export default function Settings() {
   const [activeTab, setActiveTab] = createSignal<Tab>('general');
+  const TAB_LABEL: Record<Tab, string> = {
+    general: 'General',
+    mcp: 'MCP',
+    llm: 'Models'
+  };
   
   // MCP State
   const [mcpConfig, setMcpConfig] = createSignal("");
@@ -37,7 +43,9 @@ export default function Settings() {
   const [providers, setProviders] = createSignal<LLMProvider[]>([]);
   const [llmForm, setLlmForm] = createSignal<Record<string, string>>({});
   const [customModels, setCustomModels] = createSignal<{name:string;base_url?:string;api_key?:string;model?:string}[]>([]);
-  const [cmDraft, setCmDraft] = createSignal<{name:string;base_url?:string;api_key?:string;model?:string}>({name:""});
+  const [showAddCustom, setShowAddCustom] = createSignal(false);
+  const [newCM, setNewCM] = createSignal<{name:string;provider:string;model:string;base_url?:string;api_key?:string}>({name:"",provider:"openai",model:""});
+  const [newCMStatus, setNewCMStatus] = createSignal<string>("");
   
   // Agents State
   const [agents, setAgents] = createSignal<Agent[]>([]);
@@ -124,9 +132,6 @@ export default function Settings() {
     alert("Preferences saved!");
   };
 
-  const handleLlmInput = (key: string, value: string) => {
-    setLlmForm(prev => ({ ...prev, [key]: value }));
-  };
 
   const testProvider = async (name: string) => {
     const res = await fetch(`/api/models/test/${name}`, {
@@ -178,20 +183,6 @@ export default function Settings() {
     }
   };
 
-  const saveCustomModel = async () => {
-    if (!cmDraft().name) {
-      alert("Name is required");
-      return;
-    }
-    await fetch('/api/models/custom', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cmDraft())
-    });
-    const cmRes = await fetch('/api/models/custom');
-    setCustomModels(await cmRes.json());
-    setCmDraft({name:""});
-  };
 
   const deleteCustomModel = async (name: string) => {
     if (!confirm(`Delete custom model ${name}?`)) return;
@@ -231,7 +222,7 @@ export default function Settings() {
                 : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
               }`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {TAB_LABEL[tab as Tab]}
             </button>
           )}
         </For>
@@ -461,87 +452,79 @@ export default function Settings() {
             <div class="border-b pb-2">
               <h3 class="text-xl font-semibold">LLM Provider Configurations</h3>
               <p class="text-sm text-gray-500">Configure API keys and default models</p>
+              <div class="mt-2">
+                <button 
+                  onClick={async () => {
+                    const providersRes = await fetch('/api/models/providers?refresh=1');
+                    setProviders(await providersRes.json());
+                  }}
+                  class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                >
+                  Refresh Available Models
+                </button>
+                <button 
+                  onClick={() => { 
+                    setNewCM({ name: "", provider: "openai", model: "", base_url: "", api_key: "" });
+                    setNewCMStatus("");
+                    setShowAddCustom(true);
+                  }}
+                  class="ml-2 text-xs px-3 py-1.5 rounded-lg bg-blue-700 text-white hover:bg-blue-800 shadow-sm inline-flex items-center gap-1"
+                >
+                  <span>+</span><span>Add Custom (Overlay)</span>
+                </button>
+              </div>
             </div>
             
-            <div class="grid gap-8">
-              <For each={providers()}>
-                {(p) => (
-                  <div class="p-6 border rounded-2xl bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <div class="flex justify-between items-center mb-6">
-                      <div class="flex items-center gap-3">
-                        <div class={`w-3 h-3 rounded-full ${p.configured ? 'bg-emerald-500' : 'bg-gray-300 animate-pulse'}`}></div>
-                        <h4 class="text-lg font-bold text-gray-800 uppercase tracking-wider">{p.name}</h4>
-                      </div>
-                      <span class={`text-xs px-2 py-1 rounded-full font-bold uppercase ${p.configured ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {p.configured ? 'Connected' : 'Missing Config'}
-                      </span>
-                    </div>
-
-                    <div class="space-y-4">
-                      {/* API Key Input */}
-                      <Show when={p.requirements.some(r => r.includes('API_KEY'))}>
-                        <div>
-                          <label class="block text-xs font-bold text-gray-500 uppercase mb-1">API Key</label>
-                          <input 
-                            type="password"
-                            class="w-full border rounded-lg p-2.5 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                            placeholder={`Enter ${p.name} API Key`}
-                            value={llmForm()[`${p.name}_api_key`] || ''}
-                            onInput={e => handleLlmInput(`${p.name}_api_key`, e.currentTarget.value)}
-                          />
-                        </div>
-                      </Show>
-
-                      {/* Model Input */}
-                      <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Default Model</label>
-                        <input 
-                          class="w-full border rounded-lg p-2.5 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                          placeholder={`e.g. ${p.name === 'openai' ? 'gpt-4o' : p.name === 'zhipu' ? 'glm-4' : 'llama3'}`}
-                          value={llmForm()[`${p.name}_model`] || ''}
-                          onInput={e => handleLlmInput(`${p.name}_model`, e.currentTarget.value)}
-                        />
-                      </div>
-
-                      {/* Base URL Input (Optional) */}
-                      <Show when={p.requirements.some(r => r.includes('BASE_URL'))}>
-                        <div>
-                          <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Base URL (Optional)</label>
-                          <input 
-                            class="w-full border rounded-lg p-2.5 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                            placeholder="https://..."
-                            value={llmForm()[`${p.name}_base_url`] || ''}
-                            onInput={e => handleLlmInput(`${p.name}_base_url`, e.currentTarget.value)}
-                          />
-                        </div>
-                      </Show>
-                      <div class="pt-2">
-                        <button 
-                          onClick={() => testProvider(p.name)}
-                          class="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
-                        >
-                          Test Connection
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </For>
+            <div class="overflow-x-auto border rounded-xl bg-white">
+              <table class="min-w-full text-sm">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Provider</th>
+                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Model</th>
+                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Status</th>
+                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Available Models</th>
+                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Requirements</th>
+                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={providers()}>
+                    {(p) => (
+                      <tr class="border-t">
+                        <td class="px-4 py-2 font-medium text-gray-800 uppercase">{p.name}</td>
+                        <td class="px-4 py-2 text-gray-700">
+                          {llmForm()[`${p.name}_model`] || p.current_model || '-'}
+                        </td>
+                        <td class="px-4 py-2">
+                          <span class={`text-xs px-2 py-1 rounded-full font-bold uppercase ${p.configured ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                            {p.configured ? 'Connected' : 'Missing Config'}
+                          </span>
+                        </td>
+                        <td class="px-4 py-2 text-gray-700">
+                          {p.available_models && p.available_models.length > 0 ? `${p.available_models.length}` : '—'}
+                        </td>
+                        <td class="px-4 py-2 text-gray-700">
+                          {p.requirements.join(', ')}
+                        </td>
+                        <td class="px-4 py-2">
+                          <button 
+                            onClick={() => testProvider(p.name)}
+                            class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                          >
+                            Test
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
             </div>
 
             {/* Custom Models */}
             <div class="border-t pt-6">
               <h4 class="text-lg font-bold mb-3">Custom Models</h4>
               <div class="space-y-3">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <input class="border rounded-lg p-2" placeholder="Name" value={cmDraft().name} onInput={e=>setCmDraft({...cmDraft(), name: e.currentTarget.value})}/>
-                  <input class="border rounded-lg p-2" placeholder="Base URL" value={cmDraft().base_url || ''} onInput={e=>setCmDraft({...cmDraft(), base_url: e.currentTarget.value})}/>
-                  <input type="password" class="border rounded-lg p-2" placeholder="API Key" value={cmDraft().api_key || ''} onInput={e=>setCmDraft({...cmDraft(), api_key: e.currentTarget.value})}/>
-                  <input class="border rounded-lg p-2" placeholder="Model" value={cmDraft().model || ''} onInput={e=>setCmDraft({...cmDraft(), model: e.currentTarget.value})}/>
-                </div>
-                <div>
-                  <button onClick={saveCustomModel} class="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700">Add / Update</button>
-                </div>
                 <div class="space-y-2">
                   <For each={customModels()}>
                     {(m) => (
@@ -564,6 +547,84 @@ export default function Settings() {
                 </div>
               </div>
             </div>
+            <Show when={showAddCustom()}>
+              <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                <div class="w-[720px] bg-white rounded-2xl border shadow-xl overflow-hidden">
+                  <div class="px-6 py-4 border-b flex justify-between items-center">
+                    <div class="font-bold text-lg">Add Custom Model</div>
+                    <button onClick={() => setShowAddCustom(false)} class="text-gray-500">✕</button>
+                  </div>
+                  <div class="p-6 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <div class="text-xs font-bold text-gray-600 mb-1">Name</div>
+                        <input class="w-full border rounded-lg p-2" placeholder="my-custom" value={newCM().name} onInput={e => setNewCM({...newCM(), name: e.currentTarget.value})}/>
+                      </div>
+                      <div>
+                        <div class="text-xs font-bold text-gray-600 mb-1">Provider</div>
+                        <select class="w-full border rounded-lg p-2" value={newCM().provider} onChange={e => setNewCM({...newCM(), provider: e.currentTarget.value})}>
+                          <option value="openai">OpenAI</option>
+                          <option value="deepseek">DeepSeek</option>
+                          <option value="gemini">Gemini</option>
+                          <option value="ollama">Ollama</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <div class="text-xs font-bold text-gray-600 mb-1">Model</div>
+                        <input class="w-full border rounded-lg p-2" placeholder="gpt-4o" value={newCM().model} onInput={e => setNewCM({...newCM(), model: e.currentTarget.value})}/>
+                      </div>
+                      <div>
+                        <div class="text-xs font-bold text-gray-600 mb-1">Base URL (Optional)</div>
+                        <input class="w-full border rounded-lg p-2" placeholder="https://..." value={newCM().base_url || ''} onInput={e => setNewCM({...newCM(), base_url: e.currentTarget.value})}/>
+                      </div>
+                    </div>
+                    <div>
+                      <div class="text-xs font-bold text-gray-600 mb-1">API Key</div>
+                      <input class="w-full border rounded-lg p-2" type="password" placeholder="****" value={newCM().api_key || ''} onInput={e => setNewCM({...newCM(), api_key: e.currentTarget.value})}/>
+                    </div>
+                    <div class="text-xs text-gray-600">{newCMStatus()}</div>
+                  </div>
+                  <div class="px-6 py-4 border-t flex justify-end gap-2">
+                    <button onClick={() => setShowAddCustom(false)} class="px-3 py-1.5 rounded-lg border">Cancel</button>
+                    <button 
+                      onClick={async () => {
+                        setNewCMStatus("Testing...")
+                        const res = await fetch('/api/models/test/custom', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ base_url: newCM().base_url, api_key: newCM().api_key, model: newCM().model })
+                        });
+                        const data = await res.json();
+                        setNewCMStatus(data.ok ? "Connection OK" : `Failed: ${data.error || 'Unknown error'}`)
+                      }} 
+                      class="px-3 py-1.5 rounded-lg border bg-white"
+                    >
+                      Test
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        if (!newCM().name) { setNewCMStatus("Name is required"); return; }
+                        await fetch('/api/models/custom', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: newCM().name, base_url: newCM().base_url, api_key: newCM().api_key, model: newCM().model })
+                        });
+                        const cmRes = await fetch('/api/models/custom');
+                        setCustomModels(await cmRes.json());
+                        setShowAddCustom(false);
+                        setNewCM({name:"",provider:"openai",model:""});
+                        setNewCMStatus("");
+                      }} 
+                      class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Show>
 
             <div class="pt-4 sticky bottom-0 bg-white pb-4">
               <button 

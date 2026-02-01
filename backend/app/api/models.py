@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from dotenv import load_dotenv
 from app.services.model_factory import list_supported_providers, list_providers, get_model, LLMProvider
 from app.services.config_service import config_service
@@ -10,8 +10,8 @@ async def supported():
     return list_supported_providers()
 
 @router.get("/providers")
-async def providers():
-    return await list_providers()
+async def providers(refresh: bool = Query(default=False)):
+    return await list_providers(refresh=refresh)
 
 @router.post("/reload-env")
 async def reload_env():
