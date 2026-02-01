@@ -39,7 +39,23 @@ class ServerConfig(BaseModel):
 @router.post("/")
 async def update_configs(configs: List[Dict[str, Any]]):
     try:
-        validated = [ServerConfig(**c).model_dump() for c in configs]
+        incoming = [ServerConfig(**c).model_dump() for c in configs]
+        merged_map: Dict[str, Dict[str, Any]] = {}
+        # Load existing
+        existing = mcp_manager.load_config()
+        for c in existing:
+            name = c.get("name")
+            if name:
+                merged_map[name] = c
+        # Upsert incoming
+        for c in incoming:
+            name = c.get("name")
+            if name:
+                if name in merged_map:
+                    merged_map[name].update(c)
+                else:
+                    merged_map[name] = c
+        validated = list(merged_map.values())
         with open(CONFIG_PATH, 'w') as f:
             json.dump(validated, f, indent=2)
         # Note: Changes require server restart to take full effect for now

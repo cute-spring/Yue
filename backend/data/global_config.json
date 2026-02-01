@@ -1,0 +1,6 @@
+{
+  "llm": {
+    "custom_models": [],
+    "openai_model": "gpt-4o"
+  }
+}

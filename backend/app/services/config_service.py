@@ -49,6 +49,45 @@ class ConfigService:
         self.update_config(self._config)
         return self._config["llm"]
 
+    # Custom models helpers
+    def list_custom_models(self) -> list[Dict[str, Any]]:
+        llm = self._config.get("llm", {})
+        return llm.get("custom_models", [])
+
+    def upsert_custom_model(self, model: Dict[str, Any]) -> list[Dict[str, Any]]:
+        llm = self._config.get("llm", {})
+        models = llm.get("custom_models", [])
+        name = model.get("name")
+        if not name:
+            raise ValueError("name is required")
+        # Protect api_key from empty/masked overwrite
+        if "api_key" in model and isinstance(model["api_key"], str):
+            masked = model["api_key"].strip()
+            if masked == "" or masked.startswith("****"):
+                model.pop("api_key")
+        found = False
+        for i, m in enumerate(models):
+            if m.get("name") == name:
+                m.update(model)
+                models[i] = m
+                found = True
+                break
+        if not found:
+            models.append(model)
+        llm["custom_models"] = models
+        self._config["llm"] = llm
+        self.update_config(self._config)
+        return models
+
+    def delete_custom_model(self, name: str) -> list[Dict[str, Any]]:
+        llm = self._config.get("llm", {})
+        models = llm.get("custom_models", [])
+        models = [m for m in models if m.get("name") != name]
+        llm["custom_models"] = models
+        self._config["llm"] = llm
+        self.update_config(self._config)
+        return models
+
     def get_preferences(self) -> Dict[str, Any]:
         return self._config.get("preferences", {
             "theme": "light",
