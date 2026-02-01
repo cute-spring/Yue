@@ -1,6 +1,7 @@
 from typing import List, Any, Dict, Optional, Type
 import os
 import json
+import re
 import asyncio
 from contextlib import AsyncExitStack
 import datetime
@@ -212,7 +213,13 @@ class McpManager:
             return "\n".join(output)
         
         # Pydantic AI Tool
-        return Tool(wrapper, name=tool_def.name, description=tool_def.description)
+        # Sanitize tool name for LLM compatibility (regex: ^[a-zA-Z0-9_-]+$)
+        # We also prefix with server name to avoid collisions
+        sanitized_server = re.sub(r'[^a-zA-Z0-9_-]', '_', server_name)
+        sanitized_tool = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_def.name)
+        llm_tool_name = f"mcp__{sanitized_server}__{sanitized_tool}"
+        
+        return Tool(wrapper, name=llm_tool_name, description=tool_def.description)
 
     def _map_json_type(self, json_type: str) -> Type:
         if json_type == "string":

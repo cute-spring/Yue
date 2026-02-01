@@ -48,3 +48,30 @@ body {
 .transition-all-250 {
   transition: all 250ms ease-out;
 }
+
+@keyframes thought-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.95); }
+}
+
+@keyframes orbit {
+  from { transform: rotate(0deg) translateX(6px) rotate(0deg); }
+  to { transform: rotate(360deg) translateX(6px) rotate(-360deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.animate-thought-pulse {
+  animation: thought-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-orbit {
+  animation: orbit 3s linear infinite;
+}
+
+.animate-float {
+  animation: float 2s ease-in-out infinite;
+}

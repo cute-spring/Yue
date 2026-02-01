@@ -88,6 +88,14 @@ async def chat_stream(request: ChatRequest):
             model_name = model_name or "gpt-4o"
             system_prompt = system_prompt or "You are a helpful assistant."
 
+            # Inject thinking process instruction if not present
+            if "<thought>" not in system_prompt:
+                system_prompt += (
+                    "\n\nIMPORTANT: You must ALWAYS start your response by thinking step-by-step about the user's request. "
+                    "Enclose your thinking process within <thought>...</thought> tags. "
+                    "After your thinking process is complete, provide your final answer."
+                )
+
             model = get_model(provider, model_name)
 
             # Create Pydantic AI Agent
@@ -107,9 +115,9 @@ async def chat_stream(request: ChatRequest):
                 async with agent.run_stream(request.message, message_history=history) as result:
                     async for message in result.stream_text():
                         # Track thinking time
-                        if "<thought>" in message and thought_start_time is None:
+                        if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
                             thought_start_time = time.time()
-                        if "</thought>" in message and thought_end_time is None:
+                        if ("</thought>" in message or "</think>" in message) and thought_end_time is None:
                             thought_end_time = time.time()
 
                         # Get only the new part of the message
@@ -132,9 +140,9 @@ async def chat_stream(request: ChatRequest):
                     async with agent_no_tools.run_stream(request.message, message_history=history) as result:
                         async for message in result.stream_text():
                             # Track thinking time
-                            if "<thought>" in message and thought_start_time is None:
+                            if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
                                 thought_start_time = time.time()
-                            if "</thought>" in message and thought_end_time is None:
+                            if ("</thought>" in message or "</think>" in message) and thought_end_time is None:
                                 thought_end_time = time.time()
 
                             new_content = message[last_length:]
