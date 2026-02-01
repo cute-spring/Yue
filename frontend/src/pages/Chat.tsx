@@ -37,6 +37,9 @@ renderer.code = ({ text, lang }) => {
   const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
   const highlighted = hljs.highlight(text, { language }).value;
   
+  const isPreviewable = ['html', 'svg', 'xml'].includes(language);
+  const encodedContent = isPreviewable ? encodeURIComponent(text) : '';
+
   return `
     <div class="code-block-container relative group my-6 rounded-xl overflow-hidden border border-border/50 bg-[#0d1117] shadow-xl transition-all duration-300 hover:border-primary/30">
       <div class="flex items-center justify-between px-4 py-2.5 bg-[#161b22]/80 backdrop-blur-sm border-b border-border/10">
@@ -49,16 +52,31 @@ renderer.code = ({ text, lang }) => {
           <div class="h-4 w-[1px] bg-border/10 mx-1"></div>
           <span class="text-[10px] font-black font-mono text-text-secondary/60 uppercase tracking-[0.2em] ml-1">${language}</span>
         </div>
-        <button 
-          onclick="window.copyToClipboard(this)" 
-          class="p-1.5 rounded-lg hover:bg-white/5 text-text-secondary/60 hover:text-primary transition-all flex items-center gap-1.5 group/copy"
-          title="Copy code"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 transition-transform group-hover/copy:scale-110" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-          </svg>
-          <span class="text-[9px] font-black uppercase tracking-wider">Copy</span>
-        </button>
+        <div class="flex items-center gap-2">
+          ${isPreviewable ? `
+            <button 
+              onclick="window.openArtifact('${language}', '${encodedContent}')"
+              class="px-2 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-all flex items-center gap-1.5 border border-primary/20"
+              title="Open Preview"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              <span class="text-[9px] font-bold uppercase tracking-wider">Preview</span>
+            </button>
+          ` : ''}
+          <button 
+            onclick="window.copyToClipboard(this)" 
+            class="p-1.5 rounded-lg hover:bg-white/5 text-text-secondary/60 hover:text-primary transition-all flex items-center gap-1.5 group/copy"
+            title="Copy code"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 transition-transform group-hover/copy:scale-110" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+            </svg>
+            <span class="text-[9px] font-black uppercase tracking-wider">Copy</span>
+          </button>
+        </div>
       </div>
       <pre class="p-5 overflow-x-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent selection:bg-primary/20"><code class="hljs language-${language} text-[14px] leading-relaxed font-mono block">${highlighted}</code></pre>
     </div>
@@ -103,6 +121,7 @@ type ChatSession = {
 type Message = {
   role: string;
   content: string;
+  thought_duration?: number;
 };
 
 export default function Chat() {
@@ -472,6 +491,13 @@ export default function Chat() {
                     newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: accumulatedResponse };
                     return newMsgs;
                   });
+                } else if (data.thought_duration) {
+                  setMessages(prev => {
+                    const newMsgs = [...prev];
+                    const lastIndex = newMsgs.length - 1;
+                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], thought_duration: data.thought_duration };
+                    return newMsgs;
+                  });
                 } else if (data.error) {
                   setMessages(prev => {
                     const newMsgs = [...prev];
@@ -666,9 +692,18 @@ export default function Chat() {
                                         <div class={`relative w-2 h-2 rounded-full ${isTyping() && !content ? 'bg-primary' : 'bg-primary/40'}`}></div>
                                       </div>
                                       <div class="flex flex-col items-start leading-none">
-                                        <span class={`mb-1 ${isTyping() && !content ? 'text-primary' : ''}`}>
-                                          {isTyping() && !content ? 'Intelligence Synthesis' : 'Reasoning Protocol'}
-                                        </span>
+                                        <div class="flex items-center gap-2">
+                                          <span class={`mb-1 ${isTyping() && !content ? 'text-primary' : ''}`}>
+                                            {isTyping() && !content ? 'Intelligence Synthesis' : 'Reasoning Protocol'}
+                                          </span>
+                                          <Show when={msg.thought_duration}>
+                                            <span class="text-[9px] font-bold text-text-secondary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 mb-1">
+                                              {msg.thought_duration! < 60 
+                                                ? `${msg.thought_duration!.toFixed(1)}s` 
+                                                : `${Math.floor(msg.thought_duration! / 60)}m ${(msg.thought_duration! % 60).toFixed(0)}s`}
+                                            </span>
+                                          </Show>
+                                        </div>
                                         <span class="text-[8px] opacity-40 font-mono tracking-widest">LAYER_01_COGNITION</span>
                                       </div>
                                     </div>

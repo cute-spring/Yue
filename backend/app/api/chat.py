@@ -8,6 +8,7 @@ from app.services.agent_store import agent_store
 from app.services.model_factory import get_model
 from app.services.chat_service import chat_service, ChatSession
 import json
+import time
 
 router = APIRouter()
 
@@ -98,11 +99,19 @@ async def chat_stream(request: ChatRequest):
             
             last_length = 0
             full_response = ""
+            thought_start_time = None
+            thought_end_time = None
             
             try:
                 # Run with history
                 async with agent.run_stream(request.message, message_history=history) as result:
                     async for message in result.stream_text():
+                        # Track thinking time
+                        if "<thought>" in message and thought_start_time is None:
+                            thought_start_time = time.time()
+                        if "</thought>" in message and thought_end_time is None:
+                            thought_end_time = time.time()
+
                         # Get only the new part of the message
                         new_content = message[last_length:]
                         if new_content:
@@ -118,8 +127,16 @@ async def chat_stream(request: ChatRequest):
                     agent_no_tools = Agent(model, system_prompt=system_prompt)
                     last_length = 0
                     full_response = ""
+                    thought_start_time = None
+                    thought_end_time = None
                     async with agent_no_tools.run_stream(request.message, message_history=history) as result:
                         async for message in result.stream_text():
+                            # Track thinking time
+                            if "<thought>" in message and thought_start_time is None:
+                                thought_start_time = time.time()
+                            if "</thought>" in message and thought_end_time is None:
+                                thought_end_time = time.time()
+
                             new_content = message[last_length:]
                             if new_content:
                                 full_response += new_content
@@ -128,8 +145,19 @@ async def chat_stream(request: ChatRequest):
                 else:
                     raise stream_err
             
+            # Calculate duration
+            thought_duration = None
+            if thought_start_time:
+                if thought_end_time:
+                    thought_duration = thought_end_time - thought_start_time
+                else:
+                    thought_duration = time.time() - thought_start_time
+
+            if thought_duration:
+                yield f"data: {json.dumps({'thought_duration': thought_duration})}\n\n"
+
             # Save Assistant Message after completion
-            chat_service.add_message(chat_id, "assistant", full_response)
+            chat_service.add_message(chat_id, "assistant", full_response, thought_duration)
             
         except Exception as e:
             print(f"Chat error: {e}")
