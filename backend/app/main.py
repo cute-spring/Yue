@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models
+from app.api import chat, agents, mcp, models, config, notebook
 from app.mcp.manager import mcp_manager
 
 # Load .env from backend directory
@@ -38,6 +38,8 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
+app.include_router(config.router, prefix="/api/config", tags=["config"])
+app.include_router(notebook.router, prefix="/api/notebook", tags=["notebook"])
 
 # Mount Static Files (Frontend)
 # In production, we expect the frontend build to be in 'static' folder
@@ -51,4 +53,4 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8003, reload=True)

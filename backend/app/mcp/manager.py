@@ -1,6 +1,7 @@
 from typing import List, Any, Dict, Optional, Type
 import os
 import json
+import re
 import asyncio
 from contextlib import AsyncExitStack
 import datetime
@@ -25,6 +26,7 @@ class McpManager:
         self.config_path = os.path.join(os.path.dirname(__file__), "../../data/mcp_configs.json")
         self.exit_stack = AsyncExitStack()
         self.sessions: Dict[str, ClientSession] = {}
+        self.last_errors: Dict[str, str] = {}
         self.initialized = True
 
     async def initialize(self):
@@ -33,9 +35,12 @@ class McpManager:
         print(f"Loading MCP configs from {self.config_path}: {configs}")
         for config in configs:
             try:
-                await self.connect_to_server(config)
+                if config.get("enabled", True):
+                    await self.connect_to_server(config)
             except Exception as e:
                 print(f"Failed to connect to {config.get('name')}: {e}")
+                name = config.get("name") or "unknown"
+                self.last_errors[name] = str(e)
 
     async def cleanup(self):
         """Close all connections."""
@@ -97,6 +102,27 @@ class McpManager:
         # TODO: Implement SSE
         return None
 
+    async def get_available_tools(self) -> List[Dict[str, Any]]:
+        """
+        Returns a list of all available tools from connected servers.
+        Used for UI configuration.
+        """
+        tools = []
+        for name, session in self.sessions.items():
+            try:
+                result = await session.list_tools()
+                for tool in result.tools:
+                    tools.append({
+                        "id": f"{name}:{tool.name}",
+                        "name": tool.name,
+                        "description": tool.description,
+                        "server": name,
+                        "input_schema": tool.inputSchema
+                    })
+            except Exception as e:
+                print(f"Error listing tools for {name}: {e}")
+        return tools
+
     async def get_tools_for_agent(self, agent_id: str) -> List[Any]:
         """
         Dynamically connects to MCP servers authorized for the agent
@@ -117,7 +143,8 @@ class McpManager:
             try:
                 result = await session.list_tools()
                 for tool in result.tools:
-                    if allowed_tools is not None and tool.name not in allowed_tools:
+                    composite_id = f"{name}:{tool.name}"
+                    if allowed_tools is not None and (composite_id not in allowed_tools and tool.name not in allowed_tools):
                         continue
                     tools.append(self._convert_tool(name, session, tool))
             except Exception as e:
@@ -127,6 +154,25 @@ class McpManager:
         tools.append(self.get_current_time)
         
         return tools
+
+    def get_status(self) -> List[Dict[str, Any]]:
+        """
+        Returns per-server status derived from config and active sessions.
+        """
+        configs = self.load_config()
+        status_list = []
+        for cfg in configs:
+            name = cfg.get("name")
+            enabled = cfg.get("enabled", True)
+            connected = name in self.sessions
+            status_list.append({
+                "name": name,
+                "enabled": enabled,
+                "connected": connected,
+                "transport": cfg.get("transport", "stdio"),
+                "last_error": self.last_errors.get(name)
+            })
+        return status_list
 
     def _convert_tool(self, server_name: str, session: ClientSession, tool_def: Any) -> Tool:
         
@@ -167,7 +213,13 @@ class McpManager:
             return "\n".join(output)
         
         # Pydantic AI Tool
-        return Tool(wrapper, name=tool_def.name, description=tool_def.description)
+        # Sanitize tool name for LLM compatibility (regex: ^[a-zA-Z0-9_-]+$)
+        # We also prefix with server name to avoid collisions
+        sanitized_server = re.sub(r'[^a-zA-Z0-9_-]', '_', server_name)
+        sanitized_tool = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_def.name)
+        llm_tool_name = f"mcp__{sanitized_server}__{sanitized_tool}"
+        
+        return Tool(wrapper, name=llm_tool_name, description=tool_def.description)
 
     def _map_json_type(self, json_type: str) -> Type:
         if json_type == "string":

@@ -8,5 +8,17 @@
     "enabled_tools": [],
     "created_at": "2026-01-31T07:32:08.555814",
     "updated_at": "2026-01-31T07:32:08.555818"
+  },
+  {
+    "id": "30c7d777-242e-42fb-98d6-a2c1f5b06f12",
+    "name": "Verifier",
+    "system_prompt": "You verify configs.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "filesystem:list"
+    ],
+    "created_at": "2026-02-01T10:32:30.472375",
+    "updated_at": "2026-02-01T10:32:30.472379"
   }
 ]
