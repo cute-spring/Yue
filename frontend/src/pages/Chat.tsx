@@ -10,12 +10,48 @@ const renderer = new marked.Renderer();
 
 // Custom math rendering helper
 const renderMath = (text: string) => {
+  // 1. Protect code blocks and inline code to prevent false positives
+  const codeBlocks: string[] = [];
+  
+  // Replace code blocks (```...```)
+  text = text.replace(/```[\s\S]*?```/g, (match) => {
+    codeBlocks.push(match);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
+
+  // Replace inline code (`...`)
+  text = text.replace(/`[^`\n]+`/g, (match) => {
+    codeBlocks.push(match);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
+
+  // 2. Render Math
   // Block math: $$ ... $$
   text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
     try {
       return `<div class="math-block my-4 overflow-x-auto">` + 
              katex.renderToString(math, { displayMode: true, throwOnError: false }) + 
              `</div>`;
+    } catch (e) {
+      return `<span class="text-red-500">${math}</span>`;
+    }
+  });
+
+  // Block math: \[ ... \]
+  text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, math) => {
+    try {
+      return `<div class="math-block my-4 overflow-x-auto">` + 
+             katex.renderToString(math, { displayMode: true, throwOnError: false }) + 
+             `</div>`;
+    } catch (e) {
+      return `<span class="text-red-500">${math}</span>`;
+    }
+  });
+
+  // Inline math: \( ... \)
+  text = text.replace(/\\\(([\s\S]+?)\\\)/g, (_, math) => {
+    try {
+      return katex.renderToString(math, { displayMode: false, throwOnError: false });
     } catch (e) {
       return `<span class="text-red-500">${math}</span>`;
     }
@@ -29,6 +65,11 @@ const renderMath = (text: string) => {
     } catch (e) {
       return `<span class="text-red-500">${math}</span>`;
     }
+  });
+
+  // 3. Restore code blocks
+  text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, index) => {
+    return codeBlocks[parseInt(index)];
   });
 
   return text;
