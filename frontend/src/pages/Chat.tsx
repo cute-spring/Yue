@@ -712,11 +712,6 @@ export default function Chat() {
           </div>
           
           <div class="flex items-center gap-2">
-            <div class="hidden md:flex items-center gap-1 bg-background/50 border border-border p-1 rounded-xl mr-2">
-              <button class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-secondary hover:text-primary hover:bg-surface rounded-lg transition-all">Research</button>
-              <button class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary bg-surface shadow-sm rounded-lg transition-all">Chat</button>
-            </div>
-            
             <button 
               onClick={() => setShowKnowledge(!showKnowledge())}
               class={`p-2.5 rounded-xl transition-all duration-300 active:scale-90 ${showKnowledge() ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-secondary hover:bg-primary/10 hover:text-primary'}`}
@@ -1197,16 +1192,6 @@ export default function Chat() {
                 </div>
               </div>
             </Show>
-            
-            <div class="flex items-center justify-center gap-4 mt-4">
-               <p class="text-[10px] text-text-secondary/50 font-bold uppercase tracking-[0.3em]">
-                 AI-POWERED INTELLIGENCE UNIT
-               </p>
-               <div class="h-[1px] w-8 bg-border/30"></div>
-               <p class="text-[10px] text-text-secondary/50 font-bold uppercase tracking-[0.3em]">
-                 SECURE ENCRYPTED SESSION
-               </p>
-            </div>
 
             {/* (Removed) Full Model Selector Popover to avoid duplicate menus; quick switch near button remains */}
           </div>
