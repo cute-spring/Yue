@@ -151,23 +151,26 @@ type LLMProvider = {
   const saveManagedModels = async () => {
     const providerName = managingProvider();
     if (!providerName) return;
+    setIsSavingModels(true);
     
-    // Update config locally first
-    const key = `${providerName}_enabled_models`;
-    const currentConfig = llmForm();
-    const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()) };
-    setLlmForm(newConfig);
-    
-    // Save to backend
-    await fetch('/api/config/llm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newConfig)
-    });
-    
-    alert(`Models for ${providerName} updated!`);
-    setShowModelManager(false);
-    fetchData(); // Refresh to get updated available_models from backend
+    try {
+      const key = `${providerName}_enabled_models`;
+      const currentConfig = llmForm();
+      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()) };
+      setLlmForm(newConfig);
+      
+      await fetch('/api/config/llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newConfig)
+      });
+      
+      alert(`Models for ${providerName} updated!`);
+      setShowModelManager(false);
+      fetchData();
+    } finally {
+      setIsSavingModels(false);
+    }
   };
 
   const testProvider = async (name: string) => {

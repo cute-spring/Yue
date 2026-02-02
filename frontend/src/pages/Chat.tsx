@@ -126,6 +126,9 @@ type Message = {
 };
 
 export default function Chat() {
+  const MODEL_STORAGE_KEY = "chat.selected_model";
+  const PROVIDER_STORAGE_KEY = "chat.selected_provider";
+
   // Core State
   const [messages, setMessages] = createSignal<Message[]>([]);
   const [input, setInput] = createSignal("");
@@ -152,8 +155,8 @@ export default function Chat() {
   
   const [providers, setProviders] = createSignal<any[]>([]);
   const [showLLMSelector, setShowLLMSelector] = createSignal(false);
-  const [selectedProvider, setSelectedProvider] = createSignal("openai");
-  const [selectedModel, setSelectedModel] = createSignal("gpt-4o");
+  const [selectedProvider, setSelectedProvider] = createSignal("");
+  const [selectedModel, setSelectedModel] = createSignal("");
   const [isRefreshingModels, setIsRefreshingModels] = createSignal(false);
   const [isDeepThinking, setIsDeepThinking] = createSignal(false);
   // keep selected images in memory for future send
@@ -309,28 +312,30 @@ export default function Chat() {
       const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
       const data = await res.json();
       setProviders(data);
-      
-      // 1. Find if the current selected provider is valid and configured
+
       let currentProvider = data.find((p: any) => p.name === selectedProvider());
-      
-      // 2. If current provider not found or not configured, OR if no provider is selected yet, switch to the first configured one
-      if (!currentProvider || !currentProvider.configured || !selectedProvider()) {
-        currentProvider = data.find((p: any) => p.configured) || data[0];
-        if (currentProvider) {
-          setSelectedProvider(currentProvider.name);
-          // When switching provider, also set the first available model
-          if (currentProvider.available_models?.length > 0) {
-             setSelectedModel(currentProvider.available_models[0]);
-          }
+
+      if (!currentProvider && selectedModel()) {
+        const providerByModel = data.find((p: any) => (p.available_models || []).includes(selectedModel()));
+        if (providerByModel) {
+          currentProvider = providerByModel;
+          setSelectedProvider(providerByModel.name);
         }
       }
 
-      // 3. Ensure the selected model is actually available in the current provider
-      // Also handle the case where provider is valid but model is empty
-      if (currentProvider && currentProvider.available_models?.length > 0) {
-        const isModelAvailable = currentProvider.available_models.includes(selectedModel());
-        if (!isModelAvailable || !selectedModel()) {
-          setSelectedModel(currentProvider.available_models[0]);
+      if (selectedProvider() && (!currentProvider || !currentProvider.configured)) {
+        setSelectedProvider("");
+        setSelectedModel("");
+        localStorage.removeItem(PROVIDER_STORAGE_KEY);
+        localStorage.removeItem(MODEL_STORAGE_KEY);
+        return;
+      }
+
+      if (currentProvider) {
+        const availableModels = currentProvider.available_models || [];
+        if (selectedModel() && !availableModels.includes(selectedModel())) {
+          setSelectedModel("");
+          localStorage.removeItem(MODEL_STORAGE_KEY);
         }
       }
     } catch (e) {
@@ -377,6 +382,11 @@ export default function Chat() {
   };
   
   onMount(() => {
+    const storedProvider = localStorage.getItem(PROVIDER_STORAGE_KEY);
+    const storedModel = localStorage.getItem(MODEL_STORAGE_KEY);
+    if (storedProvider) setSelectedProvider(storedProvider);
+    if (storedModel) setSelectedModel(storedModel);
+
     loadAgents();
     loadHistory();
     loadProviders();
@@ -466,6 +476,15 @@ export default function Chat() {
       }
     }
     
+    if (!selectedModel()) {
+      setShowLLMSelector(true);
+      const last = messages()[messages().length - 1];
+      if (!last || last.role !== 'assistant' || last.content !== '请先选择一个模型再开始对话。') {
+        setMessages([...messages(), { role: 'assistant', content: '请先选择一个模型再开始对话。' }]);
+      }
+      return;
+    }
+
     if (isTyping()) {
       stopGeneration();
       return;
@@ -1001,6 +1020,8 @@ export default function Chat() {
                                         onClick={() => {
                                           setSelectedProvider(provider.name);
                                           setSelectedModel(model);
+                                          localStorage.setItem(PROVIDER_STORAGE_KEY, provider.name);
+                                          localStorage.setItem(MODEL_STORAGE_KEY, model);
                                           setShowLLMSelector(false);
                                         }}
                                         class={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all flex items-center justify-between group ${
@@ -1107,10 +1128,10 @@ export default function Chat() {
 
                     <button 
                       type="submit"
-                      disabled={!input().trim() && !isTyping()}
+                      disabled={!isTyping() && (!input().trim() || !selectedModel())}
                       class={`
                         flex items-center justify-center p-4 rounded-2xl transition-all duration-500 shadow-lg
-                        ${input().trim() || isTyping() 
+                        ${(input().trim() && selectedModel()) || isTyping() 
                           ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/30 hover:scale-[1.02] active:scale-95' 
                           : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}
                       `}
@@ -1127,6 +1148,14 @@ export default function Chat() {
                 </div>
               </div>
             </form>
+
+            <Show when={!selectedModel()}>
+              <div class="mt-3 flex items-center justify-center">
+                <div class="px-3 py-1.5 rounded-full bg-surface border border-border text-[11px] text-text-secondary font-semibold">
+                  请选择模型后开始提问
+                </div>
+              </div>
+            </Show>
             
             <div class="flex items-center justify-center gap-4 mt-4">
                <p class="text-[10px] text-text-secondary/50 font-bold uppercase tracking-[0.3em]">
