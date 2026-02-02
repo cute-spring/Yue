@@ -63,4 +63,5 @@ docker run -p 8000:8000 --env-file backend/.env yue-agent
 - `backend/`: FastAPI 后端逻辑、Agent 定义与 SQLite 数据库
 - `frontend/`: SolidJS 前端界面与 Emerald 主题配置
 - `data/`: 存放 Agent 配置与 MCP 配置
+- `docs/`: 项目开发文档（特性、需求、路线图、测试、UI 设计指南等）
 - `Dockerfile`: 用于容器化部署的配置文件
