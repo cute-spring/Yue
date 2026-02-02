@@ -47,6 +47,13 @@ type LLMProvider = {
     const [showAddCustom, setShowAddCustom] = createSignal(false);
     const [newCM, setNewCM] = createSignal<{name:string;provider:string;model:string;base_url?:string;api_key?:string}>({name:"",provider:"openai",model:""});
     const [newCMStatus, setNewCMStatus] = createSignal<string>("");
+  const [showEditProvider, setShowEditProvider] = createSignal(false);
+  const [editingProvider, setEditingProvider] = createSignal<string>("");
+  const [toast, setToast] = createSignal<{type:'success'|'error';message:string;actionLabel?:string;action?:()=>void}|null>(null);
+  const showToast = (type:'success'|'error', message:string, actionLabel?:string, action?:()=>void) => {
+    setToast({ type, message, actionLabel, action });
+    setTimeout(() => setToast(null), 3000);
+  };
     
     // Model Management State
     const [showModelManager, setShowModelManager] = createSignal(false);
@@ -127,7 +134,7 @@ type LLMProvider = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(llmForm())
     });
-    alert("LLM Configuration saved!");
+    showToast('success', 'LLM settings saved');
     fetchData();
   };
 
@@ -137,7 +144,7 @@ type LLMProvider = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(prefs())
     });
-    alert("Preferences saved!");
+    showToast('success', 'Preferences saved');
   };
 
 
@@ -147,6 +154,19 @@ type LLMProvider = {
     setEnabledModels(new Set(provider.available_models || []));
     setShowModelManager(true);
   };
+  const openProviderEditor = (name: string) => {
+    setEditingProvider(name);
+    setShowEditProvider(true);
+  };
+  const saveProviderEditor = async () => {
+    await fetch('/api/config/llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(llmForm())
+    });
+    setShowEditProvider(false);
+    fetchData();
+  };
 
   const saveManagedModels = async () => {
     const providerName = managingProvider();
@@ -154,6 +174,7 @@ type LLMProvider = {
     setIsSavingModels(true);
     
     try {
+      const previous = new Set(enabledModels());
       const key = `${providerName}_enabled_models`;
       const currentConfig = llmForm();
       const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()) };
@@ -164,9 +185,18 @@ type LLMProvider = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newConfig)
       });
-      
-      alert(`Models for ${providerName} updated!`);
       setShowModelManager(false);
+      showToast('success', `Models for ${providerName} updated`, 'Undo', async () => {
+        const revertConfig = { ...currentConfig, [key]: Array.from(previous) };
+        setLlmForm(revertConfig);
+        await fetch('/api/config/llm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(revertConfig)
+        });
+        showToast('success', `Reverted ${providerName} models`);
+        fetchData();
+      });
       fetchData();
     } finally {
       setIsSavingModels(false);
@@ -555,6 +585,12 @@ type LLMProvider = {
                               Test
                             </button>
                             <button 
+                              onClick={() => openProviderEditor(p.name)}
+                              class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                            >
+                              Edit
+                            </button>
+                            <button 
                               onClick={() => openModelManager(p)}
                               class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
                               disabled={!p.models || p.models.length === 0}
@@ -766,9 +802,161 @@ type LLMProvider = {
                 Save All LLM Settings
               </button>
             </div>
+            <Show when={showEditProvider()}>
+              <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                <div class="w-[680px] bg-white rounded-2xl border shadow-xl overflow-hidden">
+                  <div class="px-6 py-4 border-b flex justify-between items-center">
+                    <div class="font-bold text-lg">Edit Provider: {editingProvider()}</div>
+                    <button onClick={() => setShowEditProvider(false)} class="text-gray-500">✕</button>
+                  </div>
+                  <div class="p-6 space-y-4">
+                    <Show when={editingProvider() === 'openai'}>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">OPENAI_API_KEY</div>
+                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().openai_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), openai_api_key: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">openai_model</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().openai_model || ''} onInput={e => setLlmForm({ ...llmForm(), openai_model: e.currentTarget.value })}/>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={editingProvider() === 'deepseek'}>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">DEEPSEEK_API_KEY</div>
+                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().deepseek_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), deepseek_api_key: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">deepseek_model</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().deepseek_model || ''} onInput={e => setLlmForm({ ...llmForm(), deepseek_model: e.currentTarget.value })}/>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={editingProvider() === 'gemini'}>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">GEMINI_API_KEY</div>
+                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().gemini_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), gemini_api_key: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">GEMINI_BASE_URL</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().gemini_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), gemini_base_url: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">gemini_model</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().gemini_model || ''} onInput={e => setLlmForm({ ...llmForm(), gemini_model: e.currentTarget.value })}/>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={editingProvider() === 'ollama'}>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">OLLAMA_BASE_URL</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().ollama_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), ollama_base_url: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">ollama_model</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().ollama_model || ''} onInput={e => setLlmForm({ ...llmForm(), ollama_model: e.currentTarget.value })}/>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={editingProvider() === 'zhipu'}>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">ZHIPU_API_KEY</div>
+                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().zhipu_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), zhipu_api_key: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">ZHIPU_BASE_URL</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().zhipu_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), zhipu_base_url: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">zhipu_model</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().zhipu_model || ''} onInput={e => setLlmForm({ ...llmForm(), zhipu_model: e.currentTarget.value })}/>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={editingProvider() === 'azure_openai'}>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_BASE_URL</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_base_url: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_DEPLOYMENT</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_deployment || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_deployment: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_API_VERSION</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_api_version || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_api_version: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_TENANT_ID</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_tenant_id || ''} onInput={e => setLlmForm({ ...llmForm(), azure_tenant_id: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_CLIENT_ID</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_client_id || ''} onInput={e => setLlmForm({ ...llmForm(), azure_client_id: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_CLIENT_SECRET</div>
+                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().azure_client_secret || ''} onInput={e => setLlmForm({ ...llmForm(), azure_client_secret: e.currentTarget.value })}/>
+                        </div>
+                        <div class="md:col-span-2">
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_TOKEN (Optional)</div>
+                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().azure_openai_token || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_token: e.currentTarget.value })}/>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={editingProvider() === 'litellm'}>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">LITELLM_BASE_URL</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().litellm_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), litellm_base_url: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">LITELLM_API_KEY</div>
+                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().litellm_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), litellm_api_key: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">litellm_model</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().litellm_model || ''} onInput={e => setLlmForm({ ...llmForm(), litellm_model: e.currentTarget.value })}/>
+                        </div>
+                      </div>
+                    </Show>
+                  </div>
+                  <div class="px-6 py-4 border-t flex justify-end gap-2">
+                    <button onClick={() => setShowEditProvider(false)} class="px-3 py-1.5 rounded-lg border">Cancel</button>
+                    <button onClick={saveProviderEditor} class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white">Save</button>
+                  </div>
+                </div>
+              </div>
+            </Show>
           </div>
         </Show>
-      </div>
+      <Show when={toast()}>
+        <div class="fixed bottom-6 right-6 z-50" role="status" aria-live="polite">
+          <div class={`px-4 py-3 rounded-xl shadow-lg border transition-all transform ${toast()!.type==='success' ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-red-600 text-white border-red-700'}`}>
+            <div class="flex items-center gap-3">
+              <div class="w-5 h-5">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
+                  <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707l-4 4a1 1 0 01-1.414 0l-2-2 1.414-1.414L9 10.586l3.293-3.293 1.414 1.414z"/>
+                </svg>
+              </div>
+              <div class="text-sm font-semibold flex-1">{toast()!.message}</div>
+              <Show when={toast()!.actionLabel}>
+                <button class="text-xs px-2 py-1 rounded bg-white/20 hover:bg-white/30" onClick={() => { toast()!.action?.(); setToast(null); }}>
+                  {toast()!.actionLabel}
+                </button>
+              </Show>
+              <button class="text-white/80 hover:text-white" onClick={() => setToast(null)}>✕</button>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
+  </div>
   );
 }

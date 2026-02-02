@@ -5,24 +5,19 @@
     "openai_enabled_models": [],
     "gemini_enabled_models": [],
     "ollama_enabled_models": [
-      "functiongemma:latest",
-      "nomic-embed-text:latest",
       "deepseek-ocr:latest",
-      "qwen3-embedding:latest",
-      "qwen2.5-coder:latest",
       "llama3.2-vision:latest",
       "gpt-oss:latest",
       "qwen3:0.6b",
       "yi:9b",
-      "deepcoder:latest",
       "qwen2.5:0.5b",
-      "qwen2.5:1.5b",
       "gemma3:1b",
-      "gemma3:12b",
       "qwq:latest",
-      "qwen2.5:14b",
       "llama3.2-vision:11b",
-      "phi4:latest"
-    ]
+      "phi4:latest",
+      "qwen2.5:1.5b"
+    ],
+    "azure_client_id": "cute.spring@gmail.com",
+    "azure_client_secret": "alnw5erTX"
   }
 }
