@@ -16,6 +16,37 @@ class TestMcpAndModels(unittest.TestCase):
             self.assertIn("id", tools[0])
             self.assertIn("name", tools[0])
 
+    def test_mcp_tools_stable_ids_and_dedup(self):
+        r1 = requests.get(f"{BASE}/api/mcp/tools")
+        self.assertEqual(r1.status_code, 200)
+        tools1 = r1.json()
+
+        r2 = requests.get(f"{BASE}/api/mcp/tools")
+        self.assertEqual(r2.status_code, 200)
+        tools2 = r2.json()
+
+        ids1 = []
+        for t in tools1:
+            self.assertIn("id", t)
+            self.assertIn("name", t)
+            self.assertIn("server", t)
+            tool_id = t["id"]
+            server = t["server"]
+            name = t["name"]
+            self.assertEqual(tool_id, f"{server}:{name}")
+            server_in_id, name_in_id = tool_id.split(":", 1)
+            self.assertEqual(server_in_id, server)
+            self.assertEqual(name_in_id, name)
+            ids1.append(tool_id)
+
+        self.assertEqual(len(ids1), len(set(ids1)))
+        self.assertEqual(set(ids1), {t["id"] for t in tools2})
+
+    def test_mcp_reload_stable(self):
+        for _ in range(3):
+            r = requests.post(f"{BASE}/api/mcp/reload")
+            self.assertEqual(r.status_code, 200)
+
     def test_models_provider_test(self):
         for name in ["openai", "gemini", "deepseek", "ollama"]:
             r = requests.post(f"{BASE}/api/models/test/{name}", json={})

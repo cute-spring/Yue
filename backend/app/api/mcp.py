@@ -3,9 +3,11 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, ValidationError, field_validator
 import json
 import os
+import logging
 from app.mcp.manager import mcp_manager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 CONFIG_PATH = mcp_manager.config_path
 
@@ -63,6 +65,7 @@ async def update_configs(configs: List[Dict[str, Any]]):
     except ValidationError as ve:
         raise HTTPException(status_code=400, detail=ve.errors())
     except Exception as e:
+        logger.exception("Failed to update MCP configs")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/reload")
@@ -72,4 +75,5 @@ async def reload_mcp():
         await mcp_manager.initialize()
         return {"status": "reloaded"}
     except Exception as e:
+        logger.exception("Failed to reload MCP")
         raise HTTPException(status_code=500, detail=str(e))

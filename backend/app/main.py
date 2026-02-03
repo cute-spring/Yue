@@ -1,6 +1,7 @@
 import os
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -8,11 +9,14 @@ from dotenv import load_dotenv
 from pathlib import Path
 from app.api import chat, agents, mcp, models, config, notebook
 from app.mcp.manager import mcp_manager
+from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
 # Load .env from backend directory
 env_path = Path(__file__).parent.parent / '.env'
-print(f"Loading env from: {env_path.absolute()}")
 load_dotenv(dotenv_path=env_path)
+setup_logging()
+logger = logging.getLogger(__name__)
+logger.info("Loading env from: %s", env_path.absolute())
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,6 +27,17 @@ async def lifespan(app: FastAPI):
     await mcp_manager.cleanup()
 
 app = FastAPI(title="Yue Agent Platform API", lifespan=lifespan)
+
+@app.middleware("http")
+async def trace_id_middleware(request: Request, call_next):
+    trace_id = request.headers.get(TRACE_HEADER) or new_trace_id()
+    token = set_trace_id(trace_id)
+    try:
+        response = await call_next(request)
+    finally:
+        reset_trace_id(token)
+    response.headers[TRACE_HEADER] = trace_id
+    return response
 
 # Configure CORS
 app.add_middleware(

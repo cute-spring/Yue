@@ -3,6 +3,7 @@ import os
 import json
 import re
 import asyncio
+import logging
 from contextlib import AsyncExitStack
 import datetime
 
@@ -10,6 +11,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from pydantic_ai import RunContext, Tool
 from pydantic import create_model, Field, BaseModel
+
+logger = logging.getLogger(__name__)
 
 class McpManager:
     _instance = None
@@ -25,27 +28,34 @@ class McpManager:
             return
         self.config_path = os.path.join(os.path.dirname(__file__), "../../data/mcp_configs.json")
         self.exit_stack = AsyncExitStack()
+        self._lock = asyncio.Lock()
         self.sessions: Dict[str, ClientSession] = {}
         self.last_errors: Dict[str, str] = {}
         self.initialized = True
 
     async def initialize(self):
         """Connect to all configured servers."""
-        configs = self.load_config()
-        print(f"Loading MCP configs from {self.config_path}: {configs}")
-        for config in configs:
-            try:
-                if config.get("enabled", True):
-                    await self.connect_to_server(config)
-            except Exception as e:
-                print(f"Failed to connect to {config.get('name')}: {e}")
-                name = config.get("name") or "unknown"
-                self.last_errors[name] = str(e)
+        async with self._lock:
+            configs = self.load_config()
+            logger.info("Loading MCP configs from %s: %s", self.config_path, configs)
+            for config in configs:
+                try:
+                    if config.get("enabled", True):
+                        await self._connect_to_server_unlocked(config)
+                except Exception as e:
+                    logger.exception("Failed to connect to %s", config.get("name"))
+                    name = config.get("name") or "unknown"
+                    self.last_errors[name] = str(e)
 
     async def cleanup(self):
         """Close all connections."""
-        await self.exit_stack.aclose()
-        self.sessions.clear()
+        async with self._lock:
+            try:
+                await self.exit_stack.aclose()
+            except Exception:
+                logger.exception("Error during MCP cleanup")
+            self.exit_stack = AsyncExitStack()
+            self.sessions.clear()
 
     def load_config(self) -> List[Dict[str, Any]]:
         if not os.path.exists(self.config_path):
@@ -54,10 +64,14 @@ class McpManager:
             with open(self.config_path, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading MCP config: {e}")
+            logger.exception("Error loading MCP config")
             return []
 
     async def connect_to_server(self, config: Dict[str, Any]):
+        async with self._lock:
+            return await self._connect_to_server_unlocked(config)
+
+    async def _connect_to_server_unlocked(self, config: Dict[str, Any]):
         name = config.get("name")
         if not name:
             return
@@ -66,7 +80,7 @@ class McpManager:
             return self.sessions[name]
 
         transport = config.get("transport", "stdio")
-        print(f"Connecting to MCP server: {name} ({transport})")
+        logger.info("Connecting to MCP server: %s (%s)", name, transport)
         
         if transport == "stdio":
             command = config.get("command")
@@ -96,7 +110,7 @@ class McpManager:
             session = await self.exit_stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             self.sessions[name] = session
-            print(f"Connected to {name}")
+            logger.info("Connected to %s", name)
             return session
         
         # TODO: Implement SSE
@@ -107,53 +121,55 @@ class McpManager:
         Returns a list of all available tools from connected servers.
         Used for UI configuration.
         """
-        tools = []
-        for name, session in self.sessions.items():
-            try:
-                result = await session.list_tools()
-                for tool in result.tools:
-                    tools.append({
-                        "id": f"{name}:{tool.name}",
-                        "name": tool.name,
-                        "description": tool.description,
-                        "server": name,
-                        "input_schema": tool.inputSchema
-                    })
-            except Exception as e:
-                print(f"Error listing tools for {name}: {e}")
-        return tools
+        async with self._lock:
+            tools = []
+            for name, session in self.sessions.items():
+                try:
+                    result = await session.list_tools()
+                    for tool in result.tools:
+                        tools.append({
+                            "id": f"{name}:{tool.name}",
+                            "name": tool.name,
+                            "description": tool.description,
+                            "server": name,
+                            "input_schema": tool.inputSchema
+                        })
+                except Exception as e:
+                    logger.exception("Error listing tools for %s", name)
+            return sorted(tools, key=lambda t: (t.get("server", ""), t.get("name", "")))
 
     async def get_tools_for_agent(self, agent_id: str) -> List[Any]:
         """
         Dynamically connects to MCP servers authorized for the agent
         and returns tools compatible with Pydantic AI.
         """
-        tools = []
-        
-        from app.services.agent_store import agent_store
-        agent = agent_store.get_agent(agent_id)
-        
-        allowed_tools = None
-        if agent:
-            allowed_tools = set(agent.enabled_tools)
-        
-        # In a real app, we would filter by agent_id
-        # For now, expose all tools from all connected sessions
-        for name, session in self.sessions.items():
-            try:
-                result = await session.list_tools()
-                for tool in result.tools:
-                    composite_id = f"{name}:{tool.name}"
-                    if allowed_tools is not None and (composite_id not in allowed_tools and tool.name not in allowed_tools):
-                        continue
-                    tools.append(self._convert_tool(name, session, tool))
-            except Exception as e:
-                print(f"Error listing tools for {name}: {e}")
-        
-        # Add a built-in demo tool
-        tools.append(self.get_current_time)
-        
-        return tools
+        async with self._lock:
+            tools = []
+
+            from app.services.agent_store import agent_store
+            agent = agent_store.get_agent(agent_id)
+
+            allowed_tools = None
+            if agent:
+                allowed_tools = set(agent.enabled_tools)
+
+            # In a real app, we would filter by agent_id
+            # For now, expose all tools from all connected sessions
+            for name, session in self.sessions.items():
+                try:
+                    result = await session.list_tools()
+                    for tool in result.tools:
+                        composite_id = f"{name}:{tool.name}"
+                        if allowed_tools is not None and (composite_id not in allowed_tools and tool.name not in allowed_tools):
+                            continue
+                        tools.append(self._convert_tool(name, session, tool))
+                except Exception as e:
+                    logger.exception("Error listing tools for %s", name)
+
+            # Add a built-in demo tool
+            tools.append(self.get_current_time)
+
+            return tools
 
     def get_status(self) -> List[Dict[str, Any]]:
         """

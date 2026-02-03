@@ -20,5 +20,17 @@
     ],
     "created_at": "2026-02-01T10:32:30.472375",
     "updated_at": "2026-02-01T10:32:30.472379"
+  },
+  {
+    "id": "ca947700-6b5f-4087-a349-56c9c10dcc8c",
+    "name": "UI Verifier",
+    "system_prompt": "You verify MCP configs and tools.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "Chrome DevTools MCP:navigate_page"
+    ],
+    "created_at": "2026-02-03T08:11:36.621165",
+    "updated_at": "2026-02-03T08:11:36.621170"
   }
 ]

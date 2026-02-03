@@ -9,6 +9,9 @@ from app.services.model_factory import get_model
 from app.services.chat_service import chat_service, ChatSession
 import json
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -130,7 +133,7 @@ async def chat_stream(request: ChatRequest):
                 # Handle models that don't support tools (like smaller Ollama models)
                 err_str = str(stream_err)
                 if "does not support tools" in err_str or "Tool use is not supported" in err_str:
-                    print(f"Model {model_name} does not support tools, falling back to pure chat.")
+                    logger.info("Model %s does not support tools, falling back to pure chat.", model_name)
                     # Re-create agent without tools
                     agent_no_tools = Agent(model, system_prompt=system_prompt)
                     last_length = 0
@@ -168,8 +171,7 @@ async def chat_stream(request: ChatRequest):
             chat_service.add_message(chat_id, "assistant", full_response, thought_duration)
             
         except Exception as e:
-            print(f"Chat error: {e}")
+            logger.exception("Chat error")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-

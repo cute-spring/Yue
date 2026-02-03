@@ -34,10 +34,13 @@ Code refs: [models.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/
 ### 3) MCP Tools & Status
 - Tools must include stable id "server:name".
 - Status must show enabled/connected/last_error per server.
+- Responses should include `X-Request-Id` for traceability (echo if provided).
 
 ```bash
 curl -s http://127.0.0.1:8003/api/mcp/tools
 curl -s http://127.0.0.1:8003/api/mcp/status
+curl -s -D - http://127.0.0.1:8003/api/mcp/status -o /dev/null | head -n 20
+curl -s -D - http://127.0.0.1:8003/api/mcp/status -H "X-Request-Id: test-trace-id-123" -o /dev/null | head -n 20
 ```
 
 Toggle enabled and reload:
@@ -143,4 +146,3 @@ Code refs: [test_mcp_and_models.py](file:///Users/gavinzhang/ws-ai-recharge-2026
 - Backend logs: check hot reload and MCP connection info; rerun /reload after config changes.
 - Frontend: refresh or restart dev server if UI stale; confirm production assets in backend/static for Docker.
 - Provider failures: verify API Key/Base URL correctness; ensure https and network reachability.
-
