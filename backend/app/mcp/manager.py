@@ -12,6 +12,8 @@ from mcp.client.stdio import stdio_client
 from pydantic_ai import RunContext, Tool
 from pydantic import create_model, Field, BaseModel
 
+from app.services import doc_retrieval
+
 logger = logging.getLogger(__name__)
 
 class McpManager:
@@ -125,6 +127,8 @@ class McpManager:
             tools = []
             for name, session in self.sessions.items():
                 try:
+                    if getattr(session, "is_closed", False):
+                        continue
                     result = await session.list_tools()
                     for tool in result.tools:
                         tools.append({
@@ -136,9 +140,10 @@ class McpManager:
                         })
                 except Exception as e:
                     logger.exception("Error listing tools for %s", name)
+            tools.extend(self._get_builtin_tools_metadata())
             return sorted(tools, key=lambda t: (t.get("server", ""), t.get("name", "")))
 
-    async def get_tools_for_agent(self, agent_id: str) -> List[Any]:
+    async def get_tools_for_agent(self, agent_id: Optional[str]) -> List[Any]:
         """
         Dynamically connects to MCP servers authorized for the agent
         and returns tools compatible with Pydantic AI.
@@ -147,7 +152,7 @@ class McpManager:
             tools = []
 
             from app.services.agent_store import agent_store
-            agent = agent_store.get_agent(agent_id)
+            agent = agent_store.get_agent(agent_id) if agent_id else None
 
             allowed_tools = None
             if agent:
@@ -157,6 +162,8 @@ class McpManager:
             # For now, expose all tools from all connected sessions
             for name, session in self.sessions.items():
                 try:
+                    if getattr(session, "is_closed", False):
+                        continue
                     result = await session.list_tools()
                     for tool in result.tools:
                         composite_id = f"{name}:{tool.name}"
@@ -166,8 +173,11 @@ class McpManager:
                 except Exception as e:
                     logger.exception("Error listing tools for %s", name)
 
-            # Add a built-in demo tool
-            tools.append(self.get_current_time)
+            for tool_name, tool_func in self._get_builtin_tools():
+                composite_id = f"builtin:{tool_name}"
+                if allowed_tools is not None and (composite_id not in allowed_tools and tool_name not in allowed_tools):
+                    continue
+                tools.append(tool_func)
 
             return tools
 
@@ -256,6 +266,87 @@ class McpManager:
     def get_current_time(self, ctx: RunContext[Any]) -> str:
         """Returns the current time."""
         return datetime.datetime.now().isoformat()
+
+    def _get_builtin_tools(self) -> List[tuple[str, Any]]:
+        return [
+            ("docs_search_markdown", self.docs_search_markdown),
+            ("docs_read_markdown", self.docs_read_markdown),
+            ("get_current_time", self.get_current_time),
+        ]
+
+    def _get_builtin_tools_metadata(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": "builtin:docs_search_markdown",
+                "name": "docs_search_markdown",
+                "description": "Search Markdown files under Yue/docs and return matching snippets.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "id": "builtin:docs_read_markdown",
+                "name": "docs_read_markdown",
+                "description": "Read a Markdown file under Yue/docs with line-based pagination.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "start_line": {"type": "integer"},
+                        "max_lines": {"type": "integer"},
+                    },
+                    "required": ["path"],
+                },
+            },
+        ]
+
+    async def docs_search_markdown(self, ctx: RunContext[Any], query: str, limit: int = 5) -> str:
+        hits = doc_retrieval.search_markdown(query, limit=limit)
+        deps = getattr(ctx, "deps", None)
+        if isinstance(deps, dict):
+            citations = deps.get("citations")
+            if isinstance(citations, list):
+                existing = {c.get("path") for c in citations if isinstance(c, dict)}
+                for h in hits:
+                    if h.path in existing:
+                        continue
+                    citations.append({"path": h.path, "snippet": h.snippet, "score": h.score})
+                    existing.add(h.path)
+        payload = [{"path": h.path, "snippet": h.snippet, "score": h.score} for h in hits]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    async def docs_read_markdown(
+        self,
+        ctx: RunContext[Any],
+        path: str,
+        start_line: int = 1,
+        max_lines: int = 200,
+    ) -> str:
+        abs_path, start, end, snippet = doc_retrieval.read_markdown_lines(
+            path,
+            start_line=start_line,
+            max_lines=max_lines,
+        )
+        deps = getattr(ctx, "deps", None)
+        if isinstance(deps, dict):
+            citations = deps.get("citations")
+            if isinstance(citations, list):
+                citations.append(
+                    {
+                        "path": abs_path,
+                        "start_line": start,
+                        "end_line": end,
+                        "snippet": snippet,
+                    }
+                )
+        return f"{abs_path}#L{start}-L{end}\n{snippet}"
 
 # Global instance
 mcp_manager = McpManager()

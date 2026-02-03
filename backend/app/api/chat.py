@@ -107,6 +107,7 @@ async def chat_stream(request: ChatRequest):
                 system_prompt=system_prompt,
                 tools=tools
             )
+            deps = {"citations": []}
             
             last_length = 0
             full_response = ""
@@ -115,7 +116,7 @@ async def chat_stream(request: ChatRequest):
             
             try:
                 # Run with history
-                async with agent.run_stream(request.message, message_history=history) as result:
+                async with agent.run_stream(request.message, message_history=history, deps=deps) as result:
                     async for message in result.stream_text():
                         # Track thinking time
                         if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
@@ -140,7 +141,7 @@ async def chat_stream(request: ChatRequest):
                     full_response = ""
                     thought_start_time = None
                     thought_end_time = None
-                    async with agent_no_tools.run_stream(request.message, message_history=history) as result:
+                    async with agent_no_tools.run_stream(request.message, message_history=history, deps=deps) as result:
                         async for message in result.stream_text():
                             # Track thinking time
                             if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
@@ -166,6 +167,10 @@ async def chat_stream(request: ChatRequest):
 
             if thought_duration:
                 yield f"data: {json.dumps({'thought_duration': thought_duration})}\n\n"
+
+            citations = deps.get("citations") if isinstance(deps, dict) else None
+            if isinstance(citations, list) and citations:
+                yield f"data: {json.dumps({'citations': citations})}\n\n"
 
             # Save Assistant Message after completion
             chat_service.add_message(chat_id, "assistant", full_response, thought_duration)

@@ -21,13 +21,52 @@ class AgentConfig(BaseModel):
 class AgentStore:
     def __init__(self):
         self._ensure_data_file()
+        self._ensure_builtin_agents()
 
     def _ensure_data_file(self):
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR)
         if not os.path.exists(AGENTS_FILE):
             with open(AGENTS_FILE, 'w') as f:
-                json.dump([], f)
+                json.dump([self._builtin_docs_agent().model_dump(mode="json")], f, indent=2)
+
+    def _builtin_docs_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-docs",
+            name="Docs",
+            system_prompt=(
+                "你是一个只基于 Yue/docs 下 Markdown 文档回答问题的助手。\n"
+                "你必须先使用 docs_search_markdown / docs_read_markdown 工具检索证据，再给出回答。\n"
+                "如果找不到证据：明确说明“未在文档中找到依据”，不要用常识或猜测补全，并给出可继续检索的关键词建议。\n"
+                "输出要求：列出答案要点，并附带引用路径（来自工具返回的 path）。"
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[
+                "builtin:docs_search_markdown",
+                "builtin:docs_read_markdown",
+            ],
+        )
+
+    def _ensure_builtin_agents(self):
+        agents = self.list_agents()
+        builtin = self._builtin_docs_agent()
+        for i, a in enumerate(agents):
+            if a.id != "builtin-docs":
+                continue
+            changed = False
+            if a.system_prompt != builtin.system_prompt:
+                a.system_prompt = builtin.system_prompt
+                changed = True
+            if a.enabled_tools != builtin.enabled_tools:
+                a.enabled_tools = builtin.enabled_tools
+                changed = True
+            if changed:
+                agents[i] = a
+                self._save_agents(agents)
+            return
+        agents.append(builtin)
+        self._save_agents(agents)
 
     def list_agents(self) -> List[AgentConfig]:
         with open(AGENTS_FILE, 'r') as f:

@@ -5,6 +5,11 @@ BASE = "http://127.0.0.1:8003"
 
 class TestAgentsNormalization(unittest.TestCase):
     def test_normalize_enabled_tools(self):
+        r = requests.get(f"{BASE}/api/agents/")
+        self.assertEqual(r.status_code, 200)
+        agents = r.json()
+        self.assertTrue(any(a.get("id") == "builtin-docs" for a in agents))
+
         r = requests.get(f"{BASE}/api/mcp/tools")
         self.assertEqual(r.status_code, 200)
         tools = r.json()
