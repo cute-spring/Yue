@@ -102,4 +102,25 @@ class ConfigService:
         self.update_config(self._config)
         return self._config["preferences"]
 
+    def get_doc_access(self) -> Dict[str, Any]:
+        return self._config.get("doc_access", {"allow_roots": []})
+
+    def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:
+        existing = self._config.get("doc_access", {"allow_roots": []})
+        if "allow_roots" in doc_access:
+            allow_roots = doc_access.get("allow_roots") or []
+            if not isinstance(allow_roots, list):
+                raise ValueError("allow_roots must be a list")
+            normalized = []
+            for r in allow_roots:
+                if not isinstance(r, str):
+                    continue
+                rr = r.strip()
+                if rr:
+                    normalized.append(rr)
+            existing["allow_roots"] = normalized
+        self._config["doc_access"] = existing
+        self.update_config(self._config)
+        return existing
+
 config_service = ConfigService()

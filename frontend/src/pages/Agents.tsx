@@ -1,4 +1,5 @@
 import { createSignal, For, onMount, Show } from 'solid-js';
+import ModelSwitcher, { type ProviderInfo } from '../components/ModelSwitcher';
 
 type Agent = {
   id: string;
@@ -7,6 +8,7 @@ type Agent = {
   provider: string;
   model: string;
   enabled_tools: string[];
+  doc_root?: string;
 };
 
 type McpTool = {
@@ -23,7 +25,8 @@ export default function Agents() {
   // UI State
   const [isEditing, setIsEditing] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [providerOptions, setProviderOptions] = createSignal<string[]>([]);
+  const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
+  const [submitError, setSubmitError] = createSignal<string | null>(null);
   
   // Form state
   const [formName, setFormName] = createSignal("");
@@ -31,10 +34,60 @@ export default function Agents() {
   const [formProvider, setFormProvider] = createSignal("openai");
   const [formModel, setFormModel] = createSignal("gpt-4o");
   const [formTools, setFormTools] = createSignal<string[]>([]);
+  const [formDocRoot, setFormDocRoot] = createSignal("");
+
+  const modelsOf = (p: ProviderInfo): string[] => {
+    const list = (p.available_models && p.available_models.length > 0) ? p.available_models : p.models;
+    return Array.from(new Set((list || []).filter(Boolean)));
+  };
+
+  const pickDefaultModel = (catalog: ProviderInfo[]) => {
+    for (const p of catalog) {
+      const ms = modelsOf(p);
+      if (ms.length > 0) {
+        setFormProvider(p.name);
+        setFormModel(ms[0]);
+        return;
+      }
+    }
+  };
+
+  const ensureSelectionValid = (catalog: ProviderInfo[]) => {
+    const provider = formProvider();
+    const model = formModel();
+
+    if (!provider || !model) {
+      pickDefaultModel(catalog);
+      return;
+    }
+
+    const byProvider = catalog.find(p => p.name === provider);
+    if (byProvider) {
+      const ms = modelsOf(byProvider);
+      if (ms.includes(model)) return;
+      if (ms.length > 0) {
+        setFormModel(ms[0]);
+        return;
+      }
+    }
+
+    const byModel = catalog.find(p => modelsOf(p).includes(model));
+    if (byModel) {
+      setFormProvider(byModel.name);
+      return;
+    }
+
+    pickDefaultModel(catalog);
+  };
 
   const loadAgents = async () => {
-    const res = await fetch('/api/agents/');
-    setAgents(await res.json());
+    try {
+      const res = await fetch('/api/agents/');
+      if (!res.ok) throw new Error(await res.text());
+      setAgents(await res.json());
+    } catch (e) {
+      console.error("Failed to load agents", e);
+    }
   };
 
   const loadTools = async () => {
@@ -46,24 +99,33 @@ export default function Agents() {
     }
   };
 
+  const loadProviderCatalog = async (refresh = false) => {
+    try {
+      const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setProviders(data);
+      ensureSelectionValid(data || []);
+    } catch (e) {}
+  };
+
   onMount(async () => {
     loadAgents();
     loadTools();
-    try {
-      const res = await fetch('/api/models/supported');
-      const data = await res.json();
-      setProviderOptions(data);
-    } catch (e) {}
+    loadProviderCatalog();
   });
 
   const openCreate = () => {
     setFormName("");
     setFormPrompt("");
-    setFormProvider("openai");
-    setFormModel("gpt-4o");
+    setFormProvider(formProvider() || "openai");
+    setFormModel(formModel() || "gpt-4o");
     setFormTools([]);
+    setFormDocRoot("");
+    setSubmitError(null);
     setEditingId(null);
     setIsEditing(true);
+    ensureSelectionValid(providers());
   };
 
   const openEdit = (agent: Agent) => {
@@ -72,37 +134,49 @@ export default function Agents() {
     setFormProvider(agent.provider);
     setFormModel(agent.model);
     setFormTools(agent.enabled_tools);
+    setFormDocRoot(agent.doc_root || "");
+    setSubmitError(null);
     setEditingId(agent.id);
     setIsEditing(true);
+    ensureSelectionValid(providers());
   };
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
+    setSubmitError(null);
     
     const payload = {
       name: formName(),
       system_prompt: formPrompt(),
       provider: formProvider(),
       model: formModel(),
-      enabled_tools: formTools()
+      enabled_tools: formTools(),
+      doc_root: formDocRoot() || undefined
     };
 
-    if (editingId()) {
-      await fetch(`/api/agents/${editingId()}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } else {
-      await fetch('/api/agents/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+    try {
+      const res = editingId()
+        ? await fetch(`/api/agents/${editingId()}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+        : await fetch('/api/agents/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+      if (!res.ok) {
+        setSubmitError(await res.text());
+        return;
+      }
+    } catch (e: any) {
+      setSubmitError(String(e?.message || e));
+      return;
     }
     
     setIsEditing(false);
-    loadAgents();
+    await loadAgents();
   };
 
   const handleDelete = async (id: string) => {
@@ -153,6 +227,11 @@ export default function Agents() {
             </button>
           </div>
           <form onSubmit={handleSubmit} class="p-6 space-y-6">
+            <Show when={submitError()}>
+              <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-wrap">
+                {submitError()}
+              </div>
+            </Show>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Name</label>
@@ -164,27 +243,41 @@ export default function Agents() {
                   required
                 />
               </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-semibold text-gray-700 mb-2">Provider</label>
-                  <select 
-                    class="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    value={formProvider()}
-                    onChange={e => setFormProvider(e.currentTarget.value)}
-                  >
-                    <For each={providerOptions()}>
-                      {(opt) => <option value={opt}>{opt}</option>}
-                    </For>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-sm font-semibold text-gray-700 mb-2">Model</label>
-                  <input 
-                    class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
-                    value={formModel()}
-                    onInput={e => setFormModel(e.currentTarget.value)}
-                    placeholder="e.g. gpt-4o"
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Model</label>
+                <Show
+                  when={providers().length > 0}
+                  fallback={
+                    <div class="grid grid-cols-2 gap-4">
+                      <input
+                        class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        value={formProvider()}
+                        onInput={e => setFormProvider(e.currentTarget.value)}
+                        placeholder="provider (e.g. openai)"
+                      />
+                      <input
+                        class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        value={formModel()}
+                        onInput={e => setFormModel(e.currentTarget.value)}
+                        placeholder="model (e.g. gpt-4o)"
+                      />
+                    </div>
+                  }
+                >
+                  <ModelSwitcher
+                    providers={providers()}
+                    selectedModel={formModel()}
+                    theme="light"
+                    placement="bottom"
+                    onRefresh={() => loadProviderCatalog(true)}
+                    onSelect={(provider, model) => {
+                      setFormProvider(provider);
+                      setFormModel(model);
+                    }}
                   />
+                </Show>
+                <div class="text-xs text-gray-500 mt-1">
+                  Provider: <span class="font-mono">{formProvider() || "-"}</span>
                 </div>
               </div>
             </div>
@@ -198,6 +291,19 @@ export default function Agents() {
                 placeholder="You are a helpful assistant..."
                 required
               />
+            </div>
+
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Doc Root (optional)</label>
+              <input
+                class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm"
+                value={formDocRoot()}
+                onInput={e => setFormDocRoot(e.currentTarget.value)}
+                placeholder='e.g. docs or /Users/you/path/to/docs'
+              />
+              <div class="text-xs text-gray-500 mt-1">
+                Used by docs_search_markdown/docs_read_markdown when root isn’t provided.
+              </div>
             </div>
 
             <div>

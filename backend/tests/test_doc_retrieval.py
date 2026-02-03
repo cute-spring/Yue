@@ -5,10 +5,44 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.services.doc_retrieval import DocAccessError, read_markdown_lines, resolve_docs_path, search_markdown
+from app.services.doc_retrieval import DocAccessError, read_markdown_lines, resolve_docs_path, resolve_target_root, search_markdown
 
 
 class TestDocRetrieval(unittest.TestCase):
+    def test_resolve_target_root_allows_project_subdir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = os.path.join(tmp, "Yue")
+            os.makedirs(project_root, exist_ok=True)
+            notes = os.path.join(project_root, "notes")
+            os.makedirs(notes, exist_ok=True)
+            resolved = resolve_target_root("notes", project_root=project_root)
+            self.assertEqual(os.path.realpath(notes), resolved)
+
+    def test_resolve_target_root_denies_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = os.path.join(tmp, "Yue")
+            os.makedirs(project_root, exist_ok=True)
+            with self.assertRaises(DocAccessError):
+                resolve_target_root("../secrets", project_root=project_root)
+
+    def test_resolve_target_root_allows_external_when_allowlisted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = os.path.join(tmp, "Yue")
+            os.makedirs(project_root, exist_ok=True)
+            external = os.path.join(tmp, "opencode", "docs")
+            os.makedirs(external, exist_ok=True)
+            resolved = resolve_target_root(external, project_root=project_root, allow_roots=[external])
+            self.assertEqual(os.path.realpath(external), resolved)
+
+    def test_resolve_target_root_denies_external_without_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = os.path.join(tmp, "Yue")
+            os.makedirs(project_root, exist_ok=True)
+            external = os.path.join(tmp, "opencode", "docs")
+            os.makedirs(external, exist_ok=True)
+            with self.assertRaises(DocAccessError):
+                resolve_target_root(external, project_root=project_root)
+
     def test_resolve_docs_path_denies_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
             docs_root = os.path.join(tmp, "docs")

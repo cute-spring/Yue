@@ -15,6 +15,7 @@ class AgentConfig(BaseModel):
     provider: str = "openai"
     model: str = "gpt-4o"
     enabled_tools: List[str] = [] # List of tool names
+    doc_root: str = "docs"
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -46,6 +47,7 @@ class AgentStore:
                 "builtin:docs_search_markdown",
                 "builtin:docs_read_markdown",
             ],
+            doc_root="docs",
         )
 
     def _ensure_builtin_agents(self):

@@ -32,3 +32,11 @@ async def get_preferences():
 @router.post("/preferences")
 async def update_preferences(prefs: Dict[str, Any] = Body(...)):
     return config_service.update_preferences(prefs)
+
+@router.get("/doc_access")
+async def get_doc_access():
+    return config_service.get_doc_access()
+
+@router.post("/doc_access")
+async def update_doc_access(doc_access: Dict[str, Any] = Body(...)):
+    return config_service.update_doc_access(doc_access)

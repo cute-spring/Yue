@@ -24,6 +24,37 @@ def get_docs_root() -> str:
     return os.path.join(get_project_root(), "docs")
 
 
+def resolve_target_root(
+    requested_root: str,
+    *,
+    project_root: Optional[str] = None,
+    allow_roots: Optional[List[str]] = None,
+) -> str:
+    project_root = project_root or get_project_root()
+    root = (requested_root or "").strip()
+    if not root:
+        raise DocAccessError("root is required")
+    if os.path.isabs(root):
+        candidate = root
+    else:
+        candidate = os.path.join(project_root, root)
+    candidate_real = _realpath(candidate)
+    allowed = _is_under(project_root, candidate_real)
+    if not allowed and allow_roots:
+        for r in allow_roots:
+            if not r:
+                continue
+            r_real = _realpath(r)
+            if _is_under(r_real, candidate_real):
+                allowed = True
+                break
+    if not allowed:
+        raise DocAccessError("root is not allowed")
+    if not os.path.isdir(candidate_real):
+        raise DocAccessError("root is not a directory")
+    return candidate_real
+
+
 def _realpath(path: str) -> str:
     return os.path.realpath(os.path.abspath(path))
 

@@ -108,6 +108,8 @@ async def chat_stream(request: ChatRequest):
                 tools=tools
             )
             deps = {"citations": []}
+            if agent_config and getattr(agent_config, "doc_root", None):
+                deps["doc_root"] = agent_config.doc_root
             
             last_length = 0
             full_response = ""

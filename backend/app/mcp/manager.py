@@ -13,6 +13,7 @@ from pydantic_ai import RunContext, Tool
 from pydantic import create_model, Field, BaseModel
 
 from app.services import doc_retrieval
+from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,7 @@ class McpManager:
                 "input_schema": {
                     "type": "object",
                     "properties": {
+                        "root": {"type": "string", "description": "Target folder relative to project root (default: docs)."},
                         "query": {"type": "string"},
                         "limit": {"type": "integer"},
                     },
@@ -298,6 +300,7 @@ class McpManager:
                 "input_schema": {
                     "type": "object",
                     "properties": {
+                        "root": {"type": "string", "description": "Target folder relative to project root (default: docs)."},
                         "path": {"type": "string"},
                         "start_line": {"type": "integer"},
                         "max_lines": {"type": "integer"},
@@ -307,9 +310,18 @@ class McpManager:
             },
         ]
 
-    async def docs_search_markdown(self, ctx: RunContext[Any], query: str, limit: int = 5) -> str:
-        hits = doc_retrieval.search_markdown(query, limit=limit)
+    def _get_allow_roots(self) -> List[str]:
+        doc_access = config_service.get_doc_access()
+        allow_roots = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
+        return [r for r in allow_roots if isinstance(r, str) and r.strip()]
+
+    async def docs_search_markdown(self, ctx: RunContext[Any], query: str, limit: int = 5, root: Optional[str] = None) -> str:
         deps = getattr(ctx, "deps", None)
+        effective_root = root
+        if not effective_root and isinstance(deps, dict):
+            effective_root = deps.get("doc_root")
+        docs_root = doc_retrieval.resolve_target_root(effective_root or "docs", allow_roots=self._get_allow_roots())
+        hits = doc_retrieval.search_markdown(query, limit=limit, docs_root=docs_root)
         if isinstance(deps, dict):
             citations = deps.get("citations")
             if isinstance(citations, list):
@@ -328,13 +340,19 @@ class McpManager:
         path: str,
         start_line: int = 1,
         max_lines: int = 200,
+        root: Optional[str] = None,
     ) -> str:
+        deps = getattr(ctx, "deps", None)
+        effective_root = root
+        if not effective_root and isinstance(deps, dict):
+            effective_root = deps.get("doc_root")
+        docs_root = doc_retrieval.resolve_target_root(effective_root or "docs", allow_roots=self._get_allow_roots())
         abs_path, start, end, snippet = doc_retrieval.read_markdown_lines(
             path,
+            docs_root=docs_root,
             start_line=start_line,
             max_lines=max_lines,
         )
-        deps = getattr(ctx, "deps", None)
         if isinstance(deps, dict):
             citations = deps.get("citations")
             if isinstance(citations, list):
