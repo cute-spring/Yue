@@ -5,10 +5,23 @@
     "system_prompt": "You are a helpful assistant.",
     "provider": "deepseek",
     "model": "deepseek-chat",
-    "enabled_tools": [],
+    "enabled_tools": [
+      "builtin:chat_list_messages",
+      "builtin:chat_list_sessions",
+      "builtin:chat_search_messages",
+      "builtin:get_current_time",
+      "builtin:mcp_list_tools",
+      "builtin:mcp_get_status",
+      "builtin:notebook_create_note",
+      "builtin:notebook_update_note",
+      "builtin:notebook_read_note",
+      "builtin:docs_search_markdown",
+      "builtin:docs_read_markdown",
+      "builtin:notebook_list_notes"
+    ],
     "doc_root": "docs",
     "created_at": "2026-01-31T07:32:08.555814",
-    "updated_at": "2026-01-31T07:32:08.555818"
+    "updated_at": "2026-02-03T22:57:19.437361"
   },
   {
     "id": "30c7d777-242e-42fb-98d6-a2c1f5b06f12",

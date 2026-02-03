@@ -14,6 +14,8 @@ from pydantic import create_model, Field, BaseModel
 
 from app.services import doc_retrieval
 from app.services.config_service import config_service
+from app.services.notebook_service import notebook_service
+from app.services.chat_service import chat_service
 
 logger = logging.getLogger(__name__)
 
@@ -268,11 +270,87 @@ class McpManager:
         """Returns the current time."""
         return datetime.datetime.now().isoformat()
 
+    async def notebook_create_note(self, ctx: RunContext[Any], title: str, content: str) -> str:
+        note = notebook_service.create_note(title=title, content=content)
+        return json.dumps(json.loads(note.model_dump_json()), ensure_ascii=False, indent=2)
+
+    async def notebook_list_notes(self, ctx: RunContext[Any], limit: int = 20, query: Optional[str] = None) -> str:
+        notes = notebook_service.list_notes()
+        if query:
+            q = query.lower()
+            notes = [n for n in notes if q in (n.title or "").lower() or q in (n.content or "").lower()]
+        notes = notes[: max(0, int(limit))]
+        payload = [
+            {
+                "id": n.id,
+                "title": n.title,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+                "updated_at": n.updated_at.isoformat() if n.updated_at else None,
+            }
+            for n in notes
+        ]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    async def notebook_read_note(self, ctx: RunContext[Any], note_id: str) -> str:
+        note = notebook_service.get_note(note_id)
+        if not note:
+            return json.dumps({"error": "not_found", "note_id": note_id}, ensure_ascii=False, indent=2)
+        return json.dumps(json.loads(note.model_dump_json()), ensure_ascii=False, indent=2)
+
+    async def notebook_update_note(
+        self,
+        ctx: RunContext[Any],
+        note_id: str,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> str:
+        note = notebook_service.update_note(note_id, title=title, content=content)
+        if not note:
+            return json.dumps({"error": "not_found", "note_id": note_id}, ensure_ascii=False, indent=2)
+        return json.dumps(json.loads(note.model_dump_json()), ensure_ascii=False, indent=2)
+
+    async def chat_list_sessions(self, ctx: RunContext[Any], limit: int = 50, query: Optional[str] = None) -> str:
+        data = chat_service.list_sessions_meta(limit=limit, query=query)
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+    async def chat_list_messages(self, ctx: RunContext[Any], chat_id: str, limit: int = 50, offset: int = 0) -> str:
+        data = chat_service.list_messages_meta(chat_id=chat_id, limit=limit, offset=offset)
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+    async def chat_search_messages(
+        self,
+        ctx: RunContext[Any],
+        query: str,
+        limit: int = 20,
+        chat_id: Optional[str] = None,
+    ) -> str:
+        data = chat_service.search_messages(query=query, limit=limit, chat_id=chat_id)
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+    async def mcp_get_status(self, ctx: RunContext[Any]) -> str:
+        return json.dumps(self.get_status(), ensure_ascii=False, indent=2)
+
+    async def mcp_list_tools(self, ctx: RunContext[Any], server: Optional[str] = None) -> str:
+        tools = await self.get_available_tools()
+        if server:
+            tools = [t for t in tools if t.get("server") == server]
+        payload = [{"id": t.get("id"), "name": t.get("name"), "server": t.get("server")} for t in tools]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
     def _get_builtin_tools(self) -> List[tuple[str, Any]]:
         return [
             ("docs_search_markdown", self.docs_search_markdown),
             ("docs_read_markdown", self.docs_read_markdown),
             ("get_current_time", self.get_current_time),
+            ("notebook_create_note", self.notebook_create_note),
+            ("notebook_list_notes", self.notebook_list_notes),
+            ("notebook_read_note", self.notebook_read_note),
+            ("notebook_update_note", self.notebook_update_note),
+            ("chat_list_sessions", self.chat_list_sessions),
+            ("chat_list_messages", self.chat_list_messages),
+            ("chat_search_messages", self.chat_search_messages),
+            ("mcp_get_status", self.mcp_get_status),
+            ("mcp_list_tools", self.mcp_list_tools),
         ]
 
     def _get_builtin_tools_metadata(self) -> List[Dict[str, Any]]:
@@ -307,6 +385,98 @@ class McpManager:
                     },
                     "required": ["path"],
                 },
+            },
+            {
+                "id": "builtin:get_current_time",
+                "name": "get_current_time",
+                "description": "Return current server time in ISO format.",
+                "server": "builtin",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "id": "builtin:notebook_create_note",
+                "name": "notebook_create_note",
+                "description": "Create a note in Yue Notebook.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}, "content": {"type": "string"}},
+                    "required": ["title", "content"],
+                },
+            },
+            {
+                "id": "builtin:notebook_list_notes",
+                "name": "notebook_list_notes",
+                "description": "List notes (optionally filter by query).",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer"}, "query": {"type": "string"}},
+                },
+            },
+            {
+                "id": "builtin:notebook_read_note",
+                "name": "notebook_read_note",
+                "description": "Read a note by id.",
+                "server": "builtin",
+                "input_schema": {"type": "object", "properties": {"note_id": {"type": "string"}}, "required": ["note_id"]},
+            },
+            {
+                "id": "builtin:notebook_update_note",
+                "name": "notebook_update_note",
+                "description": "Update an existing note by id.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"note_id": {"type": "string"}, "title": {"type": "string"}, "content": {"type": "string"}},
+                    "required": ["note_id"],
+                },
+            },
+            {
+                "id": "builtin:chat_list_sessions",
+                "name": "chat_list_sessions",
+                "description": "List chat sessions (metadata only).",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer"}, "query": {"type": "string"}},
+                },
+            },
+            {
+                "id": "builtin:chat_list_messages",
+                "name": "chat_list_messages",
+                "description": "List messages in a chat session with pagination.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"chat_id": {"type": "string"}, "limit": {"type": "integer"}, "offset": {"type": "integer"}},
+                    "required": ["chat_id"],
+                },
+            },
+            {
+                "id": "builtin:chat_search_messages",
+                "name": "chat_search_messages",
+                "description": "Search messages by keyword (returns snippets).",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "chat_id": {"type": "string"}},
+                    "required": ["query"],
+                },
+            },
+            {
+                "id": "builtin:mcp_get_status",
+                "name": "mcp_get_status",
+                "description": "Get MCP status (enabled/connected/last_error).",
+                "server": "builtin",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "id": "builtin:mcp_list_tools",
+                "name": "mcp_list_tools",
+                "description": "List available tools (optionally filter by server).",
+                "server": "builtin",
+                "input_schema": {"type": "object", "properties": {"server": {"type": "string"}}},
             },
         ]
 

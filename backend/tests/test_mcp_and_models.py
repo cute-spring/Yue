@@ -16,6 +16,27 @@ class TestMcpAndModels(unittest.TestCase):
             self.assertIn("id", tools[0])
             self.assertIn("name", tools[0])
 
+    def test_builtin_tools_visible_in_tools_api(self):
+        r = requests.get(f"{BASE}/api/mcp/tools")
+        self.assertEqual(r.status_code, 200)
+        tools = r.json()
+        ids = {t.get("id") for t in tools if isinstance(t, dict)}
+        expected = {
+            "builtin:docs_search_markdown",
+            "builtin:docs_read_markdown",
+            "builtin:get_current_time",
+            "builtin:notebook_create_note",
+            "builtin:notebook_list_notes",
+            "builtin:notebook_read_note",
+            "builtin:notebook_update_note",
+            "builtin:chat_list_sessions",
+            "builtin:chat_list_messages",
+            "builtin:chat_search_messages",
+            "builtin:mcp_get_status",
+            "builtin:mcp_list_tools",
+        }
+        self.assertTrue(expected.issubset(ids))
+
     def test_mcp_tools_stable_ids_and_dedup(self):
         r1 = requests.get(f"{BASE}/api/mcp/tools")
         self.assertEqual(r1.status_code, 200)

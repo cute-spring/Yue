@@ -21,6 +21,7 @@ type McpTool = {
 export default function Agents() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
   const [availableTools, setAvailableTools] = createSignal<McpTool[]>([]);
+  const [mcpStatus, setMcpStatus] = createSignal<{name:string;enabled:boolean;connected:boolean;transport:string;last_error?:string}[]>([]);
   
   // UI State
   const [isEditing, setIsEditing] = createSignal(false);
@@ -99,6 +100,36 @@ export default function Agents() {
     }
   };
 
+  const loadMcpStatus = async () => {
+    try {
+      const res = await fetch('/api/mcp/status');
+      if (!res.ok) return;
+      setMcpStatus(await res.json());
+    } catch (e) {}
+  };
+
+  const statusByServer = () => {
+    const map: Record<string, {enabled:boolean;connected:boolean;transport?:string;last_error?:string}> = {};
+    for (const s of mcpStatus()) {
+      map[s.name] = s;
+    }
+    return map;
+  };
+
+  const toolsByServer = () => {
+    const groups: Record<string, McpTool[]> = {};
+    for (const t of availableTools()) {
+      groups[t.server] = groups[t.server] || [];
+      groups[t.server].push(t);
+    }
+    const entries = Object.entries(groups);
+    entries.sort(([a], [b]) => a.localeCompare(b));
+    for (const [, list] of entries) {
+      list.sort((x, y) => x.name.localeCompare(y.name));
+    }
+    return entries;
+  };
+
   const loadProviderCatalog = async (refresh = false) => {
     try {
       const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
@@ -112,6 +143,7 @@ export default function Agents() {
   onMount(async () => {
     loadAgents();
     loadTools();
+    loadMcpStatus();
     loadProviderCatalog();
   });
 
@@ -308,34 +340,62 @@ export default function Agents() {
 
             <div>
               <label class="block text-sm font-semibold text-gray-700 mb-3">Enabled Tools (MCP)</label>
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <For each={availableTools()}>
-                  {tool => (
-                    <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
-                      (formTools().includes(tool.id) || formTools().includes(tool.name)) 
-                      ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' 
-                      : 'hover:bg-gray-50'
-                    }`}>
-                      <input 
-                        type="checkbox" 
-                        class="mt-1 mr-3 text-emerald-600 focus:ring-emerald-500 rounded"
-                        checked={formTools().includes(tool.id) || formTools().includes(tool.name)}
-                        onChange={() => toggleTool(tool.id)}
-                      />
-                      <div>
-                        <div class="font-medium text-sm text-gray-900">{tool.name}</div>
-                        <div class="text-xs text-gray-500 mt-0.5 line-clamp-2">{tool.description}</div>
-                        <div class="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{tool.server}</div>
-                      </div>
-                    </label>
-                  )}
-                </For>
-                <Show when={availableTools().length === 0}>
-                  <div class="col-span-full text-center py-4 text-gray-500 text-sm bg-gray-50 rounded border border-dashed">
+              <Show
+                when={availableTools().length > 0}
+                fallback={
+                  <div class="text-center py-4 text-gray-500 text-sm bg-gray-50 rounded border border-dashed">
                     No MCP tools found. Configure MCP servers in Settings.
                   </div>
-                </Show>
-              </div>
+                }
+              >
+                <div class="space-y-4">
+                  <For each={toolsByServer()}>
+                    {([server, tools]) => (
+                      <div class="border rounded-xl bg-white">
+                        <div class="px-4 py-2 border-b bg-gray-50 flex items-center justify-between">
+                          <div class="flex items-center gap-2">
+                            <div class="font-semibold text-gray-800">{server}</div>
+                            <div class="text-xs text-gray-500">({tools.length})</div>
+                          </div>
+                          <div class="flex items-center gap-2 text-xs">
+                            <Show when={statusByServer()[server]}>
+                              <span class={`px-2 py-0.5 rounded-full border ${statusByServer()[server].enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
+                                {statusByServer()[server].enabled ? 'Enabled' : 'Disabled'}
+                              </span>
+                              <span class={`px-2 py-0.5 rounded-full border ${statusByServer()[server].connected ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                                {statusByServer()[server].connected ? 'Online' : 'Offline'}
+                              </span>
+                            </Show>
+                          </div>
+                        </div>
+                        <div class="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          <For each={tools}>
+                            {tool => (
+                              <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
+                                (formTools().includes(tool.id) || formTools().includes(tool.name))
+                                ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500'
+                                : 'hover:bg-gray-50'
+                              }`}>
+                                <input
+                                  type="checkbox"
+                                  class="mt-1 mr-3 text-emerald-600 focus:ring-emerald-500 rounded"
+                                  checked={formTools().includes(tool.id) || formTools().includes(tool.name)}
+                                  onChange={() => toggleTool(tool.id)}
+                                />
+                                <div>
+                                  <div class="font-medium text-sm text-gray-900">{tool.name}</div>
+                                  <div class="text-xs text-gray-500 mt-0.5 line-clamp-2">{tool.description}</div>
+                                  <div class="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{tool.id}</div>
+                                </div>
+                              </label>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
 
             <div class="flex justify-end gap-3 pt-4 border-t">

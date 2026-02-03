@@ -251,13 +251,11 @@ export default function Chat() {
 
    // Helper to split thought and content
   const parseThoughtAndContent = (text: string) => {
-    const thoughtMatch = text.match(/<(?:thought|think)>([\s\S]*?)(?:<\/(?:thought|think)>|$)/);
-    if (thoughtMatch) {
-      const thought = thoughtMatch[1];
-      const rest = text.replace(/<(?:thought|think)>[\s\S]*?(?:<\/(?:thought|think)>|$)/, "").trim();
-      return { thought, content: rest };
-    }
-    return { thought: null, content: text };
+    const thoughtMatch = text.match(/<(thought|think)>([\s\S]*?)<\/\1>/);
+    if (!thoughtMatch) return { thought: null, content: text };
+    const thought = thoughtMatch[2];
+    const rest = text.replace(thoughtMatch[0], "").trim();
+    return { thought, content: rest };
   };
 
   const filteredAgents = () => {

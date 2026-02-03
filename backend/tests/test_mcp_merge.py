@@ -26,5 +26,33 @@ class TestMcpMerge(unittest.TestCase):
         self.assertIn("example-server", names_after)
         self.assertTrue(names_before.issubset(names_after))
 
+    def test_mcp_config_validation_error_format(self):
+        r = requests.post(f"{BASE}/api/mcp/", json=[{"name": "bad-one"}])
+        self.assertEqual(r.status_code, 400)
+        data = r.json()
+        self.assertIn("detail", data)
+        detail = data["detail"]
+        self.assertEqual(detail.get("error"), "validation_error")
+        issues = detail.get("issues")
+        self.assertIsInstance(issues, list)
+        self.assertTrue(any("command" in (i.get("path") or "") for i in issues))
+
+    def test_mcp_config_duplicate_names(self):
+        r = requests.post(
+            f"{BASE}/api/mcp/",
+            json=[
+                {"name": "dup", "transport": "stdio", "command": "npx", "args": ["-y", "mcp-server-example"], "enabled": True},
+                {"name": "dup", "transport": "stdio", "command": "npx", "args": ["-y", "mcp-server-example"], "enabled": True},
+            ],
+        )
+        self.assertEqual(r.status_code, 400)
+        data = r.json()
+        self.assertIn("detail", data)
+        detail = data["detail"]
+        self.assertEqual(detail.get("error"), "validation_error")
+        issues = detail.get("issues")
+        self.assertIsInstance(issues, list)
+        self.assertTrue(any("duplicate server name" in (i.get("message") or "") for i in issues))
+
 if __name__ == "__main__":
     unittest.main()
