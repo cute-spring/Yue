@@ -1,4 +1,4 @@
-# MCP 生命周期清理改进设计说明（Per-Server ExitStack + Shielded Cleanup）
+# MCP 生命周期清理改进设计说明（Per-Server Worker Task + Shielded Await）
 
 ## 1. 背景
 
@@ -67,12 +67,12 @@ Yue 后端在启动时会初始化 MCP（Model Context Protocol）连接，并�
 - 无法隔离单个 server 的关闭失败
 - cleanup 被取消时更容易出现“半关闭”状态
 
-### 4.2 方案 B：Per-Server ExitStack（采纳）
+### 4.2 方案 B：Per-Server Worker Task（采纳）
 
 核心思路：
-- 每个 MCP server 连接时创建独立的 `AsyncExitStack`
-- 该 server 的 `stdio_client`、`ClientSession` 进入该 stack
-- cleanup 时逐个关闭每个 server 的 stack，单点失败不影响整体
+- 每个 MCP server 连接时启动一个独立的后台 task（worker）
+- 该 worker 在同一 task 内 `async with stdio_client(...)` / `async with ClientSession(...)` 完成进入与退出
+- cleanup 时通过 `close_event.set()` 通知 worker 自行退出，再在外层 await worker 完成（单点失败不影响整体）
 
 优点：
 - 失败隔离明确（按 server 粒度）
@@ -82,12 +82,12 @@ Yue 后端在启动时会初始化 MCP（Model Context Protocol）连接，并�
 潜在缺点：
 - 需要维护额外的 `name -> stack` 映射与状态一致性
 
-### 4.3 取消鲁棒性：Shielded Cleanup（采纳）
+### 4.3 取消鲁棒性：Shielded Await（采纳）
 
-在 cleanup 时使用 `asyncio.shield(stack.aclose())`：
+在 cleanup 时使用 `asyncio.shield(task)`（shielded await）：
 
 - 目的：减少外层取消信号把 cleanup 中途打断的概率
-- 同时对 `CancelledError` 做兜底：即使被取消，仍尽力执行 `aclose()`
+- 同时对 `CancelledError` 做兜底：即使被取消，仍尽力等待 worker 自行退出
 
 权衡：
 - shield 会延长关停时长的上限（因为 cleanup 更“坚持完成”）
@@ -99,29 +99,30 @@ Yue 后端在启动时会初始化 MCP（Model Context Protocol）连接，并�
 
 在 McpManager 内引入：
 
-- `self._server_exit_stacks: Dict[str, AsyncExitStack]`：每个 server 一个资源栈
+- `self._server_tasks: Dict[str, asyncio.Task]`：每个 server 一个 worker task
+- `self._server_close_events: Dict[str, asyncio.Event]`：通知 worker 退出
 - `self.sessions: Dict[str, ClientSession]`：server 到 session 的映射保持不变
 
 关键不变式：
 
-- 若 `name in self.sessions`，则应同时满足 `name in self._server_exit_stacks`
-- connect 失败时，不允许把半初始化 stack 挂进映射（失败必须先 `aclose()` 再抛错）
-- cleanup 后，`sessions` 与 `_server_exit_stacks` 都应清空
+- 若 `name in self.sessions`，则应同时满足 `name in self._server_tasks`
+- connect 失败时，ready future 必须失败并释放掉 worker（避免半连接状态）
+- cleanup 后，`sessions`、`_server_tasks`、`_server_close_events` 都应清空
 
 ### 5.2 生命周期流程图
 
 ```mermaid
 flowchart TD
   A["initialize"] --> B{"for each enabled config"}
-  B -->|connect ok| C["create per-server ExitStack"]
-  C --> D["enter stdio_client"]
-  D --> E["enter ClientSession"]
-  E --> F["session.initialize"]
-  F --> G["store session and stack"]
-  B -->|connect fail| H["aclose stack and record error"]
+  B -->|connect ok| C["spawn worker task per server"]
+  C --> D["worker enters stdio_client"]
+  D --> E["worker enters ClientSession"]
+  E --> F["worker session.initialize"]
+  F --> G["store session and worker handles"]
+  B -->|connect fail| H["ready fails and worker exits"]
 
-  X["cleanup"] --> Y{"for each server stack"}
-  Y --> Z["shield(stack.aclose)"]
+  X["cleanup"] --> Y{"for each server worker"}
+  Y --> Z["close_event.set"]
   Z --> W["ignore per-server failure, continue"]
   W --> Q["clear sessions and stacks"]
 ```

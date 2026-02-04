@@ -4,7 +4,6 @@ import json
 import re
 import asyncio
 import logging
-from contextlib import AsyncExitStack
 import datetime
 
 from mcp import ClientSession, StdioServerParameters
@@ -33,7 +32,9 @@ class McpManager:
         if self.initialized:
             return
         self.config_path = os.path.join(os.path.dirname(__file__), "../../data/mcp_configs.json")
-        self._server_exit_stacks: Dict[str, AsyncExitStack] = {}
+        self._server_tasks: Dict[str, asyncio.Task] = {}
+        self._server_close_events: Dict[str, asyncio.Event] = {}
+        self._server_ready: Dict[str, asyncio.Future] = {}
         self._lock = asyncio.Lock()
         self.sessions: Dict[str, ClientSession] = {}
         self.last_errors: Dict[str, str] = {}
@@ -56,20 +57,27 @@ class McpManager:
     async def cleanup(self):
         """Close all connections."""
         async with self._lock:
-            stacks = list(self._server_exit_stacks.items())
-            self._server_exit_stacks.clear()
-            for name, stack in stacks:
-                try:
-                    await asyncio.shield(stack.aclose())
-                except asyncio.CancelledError:
-                    try:
-                        await stack.aclose()
-                    except Exception:
-                        logger.exception("Error during MCP cleanup (cancelled): %s", name)
-                    continue
-                except Exception:
-                    logger.exception("Error during MCP cleanup: %s", name)
+            tasks = list(self._server_tasks.items())
+            close_events = list(self._server_close_events.items())
+            self._server_tasks.clear()
+            self._server_close_events.clear()
+            self._server_ready.clear()
             self.sessions.clear()
+
+        for _name, evt in close_events:
+            evt.set()
+
+        for name, task in tasks:
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                try:
+                    await task
+                except Exception:
+                    logger.exception("Error during MCP cleanup (cancelled): %s", name)
+                continue
+            except Exception:
+                logger.exception("Error during MCP cleanup: %s", name)
 
     def load_config(self) -> List[Dict[str, Any]]:
         if not os.path.exists(self.config_path):
@@ -84,6 +92,15 @@ class McpManager:
     async def connect_to_server(self, config: Dict[str, Any]):
         async with self._lock:
             return await self._connect_to_server_unlocked(config)
+
+    async def _handle_server_task_done(self, name: str, exc: Optional[BaseException]) -> None:
+        async with self._lock:
+            self._server_tasks.pop(name, None)
+            self._server_close_events.pop(name, None)
+            self._server_ready.pop(name, None)
+            self.sessions.pop(name, None)
+            if exc:
+                self.last_errors[name] = str(exc)
 
     async def _connect_to_server_unlocked(self, config: Dict[str, Any]):
         name = config.get("name")
@@ -119,18 +136,41 @@ class McpManager:
                 args=resolved_args,
                 env={**os.environ, **(env or {})}
             )
-            stack = AsyncExitStack()
-            try:
-                read, write = await stack.enter_async_context(stdio_client(server_params))
-                session = await stack.enter_async_context(ClientSession(read, write))
-                await session.initialize()
-            except Exception:
+
+            close_event = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            ready: asyncio.Future = loop.create_future()
+
+            async def _run_server() -> None:
                 try:
-                    await stack.aclose()
-                except Exception:
-                    logger.exception("Error closing MCP stack after connect failure: %s", name)
-                raise
-            self._server_exit_stacks[name] = stack
+                    async with stdio_client(server_params) as (read, write):
+                        async with ClientSession(read, write) as session:
+                            await session.initialize()
+                            if not ready.done():
+                                ready.set_result(session)
+                            await close_event.wait()
+                except Exception as e:
+                    if not ready.done():
+                        ready.set_exception(e)
+                    raise
+
+            task = asyncio.create_task(_run_server(), name=f"mcp_server:{name}")
+
+            def _done_callback(t: asyncio.Task) -> None:
+                exc = None
+                try:
+                    exc = t.exception()
+                except asyncio.CancelledError as e:
+                    exc = e
+                asyncio.create_task(self._handle_server_task_done(name, exc))
+
+            task.add_done_callback(_done_callback)
+
+            self._server_tasks[name] = task
+            self._server_close_events[name] = close_event
+            self._server_ready[name] = ready
+
+            session: ClientSession = await ready
             self.sessions[name] = session
             logger.info("Connected to %s", name)
             return session

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai import Agent
@@ -137,7 +137,7 @@ async def delete_chat(chat_id: str):
     return {"status": "success"}
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(http_request: Request, request: ChatRequest):
     # Initialize Chat Session
     chat_id = request.chat_id
     if not chat_id:
@@ -213,6 +213,8 @@ async def chat_stream(request: ChatRequest):
                 next_event = asyncio.create_task(event_queue.get())
                 try:
                     while True:
+                        if await http_request.is_disconnected():
+                            raise asyncio.CancelledError()
                         done, _ = await asyncio.wait(
                             {next_text, next_event},
                             return_when=asyncio.FIRST_COMPLETED,
@@ -323,6 +325,8 @@ async def chat_stream(request: ChatRequest):
             # Save Assistant Message after completion
             chat_service.add_message(chat_id, "assistant", full_response, thought_duration)
             
+        except asyncio.CancelledError:
+            return
         except Exception as e:
             logger.exception("Chat error")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

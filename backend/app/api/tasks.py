@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -36,7 +36,7 @@ async def tasks_run(request: TaskRunRequest):
 
 
 @router.post("/stream")
-async def tasks_stream(request: TaskRunRequest):
+async def tasks_stream(http_request: Request, request: TaskRunRequest):
     q: asyncio.Queue = asyncio.Queue()
 
     async def emit(evt):
@@ -46,6 +46,8 @@ async def tasks_stream(request: TaskRunRequest):
         try:
             result = await task_service.run_tasks(request.parent_chat_id, request.tasks, emit=emit)
             await q.put({"type": "task_result", "result": result.model_dump(mode="json")})
+        except asyncio.CancelledError:
+            await q.put({"type": "task_error", "error": "cancelled"})
         except ValueError as e:
             if str(e) == "parent_chat_not_found":
                 await q.put({"type": "task_error", "error": "parent_chat_not_found"})
@@ -56,13 +58,27 @@ async def tasks_stream(request: TaskRunRequest):
         finally:
             await q.put(None)
 
-    asyncio.create_task(runner())
+    runner_task = asyncio.create_task(runner())
 
     async def event_generator():
-        while True:
-            item = await q.get()
-            if item is None:
-                break
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+        try:
+            while True:
+                if await http_request.is_disconnected():
+                    runner_task.cancel()
+                    break
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    continue
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+        finally:
+            if not runner_task.done():
+                runner_task.cancel()
+            try:
+                await runner_task
+            except Exception:
+                pass
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
