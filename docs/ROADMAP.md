@@ -40,6 +40,8 @@ This document serves as a structured task list for AI development. Each phase is
     - Add schema validation on MCP config saves for friendlier errors.
     - Migrate existing agents’ `enabled_tools` to composite IDs on edit/save for full consistency.
     - Extend backend tests to cover provider tests, MCP status, and config updates.
+    - Improve SSE disconnect hygiene for chat/tasks streams (cancel background work on client disconnect).
+    - Stabilize MCP lifecycle cleanup by ensuring enter/exit happens within the same task per server.
 
 - [ ] **2.1 Model Management Center**
   - [ ] Create a management page with grouped lists: Premium, Advanced, and Custom models.
@@ -52,6 +54,8 @@ This document serves as a structured task list for AI development. Each phase is
   - [ ] Display connected MCP servers with status indicators (Online/Offline).
   - [ ] Add a toggle switch for hot-enabling/disabling specific MCP servers.
   - [ ] Implement an expandable view to list available tools for each MCP server.
+  - [ ] Add per-server shutdown timeouts and close-duration metrics for safer reloads.
+  - [ ] Implement partial reload (diff configs and reconnect only changed servers).
 - [ ] **2.4 Smart Interaction Logic**
   - [ ] Implement `@` mention system to quickly switch between Agents/Tools in the input box.
   - [ ] Add `/` slash command system (e.g., `/search`, `/note`, `/help`).
@@ -63,6 +67,7 @@ This document serves as a structured task list for AI development. Each phase is
   - [ ] Add structured subtask result schema (Pydantic model: summary/evidence/artifacts) for reliable aggregation.
   - [ ] Introduce dependency injection for tools/subtasks via Pydantic AI deps (shared services, citations, doc_root).
   - [ ] Add recursion/depth limits and step budgets for delegated tasks to prevent infinite loops.
+  - [ ] Cancel in-flight subtasks when the parent chat SSE connection disconnects.
 
 ## Phase 3: Knowledge Integration & Multimodal (个人知识管理与多模态)
 *Goal: Connect chat context with personal notes and expand sensing capabilities.*
