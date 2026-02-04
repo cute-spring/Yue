@@ -1,4 +1,5 @@
 import { createSignal, For, onMount, Show } from 'solid-js';
+import ModelSwitcher, { type ProviderInfo } from '../components/ModelSwitcher';
 
 type Agent = {
   id: string;
@@ -7,6 +8,7 @@ type Agent = {
   provider: string;
   model: string;
   enabled_tools: string[];
+  doc_root?: string;
 };
 
 type McpTool = {
@@ -19,11 +21,13 @@ type McpTool = {
 export default function Agents() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
   const [availableTools, setAvailableTools] = createSignal<McpTool[]>([]);
+  const [mcpStatus, setMcpStatus] = createSignal<{name:string;enabled:boolean;connected:boolean;transport:string;last_error?:string}[]>([]);
   
   // UI State
   const [isEditing, setIsEditing] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [providerOptions, setProviderOptions] = createSignal<string[]>([]);
+  const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
+  const [submitError, setSubmitError] = createSignal<string | null>(null);
   
   // Form state
   const [formName, setFormName] = createSignal("");
@@ -31,10 +35,60 @@ export default function Agents() {
   const [formProvider, setFormProvider] = createSignal("openai");
   const [formModel, setFormModel] = createSignal("gpt-4o");
   const [formTools, setFormTools] = createSignal<string[]>([]);
+  const [formDocRoot, setFormDocRoot] = createSignal("");
+
+  const modelsOf = (p: ProviderInfo): string[] => {
+    const list = (p.available_models && p.available_models.length > 0) ? p.available_models : p.models;
+    return Array.from(new Set((list || []).filter(Boolean)));
+  };
+
+  const pickDefaultModel = (catalog: ProviderInfo[]) => {
+    for (const p of catalog) {
+      const ms = modelsOf(p);
+      if (ms.length > 0) {
+        setFormProvider(p.name);
+        setFormModel(ms[0]);
+        return;
+      }
+    }
+  };
+
+  const ensureSelectionValid = (catalog: ProviderInfo[]) => {
+    const provider = formProvider();
+    const model = formModel();
+
+    if (!provider || !model) {
+      pickDefaultModel(catalog);
+      return;
+    }
+
+    const byProvider = catalog.find(p => p.name === provider);
+    if (byProvider) {
+      const ms = modelsOf(byProvider);
+      if (ms.includes(model)) return;
+      if (ms.length > 0) {
+        setFormModel(ms[0]);
+        return;
+      }
+    }
+
+    const byModel = catalog.find(p => modelsOf(p).includes(model));
+    if (byModel) {
+      setFormProvider(byModel.name);
+      return;
+    }
+
+    pickDefaultModel(catalog);
+  };
 
   const loadAgents = async () => {
-    const res = await fetch('/api/agents/');
-    setAgents(await res.json());
+    try {
+      const res = await fetch('/api/agents/');
+      if (!res.ok) throw new Error(await res.text());
+      setAgents(await res.json());
+    } catch (e) {
+      console.error("Failed to load agents", e);
+    }
   };
 
   const loadTools = async () => {
@@ -46,24 +100,64 @@ export default function Agents() {
     }
   };
 
+  const loadMcpStatus = async () => {
+    try {
+      const res = await fetch('/api/mcp/status');
+      if (!res.ok) return;
+      setMcpStatus(await res.json());
+    } catch (e) {}
+  };
+
+  const statusByServer = () => {
+    const map: Record<string, {enabled:boolean;connected:boolean;transport?:string;last_error?:string}> = {};
+    for (const s of mcpStatus()) {
+      map[s.name] = s;
+    }
+    return map;
+  };
+
+  const toolsByServer = () => {
+    const groups: Record<string, McpTool[]> = {};
+    for (const t of availableTools()) {
+      groups[t.server] = groups[t.server] || [];
+      groups[t.server].push(t);
+    }
+    const entries = Object.entries(groups);
+    entries.sort(([a], [b]) => a.localeCompare(b));
+    for (const [, list] of entries) {
+      list.sort((x, y) => x.name.localeCompare(y.name));
+    }
+    return entries;
+  };
+
+  const loadProviderCatalog = async (refresh = false) => {
+    try {
+      const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setProviders(data);
+      ensureSelectionValid(data || []);
+    } catch (e) {}
+  };
+
   onMount(async () => {
     loadAgents();
     loadTools();
-    try {
-      const res = await fetch('/api/models/supported');
-      const data = await res.json();
-      setProviderOptions(data);
-    } catch (e) {}
+    loadMcpStatus();
+    loadProviderCatalog();
   });
 
   const openCreate = () => {
     setFormName("");
     setFormPrompt("");
-    setFormProvider("openai");
-    setFormModel("gpt-4o");
+    setFormProvider(formProvider() || "openai");
+    setFormModel(formModel() || "gpt-4o");
     setFormTools([]);
+    setFormDocRoot("");
+    setSubmitError(null);
     setEditingId(null);
     setIsEditing(true);
+    ensureSelectionValid(providers());
   };
 
   const openEdit = (agent: Agent) => {
@@ -72,37 +166,49 @@ export default function Agents() {
     setFormProvider(agent.provider);
     setFormModel(agent.model);
     setFormTools(agent.enabled_tools);
+    setFormDocRoot(agent.doc_root || "");
+    setSubmitError(null);
     setEditingId(agent.id);
     setIsEditing(true);
+    ensureSelectionValid(providers());
   };
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
+    setSubmitError(null);
     
     const payload = {
       name: formName(),
       system_prompt: formPrompt(),
       provider: formProvider(),
       model: formModel(),
-      enabled_tools: formTools()
+      enabled_tools: formTools(),
+      doc_root: formDocRoot() || undefined
     };
 
-    if (editingId()) {
-      await fetch(`/api/agents/${editingId()}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } else {
-      await fetch('/api/agents/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+    try {
+      const res = editingId()
+        ? await fetch(`/api/agents/${editingId()}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+        : await fetch('/api/agents/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+      if (!res.ok) {
+        setSubmitError(await res.text());
+        return;
+      }
+    } catch (e: any) {
+      setSubmitError(String(e?.message || e));
+      return;
     }
     
     setIsEditing(false);
-    loadAgents();
+    await loadAgents();
   };
 
   const handleDelete = async (id: string) => {
@@ -153,6 +259,11 @@ export default function Agents() {
             </button>
           </div>
           <form onSubmit={handleSubmit} class="p-6 space-y-6">
+            <Show when={submitError()}>
+              <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-wrap">
+                {submitError()}
+              </div>
+            </Show>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Name</label>
@@ -164,27 +275,41 @@ export default function Agents() {
                   required
                 />
               </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-semibold text-gray-700 mb-2">Provider</label>
-                  <select 
-                    class="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    value={formProvider()}
-                    onChange={e => setFormProvider(e.currentTarget.value)}
-                  >
-                    <For each={providerOptions()}>
-                      {(opt) => <option value={opt}>{opt}</option>}
-                    </For>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-sm font-semibold text-gray-700 mb-2">Model</label>
-                  <input 
-                    class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
-                    value={formModel()}
-                    onInput={e => setFormModel(e.currentTarget.value)}
-                    placeholder="e.g. gpt-4o"
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Model</label>
+                <Show
+                  when={providers().length > 0}
+                  fallback={
+                    <div class="grid grid-cols-2 gap-4">
+                      <input
+                        class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        value={formProvider()}
+                        onInput={e => setFormProvider(e.currentTarget.value)}
+                        placeholder="provider (e.g. openai)"
+                      />
+                      <input
+                        class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        value={formModel()}
+                        onInput={e => setFormModel(e.currentTarget.value)}
+                        placeholder="model (e.g. gpt-4o)"
+                      />
+                    </div>
+                  }
+                >
+                  <ModelSwitcher
+                    providers={providers()}
+                    selectedModel={formModel()}
+                    theme="light"
+                    placement="bottom"
+                    onRefresh={() => loadProviderCatalog(true)}
+                    onSelect={(provider, model) => {
+                      setFormProvider(provider);
+                      setFormModel(model);
+                    }}
                   />
+                </Show>
+                <div class="text-xs text-gray-500 mt-1">
+                  Provider: <span class="font-mono">{formProvider() || "-"}</span>
                 </div>
               </div>
             </div>
@@ -201,35 +326,76 @@ export default function Agents() {
             </div>
 
             <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Doc Root (optional)</label>
+              <input
+                class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm"
+                value={formDocRoot()}
+                onInput={e => setFormDocRoot(e.currentTarget.value)}
+                placeholder='e.g. docs or /Users/you/path/to/docs'
+              />
+              <div class="text-xs text-gray-500 mt-1">
+                Used by docs_search_markdown/docs_read_markdown when root isn’t provided.
+              </div>
+            </div>
+
+            <div>
               <label class="block text-sm font-semibold text-gray-700 mb-3">Enabled Tools (MCP)</label>
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <For each={availableTools()}>
-                  {tool => (
-                    <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
-                      (formTools().includes(tool.id) || formTools().includes(tool.name)) 
-                      ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' 
-                      : 'hover:bg-gray-50'
-                    }`}>
-                      <input 
-                        type="checkbox" 
-                        class="mt-1 mr-3 text-emerald-600 focus:ring-emerald-500 rounded"
-                        checked={formTools().includes(tool.id) || formTools().includes(tool.name)}
-                        onChange={() => toggleTool(tool.id)}
-                      />
-                      <div>
-                        <div class="font-medium text-sm text-gray-900">{tool.name}</div>
-                        <div class="text-xs text-gray-500 mt-0.5 line-clamp-2">{tool.description}</div>
-                        <div class="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{tool.server}</div>
-                      </div>
-                    </label>
-                  )}
-                </For>
-                <Show when={availableTools().length === 0}>
-                  <div class="col-span-full text-center py-4 text-gray-500 text-sm bg-gray-50 rounded border border-dashed">
+              <Show
+                when={availableTools().length > 0}
+                fallback={
+                  <div class="text-center py-4 text-gray-500 text-sm bg-gray-50 rounded border border-dashed">
                     No MCP tools found. Configure MCP servers in Settings.
                   </div>
-                </Show>
-              </div>
+                }
+              >
+                <div class="space-y-4">
+                  <For each={toolsByServer()}>
+                    {([server, tools]) => (
+                      <div class="border rounded-xl bg-white">
+                        <div class="px-4 py-2 border-b bg-gray-50 flex items-center justify-between">
+                          <div class="flex items-center gap-2">
+                            <div class="font-semibold text-gray-800">{server}</div>
+                            <div class="text-xs text-gray-500">({tools.length})</div>
+                          </div>
+                          <div class="flex items-center gap-2 text-xs">
+                            <Show when={statusByServer()[server]}>
+                              <span class={`px-2 py-0.5 rounded-full border ${statusByServer()[server].enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
+                                {statusByServer()[server].enabled ? 'Enabled' : 'Disabled'}
+                              </span>
+                              <span class={`px-2 py-0.5 rounded-full border ${statusByServer()[server].connected ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                                {statusByServer()[server].connected ? 'Online' : 'Offline'}
+                              </span>
+                            </Show>
+                          </div>
+                        </div>
+                        <div class="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          <For each={tools}>
+                            {tool => (
+                              <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
+                                (formTools().includes(tool.id) || formTools().includes(tool.name))
+                                ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500'
+                                : 'hover:bg-gray-50'
+                              }`}>
+                                <input
+                                  type="checkbox"
+                                  class="mt-1 mr-3 text-emerald-600 focus:ring-emerald-500 rounded"
+                                  checked={formTools().includes(tool.id) || formTools().includes(tool.name)}
+                                  onChange={() => toggleTool(tool.id)}
+                                />
+                                <div>
+                                  <div class="font-medium text-sm text-gray-900">{tool.name}</div>
+                                  <div class="text-xs text-gray-500 mt-0.5 line-clamp-2">{tool.description}</div>
+                                  <div class="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{tool.id}</div>
+                                </div>
+                              </label>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
 
             <div class="flex justify-end gap-3 pt-4 border-t">

@@ -56,6 +56,14 @@ This document serves as a structured task list for AI development. Each phase is
   - [ ] Implement `@` mention system to quickly switch between Agents/Tools in the input box.
   - [ ] Add `/` slash command system (e.g., `/search`, `/note`, `/help`).
 
+- [ ] **2.5 Primary/Subagent Orchestration (主子 Agent 编排)**
+  - [ ] Add hierarchical sessions in SQLite (parent_session_id) to support sub-sessions.
+  - [ ] Implement built-in `TaskTool` to delegate work to subagents and return final summaries.
+  - [ ] Stream subtask progress to UI (SSE events) for “running/summary” updates.
+  - [ ] Add structured subtask result schema (Pydantic model: summary/evidence/artifacts) for reliable aggregation.
+  - [ ] Introduce dependency injection for tools/subtasks via Pydantic AI deps (shared services, citations, doc_root).
+  - [ ] Add recursion/depth limits and step budgets for delegated tasks to prevent infinite loops.
+
 ## Phase 3: Knowledge Integration & Multimodal (个人知识管理与多模态)
 *Goal: Connect chat context with personal notes and expand sensing capabilities.*
 

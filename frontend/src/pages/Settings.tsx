@@ -111,14 +111,29 @@ type LLMProvider = {
     return () => window.removeEventListener('click', handleGlobalClick);
   });
 
+  const formatMcpSaveError = async (res: Response) => {
+    const data = await res.json().catch(() => null);
+    const detail = data?.detail;
+    const issues = detail?.issues;
+    if (Array.isArray(issues) && issues.length) {
+      return issues.slice(0, 8).map((i: any) => `${i.path || ''}: ${i.message || 'invalid'}`).join('\n');
+    }
+    return JSON.stringify(detail || data || { error: 'Unknown error' }, null, 2);
+  };
+
   const saveMcp = async () => {
     try {
       const parsed = JSON.parse(mcpConfig());
-      await fetch('/api/mcp/', {
+      const res = await fetch('/api/mcp/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(parsed)
       });
+      if (!res.ok) {
+        const msg = await formatMcpSaveError(res);
+        alert(`Failed to save MCP configuration:\n${msg}`);
+        return;
+      }
       alert("MCP Configuration saved!");
       await fetch('/api/mcp/reload', { method: 'POST' });
       const mcpStatusRes = await fetch('/api/mcp/status');
@@ -222,11 +237,16 @@ type LLMProvider = {
       const parsed = JSON.parse(mcpConfig());
       const updated = parsed.map((cfg: any) => cfg.name === serverName ? { ...cfg, enabled } : cfg);
       setMcpConfig(JSON.stringify(updated, null, 2));
-      await fetch('/api/mcp/', {
+      const res = await fetch('/api/mcp/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated)
       });
+      if (!res.ok) {
+        const msg = await formatMcpSaveError(res);
+        alert(`Failed to update MCP configuration:\n${msg}`);
+        return;
+      }
       await fetch('/api/mcp/reload', { method: 'POST' });
       const mcpStatusRes = await fetch('/api/mcp/status');
       setMcpStatus(await mcpStatusRes.json());
@@ -245,7 +265,12 @@ type LLMProvider = {
     try {
       const parsed = JSON.parse(manualText());
       const arr = Array.isArray(parsed) ? parsed : (parsed.mcpServers ? Object.keys(parsed.mcpServers).map(k => ({ name: k, ...parsed.mcpServers[k] })) : []);
-      await fetch('/api/mcp/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(arr) });
+      const res = await fetch('/api/mcp/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(arr) });
+      if (!res.ok) {
+        const msg = await formatMcpSaveError(res);
+        alert(`Failed to save MCP configuration:\n${msg}`);
+        return;
+      }
       await reloadMcp();
       setShowManual(false);
     } catch (e) {

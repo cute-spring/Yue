@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.ollama import OllamaProvider
@@ -432,18 +433,43 @@ class LiteLLMProviderImpl(SimpleProvider):
         return bool(base_url and api_key)
 register_provider(LiteLLMProviderImpl())
 
+class _InternalGuardProvider(SimpleProvider):
+    name = "__guard__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            instructions = agent_info.instructions or ""
+            marker = "Enclose your thinking process within <thought>...</thought> tags"
+            if marker in instructions:
+                yield "<thought>guard_detected_forced_thought_injection</thought>"
+                return
+            yield "O"
+            yield "K"
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "guard")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["guard"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalGuardProvider())
+
 def get_model(provider_name: str, model_name: Optional[str] = None):
     handler = _dynamic_providers.get(provider_name.lower()) or _dynamic_providers.get(LLMProvider.OPENAI.value)
     return handler.build(model_name)
 
 def list_supported_providers() -> List[str]:
-    return list_registered_providers()
+    return [p for p in list_registered_providers() if not p.startswith("__")]
 
 async def list_providers(refresh: bool = False) -> List[Dict]:
     providers = []
     llm_config = config_service.get_llm_config()
     
     for name, handler in _dynamic_providers.items():
+        if name.startswith("__"):
+            continue
         try:
             models = await handler.list_models(refresh=refresh)
         except Exception:

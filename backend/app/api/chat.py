@@ -9,6 +9,9 @@ from app.services.model_factory import get_model
 from app.services.chat_service import chat_service, ChatSession
 import json
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -88,14 +91,6 @@ async def chat_stream(request: ChatRequest):
             model_name = model_name or "gpt-4o"
             system_prompt = system_prompt or "You are a helpful assistant."
 
-            # Inject thinking process instruction if not present
-            if "<thought>" not in system_prompt:
-                system_prompt += (
-                    "\n\nIMPORTANT: You must ALWAYS start your response by thinking step-by-step about the user's request. "
-                    "Enclose your thinking process within <thought>...</thought> tags. "
-                    "After your thinking process is complete, provide your final answer."
-                )
-
             model = get_model(provider, model_name)
 
             # Create Pydantic AI Agent
@@ -104,15 +99,17 @@ async def chat_stream(request: ChatRequest):
                 system_prompt=system_prompt,
                 tools=tools
             )
+            deps = {"citations": []}
+            if agent_config and getattr(agent_config, "doc_root", None):
+                deps["doc_root"] = agent_config.doc_root
             
-            last_length = 0
             full_response = ""
             thought_start_time = None
             thought_end_time = None
             
             try:
                 # Run with history
-                async with agent.run_stream(request.message, message_history=history) as result:
+                async with agent.run_stream(request.message, message_history=history, deps=deps) as result:
                     async for message in result.stream_text():
                         # Track thinking time
                         if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
@@ -120,24 +117,28 @@ async def chat_stream(request: ChatRequest):
                         if ("</thought>" in message or "</think>" in message) and thought_end_time is None:
                             thought_end_time = time.time()
 
-                        # Get only the new part of the message
-                        new_content = message[last_length:]
+                        if not message:
+                            continue
+                        if full_response and message.startswith(full_response):
+                            new_content = message[len(full_response):]
+                        elif full_response and full_response.startswith(message):
+                            new_content = ""
+                        else:
+                            new_content = message
                         if new_content:
                             full_response += new_content
                             yield f"data: {json.dumps({'content': new_content})}\n\n"
-                            last_length = len(message)
             except Exception as stream_err:
                 # Handle models that don't support tools (like smaller Ollama models)
                 err_str = str(stream_err)
                 if "does not support tools" in err_str or "Tool use is not supported" in err_str:
-                    print(f"Model {model_name} does not support tools, falling back to pure chat.")
+                    logger.info("Model %s does not support tools, falling back to pure chat.", model_name)
                     # Re-create agent without tools
                     agent_no_tools = Agent(model, system_prompt=system_prompt)
-                    last_length = 0
                     full_response = ""
                     thought_start_time = None
                     thought_end_time = None
-                    async with agent_no_tools.run_stream(request.message, message_history=history) as result:
+                    async with agent_no_tools.run_stream(request.message, message_history=history, deps=deps) as result:
                         async for message in result.stream_text():
                             # Track thinking time
                             if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
@@ -145,11 +146,17 @@ async def chat_stream(request: ChatRequest):
                             if ("</thought>" in message or "</think>" in message) and thought_end_time is None:
                                 thought_end_time = time.time()
 
-                            new_content = message[last_length:]
+                            if not message:
+                                continue
+                            if full_response and message.startswith(full_response):
+                                new_content = message[len(full_response):]
+                            elif full_response and full_response.startswith(message):
+                                new_content = ""
+                            else:
+                                new_content = message
                             if new_content:
                                 full_response += new_content
                                 yield f"data: {json.dumps({'content': new_content})}\n\n"
-                                last_length = len(message)
                 else:
                     raise stream_err
             
@@ -164,12 +171,15 @@ async def chat_stream(request: ChatRequest):
             if thought_duration:
                 yield f"data: {json.dumps({'thought_duration': thought_duration})}\n\n"
 
+            citations = deps.get("citations") if isinstance(deps, dict) else None
+            if isinstance(citations, list) and citations:
+                yield f"data: {json.dumps({'citations': citations})}\n\n"
+
             # Save Assistant Message after completion
             chat_service.add_message(chat_id, "assistant", full_response, thought_duration)
             
         except Exception as e:
-            print(f"Chat error: {e}")
+            logger.exception("Chat error")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-

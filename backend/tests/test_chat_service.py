@@ -38,6 +38,12 @@ class TestChatService(unittest.TestCase):
         self.assertEqual(len(chats), 1)
         self.assertEqual(chats[0].id, chat.id)
 
+    def test_create_subchat_with_parent(self):
+        parent = self.service.create_chat(title="Parent")
+        child = self.service.create_chat(title="Child", parent_id=parent.id)
+        fetched = self.service.get_chat(child.id)
+        self.assertEqual(fetched.parent_id, parent.id)
+
     def test_add_messages_and_context(self):
         # Create chat
         chat = self.service.create_chat()
