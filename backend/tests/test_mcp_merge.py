@@ -3,6 +3,10 @@ import requests
 
 BASE = "http://127.0.0.1:8003"
 
+from _server import ensure_backend_running
+
+ensure_backend_running(BASE)
+
 class TestMcpMerge(unittest.TestCase):
     def test_upsert_configs(self):
         r = requests.get(f"{BASE}/api/mcp/")

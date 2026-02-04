@@ -3,6 +3,10 @@ import requests
 
 BASE = "http://127.0.0.1:8003"
 
+from _server import ensure_backend_running
+
+ensure_backend_running(BASE)
+
 class TestMcpAndModels(unittest.TestCase):
     def test_mcp_status_and_tools(self):
         r = requests.get(f"{BASE}/api/mcp/status")

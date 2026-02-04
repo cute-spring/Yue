@@ -16,6 +16,7 @@ from app.services import doc_retrieval
 from app.services.config_service import config_service
 from app.services.notebook_service import notebook_service
 from app.services.chat_service import chat_service
+from app.services.task_service import TaskSpec, task_service
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class McpManager:
         if self.initialized:
             return
         self.config_path = os.path.join(os.path.dirname(__file__), "../../data/mcp_configs.json")
-        self.exit_stack = AsyncExitStack()
+        self._server_exit_stacks: Dict[str, AsyncExitStack] = {}
         self._lock = asyncio.Lock()
         self.sessions: Dict[str, ClientSession] = {}
         self.last_errors: Dict[str, str] = {}
@@ -55,11 +56,19 @@ class McpManager:
     async def cleanup(self):
         """Close all connections."""
         async with self._lock:
-            try:
-                await self.exit_stack.aclose()
-            except Exception:
-                logger.exception("Error during MCP cleanup")
-            self.exit_stack = AsyncExitStack()
+            stacks = list(self._server_exit_stacks.items())
+            self._server_exit_stacks.clear()
+            for name, stack in stacks:
+                try:
+                    await asyncio.shield(stack.aclose())
+                except asyncio.CancelledError:
+                    try:
+                        await stack.aclose()
+                    except Exception:
+                        logger.exception("Error during MCP cleanup (cancelled): %s", name)
+                    continue
+                except Exception:
+                    logger.exception("Error during MCP cleanup: %s", name)
             self.sessions.clear()
 
     def load_config(self) -> List[Dict[str, Any]]:
@@ -110,10 +119,18 @@ class McpManager:
                 args=resolved_args,
                 env={**os.environ, **(env or {})}
             )
-            
-            read, write = await self.exit_stack.enter_async_context(stdio_client(server_params))
-            session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            stack = AsyncExitStack()
+            try:
+                read, write = await stack.enter_async_context(stdio_client(server_params))
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+            except Exception:
+                try:
+                    await stack.aclose()
+                except Exception:
+                    logger.exception("Error closing MCP stack after connect failure: %s", name)
+                raise
+            self._server_exit_stacks[name] = stack
             self.sessions[name] = session
             logger.info("Connected to %s", name)
             return session
@@ -337,6 +354,63 @@ class McpManager:
         payload = [{"id": t.get("id"), "name": t.get("name"), "server": t.get("server")} for t in tools]
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
+    async def task_tool(
+        self,
+        ctx: RunContext[Any],
+        tasks: list[TaskSpec],
+        parent_chat_id: Optional[str] = None,
+    ) -> str:
+        deps = getattr(ctx, "deps", None)
+        effective_parent = parent_chat_id
+        if not effective_parent and isinstance(deps, dict):
+            effective_parent = deps.get("chat_id")
+        if not effective_parent:
+            return json.dumps({"error": "missing_parent_chat_id"}, ensure_ascii=False, indent=2)
+
+        q = deps.get("task_event_queue") if isinstance(deps, dict) else None
+        trace_id = deps.get("trace_id") if isinstance(deps, dict) else None
+        auth_scope = deps.get("auth_scope") if isinstance(deps, dict) else None
+        context_refs = deps.get("context_refs") if isinstance(deps, dict) else None
+
+        def _emit(evt):
+            if q is None:
+                return
+            try:
+                q.put_nowait(evt.model_dump(mode="json"))
+            except Exception:
+                return
+
+        normalized_tasks: list[TaskSpec] = []
+        for t in tasks:
+            update: dict[str, Any] = {}
+            if trace_id and not getattr(t, "trace_id", None):
+                update["trace_id"] = trace_id
+            if auth_scope is not None and getattr(t, "auth_scope", None) is None:
+                update["auth_scope"] = auth_scope
+            if context_refs is not None and getattr(t, "context_refs", None) is None:
+                update["context_refs"] = context_refs
+            normalized_tasks.append(t.model_copy(update=update) if update else t)
+
+        result = await task_service.run_tasks(effective_parent, normalized_tasks, emit=_emit)
+        if isinstance(deps, dict):
+            parent_citations = deps.get("citations")
+            if isinstance(parent_citations, list):
+                existing = {c.get("path") for c in parent_citations if isinstance(c, dict)}
+                for t in result.tasks:
+                    citations = getattr(t, "citations", None)
+                    if not isinstance(citations, list):
+                        continue
+                    for c in citations:
+                        if not isinstance(c, dict):
+                            continue
+                        path = c.get("path")
+                        if isinstance(path, str) and path in existing:
+                            continue
+                        parent_citations.append(c)
+                        if isinstance(path, str):
+                            existing.add(path)
+        return json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
     def _get_builtin_tools(self) -> List[tuple[str, Any]]:
         return [
             ("docs_search_markdown", self.docs_search_markdown),
@@ -351,6 +425,7 @@ class McpManager:
             ("chat_search_messages", self.chat_search_messages),
             ("mcp_get_status", self.mcp_get_status),
             ("mcp_list_tools", self.mcp_list_tools),
+            ("task_tool", self.task_tool),
         ]
 
     def _get_builtin_tools_metadata(self) -> List[Dict[str, Any]]:
@@ -478,6 +553,39 @@ class McpManager:
                 "server": "builtin",
                 "input_schema": {"type": "object", "properties": {"server": {"type": "string"}}},
             },
+            {
+                "id": "builtin:task_tool",
+                "name": "task_tool",
+                "description": "Run sub tasks by delegating to child agents and stream progress via SSE.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "parent_chat_id": {"type": "string"},
+                        "tasks": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "title": {"type": "string"},
+                                    "prompt": {"type": "string"},
+                                    "agent_id": {"type": "string"},
+                                    "system_prompt": {"type": "string"},
+                                    "provider": {"type": "string"},
+                                    "model": {"type": "string"},
+                                    "trace_id": {"type": "string"},
+                                    "deadline_ts": {"type": "number"},
+                                    "auth_scope": {"type": "object"},
+                                    "context_refs": {"type": "array"},
+                                },
+                                "required": ["prompt"],
+                            },
+                        },
+                    },
+                    "required": ["tasks"],
+                },
+            },
         ]
 
     def _get_allow_roots(self) -> List[str]:
@@ -485,12 +593,21 @@ class McpManager:
         allow_roots = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
         return [r for r in allow_roots if isinstance(r, str) and r.strip()]
 
+    def _get_deny_roots(self) -> List[str]:
+        doc_access = config_service.get_doc_access()
+        deny_roots = doc_access.get("deny_roots") if isinstance(doc_access, dict) else []
+        return [r for r in deny_roots if isinstance(r, str) and r.strip()]
+
     async def docs_search_markdown(self, ctx: RunContext[Any], query: str, limit: int = 5, root: Optional[str] = None) -> str:
         deps = getattr(ctx, "deps", None)
         effective_root = root
         if not effective_root and isinstance(deps, dict):
             effective_root = deps.get("doc_root")
-        docs_root = doc_retrieval.resolve_target_root(effective_root or "docs", allow_roots=self._get_allow_roots())
+        docs_root = doc_retrieval.resolve_target_root(
+            effective_root or "docs",
+            allow_roots=self._get_allow_roots(),
+            deny_roots=self._get_deny_roots(),
+        )
         hits = doc_retrieval.search_markdown(query, limit=limit, docs_root=docs_root)
         if isinstance(deps, dict):
             citations = deps.get("citations")
@@ -499,9 +616,11 @@ class McpManager:
                 for h in hits:
                     if h.path in existing:
                         continue
-                    citations.append({"path": h.path, "snippet": h.snippet, "score": h.score})
+                    citations.append(
+                        {"path": h.path, "snippet": h.snippet, "score": h.score, "locator": h.locator, "reason": h.reason}
+                    )
                     existing.add(h.path)
-        payload = [{"path": h.path, "snippet": h.snippet, "score": h.score} for h in hits]
+        payload = [{"path": h.path, "snippet": h.snippet, "score": h.score, "locator": h.locator, "reason": h.reason} for h in hits]
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     async def docs_read_markdown(
@@ -516,7 +635,11 @@ class McpManager:
         effective_root = root
         if not effective_root and isinstance(deps, dict):
             effective_root = deps.get("doc_root")
-        docs_root = doc_retrieval.resolve_target_root(effective_root or "docs", allow_roots=self._get_allow_roots())
+        docs_root = doc_retrieval.resolve_target_root(
+            effective_root or "docs",
+            allow_roots=self._get_allow_roots(),
+            deny_roots=self._get_deny_roots(),
+        )
         abs_path, start, end, snippet = doc_retrieval.read_markdown_lines(
             path,
             docs_root=docs_root,

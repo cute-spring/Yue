@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
@@ -10,6 +11,8 @@ class DocSnippet:
     path: str
     snippet: str
     score: float
+    locator: Optional[str] = None
+    reason: Optional[dict] = None
 
 
 class DocAccessError(RuntimeError):
@@ -29,6 +32,7 @@ def resolve_target_root(
     *,
     project_root: Optional[str] = None,
     allow_roots: Optional[List[str]] = None,
+    deny_roots: Optional[List[str]] = None,
 ) -> str:
     project_root = project_root or get_project_root()
     root = (requested_root or "").strip()
@@ -39,6 +43,9 @@ def resolve_target_root(
     else:
         candidate = os.path.join(project_root, root)
     candidate_real = _realpath(candidate)
+    for dr in _get_deny_roots(deny_roots):
+        if _is_under(dr, candidate_real):
+            raise DocAccessError("root is denied")
     allowed = _is_under(project_root, candidate_real)
     if not allowed and allow_roots:
         for r in allow_roots:
@@ -53,6 +60,30 @@ def resolve_target_root(
     if not os.path.isdir(candidate_real):
         raise DocAccessError("root is not a directory")
     return candidate_real
+
+
+def _get_deny_roots(deny_roots: Optional[List[str]] = None) -> List[str]:
+    roots: List[str] = []
+    if sys.platform == "darwin":
+        roots.extend(["/System", "/Library"])
+    elif os.name == "posix":
+        roots.extend(["/etc", "/proc", "/sys", "/dev"])
+    if deny_roots:
+        for r in deny_roots:
+            if not isinstance(r, str):
+                continue
+            rr = r.strip()
+            if rr:
+                roots.append(rr)
+    normalized: List[str] = []
+    seen = set()
+    for r in roots:
+        real = _realpath(r)
+        if real in seen:
+            continue
+        seen.add(real)
+        normalized.append(real)
+    return normalized
 
 
 def _realpath(path: str) -> str:
@@ -144,6 +175,24 @@ def _make_snippet(text: str, idx: int, *, window: int = 160) -> str:
     end = min(len(text), idx + window)
     return text[start:end].strip()
 
+def _line_number_at(text: str, idx: int) -> Optional[int]:
+    if idx < 0:
+        return None
+    if idx > len(text):
+        idx = len(text)
+    return text.count("\n", 0, idx) + 1
+
+def _heading_mask(text: str) -> str:
+    lines = text.splitlines(True)
+    out = []
+    for ln in lines:
+        stripped = ln.lstrip()
+        if stripped.startswith("#"):
+            out.append(ln)
+        else:
+            out.append("")
+    return "".join(out)
+
 
 def _tokenize_query(query: str) -> List[str]:
     q = (query or "").strip().lower()
@@ -199,22 +248,41 @@ def search_markdown(
             if st.st_size > max_file_bytes:
                 continue
             base = os.path.basename(path).lower()
-            score = 0.0
             text = _read_text_file(path, max_bytes=max_file_bytes)
             lower = text.lower()
+            headings_lower = _heading_mask(text).lower()
+            score = 0.0
+            reason: dict[str, object] = {
+                "file_name_hits": 0,
+                "content_hits": 0,
+                "heading_hits": 0,
+                "earliest_line": None,
+            }
             best_idx = None
             for t in tokens:
                 if t in base:
-                    score += 2.0 if len(t) >= 3 else 1.0
+                    w = 3.0 if len(t) >= 3 else 1.5
+                    score += w
+                    reason["file_name_hits"] = int(reason["file_name_hits"]) + 1
                 idx = lower.find(t)
                 if idx != -1:
-                    score += 1.0 if len(t) >= 3 else 0.5
+                    w = 1.2 if len(t) >= 3 else 0.6
+                    score += w
+                    reason["content_hits"] = int(reason["content_hits"]) + 1
                     if best_idx is None or idx < best_idx:
                         best_idx = idx
+                hidx = headings_lower.find(t)
+                if hidx != -1:
+                    w = 1.6 if len(t) >= 3 else 0.8
+                    score += w
+                    reason["heading_hits"] = int(reason["heading_hits"]) + 1
             snippet = _make_snippet(text, best_idx if best_idx is not None else -1)
             if score <= 0.0:
                 continue
-            hits.append(DocSnippet(path=path, snippet=snippet, score=score))
+            line_no = _line_number_at(text, best_idx if best_idx is not None else -1)
+            locator = f"L{line_no}" if line_no is not None else None
+            reason["earliest_line"] = line_no
+            hits.append(DocSnippet(path=path, snippet=snippet, score=score, locator=locator, reason=reason))
         except Exception:
             continue
 

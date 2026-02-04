@@ -101,5 +101,32 @@
     "doc_root": "docs",
     "created_at": "2026-02-03T13:09:46.724651",
     "updated_at": "2026-02-03T13:09:46.724655"
+  },
+  {
+    "id": "builtin-doc-retriever",
+    "name": "Doc Retriever",
+    "system_prompt": "You are a document retrieval sub-agent. Only use docs_search_markdown and docs_read_markdown. Return a single JSON object with keys: status (ok/no_hit/denied/timeout/error), citations (array of {path, snippet, locator?, score?, reason?}). Do not write prose.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:docs_search_markdown",
+      "builtin:docs_read_markdown"
+    ],
+    "doc_root": "backend/tests/fixtures/doc_agent",
+    "created_at": "2026-02-04T10:12:00",
+    "updated_at": "2026-02-04T10:12:00"
+  },
+  {
+    "id": "builtin-doc-orchestrator",
+    "name": "Doc Orchestrator",
+    "system_prompt": "You answer questions using evidence from Markdown docs. Always delegate retrieval to Doc Retriever using task_tool, then answer with citations. If no evidence, say no evidence and suggest keywords. Never call docs tools directly.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:task_tool"
+    ],
+    "doc_root": "docs",
+    "created_at": "2026-02-04T10:12:00",
+    "updated_at": "2026-02-04T10:12:00"
   }
 ]

@@ -91,12 +91,13 @@ export default function Notebook() {
   return (
     <div class="flex h-full bg-background transition-colors duration-250">
       {/* Sidebar List */}
-      <div class="w-1/3 border-r border-border bg-surface/50 flex flex-col transition-colors duration-250">
+      <div class="w-1/3 border-r border-border bg-surface/50 flex flex-col transition-colors duration-250" data-testid="notebook-sidebar">
         <div class="p-6 border-b border-border flex justify-between items-center bg-surface transition-colors duration-250">
           <h2 class="font-bold text-xl text-text-primary">Notebook</h2>
           <button 
             onClick={createNote}
             class="bg-primary text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-primary-hover active:scale-95 transition-all shadow-lg shadow-primary/10"
+            data-testid="notebook-new-note"
           >
             + New Note
           </button>
@@ -109,6 +110,8 @@ export default function Notebook() {
                 class={`p-5 border-b border-border/60 cursor-pointer hover:bg-surface transition-all duration-200 relative group ${
                   selectedNote()?.id === note.id ? 'bg-surface shadow-sm' : ''
                 }`}
+                data-testid="notebook-note-item"
+                data-note-id={note.id}
               >
                 <div class={`absolute left-0 top-0 bottom-0 w-1 bg-primary transition-transform duration-300 ${
                   selectedNote()?.id === note.id ? 'scale-y-100' : 'scale-y-0'
@@ -122,6 +125,7 @@ export default function Notebook() {
                     onClick={(e) => deleteNote(note.id, e)}
                     class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 rounded-md hover:bg-red-50 transition-all"
                     title="Delete note"
+                    data-testid="notebook-note-delete"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -156,7 +160,7 @@ export default function Notebook() {
       </div>
 
       {/* Editor Area */}
-      <div class="flex-1 flex flex-col bg-surface transition-colors duration-250">
+      <div class="flex-1 flex flex-col bg-surface transition-colors duration-250" data-testid="notebook-editor">
         <Show when={selectedNote()} fallback={
           <div class="flex-1 flex flex-col items-center justify-center text-text-secondary/30 bg-background/50">
             <div class="w-24 h-24 rounded-3xl border-2 border-dashed border-border flex items-center justify-center mb-6">

@@ -3,6 +3,10 @@ import requests
 
 BASE = "http://127.0.0.1:8003"
 
+from _server import ensure_backend_running
+
+ensure_backend_running(BASE)
+
 class TestConfigSecurity(unittest.TestCase):
     def test_llm_redaction_and_update(self):
         r = requests.post(f"{BASE}/api/config/llm", json={

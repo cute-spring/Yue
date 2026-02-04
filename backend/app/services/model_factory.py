@@ -1,12 +1,13 @@
 import os
 import httpx
 import asyncio
+import json
 from enum import Enum
 from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.function import FunctionModel, DeltaToolCall
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.ollama import OllamaProvider
@@ -455,6 +456,390 @@ class _InternalGuardProvider(SimpleProvider):
         return True
 
 register_provider(_InternalGuardProvider())
+
+class _InternalToolCallProvider(SimpleProvider):
+    name = "__toolcall__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            for m in messages:
+                if getattr(m, "kind", None) != "request":
+                    continue
+                for p in getattr(m, "parts", []) or []:
+                    if getattr(p, "part_kind", None) in ("tool-return", "builtin-tool-return"):
+                        yield "OK"
+                        return
+
+            payload = {
+                "tasks": [
+                    {
+                        "id": "subtask-1",
+                        "title": "Deterministic subtask",
+                        "prompt": "ping",
+                        "provider": "__guard__",
+                        "model": "guard",
+                    }
+                ]
+            }
+            yield {
+                0: DeltaToolCall(
+                    name="task_tool",
+                    json_args=json.dumps(payload, ensure_ascii=False),
+                    tool_call_id="toolcall-1",
+                )
+            }
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "toolcall")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["toolcall"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalToolCallProvider())
+
+class _InternalSlowProvider(SimpleProvider):
+    name = "__slow__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            yield "S"
+            await asyncio.sleep(60)
+            yield "LOW"
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "slow")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["slow"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalSlowProvider())
+
+class _InternalEchoProvider(SimpleProvider):
+    name = "__echo__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            last_user_prompt: Optional[str] = None
+            for m in messages:
+                if getattr(m, "kind", None) != "request":
+                    continue
+                for p in getattr(m, "parts", []) or []:
+                    if getattr(p, "part_kind", None) == "user-prompt" and isinstance(getattr(p, "content", None), str):
+                        last_user_prompt = p.content
+            yield f"ECHO:{(last_user_prompt or '').strip()}"
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "echo")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["echo"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalEchoProvider())
+
+class _InternalDocRetrieverProvider(SimpleProvider):
+    name = "__docretriever__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            tool_returns: dict[str, str] = {}
+            last_user_prompt: Optional[str] = None
+
+            for m in messages:
+                if getattr(m, "kind", None) != "request":
+                    continue
+                for p in getattr(m, "parts", []) or []:
+                    if getattr(p, "part_kind", None) == "user-prompt" and isinstance(getattr(p, "content", None), str):
+                        last_user_prompt = p.content
+                    if getattr(p, "part_kind", None) in ("tool-return", "builtin-tool-return"):
+                        tool_name = getattr(p, "tool_name", None)
+                        content = getattr(p, "content", None)
+                        if isinstance(tool_name, str) and isinstance(content, str):
+                            tool_returns[tool_name] = content
+
+            if "docs_read_markdown" in tool_returns:
+                text = tool_returns["docs_read_markdown"]
+                lines = text.splitlines()
+                header = lines[0] if lines else ""
+                snippet = "\n".join(lines[1:]).strip()
+                path = header.split("#", 1)[0] if header else ""
+                locator = header.split("#", 1)[1] if "#" in header else ""
+                payload = {
+                    "status": "ok",
+                    "citations": [
+                        {
+                            "path": path,
+                            "locator": locator,
+                            "snippet": snippet,
+                        }
+                    ],
+                }
+                yield json.dumps(payload, ensure_ascii=False)
+                return
+
+            if "docs_search_markdown" in tool_returns:
+                yield {
+                    0: DeltaToolCall(
+                        name="docs_read_markdown",
+                        json_args=json.dumps({"path": "alpha.md", "start_line": 1, "max_lines": 50}, ensure_ascii=False),
+                        tool_call_id="docread-1",
+                    )
+                }
+                return
+
+            query = (last_user_prompt or "").strip() or "Obsidian"
+            yield {
+                0: DeltaToolCall(
+                    name="docs_search_markdown",
+                    json_args=json.dumps({"query": query, "limit": 1}, ensure_ascii=False),
+                    tool_call_id="docsearch-1",
+                )
+            }
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "docretriever")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["docretriever"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalDocRetrieverProvider())
+
+class _InternalDocRetrieverNoHitProvider(SimpleProvider):
+    name = "__docretriever_nohit__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            yield json.dumps({"status": "no_hit", "citations": []}, ensure_ascii=False)
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "docretriever_nohit")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["docretriever_nohit"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalDocRetrieverNoHitProvider())
+
+class _InternalDocRetrieverDeniedProvider(SimpleProvider):
+    name = "__docretriever_denied__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            yield json.dumps({"status": "denied", "citations": [], "reason": "forbidden"}, ensure_ascii=False)
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "docretriever_denied")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["docretriever_denied"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalDocRetrieverDeniedProvider())
+
+class _InternalDocMainProvider(SimpleProvider):
+    name = "__docmain__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            last_user_prompt: Optional[str] = None
+            tool_return_content: Optional[str] = None
+
+            for m in messages:
+                if getattr(m, "kind", None) != "request":
+                    continue
+                for p in getattr(m, "parts", []) or []:
+                    if getattr(p, "part_kind", None) == "user-prompt" and isinstance(getattr(p, "content", None), str):
+                        last_user_prompt = p.content
+                    if getattr(p, "part_kind", None) in ("tool-return", "builtin-tool-return") and getattr(p, "tool_name", None) == "task_tool":
+                        if isinstance(getattr(p, "content", None), str):
+                            tool_return_content = p.content
+
+            if tool_return_content is not None:
+                try:
+                    payload = json.loads(tool_return_content)
+                    tasks = payload.get("tasks") if isinstance(payload, dict) else None
+                    first = tasks[0] if isinstance(tasks, list) and tasks else None
+                    citations = first.get("citations") if isinstance(first, dict) else None
+                    if isinstance(citations, list) and citations:
+                        path = citations[0].get("path") if isinstance(citations[0], dict) else None
+                        if isinstance(path, str) and path:
+                            yield f"已找到文档依据。\n\n引用：\n- {path}"
+                        else:
+                            yield "已找到文档依据。"
+                    else:
+                        yield "未在已配置的文档范围内找到可引用的依据。请尝试：调整关键词、缩小/扩大范围、或提供更具体的文件/段落线索。"
+                except Exception:
+                    yield "未在已配置的文档范围内找到可引用的依据。请尝试：调整关键词、缩小/扩大范围、或提供更具体的文件/段落线索。"
+                return
+
+            payload = {
+                "tasks": [
+                    {
+                        "id": "doc-task-1",
+                        "title": "Doc retrieval",
+                        "prompt": (last_user_prompt or "").strip() or "Obsidian",
+                        "agent_id": "builtin-doc-retriever",
+                        "provider": "__docretriever__",
+                        "model": "docretriever",
+                    }
+                ]
+            }
+            yield {
+                0: DeltaToolCall(
+                    name="task_tool",
+                    json_args=json.dumps(payload, ensure_ascii=False),
+                    tool_call_id="docmain-1",
+                )
+            }
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "docmain")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["docmain"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalDocMainProvider())
+
+class _InternalDocHallucinateProvider(SimpleProvider):
+    name = "__dochallucinate__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            yield "这是一个没有引用的结论性回答，用于测试强制引用策略。"
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "dochallucinate")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["dochallucinate"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalDocHallucinateProvider())
+
+class _InternalDocMainNoHitProvider(SimpleProvider):
+    name = "__docmain_nohit__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            last_user_prompt: Optional[str] = None
+            tool_return_content: Optional[str] = None
+
+            for m in messages:
+                if getattr(m, "kind", None) != "request":
+                    continue
+                for p in getattr(m, "parts", []) or []:
+                    if getattr(p, "part_kind", None) == "user-prompt" and isinstance(getattr(p, "content", None), str):
+                        last_user_prompt = p.content
+                    if getattr(p, "part_kind", None) in ("tool-return", "builtin-tool-return") and getattr(p, "tool_name", None) == "task_tool":
+                        if isinstance(getattr(p, "content", None), str):
+                            tool_return_content = p.content
+
+            if tool_return_content is not None:
+                try:
+                    payload = json.loads(tool_return_content)
+                    tasks = payload.get("tasks") if isinstance(payload, dict) else None
+                    first = tasks[0] if isinstance(tasks, list) and tasks else None
+                    citations = first.get("citations") if isinstance(first, dict) else None
+                    if isinstance(citations, list) and citations:
+                        yield "已找到文档依据。"
+                    else:
+                        yield "未在已配置的文档范围内找到可引用的依据。请尝试：调整关键词、缩小/扩大范围、或提供更具体的文件/段落线索。"
+                except Exception:
+                    yield "未在已配置的文档范围内找到可引用的依据。请尝试：调整关键词、缩小/扩大范围、或提供更具体的文件/段落线索。"
+                return
+
+            payload = {
+                "tasks": [
+                    {
+                        "id": "doc-task-nohit-1",
+                        "title": "Doc retrieval nohit",
+                        "prompt": (last_user_prompt or "").strip() or "Obsidian",
+                        "agent_id": "builtin-doc-retriever",
+                        "provider": "__docretriever_nohit__",
+                        "model": "docretriever_nohit",
+                    }
+                ]
+            }
+            yield {
+                0: DeltaToolCall(
+                    name="task_tool",
+                    json_args=json.dumps(payload, ensure_ascii=False),
+                    tool_call_id="docmain-nohit-1",
+                )
+            }
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "docmain_nohit")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["docmain_nohit"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalDocMainNoHitProvider())
+
+class _InternalDocMainDeniedProvider(SimpleProvider):
+    name = "__docmain_denied__"
+
+    def build(self, model_name: Optional[str] = None) -> Any:
+        async def stream_function(messages, agent_info):
+            last_user_prompt: Optional[str] = None
+            tool_return_content: Optional[str] = None
+
+            for m in messages:
+                if getattr(m, "kind", None) != "request":
+                    continue
+                for p in getattr(m, "parts", []) or []:
+                    if getattr(p, "part_kind", None) == "user-prompt" and isinstance(getattr(p, "content", None), str):
+                        last_user_prompt = p.content
+                    if getattr(p, "part_kind", None) in ("tool-return", "builtin-tool-return") and getattr(p, "tool_name", None) == "task_tool":
+                        if isinstance(getattr(p, "content", None), str):
+                            tool_return_content = p.content
+
+            if tool_return_content is not None:
+                yield "文档访问被拒绝：当前权限/配置不允许读取目标文档。请检查 doc_root 与 allowlist/denylist 配置。"
+                return
+
+            payload = {
+                "tasks": [
+                    {
+                        "id": "doc-task-denied-1",
+                        "title": "Doc retrieval denied",
+                        "prompt": (last_user_prompt or "").strip() or "Obsidian",
+                        "agent_id": "builtin-doc-retriever",
+                        "provider": "__docretriever_denied__",
+                        "model": "docretriever_denied",
+                    }
+                ]
+            }
+            yield {
+                0: DeltaToolCall(
+                    name="task_tool",
+                    json_args=json.dumps(payload, ensure_ascii=False),
+                    tool_call_id="docmain-denied-1",
+                )
+            }
+
+        return FunctionModel(stream_function=stream_function, model_name=model_name or "docmain_denied")
+
+    async def list_models(self, refresh: bool = False) -> List[str]:
+        return ["docmain_denied"]
+
+    def configured(self) -> bool:
+        return True
+
+register_provider(_InternalDocMainDeniedProvider())
 
 def get_model(provider_name: str, model_name: Optional[str] = None):
     handler = _dynamic_providers.get(provider_name.lower()) or _dynamic_providers.get(LLMProvider.OPENAI.value)

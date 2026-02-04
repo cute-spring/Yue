@@ -3,6 +3,10 @@ import requests
 
 BASE = "http://127.0.0.1:8003"
 
+from _server import ensure_backend_running
+
+ensure_backend_running(BASE)
+
 class TestCustomModelsCrud(unittest.TestCase):
     def test_crud_flow(self):
         r = requests.get(f"{BASE}/api/models/custom")

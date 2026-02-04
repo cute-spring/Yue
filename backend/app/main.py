@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook
+from app.api import chat, agents, mcp, models, config, notebook, tasks
 from app.mcp.manager import mcp_manager
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
@@ -55,6 +55,7 @@ app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(notebook.router, prefix="/api/notebook", tags=["notebook"])
+app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 
 # Mount Static Files (Frontend)
 # In production, we expect the frontend build to be in 'static' folder

@@ -161,10 +161,36 @@ type ChatSession = {
   updated_at: string;
 };
 
+type TaskRun = {
+  task_id: string;
+  child_chat_id: string;
+  status: string;
+  output: string;
+  error?: string;
+};
+
+type Citation = {
+  path: string;
+  snippet?: string;
+  start_line?: number;
+  end_line?: number;
+  locator?: string;
+  score?: number;
+  reason?: Record<string, unknown>;
+};
+
 type Message = {
   role: string;
   content: string;
   thought_duration?: number;
+  task_runs?: TaskRun[];
+  citations?: Citation[];
+  gaps?: {
+    kind: string;
+    items?: string[];
+    suggestions?: string[];
+    doc_root?: string;
+  };
 };
 
 export default function Chat() {
@@ -247,6 +273,31 @@ export default function Chat() {
     const target = e.currentTarget as HTMLDivElement;
     const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100;
     setUserHasScrolledUp(!isAtBottom);
+  };
+
+  const getCitationLocator = (c: Citation) => {
+    if (typeof c.start_line === 'number' && typeof c.end_line === 'number') return `L${c.start_line}-L${c.end_line}`;
+    if (typeof c.locator === 'string' && c.locator) return c.locator;
+    return '';
+  };
+
+  const getCitationRef = (c: Citation) => {
+    const loc = getCitationLocator(c);
+    return loc ? `${c.path}#${loc}` : c.path;
+  };
+
+  const copyCitation = async (c: Citation) => {
+    const text = getCitationRef(c);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
   };
 
    // Helper to split thought and content
@@ -361,7 +412,7 @@ export default function Chat() {
         }
       }
 
-      if (selectedProvider() && (!currentProvider || !currentProvider.configured)) {
+      if (selectedProvider() && !selectedProvider().startsWith('__') && (!currentProvider || !currentProvider.configured)) {
         setSelectedProvider("");
         setSelectedModel("");
         localStorage.removeItem(PROVIDER_STORAGE_KEY);
@@ -537,7 +588,7 @@ export default function Chat() {
     setElapsedTime(0);
     timerInterval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
 
-    setMessages(prev => [...prev, { role: 'assistant', content: "" }]);
+    setMessages(prev => [...prev, { role: 'assistant', content: "", task_runs: [] }]);
 
     abortController = new AbortController();
 
@@ -570,9 +621,58 @@ export default function Chat() {
               try {
                 const data = JSON.parse(line.slice(6));
                 
-                if (data.chat_id) {
+                if (data.type === 'task_event') {
+                  setMessages(prev => {
+                    const newMsgs = [...prev];
+                    const lastIndex = newMsgs.length - 1;
+                    const last = newMsgs[lastIndex];
+                    const runs = [...(last.task_runs || [])];
+                    const taskId = data.task_id as string | undefined;
+                    const childChatId = data.child_chat_id as string | undefined;
+                    if (typeof taskId === 'string' && taskId && typeof childChatId === 'string' && childChatId) {
+                      const idx = runs.findIndex(r => r.task_id === taskId);
+                      if (idx >= 0) {
+                        const r = runs[idx];
+                        const delta = typeof data.content_delta === 'string' ? data.content_delta : '';
+                        runs[idx] = {
+                          ...r,
+                          status: data.status || r.status,
+                          child_chat_id: childChatId,
+                          output: r.output + delta,
+                          error: data.error || r.error,
+                        };
+                      } else {
+                        runs.push({
+                          task_id: taskId,
+                          child_chat_id: childChatId,
+                          status: data.status || 'started',
+                          output: typeof data.content_delta === 'string' ? data.content_delta : '',
+                          error: data.error || undefined,
+                        });
+                      }
+                      newMsgs[lastIndex] = { ...last, task_runs: runs };
+                    }
+                    return newMsgs;
+                  });
+                } else if (data.chat_id) {
                   setCurrentChatId(data.chat_id);
                   loadHistory(); // Refresh history list to show new title
+                } else if (data.citations && Array.isArray(data.citations)) {
+                  setMessages(prev => {
+                    const newMsgs = [...prev];
+                    const lastIndex = newMsgs.length - 1;
+                    const last = newMsgs[lastIndex];
+                    newMsgs[lastIndex] = { ...last, citations: data.citations };
+                    return newMsgs;
+                  });
+                } else if (data.gaps && typeof data.gaps === 'object') {
+                  setMessages(prev => {
+                    const newMsgs = [...prev];
+                    const lastIndex = newMsgs.length - 1;
+                    const last = newMsgs[lastIndex];
+                    newMsgs[lastIndex] = { ...last, gaps: data.gaps };
+                    return newMsgs;
+                  });
                 } else if (data.content) {
                   accumulatedResponse += data.content;
                   setMessages(prev => {
@@ -627,6 +727,7 @@ export default function Chat() {
           fixed lg:relative inset-y-0 left-0 bg-surface border-r border-border transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-30
           ${showHistory() ? 'translate-x-0 w-sidebar opacity-100' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
         `}
+        data-testid="chat-history"
       >
         <div class="w-sidebar h-full flex flex-col">
           <div class="p-5 border-b border-border flex justify-between items-center bg-surface/50 backdrop-blur-md sticky top-0 z-10">
@@ -638,6 +739,7 @@ export default function Chat() {
               onClick={startNewChat} 
               class="group relative p-2 bg-primary/10 hover:bg-primary text-primary hover:text-white rounded-xl transition-all duration-300 active:scale-90 shadow-sm hover:shadow-primary/20"
               title="New Chat Session"
+              data-testid="new-chat"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transform group-hover:rotate-90 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
@@ -652,14 +754,18 @@ export default function Chat() {
                     currentChatId() === chat.id ? 'bg-primary/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent'
                   }`}
                   onClick={() => loadChat(chat.id)}
+                  data-testid="chat-history-item"
+                  data-chat-id={chat.id}
                 >
                   <div class="flex-1 min-w-0">
-                    <h3 class={`text-sm font-medium truncate ${currentChatId() === chat.id ? 'text-primary' : 'text-text-primary'}`}>{chat.title}</h3>
+                    <h3 class={`text-sm font-medium truncate ${currentChatId() === chat.id ? 'text-primary' : 'text-text-primary'}`} data-testid="chat-history-title">{chat.title}</h3>
                     <p class="text-[10px] text-text-secondary mt-1">{new Date(chat.updated_at).toLocaleDateString()}</p>
                   </div>
                   <button 
                     onClick={(e) => deleteChat(chat.id, e)}
                     class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 transition-all"
+                    data-testid="chat-history-delete"
+                    title="Delete Chat"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -788,11 +894,135 @@ export default function Chat() {
                   msg.role === 'user' 
                     ? 'bg-primary text-white px-6 py-4 shadow-xl shadow-primary/10 rounded-[24px] rounded-br-none' 
                     : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none'
-                }`}>
+                }`} data-testid={msg.role === 'user' ? 'message-user' : 'message-assistant'}>
                   {msg.role === 'user' ? (
                      <div class="whitespace-pre-wrap leading-relaxed font-medium text-[15px]">{msg.content}</div>
                   ) : (
                      <div class="relative space-y-5">
+                        <Show when={msg.task_runs && msg.task_runs.length > 0}>
+                          <div class="bg-primary/5 border border-primary/10 rounded-2xl p-4 -mx-2" data-testid="task-runs">
+                            <div class="flex items-center justify-between mb-3">
+                              <div class="text-[11px] font-black uppercase tracking-wider text-primary/80">Subtasks</div>
+                              <div class="text-[11px] font-mono text-text-secondary/50">{msg.task_runs?.length}</div>
+                            </div>
+                            <div class="space-y-2">
+                              <For each={msg.task_runs || []}>
+                                {(t) => (
+                                  <div class="flex items-start justify-between gap-3 bg-surface/60 border border-border/40 rounded-xl px-3 py-2" data-testid="task-run">
+                                    <div class="min-w-0">
+                                      <div class="text-[12px] font-mono text-text-primary truncate" data-testid="task-id">{t.task_id}</div>
+                                      <Show when={t.output}>
+                                        <div class="text-[12px] text-text-secondary mt-1 line-clamp-2">{t.output}</div>
+                                      </Show>
+                                      <Show when={t.error}>
+                                        <div class="text-[12px] text-red-500 mt-1">{t.error}</div>
+                                      </Show>
+                                    </div>
+                                    <div class="shrink-0">
+                                      <div
+                                        class={`text-[11px] font-black uppercase tracking-wider px-2 py-1 rounded-lg ${
+                                          t.status === 'completed'
+                                            ? 'bg-emerald-500/10 text-emerald-600'
+                                            : t.status === 'failed'
+                                              ? 'bg-red-500/10 text-red-600'
+                                              : 'bg-primary/10 text-primary'
+                                        }`}
+                                        data-testid="task-status"
+                                      >
+                                        {t.status}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </Show>
+                        <Show when={msg.citations && msg.citations.length > 0}>
+                          <div class="bg-black/5 dark:bg-black/20 border border-border/40 rounded-2xl p-4 -mx-2" data-testid="citations">
+                            <div class="flex items-center justify-between mb-3">
+                              <div class="text-[11px] font-black uppercase tracking-wider text-text-secondary">Citations</div>
+                              <div class="text-[11px] font-mono text-text-secondary/50">{msg.citations?.length}</div>
+                            </div>
+                            <div class="space-y-2">
+                              <For each={msg.citations || []}>
+                                {(c) => (
+                                  <div class="bg-surface/60 border border-border/40 rounded-xl px-3 py-2">
+                                    <div class="flex items-start justify-between gap-3">
+                                      <div class="min-w-0">
+                                        <div class="min-w-0 text-[12px] font-mono text-text-primary truncate" data-testid="citation-path">{c.path}</div>
+                                        <Show when={getCitationLocator(c)}>
+                                          <div class="mt-1 inline-flex items-center gap-2">
+                                            <span class="text-[11px] font-mono text-text-secondary/60 bg-black/5 dark:bg-white/5 border border-border/30 rounded-md px-2 py-0.5" data-testid="citation-locator">{getCitationLocator(c)}</span>
+                                            <Show when={typeof c.score === 'number'}>
+                                              <span class="text-[11px] font-mono text-text-secondary/50" data-testid="citation-score">{(c.score as number).toFixed(1)}</span>
+                                            </Show>
+                                          </div>
+                                        </Show>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        class="shrink-0 text-[11px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                                        onClick={() => copyCitation(c)}
+                                        data-testid="citation-copy"
+                                      >
+                                        Copy
+                                      </button>
+                                    </div>
+                                    <Show when={c.reason && typeof c.reason === 'object'}>
+                                      <div class="mt-2 flex flex-wrap gap-2" data-testid="citation-reason">
+                                        <Show when={typeof c.reason?.file_name_hits === 'number'}>
+                                          <span class="text-[11px] font-mono text-text-secondary/70 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-2 py-0.5">file:{String(c.reason?.file_name_hits)}</span>
+                                        </Show>
+                                        <Show when={typeof c.reason?.heading_hits === 'number'}>
+                                          <span class="text-[11px] font-mono text-text-secondary/70 bg-violet-500/10 border border-violet-500/20 rounded-md px-2 py-0.5">head:{String(c.reason?.heading_hits)}</span>
+                                        </Show>
+                                        <Show when={typeof c.reason?.content_hits === 'number'}>
+                                          <span class="text-[11px] font-mono text-text-secondary/70 bg-sky-500/10 border border-sky-500/20 rounded-md px-2 py-0.5">body:{String(c.reason?.content_hits)}</span>
+                                        </Show>
+                                        <Show when={typeof c.reason?.earliest_line === 'number'}>
+                                          <span class="text-[11px] font-mono text-text-secondary/60">line:{String(c.reason?.earliest_line)}</span>
+                                        </Show>
+                                      </div>
+                                    </Show>
+                                    <Show when={c.snippet}>
+                                      <div class="text-[12px] text-text-secondary mt-1 line-clamp-2" data-testid="citation-snippet">{c.snippet}</div>
+                                    </Show>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </Show>
+                        <Show when={msg.gaps && (msg.gaps.items?.length || msg.gaps.suggestions?.length || msg.gaps.doc_root)}>
+                          <div class="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 -mx-2" data-testid="gaps">
+                            <div class="flex items-center justify-between mb-3">
+                              <div class="text-[11px] font-black uppercase tracking-wider text-amber-700/80 dark:text-amber-300/80">Gaps</div>
+                              <div class="text-[11px] font-mono text-text-secondary/50">{msg.gaps?.kind}</div>
+                            </div>
+                            <Show when={msg.gaps?.doc_root}>
+                              <div class="text-[12px] font-mono text-text-secondary/70 mb-2" data-testid="gaps-doc-root">doc_root: {msg.gaps?.doc_root}</div>
+                            </Show>
+                            <Show when={msg.gaps?.items && msg.gaps.items.length > 0}>
+                              <div class="space-y-1 mb-3" data-testid="gaps-items">
+                                <For each={msg.gaps?.items || []}>
+                                  {(it) => <div class="text-[13px] text-text-primary">{it}</div>}
+                                </For>
+                              </div>
+                            </Show>
+                            <Show when={msg.gaps?.suggestions && msg.gaps.suggestions.length > 0}>
+                              <div class="flex flex-wrap gap-2" data-testid="gaps-suggestions">
+                                <For each={msg.gaps?.suggestions || []}>
+                                  {(s) => (
+                                    <span class="text-[11px] font-mono text-amber-700/80 dark:text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-0.5">
+                                      {s}
+                                    </span>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                          </div>
+                        </Show>
                         {(() => {
                           const { thought, content } = parseThoughtAndContent(msg.content);
                           return (

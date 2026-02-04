@@ -43,12 +43,47 @@ class TestDocRetrieval(unittest.TestCase):
             with self.assertRaises(DocAccessError):
                 resolve_target_root(external, project_root=project_root)
 
+    def test_resolve_target_root_denies_when_in_denylist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = os.path.join(tmp, "Yue")
+            os.makedirs(project_root, exist_ok=True)
+            external = os.path.join(tmp, "external", "docs")
+            os.makedirs(external, exist_ok=True)
+            with self.assertRaises(DocAccessError):
+                resolve_target_root(external, project_root=project_root, allow_roots=[external], deny_roots=[external])
+
     def test_resolve_docs_path_denies_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
             docs_root = os.path.join(tmp, "docs")
             os.makedirs(docs_root, exist_ok=True)
             with self.assertRaises(DocAccessError):
                 resolve_docs_path("../secrets.md", docs_root=docs_root)
+
+    def test_resolve_docs_path_denies_symlink_file_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs_root = os.path.join(tmp, "docs")
+            os.makedirs(docs_root, exist_ok=True)
+            outside = os.path.join(tmp, "outside.md")
+            with open(outside, "w", encoding="utf-8") as f:
+                f.write("secret")
+            link = os.path.join(docs_root, "link.md")
+            os.symlink(outside, link)
+            with self.assertRaises(DocAccessError):
+                read_markdown_lines("link.md", docs_root=docs_root)
+
+    def test_resolve_docs_path_denies_symlink_dir_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs_root = os.path.join(tmp, "docs")
+            os.makedirs(docs_root, exist_ok=True)
+            outside_dir = os.path.join(tmp, "outside_dir")
+            os.makedirs(outside_dir, exist_ok=True)
+            outside_file = os.path.join(outside_dir, "a.md")
+            with open(outside_file, "w", encoding="utf-8") as f:
+                f.write("secret")
+            link_dir = os.path.join(docs_root, "linked")
+            os.symlink(outside_dir, link_dir)
+            with self.assertRaises(DocAccessError):
+                read_markdown_lines("linked/a.md", docs_root=docs_root)
 
     def test_read_markdown_requires_md(self):
         with tempfile.TemporaryDirectory() as tmp:

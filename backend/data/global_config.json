@@ -21,8 +21,7 @@
     "azure_client_secret": "alnw5erTX"
   },
   "doc_access": {
-    "allow_roots": [
-      "/Users/gavinzhang/ws-ai-recharge-2026/opencode/docs"
-    ]
+    "allow_roots": [],
+    "deny_roots": []
   }
 }

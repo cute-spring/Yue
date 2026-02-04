@@ -5,6 +5,10 @@ import requests
 BASE = "http://127.0.0.1:8003"
 TRACE_HEADER = "X-Request-Id"
 
+from _server import ensure_backend_running
+
+ensure_backend_running(BASE)
+
 
 class TestTraceIdHeaders(unittest.TestCase):
     def test_trace_id_echo(self):
@@ -21,4 +25,3 @@ class TestTraceIdHeaders(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
