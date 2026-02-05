@@ -7,6 +7,7 @@ type Agent = {
   provider: string;
   model: string;
   enabled_tools: string[];
+  doc_roots?: string[];
 };
 
 type McpTool = {
@@ -45,7 +46,11 @@ export default function Agents() {
   const [formProvider, setFormProvider] = createSignal("openai");
   const [formModel, setFormModel] = createSignal("gpt-4o");
   const [formTools, setFormTools] = createSignal<string[]>([]);
+  const [formDocRoots, setFormDocRoots] = createSignal<string[]>([]);
+  const [formDocRootInput, setFormDocRootInput] = createSignal("");
   const [expandedGroups, setExpandedGroups] = createSignal<Record<string, boolean>>({});
+  const [allowDocRoots, setAllowDocRoots] = createSignal<string[]>([]);
+  const [denyDocRoots, setDenyDocRoots] = createSignal<string[]>([]);
 
   const toggleGroupExpand = (server: string) => {
     setExpandedGroups(prev => ({
@@ -78,12 +83,24 @@ export default function Agents() {
     }
   };
 
+  const loadDocAccess = async () => {
+    try {
+      const res = await fetch('/api/config/doc_access');
+      const data = await res.json();
+      setAllowDocRoots(Array.isArray(data?.allow_roots) ? data.allow_roots : []);
+      setDenyDocRoots(Array.isArray(data?.deny_roots) ? data.deny_roots : []);
+    } catch (e) {
+      console.error("Failed to load doc access config", e);
+    }
+  };
+
   onMount(async () => {
     loadAgents();
     loadTools();
     loadProviders();
+    loadDocAccess();
 
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = () => {
       if (showLLMSelector()) {
         setShowLLMSelector(false);
       }
@@ -98,6 +115,8 @@ export default function Agents() {
     setFormProvider("openai");
     setFormModel("gpt-4o");
     setFormTools([]);
+    setFormDocRoots([]);
+    setFormDocRootInput("");
     setEditingId(null);
     setIsEditing(true);
   };
@@ -108,6 +127,8 @@ export default function Agents() {
     setFormProvider(agent.provider);
     setFormModel(agent.model);
     setFormTools(agent.enabled_tools);
+    setFormDocRoots(agent.doc_roots || []);
+    setFormDocRootInput("");
     setEditingId(agent.id);
     setIsEditing(true);
   };
@@ -120,7 +141,8 @@ export default function Agents() {
       system_prompt: formPrompt(),
       provider: formProvider(),
       model: formModel(),
-      enabled_tools: formTools()
+      enabled_tools: formTools(),
+      doc_roots: formDocRoots()
     };
 
     if (editingId()) {
@@ -149,7 +171,6 @@ export default function Agents() {
 
   const toggleTool = (toolId: string) => {
     const current = formTools();
-    // Also handle legacy name entries by removing both id and name if present
     const legacyName = toolId.includes(":") ? toolId.split(":").slice(1).join(":") : toolId;
     const hasId = current.includes(toolId);
     const hasLegacy = current.includes(legacyName);
@@ -158,6 +179,28 @@ export default function Agents() {
     } else {
       setFormTools([...current, toolId]);
     }
+  };
+
+  const supportsDocScope = () => {
+    return formTools().some(t => t.includes("docs_search_markdown_dir") || t.includes("docs_read_markdown_dir"));
+  };
+
+  const addDocRoot = () => {
+    addDocRootValue(formDocRootInput());
+    setFormDocRootInput("");
+  };
+
+  const addDocRootValue = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (formDocRoots().includes(trimmed)) {
+      return;
+    }
+    setFormDocRoots([...formDocRoots(), trimmed]);
+  };
+
+  const removeDocRoot = (root: string) => {
+    setFormDocRoots(formDocRoots().filter(r => r !== root));
   };
 
   return (
@@ -391,6 +434,105 @@ export default function Agents() {
               </div>
             </div>
 
+            <Show when={supportsDocScope()}>
+              <div class="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-[10px] font-black text-emerald-700 uppercase tracking-[0.2em]">Search Scope</div>
+                    <div class="text-xs text-emerald-700/80 mt-1">Applies to docs_search_markdown_dir / docs_read_markdown_dir</div>
+                  </div>
+                  <div class="text-[10px] font-bold text-emerald-700 bg-white/80 px-2 py-1 rounded-full border border-emerald-100">Optional</div>
+                </div>
+                <div class="flex flex-col md:flex-row gap-2">
+                  <input
+                    class="flex-1 border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+                    value={formDocRootInput()}
+                    onInput={e => setFormDocRootInput(e.currentTarget.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addDocRoot();
+                      }
+                    }}
+                    placeholder="Absolute or project-relative path, e.g. docs or /Users/.../docs"
+                  />
+                  <button
+                    type="button"
+                    onClick={addDocRoot}
+                    class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+                <Show
+                  when={formDocRoots().length > 0}
+                  fallback={
+                    <div class="text-xs text-emerald-700/70 bg-white/70 border border-emerald-100 rounded-lg px-3 py-2">
+                      Add one or more directories to narrow retrieval. Invalid paths will be rejected by the server.
+                    </div>
+                  }
+                >
+                  <div class="flex flex-wrap gap-2">
+                    <For each={formDocRoots()}>
+                      {root => (
+                        <div class="flex items-center gap-2 bg-white border border-emerald-100 text-emerald-800 text-xs px-3 py-1.5 rounded-full">
+                          <span class="max-w-[240px] truncate">{root}</span>
+                          <button
+                            type="button"
+                            class="text-emerald-500 hover:text-emerald-700"
+                            onClick={() => removeDocRoot(root)}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fill-rule="evenodd" d="M10 8.586l3.536-3.535a1 1 0 111.414 1.414L11.414 10l3.536 3.535a1 1 0 01-1.414 1.414L10 11.414l-3.536 3.535a1 1 0 01-1.414-1.414L8.586 10 5.05 6.465A1 1 0 016.465 5.05L10 8.586z" clip-rule="evenodd" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={allowDocRoots().length > 0}>
+                  <div class="space-y-2">
+                    <div class="text-[10px] font-bold text-emerald-700 uppercase tracking-[0.2em]">Allowed Roots</div>
+                    <div class="flex flex-wrap gap-2">
+                      <For each={allowDocRoots()}>
+                        {root => {
+                          const selected = () => formDocRoots().includes(root);
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => addDocRootValue(root)}
+                              class={`text-[10px] px-2 py-1 rounded-full border transition-colors ${
+                                selected()
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              }`}
+                            >
+                              {root}
+                            </button>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+                <Show when={denyDocRoots().length > 0}>
+                  <div class="space-y-2">
+                    <div class="text-[10px] font-bold text-red-600 uppercase tracking-[0.2em]">Denied Roots</div>
+                    <div class="flex flex-wrap gap-2">
+                      <For each={denyDocRoots()}>
+                        {root => (
+                          <span class="text-[10px] px-2 py-1 rounded-full border bg-white text-red-600 border-red-200">
+                            {root}
+                          </span>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+
             <div class="flex justify-end gap-3 pt-4 border-t">
               <button 
                 type="button" 
@@ -476,6 +618,25 @@ export default function Agents() {
                   </Show>
                 </div>
               </div>
+              <Show when={agent.doc_roots && agent.doc_roots.length > 0}>
+                <div class="flex items-center gap-2 mt-2 overflow-hidden">
+                  <span class="text-xs font-semibold text-gray-400 shrink-0">SCOPE</span>
+                  <div class="flex flex-wrap gap-1">
+                    <For each={agent.doc_roots?.slice(0, 2) || []}>
+                      {root => (
+                        <span class="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-100">
+                          {root}
+                        </span>
+                      )}
+                    </For>
+                    <Show when={(agent.doc_roots?.length || 0) > 2}>
+                      <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                        +{(agent.doc_roots?.length || 0) - 2}
+                      </span>
+                    </Show>
+                  </div>
+                </div>
+              </Show>
             </div>
           )}
         </For>

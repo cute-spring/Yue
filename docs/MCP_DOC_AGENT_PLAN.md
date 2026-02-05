@@ -77,14 +77,14 @@ DoD：
 
 ---
 
-### Phase 1｜最小可用文档检索（只允许 Yue/docs）
+### Phase 1｜最小可用文档检索（只允许 Yue/docs） [DONE]
 
 目标：打通“提问 → 检索 → 证据片段 → 引用路径 → 回答”的闭环，先在低风险目录内完成。
 
 交付物：
 - MCP 工具能力（只读）：
-  - 搜索 Markdown（文件名/内容关键词）
-  - 读取 Markdown（支持长度限制/分页，避免一次性全文灌入）
+  - `docs_search_markdown_dir`: 搜索 Markdown（文件名/内容关键词）
+  - `docs_read_markdown_dir`: 读取 Markdown（支持长度限制/分页，避免一次性全文灌入）
 - 主 Agent 在回答中输出 citations（至少 1 条 file path）。
 
 必须验证：
@@ -107,12 +107,12 @@ DoD：
 
 ---
 
-### Phase 2｜支持 Yue 目录外读取（显式 allowlist）
+### Phase 2｜支持 Yue 目录外读取（显式 allowlist） [DONE]
 
 目标：用户提供目标目录时，可在该目录检索/读取 Markdown，但必须安全可控。
 
 交付物：
-- allowlist 配置能力（纳入现有 data 配置体系，便于管理与审计）。
+- allowlist 配置能力（纳入现有 `global_config.json` 配置体系，支持 `doc_access` 对象）。
 - 安全策略强制执行（代码层）：
   - 路径穿越拦截（../）
   - 符号链接逃逸防护（realpath 校验）
@@ -136,7 +136,7 @@ DoD：
 
 ---
 
-### Phase 3｜引入“文档检索子 Agent”（主负责编排，子负责证据）
+### Phase 3｜引入“文档检索子 Agent”（主负责编排，子负责证据） [IN_PROGRESS]
 
 目标：通过主/子分层，把检索复杂度与上下文噪音隔离出去；主 Agent 更稳定、更可维护。
 

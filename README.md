@@ -56,6 +56,7 @@ docker run -p 8000:8000 --env-file backend/.env yue-agent
 - **三栏式布局**: 侧边栏 (图标轨/全宽) + 主聊天区 + 智能知识面板。
 - **多模型驱动**: 支持 OpenAI, DeepSeek, 智谱, 以及本地 Ollama 模型。
 - **MCP 工具集成**: 插件化工具调用，支持 Filesystem 等多种协议。
+- **本地文档检索**: 专门的文档检索 Agent，支持安全可控的本地目录 Markdown 搜索与溯源。
 - **深度思考 UI**: 完美适配 DeepSeek R1 的推理过程展示。
 - **响应式设计**: 完美适配桌面、平板与移动端。
 

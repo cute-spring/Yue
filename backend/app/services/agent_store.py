@@ -15,6 +15,7 @@ class AgentConfig(BaseModel):
     provider: str = "openai"
     model: str = "gpt-4o"
     enabled_tools: List[str] = [] # List of tool names
+    doc_roots: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -28,7 +29,10 @@ class AgentStore:
             os.makedirs(DATA_DIR)
         if not os.path.exists(AGENTS_FILE):
             with open(AGENTS_FILE, 'w') as f:
-                json.dump([self._builtin_docs_agent().model_dump(mode="json")], f, indent=2)
+                json.dump([
+                    self._builtin_docs_agent().model_dump(mode="json"),
+                    self._builtin_local_docs_agent().model_dump(mode="json")
+                ], f, indent=2)
 
     def _builtin_docs_agent(self) -> AgentConfig:
         return AgentConfig(
@@ -48,25 +52,61 @@ class AgentStore:
             ],
         )
 
+    def _builtin_local_docs_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-local-docs",
+            name="Local Docs",
+            system_prompt=(
+                "你是一个专门基于用户提供的本地目录中的 Markdown 文档回答问题的助手。\n"
+                "你必须首先使用 docs_search_markdown_dir / docs_read_markdown_dir 工具在指定目录下检索证据，然后再给出回答。\n"
+                "用户可以提供一个或多个目录；如果提供多个目录，请按目录逐个检索并合并命中结果。\n"
+                "你的工作流程：\n"
+                "1. 确认用户提供的目录路径。\n"
+                "2. 使用 docs_search_markdown_dir 在目录下搜索关键词。\n"
+                "3. 使用 docs_read_markdown_dir 读取相关文档的详细内容。\n"
+                "4. 基于找到的内容回答问题，并在回答中附带引用的文件路径（path）。\n"
+                "如果找不到证据：明确说明“在指定目录下未找到相关文档依据”，不要用常识或猜测补全，并给出可继续检索的建议。\n"
+                "安全提示：你只能访问被系统允许的白名单目录。如果目录不合法，工具会返回错误，请如实告知用户。"
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[
+                "builtin:docs_search_markdown_dir",
+                "builtin:docs_read_markdown_dir",
+            ],
+        )
+
     def _ensure_builtin_agents(self):
         agents = self.list_agents()
-        builtin = self._builtin_docs_agent()
-        for i, a in enumerate(agents):
-            if a.id != "builtin-docs":
-                continue
-            changed = False
-            if a.system_prompt != builtin.system_prompt:
-                a.system_prompt = builtin.system_prompt
-                changed = True
-            if a.enabled_tools != builtin.enabled_tools:
-                a.enabled_tools = builtin.enabled_tools
-                changed = True
-            if changed:
-                agents[i] = a
-                self._save_agents(agents)
-            return
-        agents.append(builtin)
-        self._save_agents(agents)
+        builtins = [self._builtin_docs_agent(), self._builtin_local_docs_agent()]
+        
+        changed_any = False
+        for builtin in builtins:
+            found = False
+            for i, a in enumerate(agents):
+                if a.id == builtin.id:
+                    found = True
+                    changed = False
+                    if a.system_prompt != builtin.system_prompt:
+                        a.system_prompt = builtin.system_prompt
+                        changed = True
+                    if a.enabled_tools != builtin.enabled_tools:
+                        a.enabled_tools = builtin.enabled_tools
+                        changed = True
+                    if a.doc_roots != builtin.doc_roots:
+                        a.doc_roots = builtin.doc_roots
+                        changed = True
+                    if changed:
+                        agents[i] = a
+                        changed_any = True
+                    break
+            
+            if not found:
+                agents.append(builtin)
+                changed_any = True
+        
+        if changed_any:
+            self._save_agents(agents)
 
     def list_agents(self) -> List[AgentConfig]:
         with open(AGENTS_FILE, 'r') as f:

@@ -168,6 +168,14 @@ class ConfigService:
             "default_agent": "default"
         })
 
+    def get_doc_access(self) -> Dict[str, Any]:
+        doc_access = self._config.get("doc_access", {})
+        allow_roots = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
+        deny_roots = doc_access.get("deny_roots") if isinstance(doc_access, dict) else []
+        allow = [r for r in allow_roots if isinstance(r, str) and r.strip()] if isinstance(allow_roots, list) else []
+        deny = [r for r in deny_roots if isinstance(r, str) and r.strip()] if isinstance(deny_roots, list) else []
+        return {"allow_roots": allow, "deny_roots": deny}
+
     def update_preferences(self, prefs: Dict[str, Any]) -> Dict[str, Any]:
         if "preferences" not in self._config:
             self._config["preferences"] = {}

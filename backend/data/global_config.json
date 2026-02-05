@@ -19,5 +19,12 @@
     ],
     "azure_client_id": "cute.spring@gmail.com",
     "azure_client_secret": "alnw5erTX"
+  },
+  "doc_access": {
+    "allow_roots": [
+      "/Users/gavinzhang/ws-ai-recharge-2026/Yue",
+      "/Users/gavinzhang/ws-ai-recharge-2026/opencode"
+    ],
+    "deny_roots": []
   }
 }

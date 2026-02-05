@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import sys
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
@@ -35,6 +36,90 @@ def _is_under(root: str, path: str) -> bool:
         return os.path.commonpath([root_real, path_real]) == root_real
     except ValueError:
         return False
+
+
+def _default_deny_roots() -> List[str]:
+    if sys.platform.startswith("darwin"):
+        return ["/System", "/Library"]
+    return ["/etc", "/proc", "/sys", "/dev"]
+
+
+def resolve_docs_root(
+    requested_root: Optional[str],
+    *,
+    allow_roots: Optional[List[str]] = None,
+    deny_roots: Optional[List[str]] = None,
+) -> str:
+    allow = allow_roots or [get_docs_root()]
+    allow = [_realpath(p) for p in allow if isinstance(p, str) and p.strip()]
+    deny = _default_deny_roots()
+    if deny_roots:
+        deny.extend([p for p in deny_roots if isinstance(p, str) and p.strip()])
+    deny = [_realpath(p) for p in deny]
+    candidate = requested_root or allow[0]
+    if not os.path.isabs(candidate):
+        candidate = os.path.join(get_project_root(), candidate)
+    candidate = _realpath(candidate)
+    if not any(_is_under(a, candidate) for a in allow):
+        raise DocAccessError("Root is outside allowed docs roots")
+    if any(_is_under(d, candidate) for d in deny):
+        raise DocAccessError("Root is under denied paths")
+    return candidate
+
+
+def resolve_docs_roots_for_search(
+    requested_root: Optional[str],
+    *,
+    doc_roots: Optional[List[str]] = None,
+    allow_roots: Optional[List[str]] = None,
+    deny_roots: Optional[List[str]] = None,
+) -> List[str]:
+    if requested_root:
+        return [resolve_docs_root(requested_root, allow_roots=allow_roots, deny_roots=deny_roots)]
+    roots = []
+    if doc_roots:
+        for root in doc_roots:
+            if not isinstance(root, str) or not root.strip():
+                continue
+            try:
+                roots.append(resolve_docs_root(root, allow_roots=allow_roots, deny_roots=deny_roots))
+            except DocAccessError:
+                continue
+    if roots:
+        return roots
+    return [resolve_docs_root(None, allow_roots=allow_roots, deny_roots=deny_roots)]
+
+
+def resolve_docs_root_for_read(
+    requested_path: str,
+    *,
+    requested_root: Optional[str] = None,
+    doc_roots: Optional[List[str]] = None,
+    allow_roots: Optional[List[str]] = None,
+    deny_roots: Optional[List[str]] = None,
+) -> str:
+    if requested_root:
+        return resolve_docs_root(requested_root, allow_roots=allow_roots, deny_roots=deny_roots)
+    roots = resolve_docs_roots_for_search(
+        None,
+        doc_roots=doc_roots,
+        allow_roots=allow_roots,
+        deny_roots=deny_roots,
+    )
+    if os.path.isabs(requested_path):
+        for root in roots:
+            if _is_under(root, requested_path):
+                return root
+        raise DocAccessError("Path is outside allowed docs roots")
+    if len(roots) == 1:
+        return roots[0]
+    for root in roots:
+        try:
+            resolve_docs_path(requested_path, docs_root=root, require_md=True)
+            return root
+        except DocAccessError:
+            continue
+    raise DocAccessError("Path is outside allowed docs roots")
 
 
 def resolve_docs_path(

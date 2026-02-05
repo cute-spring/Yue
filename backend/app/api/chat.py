@@ -85,6 +85,10 @@ async def chat_stream(request: ChatRequest):
                 provider = provider or agent_config.provider
                 model_name = model_name or agent_config.model
                 system_prompt = system_prompt or agent_config.system_prompt
+                if agent_config.doc_roots:
+                    if "可检索目录" not in system_prompt:
+                        roots = "\n".join(f"- {r}" for r in agent_config.doc_roots)
+                        system_prompt += f"\n\n可检索目录（优先使用）：\n{roots}"
             
             # Final fallbacks if still None
             provider = provider or "openai"
@@ -108,6 +112,8 @@ async def chat_stream(request: ChatRequest):
                 tools=tools
             )
             deps = {"citations": []}
+            if agent_config and agent_config.doc_roots:
+                deps["doc_roots"] = agent_config.doc_roots
             
             last_length = 0
             full_response = ""

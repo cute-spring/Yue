@@ -24,13 +24,16 @@ This document serves as a structured task list for AI development. Each phase is
 ## Phase 2: Management Centers & Tooling (管理中心与工具体系) - [IN PROGRESS]
 *Goal: Provide visual interfaces for managing models, agents, and MCP servers.*
 
-- ### Status Snapshot — Phase 2 (2026-02-01)
+- ### Status Snapshot — Phase 2 (2026-02-06)
   - Completed
     - LLM config security: GET returns redacted values; POST ignores empty/masked keys to prevent accidental secret erasure.
     - Provider health check: `POST /api/models/test/{provider}` validates configuration by constructing the model.
     - MCP status API: `GET /api/mcp/status` reports `enabled/connected/last_error` per server; initialization respects `enabled`.
     - Stable tool IDs: `/api/mcp/tools` now returns `id = "server:name"`. Agent filtering accepts both legacy names and composite IDs.
     - Frontend: Settings → MCP status cards with Enable toggle; Save triggers reload and refresh. Settings → LLM adds “Test Connection”.
+    - Agent editor: adds directory scope input for docs_search_markdown_dir / docs_read_markdown_dir and persists `doc_roots`.
+    - Agents list: displays configured doc scope tags for quick visibility.
+    - Chat runtime: system prompt appends configured doc scopes when present.
   - Verified
     - Backend hot-reload clean; endpoints tested successfully.
     - Frontend dev server running; production build succeeded via `npm run build`.
@@ -87,4 +90,4 @@ This document serves as a structured task list for AI development. Each phase is
   - Integrate Token usage statistics and estimated cost display.
 
 ---
-*Last Updated: 2026-02-01*
+*Last Updated: 2026-02-06*

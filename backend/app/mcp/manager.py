@@ -13,6 +13,7 @@ from pydantic_ai import RunContext, Tool
 from pydantic import create_model, Field, BaseModel
 
 from app.services import doc_retrieval
+from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +272,8 @@ class McpManager:
         return [
             ("docs_search_markdown", self.docs_search_markdown),
             ("docs_read_markdown", self.docs_read_markdown),
+            ("docs_search_markdown_dir", self.docs_search_markdown_dir),
+            ("docs_read_markdown_dir", self.docs_read_markdown_dir),
             ("get_current_time", self.get_current_time),
         ]
 
@@ -298,6 +301,39 @@ class McpManager:
                 "input_schema": {
                     "type": "object",
                     "properties": {
+                        "path": {"type": "string"},
+                        "start_line": {"type": "integer"},
+                        "max_lines": {"type": "integer"},
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "id": "builtin:docs_search_markdown_dir",
+                "name": "docs_search_markdown_dir",
+                "description": "Search Markdown files under a specified local directory and return matching snippets.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "root_dir": {"type": "string"},
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer"},
+                        "max_files": {"type": "integer"},
+                        "timeout_s": {"type": "number"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "id": "builtin:docs_read_markdown_dir",
+                "name": "docs_read_markdown_dir",
+                "description": "Read a Markdown file under a specified local directory with line-based pagination.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "root_dir": {"type": "string"},
                         "path": {"type": "string"},
                         "start_line": {"type": "integer"},
                         "max_lines": {"type": "integer"},
@@ -335,6 +371,93 @@ class McpManager:
             max_lines=max_lines,
         )
         deps = getattr(ctx, "deps", None)
+        if isinstance(deps, dict):
+            citations = deps.get("citations")
+            if isinstance(citations, list):
+                citations.append(
+                    {
+                        "path": abs_path,
+                        "start_line": start,
+                        "end_line": end,
+                        "snippet": snippet,
+                    }
+                )
+        return f"{abs_path}#L{start}-L{end}\n{snippet}"
+
+    def _get_doc_access(self) -> tuple[List[str], List[str]]:
+        cfg = config_service.get_config().get("doc_access", {})
+        allow_roots = cfg.get("allow_roots") if isinstance(cfg, dict) else None
+        deny_roots = cfg.get("deny_roots") if isinstance(cfg, dict) else None
+        return allow_roots or [], deny_roots or []
+
+    async def docs_search_markdown_dir(
+        self,
+        ctx: RunContext[Any],
+        query: str,
+        root_dir: Optional[str] = None,
+        limit: int = 5,
+        max_files: int = 5000,
+        timeout_s: float = 2.0,
+    ) -> str:
+        allow_roots, deny_roots = self._get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        roots = doc_retrieval.resolve_docs_roots_for_search(
+            root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        merged = {}
+        for docs_root in roots:
+            hits = doc_retrieval.search_markdown(
+                query,
+                docs_root=docs_root,
+                limit=limit,
+                max_files=max_files,
+                timeout_s=timeout_s,
+            )
+            for h in hits:
+                existing = merged.get(h.path)
+                if not existing or h.score > existing.score:
+                    merged[h.path] = h
+        hits = sorted(merged.values(), key=lambda h: (-h.score, h.path))[: max(0, limit)]
+        if isinstance(deps, dict):
+            citations = deps.get("citations")
+            if isinstance(citations, list):
+                existing = {c.get("path") for c in citations if isinstance(c, dict)}
+                for h in hits:
+                    if h.path in existing:
+                        continue
+                    citations.append({"path": h.path, "snippet": h.snippet, "score": h.score})
+                    existing.add(h.path)
+        payload = [{"path": h.path, "snippet": h.snippet, "score": h.score} for h in hits]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    async def docs_read_markdown_dir(
+        self,
+        ctx: RunContext[Any],
+        path: str,
+        root_dir: Optional[str] = None,
+        start_line: int = 1,
+        max_lines: int = 200,
+    ) -> str:
+        allow_roots, deny_roots = self._get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        abs_path, start, end, snippet = doc_retrieval.read_markdown_lines(
+            path,
+            docs_root=docs_root,
+            start_line=start_line,
+            max_lines=max_lines,
+        )
         if isinstance(deps, dict):
             citations = deps.get("citations")
             if isinstance(citations, list):
