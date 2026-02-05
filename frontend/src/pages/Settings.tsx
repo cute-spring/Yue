@@ -243,13 +243,73 @@ type LLMProvider = {
   };
   const confirmManual = async () => {
     try {
-      const parsed = JSON.parse(manualText());
-      const arr = Array.isArray(parsed) ? parsed : (parsed.mcpServers ? Object.keys(parsed.mcpServers).map(k => ({ name: k, ...parsed.mcpServers[k] })) : []);
-      await fetch('/api/mcp/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(arr) });
-      await reloadMcp();
-      setShowManual(false);
+      const text = manualText().trim();
+      if (!text) return;
+      
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        showToast('error', 'Invalid JSON format');
+        return;
+      }
+
+      let arr: any[] = [];
+      
+      // Handle Claude desktop format: { "mcpServers": { "name": { "command": "...", "args": [] } } }
+      if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
+        arr = Object.entries(parsed.mcpServers).map(([name, config]: [string, any]) => ({
+          name,
+          command: config.command,
+          args: config.args || [],
+          env: config.env || {},
+          enabled: true
+        }));
+      } 
+      // Handle array format: [{ "name": "...", "command": "...", "args": [] }]
+      else if (Array.isArray(parsed)) {
+        arr = parsed.map(item => ({
+          name: item.name,
+          command: item.command,
+          args: item.args || [],
+          env: item.env || {},
+          enabled: item.enabled !== undefined ? item.enabled : true
+        }));
+      }
+      // Handle single object format (not recommended but supported)
+      else if (parsed.name && parsed.command) {
+        arr = [{
+          name: parsed.name,
+          command: parsed.command,
+          args: parsed.args || [],
+          env: parsed.env || {},
+          enabled: true
+        }];
+      }
+
+      if (arr.length === 0) {
+        showToast('error', 'No valid MCP server configuration found in JSON');
+        return;
+      }
+
+      const res = await fetch('/api/mcp/', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(arr) 
+      });
+
+      if (res.ok) {
+        showToast('success', `Successfully added ${arr.length} MCP server(s)`);
+        await reloadMcp();
+        setShowManual(false);
+        setManualText('');
+      } else {
+        const err = await res.json();
+        showToast('error', `Failed to save: ${JSON.stringify(err.detail || err)}`);
+      }
     } catch (e) {
-      alert('Invalid JSON');
+      console.error('Manual add error:', e);
+      showToast('error', `An error occurred: ${e}`);
     }
   };
 
