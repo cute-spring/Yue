@@ -4,12 +4,31 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 class ConfigService:
+    """
+    配置服务类
+    
+    负责管理整个应用的全局配置，主要包括：
+    1. LLM 配置（API Key、Base URL 等）
+    2. 用户偏好设置（主题、语言等）
+    3. 自定义模型配置
+    
+    设计原则：
+    - Single Source of Truth：作为配置的唯一可信来源。
+    - 优先级策略：JSON 文件配置 > 环境变量。
+      如果 global_config.json 中存在配置，则优先使用；
+      如果不存在，则回退读取对应的环境变量（如 OPENAI_API_KEY）。
+    """
     def __init__(self, config_path: str = "data/global_config.json"):
+        """
+        初始化配置服务
+        :param config_path: 配置文件存储路径，默认为 backend/data/global_config.json
+        """
         self.config_path = Path(config_path)
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self._config = self._load_config()
 
     def _load_config(self) -> Dict[str, Any]:
+        """从磁盘加载 JSON 配置文件"""
         if self.config_path.exists():
             try:
                 with open(self.config_path, 'r') as f:
@@ -19,18 +38,72 @@ class ConfigService:
         return {}
 
     def get_config(self) -> Dict[str, Any]:
+        """获取完整配置字典"""
         return self._config
 
     def update_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
+        """更新完整配置并持久化到磁盘"""
         self._config.update(new_config)
         with open(self.config_path, 'w') as f:
             json.dump(self._config, f, indent=2)
         return self._config
 
     def get_llm_config(self) -> Dict[str, Any]:
-        return self._config.get("llm", {})
+        """
+        获取 LLM 相关配置
+        
+        核心逻辑：
+        1. 读取 global_config.json 中的 'llm' 字段。
+        2. 针对关键字段（API Key、Base URL），如果 JSON 中为空，
+           则尝试从环境变量中读取默认值。
+           
+        这样做的好处：
+        - 统一了配置入口，业务代码（如 ModelFactory）无需关心配置来自文件还是环境变量。
+        - 既支持通过 UI 修改配置（持久化到文件），也支持通过 .env 快速部署（无文件时生效）。
+        """
+        config = self._config.get("llm", {}).copy()
+        
+        # 环境变量映射表：Config Key -> Env Var Name
+        # 仅当 config 中对应 key 为空值时，才会回退读取环境变量
+        env_mapping = {
+            'openai_api_key': 'OPENAI_API_KEY',
+            'deepseek_api_key': 'DEEPSEEK_API_KEY',
+            'ollama_base_url': 'OLLAMA_BASE_URL',
+            'gemini_api_key': 'GEMINI_API_KEY',
+            'gemini_base_url': 'GEMINI_BASE_URL',
+            'zhipu_api_key': 'ZHIPU_API_KEY',
+            'zhipu_base_url': 'ZHIPU_BASE_URL',
+            'proxy_url': 'LLM_PROXY_URL',
+            'ssl_cert_file': 'SSL_CERT_FILE',
+            'azure_openai_token': 'AZURE_OPENAI_TOKEN',
+            'azure_openai_base_url': 'AZURE_OPENAI_BASE_URL',
+            'azure_openai_deployment': 'AZURE_OPENAI_DEPLOYMENT',
+            'azure_openai_api_version': 'AZURE_OPENAI_API_VERSION',
+            'azure_tenant_id': 'AZURE_TENANT_ID',
+            'azure_client_id': 'AZURE_CLIENT_ID',
+            'azure_client_secret': 'AZURE_CLIENT_SECRET',
+            'litellm_base_url': 'LITELLM_BASE_URL',
+            'litellm_api_key': 'LITELLM_API_KEY',
+            'litellm_model': 'LITELLM_MODEL',
+            'llm_base_url': 'LLM_BASE_URL',
+            'llm_api_key': 'LLM_API_KEY',
+            'llm_model_name': 'LLM_MODEL_NAME'
+        }
+        
+        for key, env_var in env_mapping.items():
+            if not config.get(key) and os.getenv(env_var):
+                config[key] = os.getenv(env_var)
+                
+        return config
 
     def update_llm_config(self, llm_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        更新 LLM 配置
+        
+        包含安全逻辑：
+        - 自动过滤掩码值（如 '****'），防止前端回传的脱敏数据覆盖真实 Key。
+        - 仅更新传入的字段，保留未涉及的字段。
+        """
         existing = self._config.get("llm", {})
         # Merge updates while protecting secrets from being cleared unintentionally
         for k, v in llm_config.items():
