@@ -788,7 +788,12 @@ export default function Chat() {
 
           <For each={messages()}>
             {(msg, index) => (
-              <div class={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+              <div class={`flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+                <div class="flex items-center px-1">
+                  <span class={`text-[10px] font-black uppercase tracking-[0.2em] ${msg.role === 'user' ? 'text-text-secondary/40' : 'text-primary/60'}`}>
+                    {msg.role === 'user' ? 'You' : activeAgentName()}
+                  </span>
+                </div>
                 <div class={`group relative max-w-[85%] lg:max-w-[75%] ${
                   msg.role === 'user' 
                     ? 'bg-primary text-white px-6 py-4 shadow-xl shadow-primary/10 rounded-[24px] rounded-br-none' 
@@ -1009,7 +1014,7 @@ export default function Chat() {
                   value={input()}
                   onInput={handleInput}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask Yue anything... (Type @ to mention agents)"
+                  placeholder={`You are chatting with ${activeAgentName()} now`}
                   class="w-full bg-transparent px-6 pt-5 pb-20 focus:outline-none resize-none min-h-[96px] max-h-[400px] overflow-y-auto text-text-primary leading-relaxed text-lg font-medium placeholder:text-text-secondary/30"
                   rows={1}
                 />

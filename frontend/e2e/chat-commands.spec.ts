@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('Chat slash commands and @mention dropdown', async ({ page }) => {
   await page.goto('/');
-  const input = page.getByPlaceholder(/Ask Yue anything/i);
+  const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
 
   // @mention opens dropdown
