@@ -179,7 +179,7 @@ export default function Agents() {
       </div>
 
       <Show when={isEditing()}>
-        <div class="mb-8 bg-white border rounded-2xl shadow-lg overflow-hidden">
+        <div class="mb-8 bg-white border rounded-2xl shadow-lg overflow-hidden max-w-4xl mx-auto">
           <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
             <h3 class="font-bold text-lg text-gray-800">{editingId() ? 'Edit Agent' : 'New Agent'}</h3>
             <button onClick={() => setIsEditing(false)} class="text-gray-400 hover:text-gray-600">
@@ -352,7 +352,7 @@ export default function Agents() {
                         {/* Group Content */}
                         <Show when={isExpanded()}>
                           <div class="p-4 bg-white border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                               <For each={tools}>
                                 {tool => (
                                   <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
