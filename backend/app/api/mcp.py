@@ -77,3 +77,32 @@ async def reload_mcp():
     except Exception as e:
         logger.exception("Failed to reload MCP")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/{server_name}")
+async def delete_config(server_name: str):
+    try:
+        # Load existing
+        existing = mcp_manager.load_config()
+        # Filter out the server to delete
+        updated = [c for c in existing if c.get("name") != server_name]
+        
+        if len(updated) == len(existing):
+            raise HTTPException(status_code=404, detail=f"Server '{server_name}' not found")
+            
+        # Write back to file
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(updated, f, indent=2)
+            
+        # Reload MCP to apply changes
+        try:
+            await mcp_manager.cleanup()
+            await mcp_manager.initialize()
+        except Exception as reload_err:
+            logger.error(f"Failed to reload MCP after deletion: {reload_err}")
+            
+        return {"status": "deleted", "name": server_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to delete MCP server '{server_name}'")
+        raise HTTPException(status_code=500, detail=str(e))
