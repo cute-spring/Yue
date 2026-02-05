@@ -445,7 +445,7 @@ type LLMProvider = {
                     <span>▾</span>
                   </button>
                   <Show when={showAddMenu()}>
-                    <div class="absolute right-0 mt-2 w-56 bg-white border rounded-lg shadow-xl">
+                    <div class="absolute right-0 mt-2 w-56 bg-white border rounded-lg shadow-xl z-50">
                       <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); setShowMarketplace(true); }} class="block w-full text-left px-3 py-2 hover:bg-gray-50">
                         Add from Marketplace
                       </button>
