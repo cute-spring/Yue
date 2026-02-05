@@ -1,4 +1,4 @@
-import { createSignal, For, onMount, Show } from 'solid-js';
+import { createSignal, For, onMount, Show, onCleanup } from 'solid-js';
 
 type Agent = {
   id: string;
@@ -19,11 +19,25 @@ type McpTool = {
 export default function Agents() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
   const [availableTools, setAvailableTools] = createSignal<McpTool[]>([]);
+
+  // Grouped tools derived from availableTools
+  const groupedTools = () => {
+    const tools = availableTools();
+    const groups: Record<string, McpTool[]> = {};
+    tools.forEach(tool => {
+      const server = tool.server || 'Unknown';
+      if (!groups[server]) groups[server] = [];
+      groups[server].push(tool);
+    });
+    return groups;
+  };
   
   // UI State
   const [isEditing, setIsEditing] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [providerOptions, setProviderOptions] = createSignal<string[]>([]);
+  const [providers, setProviders] = createSignal<any[]>([]);
+  const [showLLMSelector, setShowLLMSelector] = createSignal(false);
+  const [isRefreshingModels, setIsRefreshingModels] = createSignal(false);
   
   // Form state
   const [formName, setFormName] = createSignal("");
@@ -31,10 +45,28 @@ export default function Agents() {
   const [formProvider, setFormProvider] = createSignal("openai");
   const [formModel, setFormModel] = createSignal("gpt-4o");
   const [formTools, setFormTools] = createSignal<string[]>([]);
+  const [expandedGroups, setExpandedGroups] = createSignal<Record<string, boolean>>({});
+
+  const toggleGroupExpand = (server: string) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [server]: !prev[server]
+    }));
+  };
 
   const loadAgents = async () => {
     const res = await fetch('/api/agents/');
     setAgents(await res.json());
+  };
+
+  const loadProviders = async (refresh = false) => {
+    try {
+      const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
+      const data = await res.json();
+      setProviders(data);
+    } catch (e) {
+      console.error("Failed to load providers", e);
+    }
   };
 
   const loadTools = async () => {
@@ -49,11 +81,15 @@ export default function Agents() {
   onMount(async () => {
     loadAgents();
     loadTools();
-    try {
-      const res = await fetch('/api/models/supported');
-      const data = await res.json();
-      setProviderOptions(data);
-    } catch (e) {}
+    loadProviders();
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (showLLMSelector()) {
+        setShowLLMSelector(false);
+      }
+    };
+    window.addEventListener('click', handleClickOutside);
+    onCleanup(() => window.removeEventListener('click', handleClickOutside));
   });
 
   const openCreate = () => {
@@ -153,39 +189,84 @@ export default function Agents() {
             </button>
           </div>
           <form onSubmit={handleSubmit} class="p-6 space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
               <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Name</label>
                 <input 
-                  class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  class="w-full border rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
                   value={formName()}
                   onInput={e => setFormName(e.currentTarget.value)}
                   placeholder="e.g. Coding Assistant"
                   required
                 />
               </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-semibold text-gray-700 mb-2">Provider</label>
-                  <select 
-                    class="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    value={formProvider()}
-                    onChange={e => setFormProvider(e.currentTarget.value)}
-                  >
-                    <For each={providerOptions()}>
-                      {(opt) => <option value={opt}>{opt}</option>}
-                    </For>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-sm font-semibold text-gray-700 mb-2">Model</label>
-                  <input 
-                    class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
-                    value={formModel()}
-                    onInput={e => setFormModel(e.currentTarget.value)}
-                    placeholder="e.g. gpt-4o"
-                  />
-                </div>
+              <div class="relative">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Intelligence Model</label>
+                <button 
+                  type="button"
+                  onClick={(e) => { 
+                    e.stopPropagation();
+                    setShowLLMSelector(!showLLMSelector());
+                    setIsRefreshingModels(true);
+                    loadProviders(true).finally(() => setIsRefreshingModels(false));
+                  }}
+                  class="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-gray-200 hover:border-emerald-500 rounded-lg transition-all active:scale-[0.98] shadow-sm group"
+                >
+                  <div class="flex items-center gap-2.5 overflow-hidden">
+                    <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
+                    <div class="flex flex-col items-start overflow-hidden">
+                      <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-none mb-0.5">{formProvider() || "Select Provider"}</span>
+                      <span class="text-sm font-bold text-gray-800 truncate">{formModel() || "Select Model"}</span>
+                    </div>
+                  </div>
+                  <svg xmlns="http://www.w3.org/2000/svg" class={`h-4 w-4 text-gray-400 transition-transform duration-300 ${showLLMSelector() ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                <Show when={showLLMSelector()}>
+                  <div class="absolute top-full left-0 mt-2 w-full min-w-[280px] bg-white border border-gray-100 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div class="p-3 border-b border-gray-50 flex items-center justify-between bg-gray-50/50">
+                      <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Quick Switch</span>
+                      <Show when={isRefreshingModels()}>
+                        <div class="w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                      </Show>
+                    </div>
+                    <div class="p-2 max-h-72 overflow-y-auto space-y-1 scrollbar-thin">
+                      <For each={providers().filter(p => p.available_models && p.available_models.length > 0)}>
+                        {provider => (
+                          <div class="space-y-1">
+                            <div class="px-3 py-1.5 text-[9px] font-black text-emerald-600 uppercase bg-emerald-50 rounded-md tracking-widest">{provider.name}</div>
+                            <For each={provider.available_models || []}>
+                              {model => (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFormProvider(provider.name);
+                                    setFormModel(model);
+                                    setShowLLMSelector(false);
+                                  }}
+                                  class={`w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all flex items-center justify-between group ${
+                                    formModel() === model
+                                      ? 'bg-emerald-600 text-white font-bold shadow-md shadow-emerald-200'
+                                      : 'hover:bg-gray-50 text-gray-600 hover:text-gray-900'
+                                  }`}
+                                >
+                                  <span class="truncate">{model}</span>
+                                  <Show when={formModel() === model}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                    </svg>
+                                  </Show>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
               </div>
             </div>
 
@@ -201,31 +282,109 @@ export default function Agents() {
             </div>
 
             <div>
-              <label class="block text-sm font-semibold text-gray-700 mb-3">Enabled Tools (MCP)</label>
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <For each={availableTools()}>
-                  {tool => (
-                    <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
-                      (formTools().includes(tool.id) || formTools().includes(tool.name)) 
-                      ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' 
-                      : 'hover:bg-gray-50'
-                    }`}>
-                      <input 
-                        type="checkbox" 
-                        class="mt-1 mr-3 text-emerald-600 focus:ring-emerald-500 rounded"
-                        checked={formTools().includes(tool.id) || formTools().includes(tool.name)}
-                        onChange={() => toggleTool(tool.id)}
-                      />
-                      <div>
-                        <div class="font-medium text-sm text-gray-900">{tool.name}</div>
-                        <div class="text-xs text-gray-500 mt-0.5 line-clamp-2">{tool.description}</div>
-                        <div class="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{tool.server}</div>
+              <div class="flex items-center justify-between mb-3">
+                <label class="block text-sm font-semibold text-gray-700">Enabled Tools (MCP)</label>
+                <div class="flex gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setFormTools(availableTools().map(t => t.id))}
+                    class="text-[10px] uppercase tracking-wider font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-1 rounded"
+                  >
+                    Select All
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setFormTools([])}
+                    class="text-[10px] uppercase tracking-wider font-bold text-gray-500 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+              <div class="space-y-6">
+                <For each={Object.entries(groupedTools())}>
+                  {([server, tools]) => {
+                    const isExpanded = () => !!expandedGroups()[server];
+                    const selectedCountInGroup = () => tools.filter(t => formTools().includes(t.id)).length;
+                    
+                    return (
+                      <div class="border rounded-xl overflow-hidden bg-white shadow-sm transition-all duration-200">
+                        {/* Group Header */}
+                        <div 
+                          class="flex items-center justify-between px-4 py-3 bg-gray-50/80 cursor-pointer hover:bg-gray-100 transition-colors"
+                          onClick={() => toggleGroupExpand(server)}
+                        >
+                          <div class="flex items-center gap-3">
+                            <div class={`transition-transform duration-200 ${isExpanded() ? 'rotate-90' : ''}`}>
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                              </svg>
+                            </div>
+                            <span class="text-xs font-bold text-gray-700 uppercase tracking-wider">{server}</span>
+                            <Show when={selectedCountInGroup() > 0}>
+                              <span class="bg-emerald-100 text-emerald-700 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                {selectedCountInGroup()} / {tools.length}
+                              </span>
+                            </Show>
+                          </div>
+                          
+                          <div class="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const toolIds = tools.map(t => t.id);
+                                const current = formTools();
+                                const allSelected = toolIds.every(id => current.includes(id));
+                                if (allSelected) {
+                                  setFormTools(current.filter(id => !toolIds.includes(id)));
+                                } else {
+                                  const next = new Set([...current, ...toolIds]);
+                                  setFormTools(Array.from(next));
+                                }
+                              }}
+                              class="text-[10px] font-bold text-emerald-600 hover:bg-emerald-100 px-2 py-1 rounded transition-colors"
+                            >
+                              {tools.every(t => formTools().includes(t.id)) ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Group Content */}
+                        <Show when={isExpanded()}>
+                          <div class="p-4 bg-white border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              <For each={tools}>
+                                {tool => (
+                                  <label class={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${
+                                    (formTools().includes(tool.id) || formTools().includes(tool.name)) 
+                                    ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' 
+                                    : 'hover:bg-gray-50 border-gray-200'
+                                  }`}>
+                                    <input 
+                                      type="checkbox" 
+                                      class="mt-1 mr-3 text-emerald-600 focus:ring-emerald-500 rounded border-gray-300"
+                                      checked={formTools().includes(tool.id) || formTools().includes(tool.name)}
+                                      onChange={() => toggleTool(tool.id)}
+                                    />
+                                    <div class="min-w-0">
+                                      <div class="font-medium text-sm text-gray-900 truncate">{tool.name}</div>
+                                      <div class="text-xs text-gray-500 mt-0.5 line-clamp-1 leading-relaxed">{tool.description}</div>
+                                    </div>
+                                  </label>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </Show>
                       </div>
-                    </label>
-                  )}
+                    );
+                  }}
                 </For>
                 <Show when={availableTools().length === 0}>
-                  <div class="col-span-full text-center py-4 text-gray-500 text-sm bg-gray-50 rounded border border-dashed">
+                  <div class="col-span-full text-center py-8 text-gray-500 text-sm bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 011 1V4z" />
+                    </svg>
                     No MCP tools found. Configure MCP servers in Settings.
                   </div>
                 </Show>
