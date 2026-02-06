@@ -3,8 +3,8 @@
 目标：用户在对话框提问时，系统可通过 MCP 在用户指定目录中检索/读取 Markdown；主 Agent 基于“证据片段”生成回答，并返回可点击的文件路径信息（必要时包含片段范围/行号）。
 
 设计参考：
-- [agents.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/agents.md) 的主/子 Agent 分层、权限与工具正交、Task Envelope（消息契约）、HITL（人在回路）等工程化思想
-- [TESTING.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/TESTING.md) 的验证基线与命令集合
+- [agents.md](agents.md) 的主/子 Agent 分层、权限与工具正交、Task Envelope（消息契约）、HITL（人在回路）等工程化思想
+- [TESTING.md](TESTING.md) 的验证基线与命令集合
 
 ---
 
@@ -38,13 +38,13 @@
 ## 3. 现状基线（与现有代码/文档对齐）
 
 - MCP 管理与工具枚举
-  - [manager.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/manager.py)
-  - [mcp.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/mcp.py)
+  - [manager.py](../backend/app/mcp/manager.py)
+  - [mcp.py](../backend/app/api/mcp.py)
 - Agent 配置与工具绑定
-  - [agent_store.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/agent_store.py)
-  - [agents.json](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/data/agents.json)
+  - [agent_store.py](../backend/app/services/agent_store.py)
+  - [agents.json](../backend/data/agents.json)
 - 测试/验收流程基线
-  - [TESTING.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/TESTING.md)
+  - [TESTING.md](TESTING.md)
 
 ---
 
@@ -283,7 +283,7 @@ DoD：
 目的：把每个 Phase 的“通过/不通过”判断标准统一为一组可复用的问题，避免验收随人而变。
 
 ### 8.1 Phase 0（质量门禁与基线固化）
-- 是否明确了唯一的“跑测试/跑构建/跑冒烟”的命令路径，并与 [TESTING.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/TESTING.md) 一致？
+- 是否明确了唯一的“跑测试/跑构建/跑冒烟”的命令路径，并与 [TESTING.md](TESTING.md) 一致？
 - 是否新增了至少 1 个冒烟集成测试，覆盖 MCP 初始化与 tools/status 的基本可用性？
 - 是否出现任何不稳定测试（重复跑 3 次会失败）？如果有，是否已修复或移除？
 - 是否建立了最小可观测性字段（trace_id/status/latency）且不泄露敏感内容？

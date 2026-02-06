@@ -84,7 +84,7 @@ toolName: view_files
 status: success
           
             
-filePath: /Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts
+filePath: ../../opencode/packages/opencode/src/agent/agent.ts
           
 
         
@@ -93,7 +93,7 @@ toolName: search_codebase
             
 status: success
           
-query: Agent.Info.permission/tools/maxSteps 在运行时如何被使用与校验（工具授权、step 限制、子代理调用）
+query: Agent.Info.permission/tools/maxSteps 在运行时如何 be used and validated (tool authorization, step limits, sub-agent calling)
           
 
         
@@ -103,7 +103,7 @@ toolName: view_files
 status: success
           
             
-filePath: /Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/tool/registry.ts
+filePath: ../../opencode/packages/opencode/src/tool/registry.ts
           
 
         
@@ -122,7 +122,7 @@ toolName: view_files
 status: success
           
             
-filePath: /Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/tool/bash.ts
+filePath: ../../opencode/packages/opencode/src/tool/bash.ts
           
 
         
@@ -132,7 +132,7 @@ toolName: view_files
 status: success
           
             
-filePath: /Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/config/config.ts
+filePath: ../../opencode/packages/opencode/src/config/config.ts
           
 
         
@@ -142,7 +142,7 @@ toolName: view_files
 status: success
           
             
-filePath: /Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/session/prompt.ts
+filePath: ../../opencode/packages/opencode/src/session/prompt.ts
           
 
         
@@ -175,7 +175,7 @@ Todos updated: 3 items
 
 #### 讲解草稿（原样保留）
 
-你问的这个 `agents.ts`（仓库里实际对应的是 [agent.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts)）属于典型的 **AI Agent 系统里的“配置注册中心 + 策略拼装层”**：它不负责“推理/执行循环”，而是把“有哪些 agent、每个 agent 用什么模型/提示词/工具/权限/步数上限”这些策略统一组装成一份可被运行时消费的结构。
+你问的这个 `agents.ts`（仓库里实际对应的是 [agent.ts](../../opencode/packages/opencode/src/agent/agent.ts)）属于典型的 **AI Agent 系统里的“配置注册中心 + 策略拼装层”**：它不负责“推理/执行循环”，而是把“有哪些 agent、每个 agent 用什么模型/提示词/工具/权限/步数上限”这些策略统一组装成一份可被运行时消费的结构。
 
 先用两问帮你定位学习重点（你不用回答，我会两条线都讲）：  
 - 你更关心“怎么新增/分发 agent（配置层）”，还是“怎么做权限隔离与工具调用安全（运行时）”？  
@@ -187,46 +187,46 @@ Todos updated: 3 items
 `Agent` 命名空间里主要做 3 件事：
 
 1) **定义 Agent 的“契约”**（Schema + Type）  
-- 用 zod 定义 `Agent.Info`：name/mode/model/prompt/tools/permission/maxSteps/options…（[agent.ts:L18-L52](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L18-L52)）  
+- 用 zod 定义 `Agent.Info`：name/mode/model/prompt/tools/permission/maxSteps/options…（[agent.ts:L18-L52](../../opencode/packages/opencode/src/agent/agent.ts#L18-L52)）  
 - 这里的 `.meta({ ref: "Agent" })` 也暗示它会被用于 API schema 生成（在 server 里可以看到 `/agent` 用它做响应 schema）。
 
 2) **把“内置 agent + 用户配置 agent”合成最终注册表**  
-- `state = Instance.state(async () => { ... })` 生成一个 `Record<string, Info>`（[agent.ts:L54-L278](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L54-L278)）  
+- `state = Instance.state(async () => { ... })` 生成一个 `Record<string, Info>`（[agent.ts:L54-L278](../../opencode/packages/opencode/src/agent/agent.ts#L54-L278)）  
 - 内置的：`build/plan/general/explore/compaction/title/summary`  
 - 用户配置：来自 `cfg.agent`（后面会被 merge/override/disable）
 
 3) **提供读取接口 + 生成器**  
-- `get/list/defaultAgent()`：运行时只需要问注册表要信息（[agent.ts:L280-L292](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L280-L292)）  
-- `generate()`：用模型生成一份“新 agent 配置 JSON”（[agent.ts:L294-L330](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L294-L330)）
+- `get/list/defaultAgent()`：运行时只需要问注册表要信息（[agent.ts:L280-L292](../../opencode/packages/opencode/src/agent/agent.ts#L280-L292)）  
+- `generate()`：用模型生成一份“新 agent 配置 JSON”（[agent.ts:L294-L330](../../opencode/packages/opencode/src/agent/agent.ts#L294-L330)）
 
 ---
 
 ## **核心设计：把“Agent”拆成 Persona / Tools / Permission / Limits 四层**
-你可以把 `Agent.Info` 看成“四件套”，每一套都支持 override：
+你可以把 `Agent.Info`看成“四件套”，每一套都支持 override：
 
 1) **Persona（prompt/description/color）**  
-- 内置 `explore/compaction/title/summary` 直接绑定提示词文件（例如 [agent.ts:L150-L166](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L150-L166)）  
-- 用户 agent 的 prompt 通常来自 markdown 文件正文：配置加载在 [config.ts:L226-L266](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/config/config.ts#L226-L266)
+- 内置 `explore/compaction/title/summary` 直接绑定提示词文件（例如 [agent.ts:L150-L166](../../opencode/packages/opencode/src/agent/agent.ts#L150-L166)）  
+- 用户 agent 的 prompt 通常来自 markdown 文件正文：配置加载在 [config.ts:L226-L266](../../opencode/packages/opencode/src/config/config.ts#L226-L266)
 
 2) **Tools（工具开关是“白名单/总开关”）**  
-- `tools: Record<string, boolean>` 用 `Wildcard.all()` 做匹配启用（运行时合并逻辑见 [prompt.ts:L572-L588](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/session/prompt.ts#L572-L588)）  
+- `tools: Record<string, boolean>` 用 `Wildcard.all()` 做匹配启用（运行时合并逻辑见 [prompt.ts:L572-L588](../../opencode/packages/opencode/src/session/prompt.ts#L572-L588)）  
 - 合并顺序很关键：  
   `agent.tools` → 根据 permission 派生的禁用项 → 用户本次对话临时 tools 覆盖（`lastUser.tools`）
 
 3) **Permission（权限是“策略引擎”而不是简单布尔）**  
-- 粗粒度：ToolRegistry 会根据 permission 直接禁用某些工具（比如 `edit=deny` 则 edit/write 直接关掉，[registry.ts:L140-L161](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/tool/registry.ts#L140-L161)）  
+- 粗粒度：ToolRegistry 会根据 permission 直接禁用某些工具（比如 `edit=deny` 则 edit/write 直接关掉，[registry.ts:L140-L161](../../opencode/packages/opencode/src/tool/registry.ts#L140-L161)）  
 - 细粒度：工具内部再做“allow/ask/deny”判定：  
-  - bash 会解析命令 AST，再按 `permission.bash` 的通配规则判定（[bash.ts:L84-L196](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/tool/bash.ts#L84-L196)）  
-  - skill 同样按 `permission.skill` 做 allow/ask/deny（[skill.ts:L31-L58](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/tool/skill.ts#L31-L58)）
+  - bash 会解析命令 AST，再按 `permission.bash` 的通配规则判定（[bash.ts:L84-L196](../../opencode/packages/opencode/src/tool/bash.ts#L84-L196)）  
+  - skill 同样按 `permission.skill` 做 allow/ask/deny（[skill.ts:L31-L58](../../opencode/packages/opencode/src/tool/skill.ts#L31-L58)）
 
 4) **Limits（maxSteps 是“防发散保险丝”）**  
-- `maxSteps` 到了之后，系统会在 messages 里塞一个强约束 prompt（MAX_STEPS），迫使模型只能文本回复、不能再调工具（[prompt.ts:L473-L546](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/session/prompt.ts#L473-L546)）
+- `maxSteps` 到了之后，系统会在 messages 里塞一个强约束 prompt（MAX_STEPS），迫使模型只能文本回复、不能再调工具（[prompt.ts:L473-L546](../../opencode/packages/opencode/src/session/prompt.ts#L473-L546)）
 
 ---
 
 ## **实现技巧 1：用 Instance.state 做“单次计算、到处复用”的注册表**
 `Instance.state(async () => ...)` 相当于把“从磁盘/配置加载 + 合成”的成本缓存起来：  
-- `Agent.get/list/defaultAgent` 都只是读缓存（[agent.ts:L280-L292](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L280-L292)）  
+- `Agent.get/list/defaultAgent` 都只是读缓存（[agent.ts:L280-L292](../../opencode/packages/opencode/src/agent/agent.ts#L280-L292)）  
 - 这避免了每次 prompt 都重新 parse/merge 一遍 agent 配置，属于工程化 Agent 系统非常关键的一步（减少抖动、降低延迟、保持一致性）。
 
 你可以自检一下：如果不用缓存，每次会话 step 都读配置，会发生什么？（性能、热更新一致性、线程安全）
@@ -234,9 +234,9 @@ Todos updated: 3 items
 ---
 
 ## **实现技巧 2：权限 merge 的“规范化 + 默认兜底”**
-`mergeAgentPermissions()` 做了两件很工程化的事（[agent.ts:L333-L397](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L333-L397)）：
+`mergeAgentPermissions()` 做了两件很工程化的事（[agent.ts:L333-L397](../../opencode/packages/opencode/src/agent/agent.ts#L333-L397)）：
 
-- **输入规范化**：允许 `bash`/`skill` 写成字符串（等价全局），也允许写成 map；函数会把 string 统一转成 `{ "*": value }`。  
+- **输入规范化**：允许 `bash`/`skill` 写成字符串（等价全局），也允许写成 map；函数会把 string 统一转成 `{ "*": value }`。
 - **默认兜底**：merge 后如果是对象，会再补一个默认 `{"*":"allow"}`，避免用户只写了局部规则导致“其它全变成 undefined 行为”。
 
 这类技巧本质是在做“配置 DSL 的容错与向后兼容”，是 Agent 系统长期演进的关键。
@@ -246,15 +246,15 @@ Todos updated: 3 items
 ## **实现技巧 3：plan agent 的权限配置是“安全探索”模板**
 `plan` 这个内置 agent 特别值得学：  
 - `edit: deny`，避免一上来就改文件  
-- `bash` 允许大量“只读/低风险”命令（ls/rg/git diff 等），其它默认 `ask`（[agent.ts:L71-L115](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts#L71-L115)）
+- `bash` 允许大量“只读/低风险”命令（ls/rg/git diff 等），其它默认 `ask`（[agent.ts:L71-L115](../../opencode/packages/opencode/src/agent/agent.ts#L71-L115)）
 
 对应到 Agent 架构模式：这是在把“探索/规划”阶段做成一个 **低权限解释型环节**，而把“执行/修改”留给高权限 agent（例如 build）。这能显著降低“模型一冲动就破坏仓库”的风险。
 
 ---
 
 ## **扩展与重构建议（不改代码也能立刻用）**
-- **新增自定义 agent 的最短路径**：在 `agent/**/*.md` 放一个带 frontmatter 的文件；Config 会把正文当 prompt，把 frontmatter 当配置（[config.ts:L226-L266](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/config/config.ts#L226-L266)）。  
-- **把 Agent 设计成“角色 = prompt，能力 = tools，边界 = permission，刹车 = maxSteps”**：任何新 agent 先按这四块写清楚，后面基本不会乱。  
+- **新增自定义 agent 的最短路径**：在 `agent/**/*.md` 放一个带 frontmatter 的文件；Config 会把正文当 prompt，把 frontmatter 当配置（[config.ts:L226-L266](../../opencode/packages/opencode/src/config/config.ts#L226-L266)）。
+- **把 Agent 设计成“角色 = prompt，能力 = tools，边界 = permission，刹车 = maxSteps”**：任何新 agent 先按这四块写清楚，后面基本不会乱。
 - **避免过度设计的信号**：如果你发现新增 agent 只是换个 prompt，但 tools/permission/maxSteps 都一样，优先考虑“模式参数化”（mode/options）而不是再加一个 agent。
 
 ---
@@ -262,7 +262,7 @@ Todos updated: 3 items
 ## **给你的挑战练习（5 分钟）**
 画一个简化交互图（Mermaid 即可）回答：  
 - “一次用户 prompt 进来后，Agent.Info 是怎么影响 tools 是否可用、bash 是否 ask、以及 maxSteps 如何截断的？”  
-提示：沿着 [agent.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/agent/agent.ts) → [prompt.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/session/prompt.ts) → [registry.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/tool/registry.ts) → [bash.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/opencode/packages/opencode/src/tool/bash.ts) 这条链走。
+- 提示：沿着 [agent.ts](../../opencode/packages/opencode/src/agent/agent.ts) → [prompt.ts](../../opencode/packages/opencode/src/session/prompt.ts) → [registry.ts](../../opencode/packages/opencode/src/tool/registry.ts) → [bash.ts](../../opencode/packages/opencode/src/tool/bash.ts) 这条链走。
 
 如果你把图贴出来，我会按“坏味道侦察兵”的方式指出一个最关键的可维护性改进点。
 

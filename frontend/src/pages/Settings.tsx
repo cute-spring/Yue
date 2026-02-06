@@ -904,11 +904,11 @@ type LLMProvider = {
                     <div class="text-xs font-bold text-gray-600 mb-1">NO_PROXY</div>
                     <input 
                       class="w-full border rounded-lg p-2 bg-white" 
-                      placeholder="localhost,127.0.0.1" 
+                      placeholder="e.g. *.openai.azure.com" 
                       value={llmForm().no_proxy || ''} 
                       onInput={e => setLlmForm({ ...llmForm(), no_proxy: e.currentTarget.value })}
                     />
-                    <div class="text-[10px] text-gray-400 mt-1">Comma-separated bypass list</div>
+                    <div class="text-[10px] text-gray-400 mt-1">Bypass list (loopback included by default)</div>
                   </div>
                   <div>
                     <div class="text-xs font-bold text-gray-600 mb-1">SSL_CERT_FILE</div>

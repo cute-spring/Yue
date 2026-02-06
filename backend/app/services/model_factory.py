@@ -2,6 +2,7 @@ import os
 import httpx
 import asyncio
 import logging
+import inspect
 from enum import Enum
 from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
@@ -85,7 +86,12 @@ def _get_proxies_config(llm_config: Dict[str, Any]) -> Optional[Dict[str, str]]:
     # 默认所有请求走代理
     proxies = {"all://": proxy_url}
     
-    # 如果有 NO_PROXY 配置，则排除这些地址
+    # 1. 硬编码通用的本地回环地址，确保本地服务（如 Ollama）始终直连
+    common_no_proxy = ["localhost", "127.0.0.1", "::1", "0.0.0.0"]
+    for host in common_no_proxy:
+        proxies[f"all://{host}"] = None
+    
+    # 2. 如果有用户定义的 NO_PROXY 配置，则追加排除这些地址
     if no_proxy:
         for host in no_proxy.split(','):
             host = host.strip()
@@ -95,6 +101,66 @@ def _get_proxies_config(llm_config: Dict[str, Any]) -> Optional[Dict[str, str]]:
                 proxies[f"all://{host}"] = None
                 
     return proxies
+
+def _client_supports_param(client_cls: Any, param: str) -> bool:
+    try:
+        return param in inspect.signature(client_cls.__init__).parameters
+    except Exception:
+        return False
+
+def _build_no_proxy_value(no_proxy: Optional[str]) -> str:
+    default_no_proxy = "localhost,127.0.0.1,::1,0.0.0.0"
+    if no_proxy:
+        return f"{default_no_proxy},{no_proxy}"
+    return default_no_proxy
+
+def _apply_proxy_env(proxy_url: str, no_proxy: Optional[str]) -> None:
+    os.environ["HTTP_PROXY"] = proxy_url
+    os.environ["HTTPS_PROXY"] = proxy_url
+    os.environ["NO_PROXY"] = _build_no_proxy_value(no_proxy)
+
+def _build_async_client(
+    *,
+    timeout: float,
+    verify: Any,
+    llm_config: Dict[str, Any],
+    limits: Optional[httpx.Limits] = None,
+) -> httpx.AsyncClient:
+    proxies = _get_proxies_config(llm_config)
+    kwargs: Dict[str, Any] = {"timeout": timeout, "verify": verify}
+    if limits is not None:
+        kwargs["limits"] = limits
+    if proxies and _client_supports_param(httpx.AsyncClient, "proxies"):
+        kwargs["proxies"] = proxies
+        return httpx.AsyncClient(**kwargs)
+    proxy_url = llm_config.get("proxy_url")
+    no_proxy = llm_config.get("no_proxy")
+    if proxy_url:
+        _apply_proxy_env(proxy_url, no_proxy)
+        if _client_supports_param(httpx.AsyncClient, "proxy"):
+            kwargs["proxy"] = proxy_url
+    kwargs["trust_env"] = True
+    return httpx.AsyncClient(**kwargs)
+
+def _build_client(
+    *,
+    timeout: float,
+    verify: Any,
+    llm_config: Dict[str, Any],
+) -> httpx.Client:
+    proxies = _get_proxies_config(llm_config)
+    kwargs: Dict[str, Any] = {"timeout": timeout, "verify": verify}
+    if proxies and _client_supports_param(httpx.Client, "proxies"):
+        kwargs["proxies"] = proxies
+        return httpx.Client(**kwargs)
+    proxy_url = llm_config.get("proxy_url")
+    no_proxy = llm_config.get("no_proxy")
+    if proxy_url:
+        _apply_proxy_env(proxy_url, no_proxy)
+        if _client_supports_param(httpx.Client, "proxy"):
+            kwargs["proxy"] = proxy_url
+    kwargs["trust_env"] = True
+    return httpx.Client(**kwargs)
 
 def _get_http_client() -> Optional[httpx.AsyncClient]:
     global _shared_http_client
@@ -109,14 +175,13 @@ def _get_http_client() -> Optional[httpx.AsyncClient]:
         
     if _shared_http_client is None:
         verify = ssl_cert_file if ssl_cert_file else True
-        proxies = _get_proxies_config(llm_config)
         timeout_val = float(llm_config.get('llm_request_timeout', 60))
-        
-        _shared_http_client = httpx.AsyncClient(
-            proxies=proxies,
+
+        _shared_http_client = _build_async_client(
+            timeout=timeout_val,
             verify=verify,
+            llm_config=llm_config,
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-            timeout=httpx.Timeout(timeout_val)
         )
     return _shared_http_client
 
@@ -130,12 +195,10 @@ async def fetch_ollama_models() -> List[str]:
     # Normalize base_url for API call (remove /v1 if present)
     api_url = base_url.replace('/v1', '') + '/api/tags'
     
-    proxy_url = llm_config.get('proxy_url')
     ssl_cert_file = llm_config.get('ssl_cert_file')
     verify = ssl_cert_file if ssl_cert_file else True
-    proxies = _get_proxies_config(llm_config)
     try:
-        async with httpx.AsyncClient(timeout=2.0, proxies=proxies, verify=verify) as client:
+        async with _build_async_client(timeout=2.0, verify=verify, llm_config=llm_config) as client:
             response = await client.get(api_url)
             if response.status_code == 200:
                 data = response.json()
@@ -153,12 +216,10 @@ async def fetch_openai_models(refresh: bool = False) -> List[str]:
     api_key = llm_config.get('openai_api_key')
     if not api_key:
         return ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o3-mini']
-    proxy_url = llm_config.get('proxy_url')
     ssl_cert_file = llm_config.get('ssl_cert_file')
     verify = ssl_cert_file if ssl_cert_file else True
-    proxies = _get_proxies_config(llm_config)
     try:
-        async with httpx.AsyncClient(timeout=2.5, proxies=proxies, verify=verify) as client:
+        async with _build_async_client(timeout=2.5, verify=verify, llm_config=llm_config) as client:
             r = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
             if r.status_code == 200:
                 data = r.json().get("data", [])
@@ -182,12 +243,10 @@ async def fetch_gemini_models(refresh: bool = False) -> List[str]:
         return ['gemini-1.5-pro', 'gemini-1.5-flash']
     # Normalize endpoint to .../models
     url = base_url.rstrip('/') + '/models'
-    proxy_url = llm_config.get('proxy_url')
     ssl_cert_file = llm_config.get('ssl_cert_file')
     verify = ssl_cert_file if ssl_cert_file else True
-    proxies = _get_proxies_config(llm_config)
     try:
-        async with httpx.AsyncClient(timeout=2.5, proxies=proxies, verify=verify) as client:
+        async with _build_async_client(timeout=2.5, verify=verify, llm_config=llm_config) as client:
             r = await client.get(url, params={"key": api_key})
             if r.status_code == 200:
                 models = r.json().get("models", [])
@@ -365,12 +424,10 @@ def _get_azure_bearer_token(llm_config: Dict[str, Any]) -> str:
         "client_secret": client_secret,
         "scope": "https://cognitiveservices.azure.com/.default",
     }
-    proxy_url = llm_config.get("proxy_url")
     ssl_cert_file = llm_config.get("ssl_cert_file")
     verify = ssl_cert_file if ssl_cert_file else True
-    proxies = _get_proxies_config(llm_config)
     try:
-        with httpx.Client(timeout=5.0, proxies=proxies, verify=verify) as client:
+        with _build_client(timeout=5.0, verify=verify, llm_config=llm_config) as client:
             r = client.post(token_url, data=data)
             r.raise_for_status()
             j = r.json()
@@ -464,9 +521,10 @@ class LiteLLMProviderImpl(SimpleProvider):
         if not base_url or not api_key:
             return []
         url = base_url.rstrip("/") + "/v1/models"
-        proxies = _get_proxies_config(llm_config)
+        ssl_cert_file = llm_config.get('ssl_cert_file')
+        verify = ssl_cert_file if ssl_cert_file else True
         try:
-            async with httpx.AsyncClient(timeout=2.0, proxies=proxies) as client:
+            async with _build_async_client(timeout=2.0, verify=verify, llm_config=llm_config) as client:
                 r = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
                 if r.status_code == 200:
                     data = r.json()

@@ -116,8 +116,14 @@ class McpManager:
             if proxy_url:
                 mcp_env["HTTP_PROXY"] = proxy_url
                 mcp_env["HTTPS_PROXY"] = proxy_url
+            
+            # 默认包含本地回环地址，确保本地 MCP Server 始终直连
+            default_no_proxy = "localhost,127.0.0.1,::1,0.0.0.0"
             if no_proxy:
-                mcp_env["NO_PROXY"] = no_proxy
+                mcp_env["NO_PROXY"] = f"{default_no_proxy},{no_proxy}"
+            else:
+                mcp_env["NO_PROXY"] = default_no_proxy
+                
             if ssl_cert_file:
                 mcp_env["SSL_CERT_FILE"] = ssl_cert_file
 

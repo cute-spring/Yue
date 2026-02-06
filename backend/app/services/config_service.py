@@ -89,6 +89,12 @@ class ConfigService:
             'litellm_base_url': 'LITELLM_BASE_URL',
             'litellm_api_key': 'LITELLM_API_KEY',
             'litellm_model': 'LITELLM_MODEL',
+            'openai_model': 'OPENAI_MODEL',
+            'deepseek_model': 'DEEPSEEK_MODEL',
+            'ollama_model': 'OLLAMA_MODEL',
+            'gemini_model': 'GEMINI_MODEL',
+            'zhipu_model': 'ZHIPU_MODEL',
+            'provider': 'LLM_PROVIDER',
             'llm_base_url': 'LLM_BASE_URL',
             'llm_api_key': 'LLM_API_KEY',
             'llm_model_name': 'LLM_MODEL_NAME'

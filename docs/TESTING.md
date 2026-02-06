@@ -7,9 +7,9 @@
 
 ## Prerequisites
 - Backend server running with hot reload. MCP filesystem server connected by default.
-  - Code refs: [mcp.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/mcp.py), [manager.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/manager.py), [main.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/main.py)
+  - Code refs: [mcp.py](../backend/app/api/mcp.py), [manager.py](../backend/app/mcp/manager.py), [main.py](../backend/app/main.py)
 - Frontend dev server running, or production build available.
-  - Code refs: [package.json](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/package.json), [Dockerfile](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/Dockerfile)
+  - Code refs: [package.json](../frontend/package.json), [Dockerfile](../Dockerfile)
 
 ## Backend API Tests (curl)
 
@@ -20,7 +20,7 @@
 curl -s http://127.0.0.1:8003/api/config/llm
 ```
 
-Code refs: [config.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/config.py#L9-L17), [config_service.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/config_service.py#L33-L50)
+Code refs: [config.py](../backend/app/api/config.py#L9-L17), [config_service.py](../backend/app/services/config_service.py#L33-L50)
 
 ### 2) Provider Health Test
 - Expect: {"provider":"openai","ok":true} when configured.
@@ -29,7 +29,7 @@ Code refs: [config.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/
 curl -s -X POST http://127.0.0.1:8003/api/models/test/openai -H "Content-Type: application/json" -d '{}'
 ```
 
-Code refs: [models.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/models.py#L20-L39), [model_factory.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/model_factory.py)
+Code refs: [models.py](../backend/app/api/models.py#L20-L39), [model_factory.py](../backend/app/services/model_factory.py)
 
 ### 3) MCP Tools & Status
 - Tools must include stable id "server:name".
@@ -51,7 +51,7 @@ curl -s -X POST http://127.0.0.1:8003/api/mcp/reload
 curl -s http://127.0.0.1:8003/api/mcp/status
 ```
 
-Code refs: [mcp.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/mcp.py), [manager.py:get_available_tools](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/manager.py#L100-L123), [manager.py:get_status](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/manager.py#L146-L159)
+Code refs: [mcp.py](../backend/app/api/mcp.py), [manager.py:get_available_tools](../backend/app/mcp/manager.py#L100-L123), [manager.py:get_status](../backend/app/mcp/manager.py#L146-L159)
 
 ### 4) Agents Tool ID Normalization
 - Expect: create/update normalizes legacy names to composite IDs when unambiguous.
@@ -62,7 +62,7 @@ curl -s -X POST http://127.0.0.1:8003/api/agents/ -H "Content-Type: application/
 curl -s http://127.0.0.1:8003/api/agents/
 ```
 
-Code refs: [agents.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/agents.py), [agent_store.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/agent_store.py)
+Code refs: [agents.py](../backend/app/api/agents.py), [agent_store.py](../backend/app/services/agent_store.py)
 
 ### 5) Notebook API (for /note)
 - Expect: create/list OK.
@@ -73,7 +73,7 @@ curl -s -X POST http://127.0.0.1:8003/api/notebook/ -H "Content-Type: applicatio
 curl -s http://127.0.0.1:8003/api/notebook/
 ```
 
-Code refs: [notebook.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/notebook.py), [notebook_service.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/notebook_service.py)
+Code refs: [notebook.py](../backend/app/api/notebook.py), [notebook_service.py](../backend/app/services/notebook_service.py)
 
 ### 6) Custom Models CRUD
 - Full loop: add → list → update → test → delete → list. Keys always redacted in GET.
@@ -92,7 +92,7 @@ curl -s -X DELETE http://127.0.0.1:8003/api/models/custom/my-custom
 curl -s http://127.0.0.1:8003/api/models/custom
 ```
 
-Code refs: [config_service.py (custom models)](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/config_service.py#L52-L90), [models.py (custom endpoints)](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/models.py#L40-L93)
+Code refs: [config_service.py (custom models)](../backend/app/services/config_service.py#L52-L90), [models.py (custom endpoints)](../backend/app/api/models.py#L40-L93)
 
 ## Frontend Manual Verification
 
@@ -100,20 +100,20 @@ Code refs: [config_service.py (custom models)](file:///Users/gavinzhang/ws-ai-re
 - Provider cards: click Test Connection. Success shows Connected; failure shows error text.
 - Custom Models: add/update/delete; Test displays result. Keys hidden in list.
 - Save All LLM Settings: reload and confirm values persist.
-Code refs: [Settings.tsx](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/pages/Settings.tsx)
+Code refs: [Settings.tsx](../frontend/src/pages/Settings.tsx)
 
 ### Settings → MCP
 - Status cards: Online/Offline and last_error visible, toggle Enabled updates state; Save JSON then Reload.
-Code refs: [Settings.tsx](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/pages/Settings.tsx)
+Code refs: [Settings.tsx](../frontend/src/pages/Settings.tsx)
 
 ### Agents
 - Create/edit agent, select MCP tools (from server). Saved tools reappear; composite IDs consistent.
-Code refs: [Agents.tsx](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/pages/Agents.tsx)
+Code refs: [Agents.tsx](../frontend/src/pages/Agents.tsx)
 
 ### Chat
 - @mention: type @ to open agent list; choose one; token removed; selectedAgent applied.
 - Slash commands: /help shows list; /note saves last assistant message to Notebook; /clear resets session.
-Code refs: [Chat.tsx](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/pages/Chat.tsx)
+Code refs: [Chat.tsx](../frontend/src/pages/Chat.tsx)
 
 ## Build & Tests
 
@@ -126,7 +126,7 @@ cd frontend && npm run build
 ```bash
 python3 -m unittest discover backend/tests -v
 ```
-Code refs: [test_mcp_and_models.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_mcp_and_models.py), [test_chat_service.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_chat_service.py)
+Code refs: [test_mcp_and_models.py](../backend/tests/test_mcp_and_models.py), [test_chat_service.py](../backend/tests/test_chat_service.py)
 
 ## Acceptance Criteria
 - LLM: GET redacts, POST ignores empty/masked, health tests accurate.
