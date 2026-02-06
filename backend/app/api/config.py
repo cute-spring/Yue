@@ -14,8 +14,8 @@ async def get_llm_config():
     raw = config_service.get_llm_config()
     redacted = {}
     for k, v in raw.items():
-        if k.endswith("_api_key"):
-            # Do not expose API keys via GET
+        if k.endswith("_api_key") or k in ["azure_client_secret", "azure_openai_token"]:
+            # Do not expose secrets via GET
             redacted[k] = ""
         else:
             redacted[k] = v

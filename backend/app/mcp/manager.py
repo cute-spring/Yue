@@ -40,7 +40,7 @@ class McpManager:
         """Connect to all configured servers."""
         async with self._lock:
             configs = self.load_config()
-            logger.info("Loading MCP configs from %s: %s", self.config_path, configs)
+            logger.info("Loading MCP configs from %s: %s", self.config_path, self._redact_configs(configs))
             for config in configs:
                 try:
                     if config.get("enabled", True):
@@ -79,8 +79,11 @@ class McpManager:
         if not name:
             return
             
-        if name in self.sessions:
-            return self.sessions[name]
+        existing = self.sessions.get(name)
+        if existing and not getattr(existing, "is_closed", False):
+            return existing
+        if existing and getattr(existing, "is_closed", False):
+            self.sessions.pop(name, None)
 
         transport = config.get("transport", "stdio")
         logger.info("Connecting to MCP server: %s (%s)", name, transport)
@@ -103,10 +106,25 @@ class McpManager:
                 else:
                     resolved_args.append(arg)
             
+            # Add proxy settings to MCP server environment if configured
+            llm_config = config_service.get_llm_config()
+            proxy_url = llm_config.get('proxy_url')
+            no_proxy = llm_config.get('no_proxy')
+            ssl_cert_file = llm_config.get('ssl_cert_file')
+            
+            mcp_env = {**os.environ, **(env or {})}
+            if proxy_url:
+                mcp_env["HTTP_PROXY"] = proxy_url
+                mcp_env["HTTPS_PROXY"] = proxy_url
+            if no_proxy:
+                mcp_env["NO_PROXY"] = no_proxy
+            if ssl_cert_file:
+                mcp_env["SSL_CERT_FILE"] = ssl_cert_file
+
             server_params = StdioServerParameters(
                 command=command,
                 args=resolved_args,
-                env={**os.environ, **(env or {})}
+                env=mcp_env
             )
             
             read, write = await self.exit_stack.enter_async_context(stdio_client(server_params))
@@ -118,6 +136,23 @@ class McpManager:
         
         # TODO: Implement SSE
         return None
+
+    def _redact_configs(self, configs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        redacted = []
+        for cfg in configs:
+            item = dict(cfg)
+            env = item.get("env")
+            if isinstance(env, dict):
+                masked_env = {}
+                for k, v in env.items():
+                    key = str(k).lower()
+                    if any(token in key for token in ("key", "secret", "token", "password")):
+                        masked_env[k] = "****"
+                    else:
+                        masked_env[k] = v
+                item["env"] = masked_env
+            redacted.append(item)
+        return redacted
 
     async def get_available_tools(self) -> List[Dict[str, Any]]:
         """

@@ -72,20 +72,51 @@ def list_registered_providers() -> List[str]:
     """列出当前已注册的 Provider 名称（小写）"""
     return list(_dynamic_providers.keys())
 
+def _get_proxies_config(llm_config: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """
+    根据配置生成 httpx 所需的 proxies 字典，支持 NO_PROXY。
+    """
+    proxy_url = llm_config.get('proxy_url')
+    no_proxy = llm_config.get('no_proxy')
+    
+    if not proxy_url:
+        return None
+    
+    # 默认所有请求走代理
+    proxies = {"all://": proxy_url}
+    
+    # 如果有 NO_PROXY 配置，则排除这些地址
+    if no_proxy:
+        for host in no_proxy.split(','):
+            host = host.strip()
+            if host:
+                # httpx 中将特定 pattern 设为 None 即可绕过代理
+                # 支持域名 (google.com) 或 IP (127.0.0.1)
+                proxies[f"all://{host}"] = None
+                
+    return proxies
+
 def _get_http_client() -> Optional[httpx.AsyncClient]:
     global _shared_http_client
     llm_config = config_service.get_llm_config()
     proxy_url = llm_config.get('proxy_url')
     ssl_cert_file = llm_config.get('ssl_cert_file')
+    
+    # 只有当 proxy_url 或 ssl_cert_file 存在时，才需要自定义 client
+    # 否则让 SDK 使用默认 client（可能会读取系统环境变量）
     if not proxy_url and not ssl_cert_file:
         return None
+        
     if _shared_http_client is None:
         verify = ssl_cert_file if ssl_cert_file else True
+        proxies = _get_proxies_config(llm_config)
+        timeout_val = float(llm_config.get('llm_request_timeout', 60))
+        
         _shared_http_client = httpx.AsyncClient(
-            proxy=proxy_url,
+            proxies=proxies,
             verify=verify,
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-            timeout=httpx.Timeout(60.0)
+            timeout=httpx.Timeout(timeout_val)
         )
     return _shared_http_client
 
@@ -102,8 +133,9 @@ async def fetch_ollama_models() -> List[str]:
     proxy_url = llm_config.get('proxy_url')
     ssl_cert_file = llm_config.get('ssl_cert_file')
     verify = ssl_cert_file if ssl_cert_file else True
+    proxies = _get_proxies_config(llm_config)
     try:
-        async with httpx.AsyncClient(timeout=2.0, proxy=proxy_url, verify=verify) as client:
+        async with httpx.AsyncClient(timeout=2.0, proxies=proxies, verify=verify) as client:
             response = await client.get(api_url)
             if response.status_code == 200:
                 data = response.json()
@@ -124,8 +156,9 @@ async def fetch_openai_models(refresh: bool = False) -> List[str]:
     proxy_url = llm_config.get('proxy_url')
     ssl_cert_file = llm_config.get('ssl_cert_file')
     verify = ssl_cert_file if ssl_cert_file else True
+    proxies = _get_proxies_config(llm_config)
     try:
-        async with httpx.AsyncClient(timeout=2.5, proxy=proxy_url, verify=verify) as client:
+        async with httpx.AsyncClient(timeout=2.5, proxies=proxies, verify=verify) as client:
             r = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
             if r.status_code == 200:
                 data = r.json().get("data", [])
@@ -152,8 +185,9 @@ async def fetch_gemini_models(refresh: bool = False) -> List[str]:
     proxy_url = llm_config.get('proxy_url')
     ssl_cert_file = llm_config.get('ssl_cert_file')
     verify = ssl_cert_file if ssl_cert_file else True
+    proxies = _get_proxies_config(llm_config)
     try:
-        async with httpx.AsyncClient(timeout=2.5, proxy=proxy_url, verify=verify) as client:
+        async with httpx.AsyncClient(timeout=2.5, proxies=proxies, verify=verify) as client:
             r = await client.get(url, params={"key": api_key})
             if r.status_code == 200:
                 models = r.json().get("models", [])
@@ -334,8 +368,9 @@ def _get_azure_bearer_token(llm_config: Dict[str, Any]) -> str:
     proxy_url = llm_config.get("proxy_url")
     ssl_cert_file = llm_config.get("ssl_cert_file")
     verify = ssl_cert_file if ssl_cert_file else True
+    proxies = _get_proxies_config(llm_config)
     try:
-        with httpx.Client(timeout=5.0, proxy=proxy_url, verify=verify) as client:
+        with httpx.Client(timeout=5.0, proxies=proxies, verify=verify) as client:
             r = client.post(token_url, data=data)
             r.raise_for_status()
             j = r.json()
@@ -429,8 +464,9 @@ class LiteLLMProviderImpl(SimpleProvider):
         if not base_url or not api_key:
             return []
         url = base_url.rstrip("/") + "/v1/models"
+        proxies = _get_proxies_config(llm_config)
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
+            async with httpx.AsyncClient(timeout=2.0, proxies=proxies) as client:
                 r = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
                 if r.status_code == 200:
                     data = r.json()
@@ -481,7 +517,15 @@ async def list_providers(refresh: bool = False) -> List[Dict]:
             logger.exception("Provider list_models error: %s", name)
             models = []
         config_enabled = llm_config.get(f"{name}_enabled_models")
-        available_models = [m for m in models if isinstance(config_enabled, list) and m in config_enabled] if isinstance(config_enabled, list) else models
+        if isinstance(config_enabled, list):
+            if models:
+                available_models = [m for m in models if m in config_enabled]
+            else:
+                available_models = config_enabled
+        else:
+            available_models = models
+        if not models and isinstance(config_enabled, list):
+            models = config_enabled
         providers.append({
             "name": name,
             "configured": handler.configured(),

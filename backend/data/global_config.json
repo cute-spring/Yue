@@ -1,7 +1,6 @@
 {
   "llm": {
     "custom_models": [],
-    "openai_model": "gpt-4o",
     "openai_enabled_models": [],
     "gemini_enabled_models": [],
     "ollama_enabled_models": [
@@ -17,8 +16,7 @@
       "phi4:latest",
       "qwen2.5:1.5b"
     ],
-    "azure_client_id": "cute.spring@gmail.com",
-    "azure_client_secret": "alnw5erTX"
+    "openai_model": "gpt-4o"
   },
   "doc_access": {
     "allow_roots": [

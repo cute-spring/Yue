@@ -74,14 +74,18 @@ class ConfigService:
             'zhipu_api_key': 'ZHIPU_API_KEY',
             'zhipu_base_url': 'ZHIPU_BASE_URL',
             'proxy_url': 'LLM_PROXY_URL',
+            'no_proxy': 'NO_PROXY',
+            'llm_request_timeout': 'LLM_REQUEST_TIMEOUT',
             'ssl_cert_file': 'SSL_CERT_FILE',
-            'azure_openai_token': 'AZURE_OPENAI_TOKEN',
+            'azure_openai_endpoint': 'AZURE_OPENAI_ENDPOINT',
             'azure_openai_base_url': 'AZURE_OPENAI_BASE_URL',
             'azure_openai_deployment': 'AZURE_OPENAI_DEPLOYMENT',
+            'azure_openai_embedding_deployment': 'AZURE_OPENAI_EMBEDDING_DEPLOYMENT',
             'azure_openai_api_version': 'AZURE_OPENAI_API_VERSION',
             'azure_tenant_id': 'AZURE_TENANT_ID',
             'azure_client_id': 'AZURE_CLIENT_ID',
             'azure_client_secret': 'AZURE_CLIENT_SECRET',
+            'azure_openai_token': 'AZURE_OPENAI_TOKEN',
             'litellm_base_url': 'LITELLM_BASE_URL',
             'litellm_api_key': 'LITELLM_API_KEY',
             'litellm_model': 'LITELLM_MODEL',
@@ -93,6 +97,15 @@ class ConfigService:
         for key, env_var in env_mapping.items():
             if not config.get(key) and os.getenv(env_var):
                 config[key] = os.getenv(env_var)
+        
+        # 默认配置增强：内网环境超时处理
+        if not config.get('llm_request_timeout'):
+            config['llm_request_timeout'] = 60
+        else:
+            try:
+                config['llm_request_timeout'] = int(config['llm_request_timeout'])
+            except (ValueError, TypeError):
+                config['llm_request_timeout'] = 60
                 
         return config
 
@@ -107,7 +120,8 @@ class ConfigService:
         existing = self._config.get("llm", {})
         # Merge updates while protecting secrets from being cleared unintentionally
         for k, v in llm_config.items():
-            if k.endswith("_api_key"):
+            is_secret = k.endswith("_api_key") or k in ["azure_client_secret", "azure_openai_token"]
+            if is_secret:
                 # Ignore empty or masked values to avoid overwriting existing secrets
                 if v is None:
                     continue

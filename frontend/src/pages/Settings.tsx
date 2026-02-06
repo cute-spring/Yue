@@ -879,6 +879,61 @@ type LLMProvider = {
               </div>
             </Show>
 
+            {/* Network Settings */}
+            <div class="border-t pt-6">
+              <h4 class="text-lg font-bold mb-3 flex items-center gap-2">
+                <span class="p-1 bg-emerald-100 text-emerald-600 rounded">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" />
+                  </svg>
+                </span>
+                Global Network & Timeout
+              </h4>
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <div>
+                    <div class="text-xs font-bold text-gray-600 mb-1">PROXY_URL</div>
+                    <input 
+                      class="w-full border rounded-lg p-2 bg-white" 
+                      placeholder="http://127.0.0.1:7890" 
+                      value={llmForm().proxy_url || ''} 
+                      onInput={e => setLlmForm({ ...llmForm(), proxy_url: e.currentTarget.value })}
+                    />
+                    <div class="text-[10px] text-gray-400 mt-1">HTTP/HTTPS proxy for LLM requests</div>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-gray-600 mb-1">NO_PROXY</div>
+                    <input 
+                      class="w-full border rounded-lg p-2 bg-white" 
+                      placeholder="localhost,127.0.0.1" 
+                      value={llmForm().no_proxy || ''} 
+                      onInput={e => setLlmForm({ ...llmForm(), no_proxy: e.currentTarget.value })}
+                    />
+                    <div class="text-[10px] text-gray-400 mt-1">Comma-separated bypass list</div>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-gray-600 mb-1">SSL_CERT_FILE</div>
+                    <input 
+                      class="w-full border rounded-lg p-2 bg-white" 
+                      placeholder="/path/to/cert.pem" 
+                      value={llmForm().ssl_cert_file || ''} 
+                      onInput={e => setLlmForm({ ...llmForm(), ssl_cert_file: e.currentTarget.value })}
+                    />
+                    <div class="text-[10px] text-gray-400 mt-1">Custom CA certificate bundle path</div>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-gray-600 mb-1">REQUEST_TIMEOUT (s)</div>
+                    <input 
+                      type="number"
+                      class="w-full border rounded-lg p-2 bg-white" 
+                      placeholder="60" 
+                      value={llmForm().llm_request_timeout || ''} 
+                      onInput={e => setLlmForm({ ...llmForm(), llm_request_timeout: e.currentTarget.value })}
+                    />
+                    <div class="text-[10px] text-gray-400 mt-1">Timeout in seconds (default: 60)</div>
+                  </div>
+                </div>
+            </div>
+
             <div class="pt-4 sticky bottom-0 bg-white pb-4">
               <button 
                 onClick={saveLlmConfig}
@@ -966,12 +1021,20 @@ type LLMProvider = {
                     <Show when={editingProvider() === 'azure_openai'}>
                       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_BASE_URL</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_base_url: e.currentTarget.value })}/>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_ENDPOINT</div>
+                          <input class="w-full border rounded-lg p-2" placeholder="https://xxx.openai.azure.com" value={llmForm().azure_openai_endpoint || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_endpoint: e.currentTarget.value })}/>
                         </div>
                         <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_DEPLOYMENT</div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_BASE_URL (Resource Path)</div>
+                          <input class="w-full border rounded-lg p-2" placeholder="https://xxx.openai.azure.com/openai" value={llmForm().azure_openai_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_base_url: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_DEPLOYMENT (Chat)</div>
                           <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_deployment || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_deployment: e.currentTarget.value })}/>
+                        </div>
+                        <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_EMBEDDING_DEPLOYMENT</div>
+                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_embedding_deployment || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_embedding_deployment: e.currentTarget.value })}/>
                         </div>
                         <div>
                           <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_API_VERSION</div>
