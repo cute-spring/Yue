@@ -527,8 +527,8 @@ export default function Chat() {
     if (!selectedModel()) {
       setShowLLMSelector(true);
       const last = messages()[messages().length - 1];
-      if (!last || last.role !== 'assistant' || last.content !== '请先选择一个模型再开始对话。') {
-        setMessages([...messages(), { role: 'assistant', content: '请先选择一个模型再开始对话。' }]);
+      if (!last || last.role !== 'assistant' || last.content !== 'Please select a model before starting a chat.') {
+        setMessages([...messages(), { role: 'assistant', content: 'Please select a model before starting a chat.' }]);
       }
       return;
     }
@@ -658,19 +658,19 @@ export default function Chat() {
     if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
-    return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date);
+    return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(date);
   };
 
   const readStatus = (index: number) => {
     const later = messages().slice(index + 1);
     const hasAssistant = later.some(m => m.role === 'assistant' && m.content && m.content.trim().length > 0);
-    return hasAssistant ? "已读" : "已发送";
+    return hasAssistant ? "Read" : "Sent";
   };
 
   const responseStatus = (msg: Message, index: number) => {
-    if (msg.error || (msg.content && msg.content.startsWith("Error:"))) return "失败";
-    if (msg.role === "assistant" && isTyping() && index === messages().length - 1) return "生成中";
-    return "完成";
+    if (msg.error || (msg.content && msg.content.startsWith("Error:"))) return "Failed";
+    if (msg.role === "assistant" && isTyping() && index === messages().length - 1) return "Generating";
+    return "Completed";
   };
 
   const modelLabel = (msg: Message) => {
@@ -678,7 +678,7 @@ export default function Chat() {
     const model = msg.model || selectedModel();
     if (provider && model) return `${provider}/${model}`;
     if (model) return model;
-    return "模型未知";
+    return "Unknown model";
   };
 
   const renderMetaBadges = (msg: Message, index: number) => (
@@ -693,16 +693,16 @@ export default function Chat() {
       </Show>
       <Show when={msg.role !== 'user'}>
         <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-primary/10 text-primary/70">
-          模型 {modelLabel(msg)}
+          Model {modelLabel(msg)}
         </span>
-        <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] ${responseStatus(msg, index) === '失败' ? 'bg-rose-500/10 text-rose-500' : responseStatus(msg, index) === '生成中' ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
-          状态 {responseStatus(msg, index)}
-        </span>
-        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-primary/10 text-primary/70">
-          引用 {msg.citations?.length ?? 0}
+        <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] ${responseStatus(msg, index) === 'Failed' ? 'bg-rose-500/10 text-rose-500' : responseStatus(msg, index) === 'Generating' ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+          Status {responseStatus(msg, index)}
         </span>
         <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-primary/10 text-primary/70">
-          工具 {msg.tools?.length ?? 0}
+          Citations {msg.citations?.length ?? 0}
+        </span>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-primary/10 text-primary/70">
+          Tools {msg.tools?.length ?? 0}
         </span>
       </Show>
     </div>
@@ -1261,7 +1261,7 @@ export default function Chat() {
                           </svg>
                         </button>
                         <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                          <span class="font-bold text-white/90">语音输入 (Beta)</span>
+                          <span class="font-bold text-white/90">Voice Input (Beta)</span>
                           <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
                         </div>
                       </div>
@@ -1293,7 +1293,7 @@ export default function Chat() {
             <Show when={!selectedModel()}>
               <div class="mt-3 flex items-center justify-center">
                 <div class="px-3 py-1.5 rounded-full bg-surface border border-border text-[11px] text-text-secondary font-semibold">
-                  请选择模型后开始提问
+                  Select a model to start
                 </div>
               </div>
             </Show>
