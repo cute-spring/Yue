@@ -164,6 +164,13 @@ type Message = {
   role: string;
   content: string;
   thought_duration?: number;
+  timestamp?: string;
+  provider?: string;
+  model?: string;
+  tools?: string[];
+  citations?: any[];
+  context_id?: string;
+  error?: string;
 };
 
 export default function Chat() {
@@ -533,7 +540,9 @@ export default function Chat() {
     
     const agentId = selectedAgent() || undefined;
 
-    setMessages([...messages(), { role: 'user', content: text }]);
+    const nowIso = new Date().toISOString();
+    const contextId = currentChatId() || undefined;
+    setMessages([...messages(), { role: 'user', content: text, timestamp: nowIso, context_id: contextId }]);
     setInput("");
     if (textareaRef) {
       textareaRef.style.height = 'auto';
@@ -542,7 +551,7 @@ export default function Chat() {
     setElapsedTime(0);
     timerInterval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
 
-    setMessages(prev => [...prev, { role: 'assistant', content: "" }]);
+    setMessages(prev => [...prev, { role: 'assistant', content: "", timestamp: nowIso, provider: selectedProvider(), model: selectedModel(), context_id: contextId, tools: [], citations: [] }]);
 
     abortController = new AbortController();
 
@@ -577,7 +586,21 @@ export default function Chat() {
                 
                 if (data.chat_id) {
                   setCurrentChatId(data.chat_id);
-                  loadHistory(); // Refresh history list to show new title
+                  setMessages(prev => prev.map(m => m.context_id ? m : { ...m, context_id: data.chat_id }));
+                  loadHistory();
+                } else if (data.meta) {
+                  setMessages(prev => {
+                    const newMsgs = [...prev];
+                    const lastIndex = newMsgs.length - 1;
+                    newMsgs[lastIndex] = {
+                      ...newMsgs[lastIndex],
+                      provider: data.meta.provider ?? newMsgs[lastIndex].provider,
+                      model: data.meta.model ?? newMsgs[lastIndex].model,
+                      tools: data.meta.tools ?? newMsgs[lastIndex].tools,
+                      context_id: data.meta.context_id ?? newMsgs[lastIndex].context_id
+                    };
+                    return newMsgs;
+                  });
                 } else if (data.content) {
                   accumulatedResponse += data.content;
                   setMessages(prev => {
@@ -593,11 +616,18 @@ export default function Chat() {
                     newMsgs[lastIndex] = { ...newMsgs[lastIndex], thought_duration: data.thought_duration };
                     return newMsgs;
                   });
+                } else if (data.citations) {
+                  setMessages(prev => {
+                    const newMsgs = [...prev];
+                    const lastIndex = newMsgs.length - 1;
+                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], citations: data.citations };
+                    return newMsgs;
+                  });
                 } else if (data.error) {
                   setMessages(prev => {
                     const newMsgs = [...prev];
                     const lastIndex = newMsgs.length - 1;
-                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: `Error: ${data.error}` };
+                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: `Error: ${data.error}`, error: data.error };
                     return newMsgs;
                   });
                 }
@@ -623,6 +653,60 @@ export default function Chat() {
     const agent = agents().find(a => a.id === selectedAgent());
     return agent ? agent.name : 'AI Assistant';
   };
+
+  const formatTime = (value?: string) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date);
+  };
+
+  const readStatus = (index: number) => {
+    const later = messages().slice(index + 1);
+    const hasAssistant = later.some(m => m.role === 'assistant' && m.content && m.content.trim().length > 0);
+    return hasAssistant ? "已读" : "已发送";
+  };
+
+  const responseStatus = (msg: Message, index: number) => {
+    if (msg.error || (msg.content && msg.content.startsWith("Error:"))) return "失败";
+    if (msg.role === "assistant" && isTyping() && index === messages().length - 1) return "生成中";
+    return "完成";
+  };
+
+  const modelLabel = (msg: Message) => {
+    const provider = msg.provider || selectedProvider();
+    const model = msg.model || selectedModel();
+    if (provider && model) return `${provider}/${model}`;
+    if (model) return model;
+    return "模型未知";
+  };
+
+  const renderMetaBadges = (msg: Message, index: number) => (
+    <div class={`mt-4 flex flex-wrap items-center gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+      <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] ${msg.role === 'user' ? 'bg-text-secondary/10 text-text-secondary/50' : 'bg-primary/10 text-primary/70'}`}>
+        {formatTime(msg.timestamp)}
+      </span>
+      <Show when={msg.role === 'user'}>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-text-secondary/10 text-text-secondary/50">
+          {readStatus(index)}
+        </span>
+      </Show>
+      <Show when={msg.role !== 'user'}>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-primary/10 text-primary/70">
+          模型 {modelLabel(msg)}
+        </span>
+        <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] ${responseStatus(msg, index) === '失败' ? 'bg-rose-500/10 text-rose-500' : responseStatus(msg, index) === '生成中' ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+          状态 {responseStatus(msg, index)}
+        </span>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-primary/10 text-primary/70">
+          引用 {msg.citations?.length ?? 0}
+        </span>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-primary/10 text-primary/70">
+          工具 {msg.tools?.length ?? 0}
+        </span>
+      </Show>
+    </div>
+  );
 
   return (
     <div class="flex h-full bg-background overflow-hidden relative">
@@ -788,9 +872,21 @@ export default function Chat() {
 
           <For each={messages()}>
             {(msg, index) => (
-              <div class={`flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                <div class="flex items-center px-1">
-                  <span class={`text-[10px] font-black uppercase tracking-[0.2em] ${msg.role === 'user' ? 'text-text-secondary/40' : 'text-primary/60'}`}>
+              <div class={`flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+                <div class="flex items-center gap-2 px-1">
+                  <div class={`w-5 h-5 rounded-full flex items-center justify-center border ${msg.role === 'user' ? 'border-text-secondary/20 bg-text-secondary/10 text-text-secondary/60' : 'border-primary/30 bg-primary/10 text-primary/70'}`}>
+                    <Show when={msg.role === 'user'}>
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5zm0 2c-3.333 0-10 1.667-10 5v3h20v-3c0-3.333-6.667-5-10-5z"/>
+                      </svg>
+                    </Show>
+                    <Show when={msg.role !== 'user'}>
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2a8 8 0 00-8 8v2a8 8 0 0016 0v-2a8 8 0 00-8-8zm0 3a3 3 0 110 6 3 3 0 010-6zm-6 9.2a6 6 0 0112 0A6.98 6.98 0 0112 20a6.98 6.98 0 01-6-5.8z"/>
+                      </svg>
+                    </Show>
+                  </div>
+                  <span class={`text-[10px] font-black uppercase tracking-[0.24em] ${msg.role === 'user' ? 'text-text-secondary/50' : 'text-primary/70'}`}>
                     {msg.role === 'user' ? 'You' : activeAgentName()}
                   </span>
                 </div>
@@ -800,7 +896,10 @@ export default function Chat() {
                     : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none'
                 }`}>
                   {msg.role === 'user' ? (
-                     <div class="whitespace-pre-wrap leading-relaxed font-medium text-[15px]">{msg.content}</div>
+                     <>
+                       <div class="whitespace-pre-wrap leading-relaxed font-medium text-[15px]">{msg.content}</div>
+                       {renderMetaBadges(msg, index())}
+                     </>
                   ) : (
                      <div class="relative space-y-5">
                         {(() => {
@@ -936,6 +1035,7 @@ export default function Chat() {
                             </button>
                           </div>
                         </Show>
+                        {renderMetaBadges(msg, index())}
                      </div>
                   )}
                 </div>

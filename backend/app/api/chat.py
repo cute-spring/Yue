@@ -95,6 +95,17 @@ async def chat_stream(request: ChatRequest):
             model_name = model_name or "gpt-4o"
             system_prompt = system_prompt or "You are a helpful assistant."
 
+            tool_names = []
+            for tool in tools:
+                name = getattr(tool, "name", None)
+                if not name:
+                    name = getattr(tool, "__name__", None)
+                if not name:
+                    name = tool.__class__.__name__
+                tool_names.append(name)
+
+            yield f"data: {json.dumps({'meta': {'provider': provider, 'model': model_name, 'tools': tool_names, 'context_id': chat_id, 'agent_id': request.agent_id}})}\n\n"
+
             # Inject thinking process instruction if not present
             if "<thought>" not in system_prompt:
                 system_prompt += (
