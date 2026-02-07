@@ -1,4 +1,4 @@
-import { createSignal, onMount, For, Show } from 'solid-js';
+import { createSignal, onMount, onCleanup, For, Show } from 'solid-js';
 
 type Tab = 'general' | 'mcp' | 'llm';
 
@@ -71,6 +71,13 @@ type LLMProvider = {
     language: 'en',
     default_agent: 'default'
   });
+  const [docAccess, setDocAccess] = createSignal<{ allow_roots: string[]; deny_roots: string[] }>({
+    allow_roots: [],
+    deny_roots: []
+  });
+  const [docAllowText, setDocAllowText] = createSignal("");
+  const [docDenyText, setDocDenyText] = createSignal("");
+  const [isSavingDocAccess, setIsSavingDocAccess] = createSignal(false);
 
   const fetchData = async () => {
     try {
@@ -99,6 +106,12 @@ type LLMProvider = {
       // Fetch Preferences
       const prefsRes = await fetch('/api/config/preferences');
       setPrefs(await prefsRes.json());
+
+      const docAccessRes = await fetch('/api/config/doc_access');
+      const da = await docAccessRes.json();
+      setDocAccess(da);
+      setDocAllowText((da.allow_roots || []).join("\n"));
+      setDocDenyText((da.deny_roots || []).join("\n"));
     } catch (e) {
       console.error("Failed to load settings", e);
     }
@@ -108,7 +121,7 @@ type LLMProvider = {
   onMount(() => {
     const handleGlobalClick = () => setShowAddMenu(false);
     window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
+    onCleanup(() => window.removeEventListener('click', handleGlobalClick));
   });
 
   const saveMcp = async () => {
@@ -147,6 +160,36 @@ type LLMProvider = {
     showToast('success', 'Preferences saved');
   };
 
+  const saveDocAccess = async () => {
+    setIsSavingDocAccess(true);
+    try {
+      const allow = docAllowText()
+        .split("\n")
+        .map(s => s.trim())
+        .filter(Boolean);
+      const deny = docDenyText()
+        .split("\n")
+        .map(s => s.trim())
+        .filter(Boolean);
+      const res = await fetch('/api/config/doc_access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_roots: allow, deny_roots: deny })
+      });
+      if (!res.ok) {
+        showToast('error', 'Failed to save document access');
+        return;
+      }
+      const da = await res.json();
+      setDocAccess(da);
+      setDocAllowText((da.allow_roots || []).join("\n"));
+      setDocDenyText((da.deny_roots || []).join("\n"));
+      showToast('success', 'Document access saved');
+    } finally {
+      setIsSavingDocAccess(false);
+    }
+  };
+
 
   const openModelManager = (provider: LLMProvider) => {
     setManagingProvider(provider.name);
@@ -176,8 +219,10 @@ type LLMProvider = {
     try {
       const previous = new Set(enabledModels());
       const key = `${providerName}_enabled_models`;
+      const modeKey = `${providerName}_enabled_models_mode`;
       const currentConfig = llmForm();
-      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()) };
+      const previousMode = currentConfig[modeKey];
+      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()), [modeKey]: "allowlist" };
       setLlmForm(newConfig);
       
       await fetch('/api/config/llm', {
@@ -187,7 +232,7 @@ type LLMProvider = {
       });
       setShowModelManager(false);
       showToast('success', `Models for ${providerName} updated`, 'Undo', async () => {
-        const revertConfig = { ...currentConfig, [key]: Array.from(previous) };
+        const revertConfig = { ...currentConfig, [key]: Array.from(previous), [modeKey]: previousMode };
         setLlmForm(revertConfig);
         await fetch('/api/config/llm', {
           method: 'POST',
@@ -427,6 +472,45 @@ type LLMProvider = {
             >
               Save Preferences
             </button>
+
+            <div class="pt-6 border-t">
+              <h3 class="text-xl font-semibold border-b pb-2">Document Access</h3>
+              <p class="text-sm text-gray-500 mt-2">
+                Configure allow/deny roots for local document read/search tools.
+              </p>
+              <div class="grid gap-4 mt-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Allow Roots (one per line)</label>
+                  <textarea
+                    class="w-full border rounded-lg p-3 bg-gray-50 font-mono text-xs h-32"
+                    value={docAllowText()}
+                    onInput={e => setDocAllowText(e.currentTarget.value)}
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Deny Roots (one per line)</label>
+                  <textarea
+                    class="w-full border rounded-lg p-3 bg-gray-50 font-mono text-xs h-24"
+                    value={docDenyText()}
+                    onInput={e => setDocDenyText(e.currentTarget.value)}
+                  />
+                </div>
+              </div>
+              <div class="mt-4 flex items-center justify-between gap-3">
+                <div class="text-xs text-gray-500">
+                  Active allow roots: {docAccess().allow_roots.length} • deny roots: {docAccess().deny_roots.length}
+                </div>
+                <button
+                  onClick={saveDocAccess}
+                  disabled={isSavingDocAccess()}
+                  class={`px-6 py-2 rounded-lg transition-colors shadow-md ${
+                    isSavingDocAccess() ? 'bg-gray-300 text-gray-600' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  }`}
+                >
+                  {isSavingDocAccess() ? 'Saving...' : 'Save Document Access'}
+                </button>
+              </div>
+            </div>
           </div>
         </Show>
 

@@ -4,19 +4,22 @@
     "openai_enabled_models": [],
     "gemini_enabled_models": [],
     "ollama_enabled_models": [
+      "qwen3-vl:4b",
+      "qwen3-vl:latest",
+      "qwen3-vl:2b",
+      "glm-ocr:latest",
       "deepseek-ocr:latest",
-      "llama3.2-vision:latest",
       "gpt-oss:latest",
-      "qwen3:0.6b",
-      "yi:9b",
-      "qwen2.5:0.5b",
-      "gemma3:1b",
-      "qwq:latest",
-      "llama3.2-vision:11b",
-      "phi4:latest",
-      "qwen2.5:1.5b"
+      "qwen3:0.6b"
     ],
-    "openai_model": "gpt-4o"
+    "openai_model": "gpt-4o",
+    "ollama_base_url": "http://localhost:11434",
+    "zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4/",
+    "llm_request_timeout": 60,
+    "zhipu_model": "glm-4.6v",
+    "provider": "zhipu",
+    "openai_enabled_models_mode": "allowlist",
+    "ollama_enabled_models_mode": "allowlist"
   },
   "doc_access": {
     "allow_roots": [

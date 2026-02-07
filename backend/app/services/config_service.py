@@ -196,6 +196,16 @@ class ConfigService:
         deny = [r for r in deny_roots if isinstance(r, str) and r.strip()] if isinstance(deny_roots, list) else []
         return {"allow_roots": allow, "deny_roots": deny}
 
+    def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:
+        incoming_allow = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
+        incoming_deny = doc_access.get("deny_roots") if isinstance(doc_access, dict) else []
+        allow = [r for r in incoming_allow if isinstance(r, str) and r.strip()] if isinstance(incoming_allow, list) else []
+        deny = [r for r in incoming_deny if isinstance(r, str) and r.strip()] if isinstance(incoming_deny, list) else []
+
+        self._config["doc_access"] = {"allow_roots": allow, "deny_roots": deny}
+        self.update_config(self._config)
+        return self._config["doc_access"]
+
     def update_preferences(self, prefs: Dict[str, Any]) -> Dict[str, Any]:
         if "preferences" not in self._config:
             self._config["preferences"] = {}

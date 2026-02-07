@@ -24,14 +24,15 @@ This document serves as a structured task list for AI development. Each phase is
 ## Phase 2: Management Centers & Tooling (管理中心与工具体系) - [IN PROGRESS]
 *Goal: Provide visual interfaces for managing models, agents, and MCP servers.*
 
-- ### Status Snapshot — Phase 2 (2026-02-06)
+- ### Status Snapshot — Phase 2 (2026-02-07)
   - Completed
     - LLM config security: GET returns redacted values; POST ignores empty/masked keys to prevent accidental secret erasure.
     - Provider health check: `POST /api/models/test/{provider}` validates configuration by constructing the model.
     - MCP status API: `GET /api/mcp/status` reports `enabled/connected/last_error` per server; initialization respects `enabled`.
     - Stable tool IDs: `/api/mcp/tools` now returns `id = "server:name"`. Agent filtering accepts both legacy names and composite IDs.
     - Frontend: Settings → MCP status cards with Enable toggle; Save triggers reload and refresh. Settings → LLM adds “Test Connection”.
-    - Agent editor: adds directory scope input for docs_search_markdown_dir / docs_read_markdown_dir and persists `doc_roots`.
+    - Agent editor: adds directory scope input for docs_search/docs_read via root_dir and persists `doc_roots`.
+    - Agent editor: adds “Smart Generate” (UI + `POST /api/agents/generate`) to generate name/prompt/tool suggestions and auto-fill the form.
     - Agents list: displays configured doc scope tags for quick visibility.
     - Chat runtime: system prompt appends configured doc scopes when present.
   - Verified
@@ -44,20 +45,53 @@ This document serves as a structured task list for AI development. Each phase is
     - Migrate existing agents’ `enabled_tools` to composite IDs on edit/save for full consistency.
     - Extend backend tests to cover provider tests, MCP status, and config updates.
 
+- ### Local Docs Retrieval Roadmap (本地文档检索路线图：P0–P3)
+  - [x] **Phase 1 (Done): Text-like docs support + unified tools**
+    - [x] Support extension allowlist for local reads/searches: `.md/.txt/.log/.json/.yaml/.yml/.csv`
+    - [x] Provide unified builtin tools:
+      - [x] `builtin:docs_search(query, mode, root_dir?, limit?, max_files?, timeout_s?)`
+      - [x] `builtin:docs_read(path, mode, root_dir?, start_line?, max_lines?)`
+    - [x] Keep legacy `builtin:docs_*_markdown*` as wrappers for compatibility
+  - [ ] **P0: Doc access config management (可视化配置白名单/黑名单)**
+    - [ ] Add `POST /api/config/doc_access` to update `allow_roots/deny_roots`
+    - [ ] Add Settings UI for managing `doc_access` and persisting changes
+  - [ ] **P1: Retrieval quality & guardrails (检索质量与安全护栏)**
+    - [ ] Improve snippet locator (line window + line ranges) for `docs_search`
+    - [ ] Add search limits (e.g. `max_total_bytes_scanned`) to avoid scanning huge folders
+    - [ ] Add include/exclude patterns for practical directory filtering (optional)
+  - [ ] **P2: PDF support (PDF 解析与检索)**
+    - [ ] Add PDF read/search tools with strict caps: max pages/bytes/timeout
+    - [ ] Normalize citations to include page ranges when available
+  - [ ] **P3: Citation enforcement & UX (强制引用输出与体验完善)**
+    - [ ] Enforce citations for doc-grounded agents at chat API output gate
+    - [ ] Display citations in Chat UI as a structured list (path + locator)
+
 - [ ] **2.1 Model Management Center**
   - [ ] Create a management page with grouped lists: Premium, Advanced, and Custom models.
-  - [ ] Build a modal for adding custom models (Provider, Model ID, API Key fields).
-- [ ] **2.2 Agent Configuration Editor**
-  - [ ] Implement the Agent creation/edit modal based on the reference design.
-  - [ ] Add "Smart Generate" button to assist in writing Agent prompts via LLM.
-  - [ ] Implement tool-binding checklists for both MCP tools and Built-in tools.
-- [ ] **2.3 MCP Management Dashboard**
-  - [ ] Display connected MCP servers with status indicators (Online/Offline).
-  - [ ] Add a toggle switch for hot-enabling/disabling specific MCP servers.
-  - [ ] Implement an expandable view to list available tools for each MCP server.
-- [ ] **2.4 Smart Interaction Logic**
-  - [ ] Implement `@` mention system to quickly switch between Agents/Tools in the input box.
-  - [ ] Add `/` slash command system (e.g., `/search`, `/note`, `/help`).
+  - [x] Build UI for adding custom models (Provider, Model ID, API Key fields).
+  - [x] Add provider connection test action ("Test Connection").
+- [x] **2.2 Agent Configuration Editor**
+  - [x] Implement the Agent creation/edit modal based on the reference design.
+  - [x] Add "Smart Generate" button to assist in writing Agent prompts via LLM.
+  - [x] Implement tool-binding checklists for both MCP tools and Built-in tools.
+  - [ ] **2.2.1 Smart Generate Enhancements (Smart Agent Factory)**
+    - [ ] Add draft preview with partial apply (Name / Prompt / Tools).
+    - [ ] Add tool recommendation explanations and risk badges (read-only / write / network).
+    - [ ] Add pre-publish checks: prompt lint + 1-shot self-test preview before creating/updating.
+    - [ ] Add safety policy: tool limits and second-confirm for risky tools.
+    - [ ] Add audit trail and rollback for agent config changes.
+    - [ ] Add template library with variableized generation presets (Docs QA / Code Reviewer / Researcher / Translator).
+    - [ ] Add doc_roots picker and validation hints when docs_search/docs_read are enabled.
+    - [ ] Strengthen structured generation schema and fallback behavior (e.g., prompt-only on JSON failure).
+    - [ ] Add E2E test for Smart Generate: generate → auto-fill → save → edit consistency.
+    - [ ] Add metrics: generation success rate, post-publish edit rate, and failure reasons.
+- [x] **2.3 MCP Management Dashboard**
+  - [x] Display connected MCP servers with status indicators (Online/Offline).
+  - [x] Add a toggle switch for hot-enabling/disabling specific MCP servers.
+  - [x] Implement an expandable view to list available tools for each MCP server.
+- [x] **2.4 Smart Interaction Logic**
+  - [x] Implement `@` mention system to quickly switch between Agents/Tools in the input box.
+  - [x] Add `/` slash command system (e.g., `/search`, `/note`, `/help`).
 
 ## Phase 3: Knowledge Integration & Multimodal (个人知识管理与多模态)
 *Goal: Connect chat context with personal notes and expand sensing capabilities.*
@@ -79,8 +113,8 @@ This document serves as a structured task list for AI development. Each phase is
 *Goal: Refine micro-interactions and add advanced AI features.*
 
 - [ ] **4.1 Advanced AI Features**
-  - Implement automatic session title generation after the first few messages.
-  - Add "Deep Thinking" mode toggle for non-reasoning models via prompt engineering.
+  - [x] Implement automatic session title generation after the first few messages.
+  - [ ] Add "Deep Thinking" mode toggle for non-reasoning models via prompt engineering.
 - [ ] **4.2 Voice & Accessibility**
   - Integrate Web Speech API for voice-to-text input.
   - Complete ARIA label coverage and keyboard navigation support (Cmd+K for search, Cmd+N for new chat).
@@ -90,4 +124,4 @@ This document serves as a structured task list for AI development. Each phase is
   - Integrate Token usage statistics and estimated cost display.
 
 ---
-*Last Updated: 2026-02-06*
+*Last Updated: 2026-02-07*

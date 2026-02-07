@@ -46,6 +46,7 @@ class TestModelFactoryStructured(unittest.TestCase):
         self.assertTrue(d.configured)
         self.assertIn("x", d.models)
         self.assertIn("y", d.available_models)
+        self.assertIsInstance(d.supports_model_refresh, bool)
 
 
 if __name__ == "__main__":
