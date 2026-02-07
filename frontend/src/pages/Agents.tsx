@@ -17,6 +17,15 @@ type McpTool = {
   server: string;
 };
 
+type SmartDraft = {
+  name?: string;
+  system_prompt?: string;
+  enabled_tools?: string[];
+  recommended_tools?: string[];
+  tool_reasons?: Record<string, string>;
+  tool_risks?: Record<string, string>;
+};
+
 export default function Agents() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
   const [availableTools, setAvailableTools] = createSignal<McpTool[]>([]);
@@ -39,6 +48,15 @@ export default function Agents() {
   const [providers, setProviders] = createSignal<any[]>([]);
   const [showLLMSelector, setShowLLMSelector] = createSignal(false);
   const [isRefreshingModels, setIsRefreshingModels] = createSignal(false);
+  const [showSmartGenerate, setShowSmartGenerate] = createSignal(false);
+  const [smartDescription, setSmartDescription] = createSignal("");
+  const [smartUpdateTools, setSmartUpdateTools] = createSignal(true);
+  const [smartIsGenerating, setSmartIsGenerating] = createSignal(false);
+  const [smartError, setSmartError] = createSignal<string | null>(null);
+  const [smartDraft, setSmartDraft] = createSignal<SmartDraft | null>(null);
+  const [smartApplyName, setSmartApplyName] = createSignal(true);
+  const [smartApplyPrompt, setSmartApplyPrompt] = createSignal(true);
+  const [smartApplyTools, setSmartApplyTools] = createSignal(true);
   
   // Form state
   const [formName, setFormName] = createSignal("");
@@ -133,6 +151,94 @@ export default function Agents() {
     setIsEditing(true);
   };
 
+  const openSmartGenerate = () => {
+    setSmartError(null);
+    setSmartIsGenerating(false);
+    setSmartUpdateTools(true);
+    setSmartDescription("");
+    setSmartDraft(null);
+    setSmartApplyName(true);
+    setSmartApplyPrompt(true);
+    setSmartApplyTools(true);
+    setShowSmartGenerate(true);
+  };
+
+  const applySmartDraft = () => {
+    const draft = smartDraft();
+    if (!draft) return;
+    if (smartApplyName() && draft.name) setFormName(draft.name);
+    if (smartApplyPrompt() && draft.system_prompt) setFormPrompt(draft.system_prompt);
+    if (smartApplyTools()) {
+      const tools = Array.isArray(draft.recommended_tools) && draft.recommended_tools.length > 0
+        ? draft.recommended_tools
+        : (Array.isArray(draft.enabled_tools) ? draft.enabled_tools : []);
+      if (tools.length > 0) setFormTools(tools);
+    }
+    setShowSmartGenerate(false);
+    setSmartDraft(null);
+  };
+
+  const smartPromptLint = () => {
+    const prompt = (smartDraft()?.system_prompt || '').toLowerCase();
+    const missing: string[] = [];
+    const hasRole = prompt.includes('role') || prompt.includes('你是') || prompt.includes('角色');
+    const hasBoundary = prompt.includes('boundary') || prompt.includes('scope') || prompt.includes('边界') || prompt.includes('范围');
+    const hasWorkflow = prompt.includes('workflow') || prompt.includes('step') || prompt.includes('流程') || prompt.includes('步骤');
+    const hasOutput = prompt.includes('output') || prompt.includes('format') || prompt.includes('输出') || prompt.includes('格式');
+    const hasProhibit = prompt.includes('prohibit') || prompt.includes('forbid') || prompt.includes('禁忌') || prompt.includes('不要') || prompt.includes('禁止');
+    if (!hasRole) missing.push('Role');
+    if (!hasBoundary) missing.push('Scope');
+    if (!hasWorkflow) missing.push('Workflow');
+    if (!hasOutput) missing.push('Output format');
+    if (!hasProhibit) missing.push('Prohibitions');
+    return missing;
+  };
+
+  const smartRiskSummary = () => {
+    const draft = smartDraft();
+    const tools = (draft?.recommended_tools && draft.recommended_tools.length > 0)
+      ? draft.recommended_tools
+      : (draft?.enabled_tools || []);
+    const risks = draft?.tool_risks || {};
+    const hasWrite = tools.some(t => risks[t] === 'write');
+    const hasNetwork = tools.some(t => risks[t] === 'network');
+    return { hasWrite, hasNetwork };
+  };
+
+  const runSmartGenerate = async () => {
+    const desc = smartDescription().trim();
+    if (!desc) {
+      setSmartError("请先输入一句话描述");
+      return;
+    }
+    setSmartError(null);
+    setSmartIsGenerating(true);
+    try {
+      const res = await fetch('/api/agents/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: desc,
+          provider: formProvider(),
+          model: formModel(),
+          existing_tools: formTools(),
+          update_tools: smartUpdateTools()
+        })
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = data?.detail || 'Smart Generate failed';
+        throw new Error(detail);
+      }
+      setSmartDraft(data);
+      setSmartApplyTools(smartUpdateTools());
+    } catch (e: any) {
+      setSmartError(e?.message || String(e));
+    } finally {
+      setSmartIsGenerating(false);
+    }
+  };
+
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     
@@ -222,16 +328,285 @@ export default function Agents() {
       </div>
 
       <Show when={isEditing()}>
-        <div class="mb-8 bg-white border rounded-2xl shadow-lg overflow-hidden max-w-4xl mx-auto">
-          <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
-            <h3 class="font-bold text-lg text-gray-800">{editingId() ? 'Edit Agent' : 'New Agent'}</h3>
-            <button onClick={() => setIsEditing(false)} class="text-gray-400 hover:text-gray-600">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <form onSubmit={handleSubmit} class="p-6 space-y-6">
+        <>
+          <Show when={showSmartGenerate()}>
+            <div class="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              <button
+                type="button"
+                class="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+                onClick={() => (!smartIsGenerating() ? setShowSmartGenerate(false) : null)}
+              />
+              <div class="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                <div class="px-6 py-4 bg-gradient-to-r from-emerald-50 to-sky-50 border-b flex items-center justify-between">
+                  <div>
+                    <div class="text-[10px] font-black text-emerald-700 uppercase tracking-[0.2em]">Smart Generate</div>
+                    <div class="text-sm font-bold text-gray-800 mt-1">用一句话生成 Agent 名称、Prompt 与工具推荐</div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={smartIsGenerating()}
+                    onClick={() => setShowSmartGenerate(false)}
+                    class={`p-2 rounded-lg transition-colors ${
+                      smartIsGenerating() ? 'text-gray-300' : 'text-gray-400 hover:text-gray-600 hover:bg-white/60'
+                    }`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div class="p-6 space-y-4">
+                  <Show
+                    when={!!smartDraft()}
+                    fallback={
+                      <>
+                        <div>
+                          <label class="block text-sm font-semibold text-gray-700 mb-2">一句话描述</label>
+                          <textarea
+                            class="w-full border rounded-xl px-4 py-3 min-h-[120px] focus:ring-2 focus:ring-emerald-500 outline-none text-sm leading-relaxed"
+                            value={smartDescription()}
+                            onInput={e => setSmartDescription(e.currentTarget.value)}
+                            placeholder="例如：我想要一个能审阅前端 PR、提出可执行改进建议的代码审查专家"
+                            disabled={smartIsGenerating()}
+                          />
+                        </div>
+
+                        <label class="flex items-center gap-2 text-sm text-gray-700 select-none">
+                          <input
+                            type="checkbox"
+                            class="text-emerald-600 focus:ring-emerald-500 rounded border-gray-300"
+                            checked={smartUpdateTools()}
+                            onChange={e => setSmartUpdateTools(e.currentTarget.checked)}
+                            disabled={smartIsGenerating()}
+                          />
+                          同时更新工具勾选（会覆盖当前选择）
+                        </label>
+                      </>
+                    }
+                  >
+                    <div class="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+                      <div class="flex items-start justify-between gap-3">
+                        <div>
+                          <div class="text-[10px] font-black text-emerald-700 uppercase tracking-[0.2em]">Draft Preview</div>
+                          <div class="text-sm font-bold text-gray-900 mt-1">{smartDraft()?.name || 'Untitled Agent'}</div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span class="text-[10px] font-bold text-emerald-700 bg-white/80 px-2 py-1 rounded-full border border-emerald-100">Review</span>
+                        </div>
+                      </div>
+
+                      <div class="mt-4 grid grid-cols-1 gap-3">
+                        <label class="flex items-center gap-2 text-sm text-gray-700 select-none">
+                          <input
+                            type="checkbox"
+                            class="text-emerald-600 focus:ring-emerald-500 rounded border-gray-300"
+                            checked={smartApplyName()}
+                            onChange={e => setSmartApplyName(e.currentTarget.checked)}
+                          />
+                          Apply name
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-700 select-none">
+                          <input
+                            type="checkbox"
+                            class="text-emerald-600 focus:ring-emerald-500 rounded border-gray-300"
+                            checked={smartApplyPrompt()}
+                            onChange={e => setSmartApplyPrompt(e.currentTarget.checked)}
+                          />
+                          Apply system prompt
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-700 select-none">
+                          <input
+                            type="checkbox"
+                            class="text-emerald-600 focus:ring-emerald-500 rounded border-gray-300"
+                            checked={smartApplyTools()}
+                            onChange={e => setSmartApplyTools(e.currentTarget.checked)}
+                          />
+                          Apply tool selection
+                        </label>
+                      </div>
+
+                      <Show when={smartPromptLint().length > 0}>
+                        <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+                          <div class="font-bold">Prompt lint warning</div>
+                          <div class="mt-1 opacity-90">Missing sections: {smartPromptLint().join(', ')}</div>
+                        </div>
+                      </Show>
+
+                      <Show when={smartApplyTools() && (smartRiskSummary().hasWrite || smartRiskSummary().hasNetwork)}>
+                        <div class="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-900">
+                          <div class="font-bold">Tool risk warning</div>
+                          <div class="mt-1 opacity-90">
+                            {smartRiskSummary().hasWrite ? 'Includes WRITE-capable tools.' : ''}
+                            {smartRiskSummary().hasWrite && smartRiskSummary().hasNetwork ? ' ' : ''}
+                            {smartRiskSummary().hasNetwork ? 'Includes NETWORK tools.' : ''}
+                          </div>
+                        </div>
+                      </Show>
+
+                      <div class="mt-4">
+                        <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">System Prompt</div>
+                        <div class="mt-2 bg-white border border-emerald-100 rounded-xl p-3 max-h-56 overflow-auto">
+                          <pre class="whitespace-pre-wrap text-xs text-gray-700 leading-relaxed font-mono">
+                            {smartDraft()?.system_prompt || ''}
+                          </pre>
+                        </div>
+                      </div>
+
+                      <div class="mt-4">
+                        <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Recommended Tools</div>
+                        <div class="mt-2 space-y-2">
+                          <For each={(smartDraft()?.recommended_tools && smartDraft()!.recommended_tools!.length > 0) ? smartDraft()!.recommended_tools! : (smartDraft()?.enabled_tools || [])}>
+                            {(tid) => {
+                              const risk = smartDraft()?.tool_risks?.[tid] || 'unknown';
+                              const reason = smartDraft()?.tool_reasons?.[tid];
+                              const badge = () => {
+                                if (risk === 'write') return 'bg-red-50 text-red-700 border-red-100';
+                                if (risk === 'network') return 'bg-amber-50 text-amber-800 border-amber-100';
+                                if (risk === 'read') return 'bg-emerald-50 text-emerald-800 border-emerald-100';
+                                return 'bg-gray-100 text-gray-600 border-gray-200';
+                              };
+                              const label = () => {
+                                if (risk === 'write') return 'WRITE';
+                                if (risk === 'network') return 'NET';
+                                if (risk === 'read') return 'READ';
+                                return 'UNKNOWN';
+                              };
+                              return (
+                                <div class="bg-white border border-gray-100 rounded-xl px-3 py-2">
+                                  <div class="flex items-center justify-between gap-3">
+                                    <div class="min-w-0">
+                                      <div class="text-xs font-semibold text-gray-900 truncate">{tid}</div>
+                                      <Show when={!!reason}>
+                                        <div class="text-[11px] text-gray-600 mt-0.5">{reason}</div>
+                                      </Show>
+                                    </div>
+                                    <span class={`shrink-0 text-[10px] font-black px-2 py-1 rounded-full border ${badge()}`}>
+                                      {label()}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          </For>
+                          <Show when={!((smartDraft()?.recommended_tools && smartDraft()!.recommended_tools!.length > 0) || (smartDraft()?.enabled_tools && smartDraft()!.enabled_tools!.length > 0))}>
+                            <div class="text-sm text-gray-500 bg-white border border-dashed border-gray-200 rounded-xl px-4 py-3">
+                              No tools recommended.
+                            </div>
+                          </Show>
+                        </div>
+                      </div>
+                    </div>
+                  </Show>
+
+                  <Show when={!!smartError()}>
+                    <div class="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                      {smartError()}
+                    </div>
+                  </Show>
+                </div>
+
+                <div class="px-6 py-4 border-t bg-gray-50 flex items-center justify-end gap-3">
+                  <Show
+                    when={!!smartDraft()}
+                    fallback={
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setShowSmartGenerate(false)}
+                          disabled={smartIsGenerating()}
+                          class={`px-5 py-2.5 rounded-lg font-medium transition-colors ${
+                            smartIsGenerating() ? 'text-gray-300 bg-white' : 'text-gray-600 hover:bg-gray-100 bg-white'
+                          }`}
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={runSmartGenerate}
+                          disabled={smartIsGenerating()}
+                          class={`px-5 py-2.5 rounded-lg font-semibold shadow-md transition-all active:scale-95 ${
+                            smartIsGenerating()
+                              ? 'bg-emerald-200 text-white cursor-not-allowed'
+                              : 'bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-700 hover:to-sky-700 text-white'
+                          }`}
+                        >
+                          <span class="flex items-center gap-2">
+                            <Show
+                              when={smartIsGenerating()}
+                              fallback={
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                  <path d="M11.3 1.046a1 1 0 10-2.6 0l-.27 2.68a1 1 0 00.997 1.099h1.146a1 1 0 00.997-1.099l-.27-2.68zM4.222 3.636a1 1 0 00-1.414 1.414l1.895 1.894a1 1 0 001.414-1.414L4.222 3.636zm11.556 0L13.883 5.53a1 1 0 001.414 1.414l1.895-1.894a1 1 0 10-1.414-1.414zM10 5a5 5 0 100 10A5 5 0 0010 5zM1 11.3a1 1 0 100-2.6l2.68-.27a1 1 0 011.099.997v1.146a1 1 0 01-1.099.997L1 11.3zm18 0l-2.68.27a1 1 0 00-1.099-.997H14.075a1 1 0 00-1.099.997L19 11.3z" />
+                                </svg>
+                              }
+                            >
+                              <div class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></div>
+                            </Show>
+                            {smartIsGenerating() ? '生成中…' : '生成草案'}
+                          </span>
+                        </button>
+                      </>
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSmartDraft(null)}
+                      disabled={smartIsGenerating()}
+                      class={`px-5 py-2.5 rounded-lg font-medium transition-colors ${
+                        smartIsGenerating() ? 'text-gray-300 bg-white' : 'text-gray-600 hover:bg-gray-100 bg-white'
+                      }`}
+                    >
+                      返回编辑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={runSmartGenerate}
+                      disabled={smartIsGenerating()}
+                      class={`px-5 py-2.5 rounded-lg font-semibold transition-all active:scale-95 ${
+                        smartIsGenerating()
+                          ? 'bg-emerald-200 text-white cursor-not-allowed'
+                          : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                      }`}
+                    >
+                      重新生成
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applySmartDraft}
+                      disabled={smartIsGenerating()}
+                      class={`px-5 py-2.5 rounded-lg font-semibold shadow-md transition-all active:scale-95 ${
+                        smartIsGenerating()
+                          ? 'bg-emerald-200 text-white cursor-not-allowed'
+                          : 'bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-700 hover:to-sky-700 text-white'
+                      }`}
+                    >
+                      应用到表单
+                    </button>
+                  </Show>
+                </div>
+              </div>
+            </div>
+          </Show>
+
+          <div class="mb-8 bg-white border rounded-2xl shadow-lg overflow-hidden max-w-4xl mx-auto">
+            <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
+              <div class="flex items-center gap-3">
+                <h3 class="font-bold text-lg text-gray-800">{editingId() ? 'Edit Agent' : 'New Agent'}</h3>
+                <button
+                  type="button"
+                  onClick={openSmartGenerate}
+                  class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-700 hover:to-sky-700 shadow-sm transition-all active:scale-95"
+                >
+                  Smart Generate
+                </button>
+              </div>
+              <button onClick={() => setIsEditing(false)} class="text-gray-400 hover:text-gray-600">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} class="p-6 space-y-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
               <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Name</label>
@@ -550,6 +925,7 @@ export default function Agents() {
             </div>
           </form>
         </div>
+        </>
       </Show>
 
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

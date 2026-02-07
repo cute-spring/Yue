@@ -24,7 +24,7 @@ This document serves as a structured task list for AI development. Each phase is
 ## Phase 2: Management Centers & Tooling (管理中心与工具体系) - [IN PROGRESS]
 *Goal: Provide visual interfaces for managing models, agents, and MCP servers.*
 
-- ### Status Snapshot — Phase 2 (2026-02-06)
+- ### Status Snapshot — Phase 2 (2026-02-07)
   - Completed
     - LLM config security: GET returns redacted values; POST ignores empty/masked keys to prevent accidental secret erasure.
     - Provider health check: `POST /api/models/test/{provider}` validates configuration by constructing the model.
@@ -32,6 +32,7 @@ This document serves as a structured task list for AI development. Each phase is
     - Stable tool IDs: `/api/mcp/tools` now returns `id = "server:name"`. Agent filtering accepts both legacy names and composite IDs.
     - Frontend: Settings → MCP status cards with Enable toggle; Save triggers reload and refresh. Settings → LLM adds “Test Connection”.
     - Agent editor: adds directory scope input for docs_search_markdown_dir / docs_read_markdown_dir and persists `doc_roots`.
+    - Agent editor: adds “Smart Generate” (UI + `POST /api/agents/generate`) to generate name/prompt/tool suggestions and auto-fill the form.
     - Agents list: displays configured doc scope tags for quick visibility.
     - Chat runtime: system prompt appends configured doc scopes when present.
   - Verified
@@ -46,18 +47,30 @@ This document serves as a structured task list for AI development. Each phase is
 
 - [ ] **2.1 Model Management Center**
   - [ ] Create a management page with grouped lists: Premium, Advanced, and Custom models.
-  - [ ] Build a modal for adding custom models (Provider, Model ID, API Key fields).
-- [ ] **2.2 Agent Configuration Editor**
-  - [ ] Implement the Agent creation/edit modal based on the reference design.
-  - [ ] Add "Smart Generate" button to assist in writing Agent prompts via LLM.
-  - [ ] Implement tool-binding checklists for both MCP tools and Built-in tools.
-- [ ] **2.3 MCP Management Dashboard**
-  - [ ] Display connected MCP servers with status indicators (Online/Offline).
-  - [ ] Add a toggle switch for hot-enabling/disabling specific MCP servers.
-  - [ ] Implement an expandable view to list available tools for each MCP server.
-- [ ] **2.4 Smart Interaction Logic**
-  - [ ] Implement `@` mention system to quickly switch between Agents/Tools in the input box.
-  - [ ] Add `/` slash command system (e.g., `/search`, `/note`, `/help`).
+  - [x] Build UI for adding custom models (Provider, Model ID, API Key fields).
+  - [x] Add provider connection test action ("Test Connection").
+- [x] **2.2 Agent Configuration Editor**
+  - [x] Implement the Agent creation/edit modal based on the reference design.
+  - [x] Add "Smart Generate" button to assist in writing Agent prompts via LLM.
+  - [x] Implement tool-binding checklists for both MCP tools and Built-in tools.
+  - [ ] **2.2.1 Smart Generate Enhancements (Smart Agent Factory)**
+    - [ ] Add draft preview with partial apply (Name / Prompt / Tools).
+    - [ ] Add tool recommendation explanations and risk badges (read-only / write / network).
+    - [ ] Add pre-publish checks: prompt lint + 1-shot self-test preview before creating/updating.
+    - [ ] Add safety policy: tool limits and second-confirm for risky tools.
+    - [ ] Add audit trail and rollback for agent config changes.
+    - [ ] Add template library with variableized generation presets (Docs QA / Code Reviewer / Researcher / Translator).
+    - [ ] Add doc_roots picker and validation hints when docs_*_dir tools are enabled.
+    - [ ] Strengthen structured generation schema and fallback behavior (e.g., prompt-only on JSON failure).
+    - [ ] Add E2E test for Smart Generate: generate → auto-fill → save → edit consistency.
+    - [ ] Add metrics: generation success rate, post-publish edit rate, and failure reasons.
+- [x] **2.3 MCP Management Dashboard**
+  - [x] Display connected MCP servers with status indicators (Online/Offline).
+  - [x] Add a toggle switch for hot-enabling/disabling specific MCP servers.
+  - [x] Implement an expandable view to list available tools for each MCP server.
+- [x] **2.4 Smart Interaction Logic**
+  - [x] Implement `@` mention system to quickly switch between Agents/Tools in the input box.
+  - [x] Add `/` slash command system (e.g., `/search`, `/note`, `/help`).
 
 ## Phase 3: Knowledge Integration & Multimodal (个人知识管理与多模态)
 *Goal: Connect chat context with personal notes and expand sensing capabilities.*
@@ -79,8 +92,8 @@ This document serves as a structured task list for AI development. Each phase is
 *Goal: Refine micro-interactions and add advanced AI features.*
 
 - [ ] **4.1 Advanced AI Features**
-  - Implement automatic session title generation after the first few messages.
-  - Add "Deep Thinking" mode toggle for non-reasoning models via prompt engineering.
+  - [x] Implement automatic session title generation after the first few messages.
+  - [ ] Add "Deep Thinking" mode toggle for non-reasoning models via prompt engineering.
 - [ ] **4.2 Voice & Accessibility**
   - Integrate Web Speech API for voice-to-text input.
   - Complete ARIA label coverage and keyboard navigation support (Cmd+K for search, Cmd+N for new chat).
@@ -90,4 +103,4 @@ This document serves as a structured task list for AI development. Each phase is
   - Integrate Token usage statistics and estimated cost display.
 
 ---
-*Last Updated: 2026-02-06*
+*Last Updated: 2026-02-07*
