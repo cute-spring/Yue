@@ -500,11 +500,26 @@ export default function Chat() {
     if (lastUserMsgIndex === -1) return;
     
     const lastUserMsg = historyBefore[lastUserMsgIndex];
-    // Keep everything up to the user message, then re-send it
-    setMessages(messages().slice(0, lastUserMsgIndex + 1));
+    
+    // Truncate backend history if we have a chat ID
+    if (currentChatId()) {
+      try {
+        await fetch(`/api/chat/${currentChatId()}/truncate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keep_count: lastUserMsgIndex })
+        });
+      } catch (e) {
+        console.error("Failed to truncate chat history", e);
+      }
+    }
+
+    // Keep messages BEFORE the user message (effectively removing the user message and everything after)
+    // The user message will be re-added by handleSubmit
+    setMessages(messages().slice(0, lastUserMsgIndex));
     setInput(lastUserMsg.content);
-    // Trigger submit (but we need to handle the event or call a modified handleSubmit)
-    // Actually, let's just call handleSubmit with a simulated event or refactor handleSubmit
+    
+    // Trigger submit
     handleSubmit(new Event('submit') as any);
   };
   const stopGeneration = () => {

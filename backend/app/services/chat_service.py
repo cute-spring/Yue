@@ -198,4 +198,27 @@ class ChatService:
             conn.commit()
             return cursor.rowcount > 0
 
+    def truncate_chat(self, chat_id: str, keep_count: int) -> bool:
+        with self._get_connection() as conn:
+            # Get all message IDs ordered by timestamp
+            cursor = conn.execute("SELECT id FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
+            rows = cursor.fetchall()
+            
+            if len(rows) <= keep_count:
+                return False
+                
+            # Identify IDs to delete
+            to_delete = [row['id'] for row in rows[keep_count:]]
+            if not to_delete:
+                return False
+                
+            placeholders = ','.join('?' for _ in to_delete)
+            conn.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", to_delete)
+            conn.execute(
+                "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                (datetime.now(), chat_id)
+            )
+            conn.commit()
+            return True
+
 chat_service = ChatService()

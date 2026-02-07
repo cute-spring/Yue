@@ -13,6 +13,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Token Management Constants
+# DeepSeek Reasoner has 128k context. We set a safe limit of ~100k tokens.
+# Heuristic: 1 token ~= 3 characters (conservative for code/mixed content).
+EST_CHARS_PER_TOKEN = 3
+MAX_CONTEXT_TOKENS = 100000
+MAX_SINGLE_MSG_TOKENS = 20000  # Cap single messages to avoid one massive file read blocking everything
+
+def estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return len(text) // EST_CHARS_PER_TOKEN
+
 router = APIRouter()
 
 class ChatRequest(BaseModel):
@@ -40,6 +52,14 @@ async def delete_chat(chat_id: str):
         raise HTTPException(status_code=404, detail="Chat not found")
     return {"status": "success"}
 
+class TruncateRequest(BaseModel):
+    keep_count: int
+
+@router.post("/{chat_id}/truncate")
+async def truncate_chat(chat_id: str, request: TruncateRequest):
+    chat_service.truncate_chat(chat_id, request.keep_count)
+    return {"status": "success"}
+
 @router.post("/stream")
 async def chat_stream(request: ChatRequest):
     # Initialize Chat Session
@@ -52,13 +72,41 @@ async def chat_stream(request: ChatRequest):
     history = []
     existing_chat = chat_service.get_chat(chat_id)
     if existing_chat:
-        # Simple sliding window: last 20 messages
-        msgs = existing_chat.messages[-20:]
-        for m in msgs:
+        # Smart Context Management
+        # 1. Start from the most recent messages
+        # 2. Enforce per-message limits
+        # 3. Enforce global context limits
+        
+        all_msgs = existing_chat.messages
+        current_tokens = 0
+        temp_history = []
+        
+        # Iterate backwards to prioritize recent context
+        for m in reversed(all_msgs):
+            content = m.content or ""
+            msg_tokens = estimate_tokens(content)
+            
+            # Per-message truncation
+            if msg_tokens > MAX_SINGLE_MSG_TOKENS:
+                keep_chars = MAX_SINGLE_MSG_TOKENS * EST_CHARS_PER_TOKEN
+                content = content[:keep_chars] + "\n... (content truncated due to length)"
+                msg_tokens = MAX_SINGLE_MSG_TOKENS
+            
+            # Check global limit
+            if current_tokens + msg_tokens > MAX_CONTEXT_TOKENS:
+                logger.info(f"Context limit reached. Dropping older messages. Current tokens: {current_tokens}")
+                break
+                
+            current_tokens += msg_tokens
+            
+            # Add to temp history
             if m.role == "user":
-                history.append(ModelRequest(parts=[UserPromptPart(content=m.content)]))
+                temp_history.append(ModelRequest(parts=[UserPromptPart(content=content)]))
             elif m.role == "assistant":
-                history.append(ModelResponse(parts=[TextPart(content=m.content)]))
+                temp_history.append(ModelResponse(parts=[TextPart(content=content)]))
+        
+        # Restore chronological order
+        history = list(reversed(temp_history))
 
     # Save User Message to DB
     chat_service.add_message(chat_id, "user", request.message)
