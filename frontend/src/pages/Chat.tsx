@@ -4,6 +4,7 @@ import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import { useToast } from '../context/ToastContext';
 
 // Configure marked to use highlight.js via a custom renderer
 const renderer = new marked.Renderer();
@@ -163,6 +164,7 @@ type ChatSession = {
 type Message = {
   role: string;
   content: string;
+  images?: string[];
   thought_duration?: number;
   timestamp?: string;
   provider?: string;
@@ -174,6 +176,7 @@ type Message = {
 };
 
 export default function Chat() {
+  const toast = useToast();
   const MODEL_STORAGE_KEY = "chat.selected_model";
   const PROVIDER_STORAGE_KEY = "chat.selected_provider";
 
@@ -270,6 +273,15 @@ export default function Chat() {
     return { thought: null, content: text };
   };
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
+  };
+
   const filteredAgents = () => {
     const filter = agentFilter().toLowerCase();
     return agents().filter(a => a.name.toLowerCase().includes(filter));
@@ -287,7 +299,9 @@ export default function Chat() {
       await navigator.clipboard.writeText(content);
       setCopiedMessageIndex(index);
       setTimeout(() => setCopiedMessageIndex(curr => (curr === index ? null : curr)), 1600);
-    } catch (e) {}
+    } catch (e) {
+      toast.error("Failed to copy message");
+    }
   };
 
   const editUserMessage = (content: string) => {
@@ -373,6 +387,7 @@ export default function Chat() {
       setAgents(data);
     } catch (e) {
       console.error("Failed to load agents", e);
+      toast.error("Failed to load agents");
     }
   };
 
@@ -382,6 +397,7 @@ export default function Chat() {
       setChats(await res.json());
     } catch (e) {
       console.error("Failed to load history", e);
+      toast.error("Failed to load chat history");
     }
   };
 
@@ -418,10 +434,12 @@ export default function Chat() {
       }
     } catch (e) {
       console.error("Failed to load providers", e);
+      toast.error("Failed to load AI providers");
     }
   };
 
   const loadChat = async (id: string) => {
+    if (isTyping()) stopGeneration();
     try {
       const res = await fetch(`/api/chat/${id}`);
       const data = await res.json();
@@ -433,10 +451,12 @@ export default function Chat() {
       }
     } catch (e) {
       console.error("Failed to load chat", e);
+      toast.error("Failed to load chat session");
     }
   };
 
   const startNewChat = () => {
+    if (isTyping()) stopGeneration();
     setCurrentChatId(null);
     setMessages([]);
     setInput("");
@@ -456,7 +476,10 @@ export default function Chat() {
       await fetch(`/api/chat/${id}`, { method: 'DELETE' });
       loadHistory();
       if (currentChatId() === id) startNewChat();
-    } catch (e) {}
+      toast.success("Chat deleted successfully");
+    } catch (e) {
+      toast.error("Failed to delete chat");
+    }
   };
   
   onMount(() => {
@@ -478,6 +501,7 @@ export default function Chat() {
         setShowKnowledge(true);
       } catch (e) {
         console.error("Failed to open artifact:", e);
+        toast.error("Failed to open artifact preview");
       }
     };
 
@@ -585,10 +609,23 @@ export default function Chat() {
     
     const agentId = selectedAgent() || undefined;
 
+    // Convert images to base64
+    const currentImages = imageAttachments();
+    let base64Images: string[] = [];
+    if (currentImages.length > 0) {
+      try {
+        base64Images = await Promise.all(currentImages.map(fileToBase64));
+      } catch (e) {
+        console.error("Failed to convert images", e);
+        toast.error("Failed to process attached images");
+      }
+    }
+
     const nowIso = new Date().toISOString();
     const contextId = currentChatId() || undefined;
-    setMessages([...messages(), { role: 'user', content: text, timestamp: nowIso, context_id: contextId }]);
+    setMessages([...messages(), { role: 'user', content: text, images: base64Images, timestamp: nowIso, context_id: contextId }]);
     setInput("");
+    setImageAttachments([]); // Clear attachments
     if (textareaRef) {
       textareaRef.style.height = 'auto';
     }
@@ -606,6 +643,7 @@ export default function Chat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
+          images: base64Images.length > 0 ? base64Images : undefined,
           agent_id: agentId,
           chat_id: currentChatId(),
           provider: selectedProvider(),
@@ -676,7 +714,9 @@ export default function Chat() {
                     return newMsgs;
                   });
                 }
-              } catch (e) {}
+              } catch (e) {
+                console.warn("Failed to parse stream message", e);
+              }
             }
           }
         }
@@ -686,6 +726,7 @@ export default function Chat() {
         console.log('Generation stopped by user');
       } else {
         console.error("Chat error:", err);
+        toast.error("Connection error: " + (err.message || "Unknown error"));
       }
     } finally {
       setIsTyping(false);
@@ -958,6 +999,15 @@ export default function Chat() {
                          <div class="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl"></div>
                          <div class="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_55%,rgba(16,185,129,0.06))]"></div>
                        </div>
+                       <Show when={msg.images && msg.images.length > 0}>
+                         <div class="flex flex-wrap gap-2 mb-2 relative z-10">
+                           <For each={msg.images}>
+                             {(img) => (
+                               <img src={img} class="max-w-full h-auto max-h-64 rounded-lg border border-white/10" alt="User upload" />
+                             )}
+                           </For>
+                         </div>
+                       </Show>
                        <div class="relative whitespace-pre-wrap leading-relaxed font-medium text-[15px] select-text">{msg.content}</div>
                        <div class="mt-3 flex justify-end">
                          <div class="flex items-center gap-1 p-1 rounded-2xl bg-surface/70 backdrop-blur-md ring-1 ring-border/70 shadow-sm transition-opacity opacity-100 lg:opacity-0 lg:group-hover:opacity-100">

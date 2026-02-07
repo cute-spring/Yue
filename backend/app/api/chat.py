@@ -2,11 +2,12 @@ from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart, ImageUrl
 from app.mcp.manager import mcp_manager
 from app.services.agent_store import agent_store
 from app.services.model_factory import get_model
 from app.services.chat_service import chat_service, ChatSession
+from app.utils.image_handler import save_base64_image, load_image_to_base64
 import json
 import time
 import logging
@@ -29,6 +30,7 @@ router = APIRouter()
 
 class ChatRequest(BaseModel):
     message: str
+    images: list[str] | None = None
     agent_id: str | None = None
     chat_id: str | None = None
     system_prompt: str | None = None
@@ -101,7 +103,15 @@ async def chat_stream(request: ChatRequest):
             
             # Add to temp history
             if m.role == "user":
-                temp_history.append(ModelRequest(parts=[UserPromptPart(content=content)]))
+                if m.images:
+                    parts = [m.content]
+                    for img in m.images:
+                        # Reload from disk if it's a path
+                        base64_img = load_image_to_base64(img)
+                        parts.append(ImageUrl(url=base64_img))
+                    temp_history.append(ModelRequest(parts=[UserPromptPart(content=parts)]))
+                else:
+                    temp_history.append(ModelRequest(parts=[UserPromptPart(content=content)]))
             elif m.role == "assistant":
                 temp_history.append(ModelResponse(parts=[TextPart(content=content)]))
         
@@ -109,7 +119,23 @@ async def chat_stream(request: ChatRequest):
         history = list(reversed(temp_history))
 
     # Save User Message to DB
-    chat_service.add_message(chat_id, "user", request.message)
+    # Save images to disk before DB
+    stored_images = []
+    if request.images:
+        for img in request.images:
+            try:
+                # If it's already a path (e.g. from existing chat re-sent?), keep it.
+                # But request.images from frontend usually base64.
+                # save_base64_image will just return if it fails or we might want to check?
+                # Actually save_base64_image raises exception if fails.
+                path = save_base64_image(img)
+                stored_images.append(path)
+            except Exception as e:
+                logger.error(f"Failed to save image: {e}")
+                # Fallback? Or skip?
+                pass
+
+    chat_service.add_message(chat_id, "user", request.message, images=stored_images if stored_images else None)
     
     async def event_generator():
         # Yield the chat ID first so frontend knows where we are
@@ -182,8 +208,15 @@ async def chat_stream(request: ChatRequest):
             thought_end_time = None
             
             try:
+                # Prepare input
+                user_input = request.message
+                if request.images:
+                    user_input = [request.message]
+                    for img in request.images:
+                        user_input.append(ImageUrl(url=img))
+
                 # Run with history
-                async with agent.run_stream(request.message, message_history=history, deps=deps) as result:
+                async with agent.run_stream(user_input, message_history=history, deps=deps) as result:
                     async for message in result.stream_text():
                         # Track thinking time
                         if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
@@ -208,7 +241,15 @@ async def chat_stream(request: ChatRequest):
                     full_response = ""
                     thought_start_time = None
                     thought_end_time = None
-                    async with agent_no_tools.run_stream(request.message, message_history=history, deps=deps) as result:
+                    
+                    # Prepare input
+                    user_input = request.message
+                    if request.images:
+                        user_input = [request.message]
+                        for img in request.images:
+                            user_input.append(ImageUrl(url=img))
+
+                    async with agent_no_tools.run_stream(user_input, message_history=history, deps=deps) as result:
                         async for message in result.stream_text():
                             # Track thinking time
                             if ("<thought>" in message or "<think>" in message) and thought_start_time is None:

@@ -180,5 +180,25 @@ This document serves as a structured task list for AI development. Each phase is
   - Add local caching for messages and agent configurations to reduce latency.
   - Integrate Token usage statistics and estimated cost display.
 
+## Phase 5: Technical Debt & Stability (技术债治理与稳定性) - [IN PROGRESS]
+*Goal: Address architectural limitations and improve system robustness based on [Chat_System_Analysis_Report.md](./Chat_System_Analysis_Report.md).*
+
+- [x] **5.1 Architecture & Database**
+  - [x] Enable SQLite WAL mode (`PRAGMA journal_mode=WAL`) for better concurrency.
+  - [x] Add index `idx_messages_session_id` to `messages` table for query performance.
+  - [ ] Implement database connection pooling to handle concurrent write requests safely.
+  - [ ] Evaluate migration path from SQLite to PostgreSQL for high-concurrency scenarios.
+- [x] **5.2 Feature Completeness**
+  - [x] **Backend Multimodal Support**: Added `images` column to DB schema and updated `chat_service.py` to persist uploaded images as local files.
+  - [x] **Vision API Integration**: Connected backend to Pydantic AI's `ImageUrl` support.
+  - [ ] **True RAG Implementation**: Replace hardcoded "doc search" prompt with Vector DB + Embedding pipeline.
+- [x] **5.3 Error Handling & Observability**
+  - [x] **Frontend**: Replaced empty `catch` blocks with global Toast notifications.
+  - [ ] **Backend**: Replace `print` statements with standard `logging` module.
+  - [ ] **Resilience**: Replace string-matching error handling with capability-based checks.
+- [ ] **5.4 Context Management**
+  - [ ] **Smart Summary**: Implement "Rolling Summary" to compress old history instead of hard truncation.
+  - [ ] **Precise Token Counting**: Integrate `tiktoken` for accurate token estimation (replacing `len/3` heuristic).
+
 ---
 *Last Updated: 2026-02-07*

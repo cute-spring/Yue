@@ -13,6 +13,7 @@ OLD_CHATS_FILE = os.path.join(DATA_DIR, "chats.json")
 class Message(BaseModel):
     role: str
     content: str
+    images: Optional[List[str]] = None
     timestamp: datetime = Field(default_factory=datetime.now)
     thought_duration: Optional[float] = None
 
@@ -39,6 +40,9 @@ class ChatService:
             os.makedirs(DATA_DIR)
         
         with self._get_connection() as conn:
+            # Enable WAL mode for better concurrency
+            conn.execute("PRAGMA journal_mode=WAL")
+            
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
@@ -59,6 +63,10 @@ class ChatService:
                     FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
                 )
             """)
+            
+            # Create Index for Performance
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)")
+            
             conn.commit()
             
             # Ensure thought_duration column exists (for existing dbs)
@@ -66,6 +74,11 @@ class ChatService:
             columns = [info[1] for info in cursor.fetchall()]
             if "thought_duration" not in columns:
                 conn.execute("ALTER TABLE messages ADD COLUMN thought_duration REAL")
+                conn.commit()
+            
+            # Ensure images column exists
+            if "images" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN images TEXT")
                 conn.commit()
 
     def _migrate_from_json(self):
@@ -110,8 +123,16 @@ class ChatService:
             sessions = []
             for row in cursor.fetchall():
                 # Get messages for each session
-                msg_cursor = conn.execute("SELECT role, content, timestamp, thought_duration FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (row['id'],))
-                messages = [Message(**dict(m)) for m in msg_cursor.fetchall()]
+                msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (row['id'],))
+                messages = []
+                for m in msg_cursor.fetchall():
+                    msg_dict = dict(m)
+                    if msg_dict.get('images'):
+                        try:
+                            msg_dict['images'] = json.loads(msg_dict['images'])
+                        except:
+                            msg_dict['images'] = []
+                    messages.append(Message(**msg_dict))
                 
                 sessions.append(ChatSession(
                     id=row['id'],
@@ -130,8 +151,16 @@ class ChatService:
             if not row:
                 return None
             
-            msg_cursor = conn.execute("SELECT role, content, timestamp, thought_duration FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
-            messages = [Message(**dict(m)) for m in msg_cursor.fetchall()]
+            msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
+            messages = []
+            for m in msg_cursor.fetchall():
+                msg_dict = dict(m)
+                if msg_dict.get('images'):
+                    try:
+                        msg_dict['images'] = json.loads(msg_dict['images'])
+                    except:
+                        msg_dict['images'] = []
+                messages.append(Message(**msg_dict))
             
             return ChatSession(
                 id=row['id'],
@@ -161,7 +190,7 @@ class ChatService:
             updated_at=now
         )
 
-    def add_message(self, chat_id: str, role: str, content: str, thought_duration: Optional[float] = None) -> Optional[ChatSession]:
+    def add_message(self, chat_id: str, role: str, content: str, thought_duration: Optional[float] = None, images: Optional[List[str]] = None) -> Optional[ChatSession]:
         now = datetime.now()
         with self._get_connection() as conn:
             # Check if session exists
@@ -171,9 +200,10 @@ class ChatService:
                 return None
             
             # Add message
+            images_json = json.dumps(images) if images else None
             conn.execute(
-                "INSERT INTO messages (session_id, role, content, timestamp, thought_duration) VALUES (?, ?, ?, ?, ?)",
-                (chat_id, role, content, now, thought_duration)
+                "INSERT INTO messages (session_id, role, content, images, timestamp, thought_duration) VALUES (?, ?, ?, ?, ?, ?)",
+                (chat_id, role, content, images_json, now, thought_duration)
             )
             
             # Update title if it's the first user message
