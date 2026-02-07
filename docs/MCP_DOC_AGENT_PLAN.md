@@ -83,8 +83,8 @@ DoD：
 
 交付物：
 - MCP 工具能力（只读）：
-  - `docs_search_markdown_dir`: 搜索 Markdown（文件名/内容关键词）
-  - `docs_read_markdown_dir`: 读取 Markdown（支持长度限制/分页，避免一次性全文灌入）
+  - `docs_search`: 搜索文档（通过 `mode="markdown"` 或 `doc_file_patterns=["**/*.md"]` 限定 Markdown）
+  - `docs_read`: 读取文档（通过 `mode="markdown"` 或 `doc_file_patterns=["**/*.md"]` 限定 Markdown）
 - 主 Agent 在回答中输出 citations（至少 1 条 file path）。
 
 必须验证：

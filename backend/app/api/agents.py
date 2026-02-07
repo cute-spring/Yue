@@ -181,8 +181,9 @@ async def generate_agent(req: GenerateAgentRequest):
         "Constraints:\n"
         "- Write system_prompt in the same language as the user's request; if unclear, default to English.\n"
         "- Only choose enabled_tools from the Available Tools list. Recommend 0-6 tools; if unsure, return an empty list.\n"
-        "- If the request involves searching local directories, prefer docs_search_markdown_dir / docs_read_markdown_dir.\n"
-        "- If the request only needs Yue/docs, prefer docs_search_markdown / docs_read_markdown.\n\n"
+        "- If the request involves searching local directories, prefer docs_search / docs_read with root_dir.\n"
+        "- If the request only needs Yue/docs, prefer docs_search / docs_read.\n"
+        "- For Markdown-only workflows, use docs_search(mode=\"markdown\") / docs_read(mode=\"markdown\") or set doc_file_patterns like **/*.md in the agent config.\n\n"
         "- tool_reasons must only contain keys from enabled_tools; omit it or use an empty object if no tools.\n\n"
         f"Available Tools:\n{tools_context}\n"
     )

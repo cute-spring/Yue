@@ -10,15 +10,15 @@ test('Agents: Smart Generate draft preview and selective apply', async ({ page }
       body: JSON.stringify({
         name: 'PR Reviewer',
         system_prompt: 'Role: PR reviewer\nScope: frontend\nWorkflow: steps\nOutput format: bullets',
-        enabled_tools: updateTools ? ['filesystem:write', 'builtin:docs_search_markdown'] : (body?.existing_tools || []),
-        recommended_tools: ['filesystem:write', 'builtin:docs_search_markdown'],
+        enabled_tools: updateTools ? ['filesystem:write', 'builtin:docs_search'] : (body?.existing_tools || []),
+        recommended_tools: ['filesystem:write', 'builtin:docs_search'],
         tool_reasons: {
           'filesystem:write': 'Apply small safe fixes when needed',
-          'builtin:docs_search_markdown': 'Look up repo conventions in docs'
+          'builtin:docs_search': 'Look up repo conventions in docs'
         },
         tool_risks: {
           'filesystem:write': 'write',
-          'builtin:docs_search_markdown': 'read'
+          'builtin:docs_search': 'read'
         }
       })
     });

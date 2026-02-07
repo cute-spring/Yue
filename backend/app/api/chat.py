@@ -125,6 +125,8 @@ async def chat_stream(request: ChatRequest):
             deps = {"citations": []}
             if agent_config and agent_config.doc_roots:
                 deps["doc_roots"] = agent_config.doc_roots
+            if agent_config and getattr(agent_config, "doc_file_patterns", None):
+                deps["doc_file_patterns"] = agent_config.doc_file_patterns
             
             last_length = 0
             full_response = ""
@@ -188,6 +190,40 @@ async def chat_stream(request: ChatRequest):
             citations = deps.get("citations") if isinstance(deps, dict) else None
             if isinstance(citations, list) and citations:
                 yield f"data: {json.dumps({'citations': citations})}\n\n"
+
+            require_citations = bool(getattr(agent_config, "require_citations", False)) if agent_config else False
+            if require_citations:
+                if isinstance(citations, list) and citations:
+                    seen = set()
+                    sources = []
+                    for c in citations:
+                        if not isinstance(c, dict):
+                            continue
+                        path = c.get("path")
+                        if not isinstance(path, str) or not path.strip():
+                            continue
+                        locator = ""
+                        start_line = c.get("start_line")
+                        end_line = c.get("end_line")
+                        start_page = c.get("start_page")
+                        end_page = c.get("end_page")
+                        if isinstance(start_line, int) and isinstance(end_line, int):
+                            locator = f"#L{start_line}-L{end_line}"
+                        elif isinstance(start_page, int) and isinstance(end_page, int):
+                            locator = f"#P{start_page}-P{end_page}"
+                        entry = f"- {path}{locator}"
+                        if entry in seen:
+                            continue
+                        seen.add(entry)
+                        sources.append(entry)
+                    if sources:
+                        suffix = "\n\nSources:\n" + "\n".join(sources)
+                        full_response += suffix
+                        yield f"data: {json.dumps({'content': suffix})}\n\n"
+                else:
+                    suffix = "\n\n未检索到可引用的文档依据（citations 为空）。建议先使用文档检索/读取工具获取证据后再回答。"
+                    full_response += suffix
+                    yield f"data: {json.dumps({'content': suffix})}\n\n"
 
             # Save Assistant Message after completion
             chat_service.add_message(chat_id, "assistant", full_response, thought_duration)

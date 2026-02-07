@@ -31,7 +31,7 @@ This document serves as a structured task list for AI development. Each phase is
     - MCP status API: `GET /api/mcp/status` reports `enabled/connected/last_error` per server; initialization respects `enabled`.
     - Stable tool IDs: `/api/mcp/tools` now returns `id = "server:name"`. Agent filtering accepts both legacy names and composite IDs.
     - Frontend: Settings → MCP status cards with Enable toggle; Save triggers reload and refresh. Settings → LLM adds “Test Connection”.
-    - Agent editor: adds directory scope input for docs_search_markdown_dir / docs_read_markdown_dir and persists `doc_roots`.
+    - Agent editor: adds directory scope input for docs_search/docs_read via root_dir and persists `doc_roots`.
     - Agent editor: adds “Smart Generate” (UI + `POST /api/agents/generate`) to generate name/prompt/tool suggestions and auto-fill the form.
     - Agents list: displays configured doc scope tags for quick visibility.
     - Chat runtime: system prompt appends configured doc scopes when present.
@@ -44,6 +44,27 @@ This document serves as a structured task list for AI development. Each phase is
     - Add schema validation on MCP config saves for friendlier errors.
     - Migrate existing agents’ `enabled_tools` to composite IDs on edit/save for full consistency.
     - Extend backend tests to cover provider tests, MCP status, and config updates.
+
+- ### Local Docs Retrieval Roadmap (本地文档检索路线图：P0–P3)
+  - [x] **Phase 1 (Done): Text-like docs support + unified tools**
+    - [x] Support extension allowlist for local reads/searches: `.md/.txt/.log/.json/.yaml/.yml/.csv`
+    - [x] Provide unified builtin tools:
+      - [x] `builtin:docs_search(query, mode, root_dir?, limit?, max_files?, timeout_s?)`
+      - [x] `builtin:docs_read(path, mode, root_dir?, start_line?, max_lines?)`
+    - [x] Keep legacy `builtin:docs_*_markdown*` as wrappers for compatibility
+  - [ ] **P0: Doc access config management (可视化配置白名单/黑名单)**
+    - [ ] Add `POST /api/config/doc_access` to update `allow_roots/deny_roots`
+    - [ ] Add Settings UI for managing `doc_access` and persisting changes
+  - [ ] **P1: Retrieval quality & guardrails (检索质量与安全护栏)**
+    - [ ] Improve snippet locator (line window + line ranges) for `docs_search`
+    - [ ] Add search limits (e.g. `max_total_bytes_scanned`) to avoid scanning huge folders
+    - [ ] Add include/exclude patterns for practical directory filtering (optional)
+  - [ ] **P2: PDF support (PDF 解析与检索)**
+    - [ ] Add PDF read/search tools with strict caps: max pages/bytes/timeout
+    - [ ] Normalize citations to include page ranges when available
+  - [ ] **P3: Citation enforcement & UX (强制引用输出与体验完善)**
+    - [ ] Enforce citations for doc-grounded agents at chat API output gate
+    - [ ] Display citations in Chat UI as a structured list (path + locator)
 
 - [ ] **2.1 Model Management Center**
   - [ ] Create a management page with grouped lists: Premium, Advanced, and Custom models.
@@ -60,7 +81,7 @@ This document serves as a structured task list for AI development. Each phase is
     - [ ] Add safety policy: tool limits and second-confirm for risky tools.
     - [ ] Add audit trail and rollback for agent config changes.
     - [ ] Add template library with variableized generation presets (Docs QA / Code Reviewer / Researcher / Translator).
-    - [ ] Add doc_roots picker and validation hints when docs_*_dir tools are enabled.
+    - [ ] Add doc_roots picker and validation hints when docs_search/docs_read are enabled.
     - [ ] Strengthen structured generation schema and fallback behavior (e.g., prompt-only on JSON failure).
     - [ ] Add E2E test for Smart Generate: generate → auto-fill → save → edit consistency.
     - [ ] Add metrics: generation success rate, post-publish edit rate, and failure reasons.

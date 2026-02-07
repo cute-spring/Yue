@@ -8,6 +8,7 @@ type Agent = {
   model: string;
   enabled_tools: string[];
   doc_roots?: string[];
+  doc_file_patterns?: string[];
 };
 
 type McpTool = {
@@ -67,6 +68,7 @@ export default function Agents() {
   const [formTools, setFormTools] = createSignal<string[]>([]);
   const [formDocRoots, setFormDocRoots] = createSignal<string[]>([]);
   const [formDocRootInput, setFormDocRootInput] = createSignal("");
+  const [formDocFilePatternsText, setFormDocFilePatternsText] = createSignal("");
   const [expandedGroups, setExpandedGroups] = createSignal<Record<string, boolean>>({});
   const [allowDocRoots, setAllowDocRoots] = createSignal<string[]>([]);
   const [denyDocRoots, setDenyDocRoots] = createSignal<string[]>([]);
@@ -136,6 +138,7 @@ export default function Agents() {
     setFormTools([]);
     setFormDocRoots([]);
     setFormDocRootInput("");
+    setFormDocFilePatternsText("");
     setEditingId(null);
     setIsEditing(true);
   };
@@ -148,6 +151,7 @@ export default function Agents() {
     setFormTools(agent.enabled_tools);
     setFormDocRoots(agent.doc_roots || []);
     setFormDocRootInput("");
+    setFormDocFilePatternsText((agent.doc_file_patterns || []).join("\n"));
     setEditingId(agent.id);
     setIsEditing(true);
   };
@@ -243,13 +247,19 @@ export default function Agents() {
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     
+    const parsedPatterns = formDocFilePatternsText()
+      .split("\n")
+      .map(s => s.trim())
+      .filter(s => s.length > 0 && !s.startsWith("#"));
+
     const payload = {
       name: formName(),
       system_prompt: formPrompt(),
       provider: formProvider(),
       model: formModel(),
       enabled_tools: formTools(),
-      doc_roots: formDocRoots()
+      doc_roots: formDocRoots(),
+      doc_file_patterns: parsedPatterns
     };
 
     if (editingId()) {
@@ -289,7 +299,13 @@ export default function Agents() {
   };
 
   const supportsDocScope = () => {
-    return formTools().some(t => t.includes("docs_search_markdown_dir") || t.includes("docs_read_markdown_dir"));
+    return formTools().some(t => (
+      t.includes("builtin:docs_") ||
+      t.includes("docs_search") ||
+      t.includes("docs_read") ||
+      t.includes("docs_search_pdf") ||
+      t.includes("docs_read_pdf")
+    ));
   };
 
   const addDocRoot = () => {
@@ -848,7 +864,7 @@ export default function Agents() {
                 <div class="flex items-center justify-between gap-3">
                   <div>
                     <div class="text-[10px] font-black text-emerald-700 uppercase tracking-[0.2em]">Search Scope</div>
-                    <div class="text-xs text-emerald-700/80 mt-1">Applies to docs_search_markdown_dir / docs_read_markdown_dir</div>
+                    <div class="text-xs text-emerald-700/80 mt-1">Applies to docs_search / docs_read via root_dir</div>
                   </div>
                   <div class="text-[10px] font-bold text-emerald-700 bg-white/80 px-2 py-1 rounded-full border border-emerald-100">Optional</div>
                 </div>
@@ -939,6 +955,27 @@ export default function Agents() {
                     </div>
                   </div>
                 </Show>
+              </div>
+            </Show>
+
+            <Show when={supportsDocScope()}>
+              <div class="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-[10px] font-black text-sky-700 uppercase tracking-[0.2em]">File Type Allowlist</div>
+                    <div class="text-xs text-sky-700/80 mt-1">Gitignore-style patterns, one per line. Use !pattern to exclude.</div>
+                  </div>
+                  <div class="text-[10px] font-bold text-sky-700 bg-white/80 px-2 py-1 rounded-full border border-sky-100">Optional</div>
+                </div>
+                <textarea
+                  class="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-sky-500 outline-none text-xs font-mono h-28"
+                  value={formDocFilePatternsText()}
+                  onInput={e => setFormDocFilePatternsText(e.currentTarget.value)}
+                  placeholder={"*.md\n*.txt\n*.log\n!**/secrets/**"}
+                />
+                <div class="text-[11px] text-sky-700/70">
+                  为空时：只按工具内置的安全扩展名限制（例如 text 模式默认只允许 .md/.txt/.log/.json/.yaml/.yml/.csv）。
+                </div>
               </div>
             </Show>
 

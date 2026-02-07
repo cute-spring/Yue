@@ -311,54 +311,26 @@ class McpManager:
 
     def _get_builtin_tools(self) -> List[tuple[str, Any]]:
         return [
-            ("docs_search_markdown", self.docs_search_markdown),
-            ("docs_read_markdown", self.docs_read_markdown),
-            ("docs_search_markdown_dir", self.docs_search_markdown_dir),
-            ("docs_read_markdown_dir", self.docs_read_markdown_dir),
+            ("docs_search", self.docs_search),
+            ("docs_read", self.docs_read),
+            ("docs_search_pdf", self.docs_search_pdf),
+            ("docs_read_pdf", self.docs_read_pdf),
             ("get_current_time", self.get_current_time),
         ]
 
     def _get_builtin_tools_metadata(self) -> List[Dict[str, Any]]:
         return [
             {
-                "id": "builtin:docs_search_markdown",
-                "name": "docs_search_markdown",
-                "description": "Search Markdown files under Yue/docs and return matching snippets.",
+                "id": "builtin:docs_search",
+                "name": "docs_search",
+                "description": "Search files under Yue/docs (or an allowed root_dir) and return matching snippets. mode=markdown limits to .md; mode=text includes .md/.txt/.log/.json/.yaml/.yml/.csv/.ts/.tsx/.js/.jsx/.css/.html.",
                 "server": "builtin",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"},
-                        "limit": {"type": "integer"},
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "id": "builtin:docs_read_markdown",
-                "name": "docs_read_markdown",
-                "description": "Read a Markdown file under Yue/docs with line-based pagination.",
-                "server": "builtin",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string"},
-                        "start_line": {"type": "integer"},
-                        "max_lines": {"type": "integer"},
-                    },
-                    "required": ["path"],
-                },
-            },
-            {
-                "id": "builtin:docs_search_markdown_dir",
-                "name": "docs_search_markdown_dir",
-                "description": "Search Markdown files under a specified local directory and return matching snippets.",
-                "server": "builtin",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
+                        "mode": {"type": "string"},
                         "root_dir": {"type": "string"},
-                        "query": {"type": "string"},
                         "limit": {"type": "integer"},
                         "max_files": {"type": "integer"},
                         "timeout_s": {"type": "number"},
@@ -367,26 +339,103 @@ class McpManager:
                 },
             },
             {
-                "id": "builtin:docs_read_markdown_dir",
-                "name": "docs_read_markdown_dir",
-                "description": "Read a Markdown file under a specified local directory with line-based pagination.",
+                "id": "builtin:docs_read",
+                "name": "docs_read",
+                "description": "Read a file under Yue/docs (or an allowed root_dir) with line-based pagination. mode=markdown limits to .md; mode=text includes .md/.txt/.log/.json/.yaml/.yml/.csv/.ts/.tsx/.js/.jsx/.css/.html.",
                 "server": "builtin",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "root_dir": {"type": "string"},
                         "path": {"type": "string"},
+                        "mode": {"type": "string"},
+                        "root_dir": {"type": "string"},
                         "start_line": {"type": "integer"},
                         "max_lines": {"type": "integer"},
                     },
                     "required": ["path"],
                 },
             },
+            {
+                "id": "builtin:docs_search_pdf",
+                "name": "docs_search_pdf",
+                "description": "Search PDF files under Yue/docs (or an allowed root_dir) and return matching snippets with page locator when available.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "root_dir": {"type": "string"},
+                        "limit": {"type": "integer"},
+                        "max_files": {"type": "integer"},
+                        "timeout_s": {"type": "number"},
+                        "max_pages_per_file": {"type": "integer"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "id": "builtin:docs_read_pdf",
+                "name": "docs_read_pdf",
+                "description": "Read a PDF file under Yue/docs (or an allowed root_dir) with page-based pagination.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "root_dir": {"type": "string"},
+                        "start_page": {"type": "integer"},
+                        "max_pages": {"type": "integer"},
+                        "timeout_s": {"type": "number"},
+                    },
+                    "required": ["path"],
+                },
+            },
         ]
 
-    async def docs_search_markdown(self, ctx: RunContext[Any], query: str, limit: int = 5) -> str:
-        hits = doc_retrieval.search_markdown(query, limit=limit)
+    async def docs_search(
+        self,
+        ctx: RunContext[Any],
+        query: str,
+        mode: str = "text",
+        root_dir: Optional[str] = None,
+        limit: int = 5,
+        max_files: int = 5000,
+        timeout_s: float = 2.0,
+    ) -> str:
+        normalized_mode = (mode or "text").strip().lower()
+        if normalized_mode == "markdown":
+            allowed_extensions = [".md"]
+        else:
+            allowed_extensions = doc_retrieval.TEXT_LIKE_EXTENSIONS
+
+        allow_roots, deny_roots = self._get_doc_access()
         deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        roots = doc_retrieval.resolve_docs_roots_for_search(
+            root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+
+        merged = {}
+        for docs_root in roots:
+            hits = doc_retrieval.search_text(
+                query,
+                docs_root=docs_root,
+                allowed_extensions=allowed_extensions,
+                file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+                limit=limit,
+                max_files=max_files,
+                timeout_s=timeout_s,
+            )
+            for h in hits:
+                existing = merged.get(h.path)
+                if not existing or h.score > existing.score:
+                    merged[h.path] = h
+        hits = sorted(merged.values(), key=lambda h: (-h.score, h.path))[: max(0, limit)]
+
         if isinstance(deps, dict):
             citations = deps.get("citations")
             if isinstance(citations, list):
@@ -394,24 +443,167 @@ class McpManager:
                 for h in hits:
                     if h.path in existing:
                         continue
-                    citations.append({"path": h.path, "snippet": h.snippet, "score": h.score})
+                    entry = {"path": h.path, "snippet": h.snippet, "score": h.score}
+                    if getattr(h, "start_line", None) is not None:
+                        entry["start_line"] = h.start_line
+                    if getattr(h, "end_line", None) is not None:
+                        entry["end_line"] = h.end_line
+                    citations.append(entry)
                     existing.add(h.path)
-        payload = [{"path": h.path, "snippet": h.snippet, "score": h.score} for h in hits]
+
+        payload = []
+        for h in hits:
+            item = {"path": h.path, "snippet": h.snippet, "score": h.score}
+            if getattr(h, "start_line", None) is not None:
+                item["start_line"] = h.start_line
+            if getattr(h, "end_line", None) is not None:
+                item["end_line"] = h.end_line
+            payload.append(item)
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
-    async def docs_read_markdown(
+    async def docs_search_pdf(
+        self,
+        ctx: RunContext[Any],
+        query: str,
+        root_dir: Optional[str] = None,
+        limit: int = 5,
+        max_files: int = 2000,
+        timeout_s: float = 6.0,
+        max_pages_per_file: int = 6,
+    ) -> str:
+        allow_roots, deny_roots = self._get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        roots = doc_retrieval.resolve_docs_roots_for_search(
+            root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+
+        merged = {}
+        for docs_root in roots:
+            hits = doc_retrieval.search_pdf(
+                query,
+                docs_root=docs_root,
+                file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+                limit=limit,
+                max_files=max_files,
+                timeout_s=timeout_s,
+                max_pages_per_file=max_pages_per_file,
+            )
+            for h in hits:
+                existing = merged.get(h.path)
+                if not existing or h.score > existing.score:
+                    merged[h.path] = h
+        hits = sorted(merged.values(), key=lambda h: (-h.score, h.path))[: max(0, limit)]
+
+        if isinstance(deps, dict):
+            citations = deps.get("citations")
+            if isinstance(citations, list):
+                existing = {c.get("path") for c in citations if isinstance(c, dict)}
+                for h in hits:
+                    if h.path in existing:
+                        continue
+                    entry = {"path": h.path, "snippet": h.snippet, "score": h.score}
+                    if getattr(h, "start_page", None) is not None:
+                        entry["start_page"] = h.start_page
+                    if getattr(h, "end_page", None) is not None:
+                        entry["end_page"] = h.end_page
+                    citations.append(entry)
+                    existing.add(h.path)
+
+        payload = []
+        for h in hits:
+            item = {"path": h.path, "snippet": h.snippet, "score": h.score}
+            if getattr(h, "start_page", None) is not None:
+                item["start_page"] = h.start_page
+            if getattr(h, "end_page", None) is not None:
+                item["end_page"] = h.end_page
+            payload.append(item)
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    async def docs_read_pdf(
         self,
         ctx: RunContext[Any],
         path: str,
+        root_dir: Optional[str] = None,
+        start_page: int = 1,
+        max_pages: int = 3,
+        timeout_s: float = 3.0,
+    ) -> str:
+        allow_roots, deny_roots = self._get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
+            require_md=False,
+        )
+        abs_path, start, end, snippet = doc_retrieval.read_pdf_pages(
+            path,
+            docs_root=docs_root,
+            file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+            start_page=start_page,
+            max_pages=max_pages,
+            timeout_s=timeout_s,
+        )
+        if isinstance(deps, dict):
+            citations = deps.get("citations")
+            if isinstance(citations, list):
+                citations.append(
+                    {
+                        "path": abs_path,
+                        "start_page": start,
+                        "end_page": end,
+                        "snippet": snippet,
+                    }
+                )
+        return f"{abs_path}#P{start}-P{end}\n{snippet}"
+
+    async def docs_read(
+        self,
+        ctx: RunContext[Any],
+        path: str,
+        mode: str = "text",
+        root_dir: Optional[str] = None,
         start_line: int = 1,
         max_lines: int = 200,
     ) -> str:
-        abs_path, start, end, snippet = doc_retrieval.read_markdown_lines(
+        normalized_mode = (mode or "text").strip().lower()
+        if normalized_mode == "markdown":
+            allowed_extensions = [".md"]
+        else:
+            allowed_extensions = doc_retrieval.TEXT_LIKE_EXTENSIONS
+
+        allow_roots, deny_roots = self._get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
             path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=allowed_extensions,
+            require_md=False,
+        )
+        abs_path, start, end, snippet = doc_retrieval.read_text_lines(
+            path,
+            docs_root=docs_root,
+            allowed_extensions=allowed_extensions,
+            file_patterns=file_patterns if isinstance(file_patterns, list) else None,
             start_line=start_line,
             max_lines=max_lines,
         )
-        deps = getattr(ctx, "deps", None)
         if isinstance(deps, dict):
             citations = deps.get("citations")
             if isinstance(citations, list):
@@ -430,87 +622,6 @@ class McpManager:
         allow_roots = cfg.get("allow_roots") if isinstance(cfg, dict) else None
         deny_roots = cfg.get("deny_roots") if isinstance(cfg, dict) else None
         return allow_roots or [], deny_roots or []
-
-    async def docs_search_markdown_dir(
-        self,
-        ctx: RunContext[Any],
-        query: str,
-        root_dir: Optional[str] = None,
-        limit: int = 5,
-        max_files: int = 5000,
-        timeout_s: float = 2.0,
-    ) -> str:
-        allow_roots, deny_roots = self._get_doc_access()
-        deps = getattr(ctx, "deps", None)
-        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
-        roots = doc_retrieval.resolve_docs_roots_for_search(
-            root_dir,
-            doc_roots=doc_roots,
-            allow_roots=allow_roots,
-            deny_roots=deny_roots,
-        )
-        merged = {}
-        for docs_root in roots:
-            hits = doc_retrieval.search_markdown(
-                query,
-                docs_root=docs_root,
-                limit=limit,
-                max_files=max_files,
-                timeout_s=timeout_s,
-            )
-            for h in hits:
-                existing = merged.get(h.path)
-                if not existing or h.score > existing.score:
-                    merged[h.path] = h
-        hits = sorted(merged.values(), key=lambda h: (-h.score, h.path))[: max(0, limit)]
-        if isinstance(deps, dict):
-            citations = deps.get("citations")
-            if isinstance(citations, list):
-                existing = {c.get("path") for c in citations if isinstance(c, dict)}
-                for h in hits:
-                    if h.path in existing:
-                        continue
-                    citations.append({"path": h.path, "snippet": h.snippet, "score": h.score})
-                    existing.add(h.path)
-        payload = [{"path": h.path, "snippet": h.snippet, "score": h.score} for h in hits]
-        return json.dumps(payload, ensure_ascii=False, indent=2)
-
-    async def docs_read_markdown_dir(
-        self,
-        ctx: RunContext[Any],
-        path: str,
-        root_dir: Optional[str] = None,
-        start_line: int = 1,
-        max_lines: int = 200,
-    ) -> str:
-        allow_roots, deny_roots = self._get_doc_access()
-        deps = getattr(ctx, "deps", None)
-        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
-            doc_roots=doc_roots,
-            allow_roots=allow_roots,
-            deny_roots=deny_roots,
-        )
-        abs_path, start, end, snippet = doc_retrieval.read_markdown_lines(
-            path,
-            docs_root=docs_root,
-            start_line=start_line,
-            max_lines=max_lines,
-        )
-        if isinstance(deps, dict):
-            citations = deps.get("citations")
-            if isinstance(citations, list):
-                citations.append(
-                    {
-                        "path": abs_path,
-                        "start_line": start,
-                        "end_line": end,
-                        "snippet": snippet,
-                    }
-                )
-        return f"{abs_path}#L{start}-L{end}\n{snippet}"
 
 # Global instance
 mcp_manager = McpManager()

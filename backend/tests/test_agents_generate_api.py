@@ -41,10 +41,10 @@ class FakeAgent:
         payload = {
             "name": "Code Reviewer",
             "system_prompt": "Role: Senior reviewer\nScope: frontend only\nWorkflow: step by step\nOutput format: bullet list\nProhibitions: no secrets",
-            "enabled_tools": ["filesystem:list", "builtin:docs_search_markdown"],
+            "enabled_tools": ["filesystem:list", "builtin:docs_search"],
             "tool_reasons": {
                 "filesystem:list": "Scan repository structure quickly",
-                "builtin:docs_search_markdown": "Search internal docs for conventions",
+                "builtin:docs_search": "Search internal docs for conventions",
             },
         }
         return _FakeRunStreamCtx(text=str(payload).replace("'", '"'))
@@ -68,7 +68,7 @@ class TestAgentsGenerateAPI(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_generate_requires_description(self):
-        tools = [{"id": "builtin:docs_search_markdown", "name": "docs_search_markdown", "server": "builtin", "description": ""}]
+        tools = [{"id": "builtin:docs_search", "name": "docs_search", "server": "builtin", "description": ""}]
         with _patched_generate_deps(tools):
             r = self.client.post("/api/agents/generate", json={"description": ""})
             self.assertEqual(r.status_code, 400)
@@ -76,7 +76,7 @@ class TestAgentsGenerateAPI(unittest.TestCase):
     def test_generate_returns_draft_fields(self):
         tools = [
             {"id": "filesystem:list", "name": "list", "server": "filesystem", "description": "List files"},
-            {"id": "builtin:docs_search_markdown", "name": "docs_search_markdown", "server": "builtin", "description": "Search docs"},
+            {"id": "builtin:docs_search", "name": "docs_search", "server": "builtin", "description": "Search docs"},
         ]
         with _patched_generate_deps(tools):
             r = self.client.post(
@@ -104,7 +104,7 @@ class TestAgentsGenerateAPI(unittest.TestCase):
     def test_update_tools_false_keeps_existing_tools(self):
         tools = [
             {"id": "filesystem:list", "name": "list", "server": "filesystem", "description": "List files"},
-            {"id": "builtin:docs_search_markdown", "name": "docs_search_markdown", "server": "builtin", "description": "Search docs"},
+            {"id": "builtin:docs_search", "name": "docs_search", "server": "builtin", "description": "Search docs"},
         ]
         with _patched_generate_deps(tools):
             r = self.client.post(
@@ -113,15 +113,14 @@ class TestAgentsGenerateAPI(unittest.TestCase):
                     "description": "Generate but keep my tools",
                     "provider": "dummy",
                     "model": "d1",
-                    "existing_tools": ["builtin:docs_search_markdown"],
+                    "existing_tools": ["builtin:docs_search"],
                     "update_tools": False,
                 },
             )
             self.assertEqual(r.status_code, 200)
             data = r.json()
-            self.assertEqual(data["enabled_tools"], ["builtin:docs_search_markdown"])
+            self.assertEqual(data["enabled_tools"], ["builtin:docs_search"])
 
 
 if __name__ == "__main__":
     unittest.main()
-

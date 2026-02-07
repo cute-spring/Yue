@@ -26,8 +26,8 @@ class TestAgentsGenerateLiveDeepSeek(unittest.TestCase):
 
         async def _fake_get_available_tools():
             return [
-                {"id": "builtin:docs_search_markdown", "name": "docs_search_markdown", "server": "builtin", "description": "Search Yue/docs markdown"},
-                {"id": "builtin:docs_read_markdown", "name": "docs_read_markdown", "server": "builtin", "description": "Read Yue/docs markdown"},
+                {"id": "builtin:docs_search", "name": "docs_search", "server": "builtin", "description": "Search docs"},
+                {"id": "builtin:docs_read", "name": "docs_read", "server": "builtin", "description": "Read docs"},
                 {"id": "filesystem:list", "name": "list", "server": "filesystem", "description": "List files"},
             ]
 
@@ -78,7 +78,7 @@ class TestAgentsGenerateLiveDeepSeek(unittest.TestCase):
         self.assertLessEqual(len(recommended_tools), 6)
         self.assertEqual(enabled_tools, recommended_tools)
 
-        available = {"builtin:docs_search_markdown", "builtin:docs_read_markdown", "filesystem:list"}
+        available = {"builtin:docs_search", "builtin:docs_read", "filesystem:list"}
         for tid in recommended_tools:
             self.assertTrue(isinstance(tid, str) and tid)
             self.assertIn(tid, available)

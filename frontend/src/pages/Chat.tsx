@@ -711,6 +711,17 @@ export default function Chat() {
     return "Unknown model";
   };
 
+  const formatCitation = (c: any) => {
+    const path = typeof c?.path === 'string' ? c.path : '';
+    const startLine = typeof c?.start_line === 'number' ? c.start_line : null;
+    const endLine = typeof c?.end_line === 'number' ? c.end_line : null;
+    const startPage = typeof c?.start_page === 'number' ? c.start_page : null;
+    const endPage = typeof c?.end_page === 'number' ? c.end_page : null;
+    if (path && startLine !== null && endLine !== null) return `${path}#L${startLine}-L${endLine}`;
+    if (path && startPage !== null && endPage !== null) return `${path}#P${startPage}-P${endPage}`;
+    return path || 'Unknown source';
+  };
+
   const renderMetaBadges = (msg: Message, index: number) => (
     <div class={`mt-4 flex flex-wrap items-center gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
       <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] ${msg.role === 'user' ? 'bg-text-secondary/10 text-text-secondary/50' : 'bg-primary/10 text-primary/70'}`}>
@@ -1047,6 +1058,26 @@ export default function Chat() {
                                     prose-th:bg-primary/5 prose-th:text-primary prose-th:p-3 prose-th:text-left prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-wider prose-th:border prose-th:border-border/60
                                     prose-td:p-3 prose-td:text-sm prose-td:border prose-td:border-border/60 prose-td:text-text-secondary" 
                                 />
+                              </Show>
+
+                              <Show when={(msg.citations?.length ?? 0) > 0}>
+                                <details class="mt-5 -mx-2 rounded-2xl border border-border/50 bg-black/5 dark:bg-white/5 px-4 py-3">
+                                  <summary class="cursor-pointer text-xs font-black uppercase tracking-[0.2em] text-text-secondary/70">
+                                    Sources ({msg.citations?.length ?? 0})
+                                  </summary>
+                                  <div class="mt-3 space-y-2">
+                                    <For each={msg.citations || []}>
+                                      {(c) => (
+                                        <div class="rounded-xl border border-border/40 bg-surface/60 px-3 py-2">
+                                          <div class="text-xs font-mono text-text-secondary">{formatCitation(c)}</div>
+                                          <Show when={typeof c?.snippet === 'string' && c.snippet.trim().length > 0}>
+                                            <pre class="mt-2 text-[12px] leading-relaxed whitespace-pre-wrap font-mono text-text-secondary/80 max-h-56 overflow-auto">{c.snippet}</pre>
+                                          </Show>
+                                        </div>
+                                      )}
+                                    </For>
+                                  </div>
+                                </details>
                               </Show>
                             </>
                           );
