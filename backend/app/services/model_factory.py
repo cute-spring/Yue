@@ -30,6 +30,16 @@ _shared_http_client: Optional[httpx.AsyncClient] = None
 _model_cache: Dict[str, Dict[str, any]] = {}
 _CACHE_TTL = 3600  # seconds
 
+_MODEL_REFRESH_SUPPORTED_PROVIDERS = {
+    LLMProvider.OPENAI.value,
+    LLMProvider.GEMINI.value,
+    LLMProvider.OLLAMA.value,
+    LLMProvider.LITELLM.value,
+}
+
+def _supports_model_refresh(provider_name: str) -> bool:
+    return provider_name.lower() in _MODEL_REFRESH_SUPPORTED_PROVIDERS
+
 class SimpleProvider(ABC):
     """
     轻量 Provider 接口：用于以编程方式扩展新的 LLM。
@@ -577,14 +587,16 @@ async def list_providers(refresh: bool = False) -> List[Dict]:
             logger.exception("Provider list_models error: %s", name)
             models = []
         config_enabled = llm_config.get(f"{name}_enabled_models")
-        if isinstance(config_enabled, list):
+        enabled_mode = llm_config.get(f"{name}_enabled_models_mode")
+        use_allowlist = enabled_mode == "allowlist"
+        if isinstance(config_enabled, list) and (use_allowlist or len(config_enabled) > 0):
             if models:
                 available_models = [m for m in models if m in config_enabled]
             else:
                 available_models = config_enabled
         else:
             available_models = models
-        if not models and isinstance(config_enabled, list):
+        if not models and isinstance(config_enabled, list) and (use_allowlist or len(config_enabled) > 0):
             models = config_enabled
         providers.append({
             "name": name,
@@ -592,6 +604,7 @@ async def list_providers(refresh: bool = False) -> List[Dict]:
             "requirements": handler.requirements(),
             "available_models": available_models,
             "models": models,
+            "supports_model_refresh": _supports_model_refresh(name),
             "current_model": llm_config.get(f"{name}_model")
         })
     return providers
@@ -602,6 +615,7 @@ class ProviderInfo(BaseModel):
     requirements: List[str]
     available_models: List[str]
     models: List[str]
+    supports_model_refresh: bool = False
     current_model: Optional[str] = None
 
 async def list_providers_structured(refresh: bool = False) -> List[ProviderInfo]:

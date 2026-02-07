@@ -176,8 +176,10 @@ type LLMProvider = {
     try {
       const previous = new Set(enabledModels());
       const key = `${providerName}_enabled_models`;
+      const modeKey = `${providerName}_enabled_models_mode`;
       const currentConfig = llmForm();
-      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()) };
+      const previousMode = currentConfig[modeKey];
+      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()), [modeKey]: "allowlist" };
       setLlmForm(newConfig);
       
       await fetch('/api/config/llm', {
@@ -187,7 +189,7 @@ type LLMProvider = {
       });
       setShowModelManager(false);
       showToast('success', `Models for ${providerName} updated`, 'Undo', async () => {
-        const revertConfig = { ...currentConfig, [key]: Array.from(previous) };
+        const revertConfig = { ...currentConfig, [key]: Array.from(previous), [modeKey]: previousMode };
         setLlmForm(revertConfig);
         await fetch('/api/config/llm', {
           method: 'POST',

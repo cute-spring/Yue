@@ -8,6 +8,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+from app.services.config_service import config_service
 from app.services.model_factory import (
     SimpleProvider,
     register_provider,
@@ -50,6 +51,78 @@ class TestModelFactoryRegistry(unittest.TestCase):
         self.assertTrue(dummy["configured"])
         self.assertIn("d1", dummy["models"])
         self.assertIn("d2", dummy["available_models"])
+        self.assertIn("supports_model_refresh", dummy)
+        self.assertIsInstance(dummy["supports_model_refresh"], bool)
+
+    def test_empty_enabled_models_does_not_filter(self):
+        llm = config_service._config.get("llm", {})
+        previous = llm.get("dummy_enabled_models", None)
+        previous_mode = llm.get("dummy_enabled_models_mode", None)
+        llm["dummy_enabled_models"] = []
+        config_service._config["llm"] = llm
+        try:
+            providers = asyncio.run(list_providers(refresh=True))
+            dummy = [p for p in providers if p["name"] == "dummy"][0]
+            self.assertEqual(dummy["models"], ["d1", "d2"])
+            self.assertEqual(dummy["available_models"], ["d1", "d2"])
+        finally:
+            llm = config_service._config.get("llm", {})
+            if previous is None:
+                llm.pop("dummy_enabled_models", None)
+            else:
+                llm["dummy_enabled_models"] = previous
+            if previous_mode is None:
+                llm.pop("dummy_enabled_models_mode", None)
+            else:
+                llm["dummy_enabled_models_mode"] = previous_mode
+            config_service._config["llm"] = llm
+
+    def test_empty_enabled_models_filters_when_allowlist_mode(self):
+        llm = config_service._config.get("llm", {})
+        previous = llm.get("dummy_enabled_models", None)
+        previous_mode = llm.get("dummy_enabled_models_mode", None)
+        llm["dummy_enabled_models"] = []
+        llm["dummy_enabled_models_mode"] = "allowlist"
+        config_service._config["llm"] = llm
+        try:
+            providers = asyncio.run(list_providers(refresh=True))
+            dummy = [p for p in providers if p["name"] == "dummy"][0]
+            self.assertEqual(dummy["models"], ["d1", "d2"])
+            self.assertEqual(dummy["available_models"], [])
+        finally:
+            llm = config_service._config.get("llm", {})
+            if previous is None:
+                llm.pop("dummy_enabled_models", None)
+            else:
+                llm["dummy_enabled_models"] = previous
+            if previous_mode is None:
+                llm.pop("dummy_enabled_models_mode", None)
+            else:
+                llm["dummy_enabled_models_mode"] = previous_mode
+            config_service._config["llm"] = llm
+
+    def test_non_empty_enabled_models_filters(self):
+        llm = config_service._config.get("llm", {})
+        previous = llm.get("dummy_enabled_models", None)
+        previous_mode = llm.get("dummy_enabled_models_mode", None)
+        llm["dummy_enabled_models"] = ["d2"]
+        config_service._config["llm"] = llm
+        try:
+            providers = asyncio.run(list_providers(refresh=True))
+            dummy = [p for p in providers if p["name"] == "dummy"][0]
+            self.assertEqual(dummy["models"], ["d1", "d2"])
+            self.assertEqual(dummy["available_models"], ["d2"])
+        finally:
+            llm = config_service._config.get("llm", {})
+            if previous is None:
+                llm.pop("dummy_enabled_models", None)
+            else:
+                llm["dummy_enabled_models"] = previous
+            if previous_mode is None:
+                llm.pop("dummy_enabled_models_mode", None)
+            else:
+                llm["dummy_enabled_models_mode"] = previous_mode
+            config_service._config["llm"] = llm
 
     def test_get_model_dynamic_provider(self):
         m = get_model("dummy", "d2")

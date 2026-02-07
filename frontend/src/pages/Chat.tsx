@@ -207,6 +207,7 @@ export default function Chat() {
   const [selectedProvider, setSelectedProvider] = createSignal("");
   const [selectedModel, setSelectedModel] = createSignal("");
   const [isRefreshingModels, setIsRefreshingModels] = createSignal(false);
+  const [showAllModels, setShowAllModels] = createSignal(false);
   const [isDeepThinking, setIsDeepThinking] = createSignal(false);
   // keep selected images in memory for future send
   const [imageAttachments, setImageAttachments] = createSignal<File[]>([]);
@@ -1195,9 +1196,6 @@ export default function Chat() {
                         onClick={(e) => { 
                           e.stopPropagation();
                           setShowLLMSelector(!showLLMSelector());
-                          // Trigger background refresh without blocking UI
-                          setIsRefreshingModels(true);
-                          loadProviders(true).finally(() => setIsRefreshingModels(false));
                         }}
                         class="flex items-center gap-2.5 px-4 py-2.5 bg-background border border-border hover:border-primary/30 hover:bg-primary/5 rounded-2xl transition-all active:scale-95 shadow-sm"
                       >
@@ -1210,17 +1208,52 @@ export default function Chat() {
                       <Show when={showLLMSelector()}>
                         <div class="absolute bottom-full left-0 mb-3 w-72 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
                           <div class="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
-                            <span class="text-xs font-bold text-white/70 uppercase tracking-widest">Quick Switch</span>
-                            <Show when={isRefreshingModels()}>
-                              <div class="w-4 h-4 border-2 border-white/20 border-t-primary rounded-full animate-spin"></div>
-                            </Show>
+                            <span class="text-xs font-bold text-white/70 uppercase tracking-widest">{showAllModels() ? 'All Models' : 'Enabled Models'}</span>
+                            <div class="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowAllModels(!showAllModels());
+                                }}
+                                class="text-[10px] px-2 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/80 font-bold uppercase tracking-wider"
+                              >
+                                {showAllModels() ? 'Enabled' : 'All'}
+                              </button>
+                              <Show when={isRefreshingModels()}>
+                                <div class="w-4 h-4 border-2 border-white/20 border-t-primary rounded-full animate-spin"></div>
+                              </Show>
+                            </div>
                           </div>
                           <div class="p-2 max-h-80 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-white/10">
-                            <For each={providers().filter(p => p.available_models && p.available_models.length > 0)}>
+                            <For each={providers().filter(p => {
+                              const list = showAllModels() ? (p.models || []) : (p.available_models || []);
+                              return Array.isArray(list) && list.length > 0;
+                            })}>
                               {provider => (
                                 <div>
-                                  <div class="px-3 py-2 text-[10px] font-bold text-primary uppercase bg-primary/10 rounded-lg mb-1 tracking-wider">{provider.name}</div>
-                                  <For each={provider.available_models || []}>
+                                  <div class="flex items-center justify-between gap-2 px-3 py-2 text-[10px] font-bold text-primary uppercase bg-primary/10 rounded-lg mb-1 tracking-wider">
+                                    <span>{provider.name}</span>
+                                    <button
+                                      type="button"
+                                      disabled={!provider.supports_model_refresh || isRefreshingModels()}
+                                      title={provider.supports_model_refresh ? 'Refresh models for this provider' : 'This provider does not support model refresh'}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!provider.supports_model_refresh) return;
+                                        setIsRefreshingModels(true);
+                                        loadProviders(true).finally(() => setIsRefreshingModels(false));
+                                      }}
+                                      class={`text-[10px] px-2 py-1 rounded-lg border font-bold uppercase tracking-wider ${
+                                        provider.supports_model_refresh && !isRefreshingModels()
+                                          ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white/80'
+                                          : 'border-white/10 bg-white/5 text-white/30 cursor-not-allowed'
+                                      }`}
+                                    >
+                                      Refresh
+                                    </button>
+                                  </div>
+                                  <For each={(showAllModels() ? provider.models : provider.available_models) || []}>
                                     {model => (
                                       <button
                                         onClick={() => {
