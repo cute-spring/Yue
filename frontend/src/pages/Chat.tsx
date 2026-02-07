@@ -182,6 +182,7 @@ export default function Chat() {
   const [input, setInput] = createSignal("");
   const [isTyping, setIsTyping] = createSignal(false);
   const [elapsedTime, setElapsedTime] = createSignal(0);
+  const [copiedMessageIndex, setCopiedMessageIndex] = createSignal<number | null>(null);
   let timerInterval: any;
   
   // Reasoning Chain State
@@ -278,6 +279,34 @@ export default function Chat() {
       textareaRef.style.height = 'auto';
       textareaRef.style.height = Math.min(textareaRef.scrollHeight, 200) + 'px';
     }
+  };
+
+  const copyUserMessage = async (content: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageIndex(index);
+      setTimeout(() => setCopiedMessageIndex(curr => (curr === index ? null : curr)), 1600);
+    } catch (e) {}
+  };
+
+  const editUserMessage = (content: string) => {
+    setInput(content);
+    setTimeout(() => {
+      adjustHeight();
+      textareaRef?.focus();
+      textareaRef?.setSelectionRange(content.length, content.length);
+    }, 0);
+  };
+
+  const quoteUserMessage = (content: string) => {
+    const quoted = content.split('\n').map(line => `> ${line}`).join('\n');
+    const base = input().trim().length ? `${input()}\n\n${quoted}\n\n` : `${quoted}\n\n`;
+    setInput(base);
+    setTimeout(() => {
+      adjustHeight();
+      textareaRef?.focus();
+      textareaRef?.setSelectionRange(base.length, base.length);
+    }, 0);
   };
 
   const handleInput = (e: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
@@ -892,12 +921,65 @@ export default function Chat() {
                 </div>
                 <div class={`group relative max-w-[85%] lg:max-w-[75%] ${
                   msg.role === 'user' 
-                    ? 'bg-primary text-white px-6 py-4 shadow-xl shadow-primary/10 rounded-[24px] rounded-br-none' 
+                    ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-primary/20 rounded-[26px] rounded-br-none overflow-hidden' 
                     : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none'
                 }`}>
                   {msg.role === 'user' ? (
                      <>
-                       <div class="whitespace-pre-wrap leading-relaxed font-medium text-[15px]">{msg.content}</div>
+                       <div class="absolute inset-0 pointer-events-none overflow-hidden">
+                         <div class="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-primary/10 blur-3xl"></div>
+                         <div class="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl"></div>
+                         <div class="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_55%,rgba(16,185,129,0.06))]"></div>
+                       </div>
+                       <div class="relative whitespace-pre-wrap leading-relaxed font-medium text-[15px] select-text">{msg.content}</div>
+                       <div class="mt-3 flex justify-end">
+                         <div class="flex items-center gap-1 p-1 rounded-2xl bg-surface/70 backdrop-blur-md ring-1 ring-border/70 shadow-sm transition-opacity opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
+                           <button
+                             class={`p-1.5 rounded-xl transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                               copiedMessageIndex() === index()
+                                 ? 'text-emerald-500 bg-emerald-500/10'
+                                 : 'text-text-secondary/70 hover:text-primary hover:bg-primary/10'
+                             }`}
+                             title={copiedMessageIndex() === index() ? "Copied" : "Copy"}
+                             aria-label="Copy message"
+                             onClick={() => copyUserMessage(msg.content, index())}
+                           >
+                             <Show
+                               when={copiedMessageIndex() === index()}
+                               fallback={
+                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                 </svg>
+                               }
+                             >
+                               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                               </svg>
+                             </Show>
+                           </button>
+                           <button
+                             class="p-1.5 rounded-xl text-text-secondary/70 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                             title="Quote"
+                             aria-label="Quote message"
+                             onClick={() => quoteUserMessage(msg.content)}
+                           >
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h7M7 16h10" />
+                             </svg>
+                           </button>
+                           <button
+                             class="p-1.5 rounded-xl text-text-secondary/70 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                             title="Edit"
+                             aria-label="Edit message"
+                             onClick={() => editUserMessage(msg.content)}
+                           >
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 20h9" />
+                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                             </svg>
+                           </button>
+                         </div>
+                       </div>
                        {renderMetaBadges(msg, index())}
                      </>
                   ) : (
@@ -971,23 +1053,6 @@ export default function Chat() {
                         
                         <Show when={isTyping() && index() === messages().length - 1}>
                           <span class="inline-block w-2.5 h-5 ml-1 bg-primary/30 animate-pulse align-middle rounded-sm shadow-[0_0_8px_rgba(16,185,129,0.3)]"></span>
-                        </Show>
-
-                        {/* Message Actions */}
-                        <Show when={msg.role === 'user'}>
-                          <div class="absolute top-0 right-full mr-3 flex flex-col gap-1.5">
-                            <button 
-                              onClick={() => {
-                                navigator.clipboard.writeText(msg.content);
-                              }}
-                              class="p-2 text-text-secondary hover:text-primary hover:bg-surface border border-transparent hover:border-border shadow-sm rounded-xl transition-all active:scale-90" 
-                              title="Copy Message"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                              </svg>
-                            </button>
-                          </div>
                         </Show>
 
                         <Show when={msg.role === 'assistant' && (!isTyping() || index() !== messages().length - 1)}>

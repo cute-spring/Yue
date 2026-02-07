@@ -301,7 +301,9 @@ class OllamaProviderImpl(SimpleProvider):
         return await fetch_ollama_models()
     def build(self, model_name: Optional[str] = None) -> Any:
         llm_config = config_service.get_llm_config()
-        base_url = llm_config.get('ollama_base_url') or 'http://localhost:11434/v1'
+        base_url = (llm_config.get('ollama_base_url') or 'http://localhost:11434').rstrip('/')
+        if not base_url.endswith('/v1'):
+            base_url = f"{base_url}/v1"
         return OpenAIChatModel(
             model_name or llm_config.get('ollama_model') or 'llama3',
             provider=OllamaProvider(base_url=base_url, http_client=_get_http_client()),
