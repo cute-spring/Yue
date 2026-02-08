@@ -1,5 +1,6 @@
 import { onMount, createSignal, Show, createEffect } from 'solid-js';
 import mermaid from 'mermaid';
+import { getMermaidInitConfig, getMermaidThemePreset } from '../lib/mermaidTheme';
 
 interface MermaidDiagramProps {
   chart: string;
@@ -64,35 +65,8 @@ const normalizeMermaidCode = (code: string) => {
 
   onMount(() => {
     try {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'base',
-        themeVariables: {
-          primaryColor: '#10B981', // Emerald 500
-          primaryTextColor: '#1f2937', // Gray 800
-          primaryBorderColor: '#059669',
-          lineColor: '#64748b', // Slate 500
-          secondaryColor: '#ecfdf5', // Emerald 50
-          tertiaryColor: '#f0fdf4', // Emerald 50 lighter
-          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
-          fontSize: '14px',
-        },
-        flowchart: {
-          curve: 'basis',
-          htmlLabels: true,
-          padding: 15,
-        },
-        sequence: {
-          actorMargin: 50,
-          boxMargin: 10,
-          boxTextMargin: 5,
-          noteMargin: 10,
-          messageMargin: 35,
-          mirrorActors: false,
-          bottomMarginAdj: 1,
-        },
-        securityLevel: 'loose' as const,
-      });
+      const preset = getMermaidThemePreset();
+      (mermaid as any).initialize(getMermaidInitConfig(preset));
     } catch (err) {
       console.warn('Mermaid initialization warning:', err);
     }

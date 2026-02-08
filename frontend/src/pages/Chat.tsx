@@ -6,6 +6,8 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
 import MermaidViewer from '../components/MermaidViewer';
+import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../lib/mermaidTheme';
+import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../lib/mermaidExport';
 
 // Configure marked to use highlight.js via a custom renderer
 const renderer = new marked.Renderer();
@@ -91,11 +93,17 @@ const normalizeMermaidCode = (code: string) => {
   return normalized;
 };
 
+const getMermaidThemeOptionsHtml = (selected: MermaidThemePreset) => {
+  return MERMAID_THEME_PRESETS.map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${p.label}</option>`).join('');
+};
+
 const renderMermaidChart = async (container: Element) => {
   if (container.getAttribute('data-processed') === 'true') return;
   const code = normalizeMermaidCode(decodeURIComponent(container.getAttribute('data-code') || ''));
   if (!code) return;
   try {
+    const preset = getMermaidThemePreset();
+    (mermaid as any).initialize(getMermaidInitConfig(preset));
     const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
     await mermaid.parse(code);
     const { svg } = await mermaid.render(id, code);
@@ -164,6 +172,7 @@ renderer.code = ({ text, lang }) => {
   `;
 
   if (lang === 'mermaid') {
+    const preset = getMermaidThemePreset();
     return `
       <div class="mermaid-widget my-4" data-code="${encodedContent}" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
         <div class="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
@@ -188,6 +197,12 @@ renderer.code = ({ text, lang }) => {
               </svg>
             </button>
             <div class="w-px h-5 bg-gray-200 mx-1"></div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-gray-500">Theme</span>
+              <select data-mermaid-theme-select="1" class="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-1.5 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                ${getMermaidThemeOptionsHtml(preset)}
+              </select>
+            </div>
             <button type="button" data-mermaid-action="fit" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fit">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M8 3H3v5" />
@@ -197,11 +212,11 @@ renderer.code = ({ text, lang }) => {
               </svg>
               <span class="text-sm font-semibold">Fit</span>
             </button>
-            <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Download">
+            <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Export">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
               </svg>
-              <span class="text-sm font-semibold">Download</span>
+              <span class="text-sm font-semibold">Export</span>
             </button>
             <button type="button" data-mermaid-action="fullscreen" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fullscreen">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -217,7 +232,7 @@ renderer.code = ({ text, lang }) => {
         <div class="mt-3 bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div class="mermaid-widget-diagram-panel">
             <div class="mermaid-widget-viewport w-full overflow-auto">
-              <div class="mermaid-widget-zoom-area min-h-[240px] flex justify-center items-start p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top left;">
+              <div class="mermaid-widget-zoom-area min-h-[240px] flex justify-center items-start p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top center;">
                 <div class="mermaid-chart w-full flex justify-center" data-code="${encodedContent}">
                   <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
                 </div>
@@ -322,6 +337,14 @@ export default function Chat() {
   // keep selected images in memory for future send
   const [imageAttachments, setImageAttachments] = createSignal<File[]>([]);
   let imageInputRef: HTMLInputElement | undefined;
+
+  const [toast, setToast] = createSignal<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  let toastTimer: number | undefined;
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    if (toastTimer) window.clearTimeout(toastTimer);
+    setToast({ type, message });
+    toastTimer = window.setTimeout(() => setToast(null), 2200);
+  };
   
   // History & Knowledge State
   const [chats, setChats] = createSignal<ChatSession[]>([]);
@@ -570,35 +593,8 @@ export default function Chat() {
   };
   
   onMount(() => {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'base',
-      themeVariables: {
-        primaryColor: '#10B981', // Emerald 500
-        primaryTextColor: '#1f2937', // Gray 800
-        primaryBorderColor: '#059669',
-        lineColor: '#64748b', // Slate 500
-        secondaryColor: '#ecfdf5', // Emerald 50
-        tertiaryColor: '#f0fdf4', // Emerald 50 lighter
-        fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
-        fontSize: '14px',
-      },
-      flowchart: {
-        curve: 'basis',
-        htmlLabels: true,
-        padding: 15,
-      },
-      sequence: {
-        actorMargin: 50,
-        boxMargin: 10,
-        boxTextMargin: 5,
-        noteMargin: 10,
-        messageMargin: 35,
-        mirrorActors: false,
-        bottomMarginAdj: 1,
-      },
-      securityLevel: 'loose',
-    });
+    const preset = getMermaidThemePreset();
+    (mermaid as any).initialize(getMermaidInitConfig(preset));
 
     const storedProvider = localStorage.getItem(PROVIDER_STORAGE_KEY);
     const storedModel = localStorage.getItem(MODEL_STORAGE_KEY);
@@ -627,19 +623,525 @@ export default function Chat() {
     window.addEventListener('click', handleGlobalClick);
 
     let mermaidOverlayEl: HTMLElement | null = null;
+    let mermaidExportEl: HTMLElement | null = null;
     const previousOverflow = document.body.style.overflow;
 
     const closeMermaidOverlay = () => {
       if (mermaidOverlayEl) {
         mermaidOverlayEl.remove();
         mermaidOverlayEl = null;
-        document.body.style.overflow = previousOverflow;
+        document.body.style.overflow = mermaidExportEl ? 'hidden' : previousOverflow;
       }
+    };
+
+    const closeMermaidExportModal = () => {
+      const nodes = Array.from(document.querySelectorAll<HTMLElement>('#mermaid-export-modal'));
+      nodes.forEach((n) => n.remove());
+      mermaidExportEl = null;
+      document.body.style.overflow = mermaidOverlayEl ? 'hidden' : previousOverflow;
+    };
+
+    const getWidgetMermaidSvg = (widget: HTMLElement) => widget.querySelector('.mermaid-chart svg') as SVGSVGElement | null;
+
+    const exportMermaidFromWidget = async (
+      widget: HTMLElement,
+      opts: { format: 'png' | 'svg' | 'mmd'; background: 'transparent' | 'light' | 'dark' | 'custom'; backgroundColor: string; scale: number; padding: number; filename: string },
+    ) => {
+      const encoded = widget.getAttribute('data-code') || '';
+      const raw = decodeURIComponent(encoded);
+      const normalized = normalizeMermaidCode(raw);
+      const ts = getMermaidExportTimestamp();
+      const base = sanitizeFilenameBase(opts.filename);
+
+      if (opts.format === 'mmd') {
+        const blob = new Blob([normalized], { type: 'text/plain;charset=utf-8' });
+        downloadBlob(blob, `${base}-${ts}.mmd`);
+        return;
+      }
+
+      const chart = widget.querySelector('.mermaid-chart');
+      const existingSvg = getWidgetMermaidSvg(widget);
+      if (!existingSvg && chart) {
+        chart.setAttribute('data-processed', 'false');
+        await renderMermaidChart(chart);
+      }
+
+      const svgEl = getWidgetMermaidSvg(widget);
+      if (!svgEl) return;
+
+      const svgString = buildExportSvgString(svgEl, { padding: opts.padding, background: opts.background, backgroundColor: opts.backgroundColor });
+
+      if (opts.format === 'svg') {
+        downloadBlob(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }), `${base}-${ts}.svg`);
+        return;
+      }
+
+      const pngBlob = await svgStringToPngBlob(svgString, opts.scale);
+      if (pngBlob) downloadBlob(pngBlob, `${base}-${ts}.png`);
+    };
+
+    const copyMermaidFromWidget = async (
+      widget: HTMLElement,
+      opts: { format: 'png' | 'svg' | 'mmd'; background: 'transparent' | 'light' | 'dark' | 'custom'; backgroundColor: string; scale: number; padding: number },
+    ) => {
+      const encoded = widget.getAttribute('data-code') || '';
+      const raw = decodeURIComponent(encoded);
+      const normalized = normalizeMermaidCode(raw);
+
+      if (opts.format === 'mmd') {
+        await copyTextToClipboard(normalized);
+        return;
+      }
+
+      const chart = widget.querySelector('.mermaid-chart');
+      const existingSvg = getWidgetMermaidSvg(widget);
+      if (!existingSvg && chart) {
+        chart.setAttribute('data-processed', 'false');
+        await renderMermaidChart(chart);
+      }
+      const svgEl = getWidgetMermaidSvg(widget);
+      if (!svgEl) return;
+
+      const svgString = buildExportSvgString(svgEl, { padding: opts.padding, background: opts.background, backgroundColor: opts.backgroundColor });
+
+      if (opts.format === 'svg') {
+        await copyTextToClipboard(svgString);
+        return;
+      }
+      const pngBlob = await svgStringToPngBlob(svgString, opts.scale);
+      if (!pngBlob) return;
+      await copyPngBlobToClipboard(pngBlob);
+    };
+
+    const openMermaidExportModal = async (widget: HTMLElement) => {
+      closeMermaidExportModal();
+      document.body.style.overflow = 'hidden';
+
+      const encoded = widget.getAttribute('data-code') || '';
+      const raw = decodeURIComponent(encoded);
+      const normalized = normalizeMermaidCode(raw);
+
+      const prefs = getMermaidExportPrefs();
+      const format: 'png' | 'svg' | 'mmd' = prefs.format;
+      const background: 'transparent' | 'light' | 'dark' | 'custom' = prefs.background;
+      const backgroundColor = prefs.backgroundColor;
+      const scale = prefs.scale;
+      const padding = prefs.padding;
+      const filename = prefs.filename;
+
+      const modal = document.createElement('div');
+      modal.id = 'mermaid-export-modal';
+      modal.className = 'fixed inset-0 z-[1300]';
+      modal.dataset.format = format;
+      modal.dataset.background = background;
+      modal.dataset.backgroundColor = backgroundColor;
+      modal.dataset.scale = String(scale);
+      modal.dataset.padding = String(padding);
+      modal.dataset.filename = filename;
+      modal.dataset.busy = '0';
+
+      const previewChecker = 'background-image: linear-gradient(45deg, rgba(148,163,184,.18) 25%, transparent 25%), linear-gradient(-45deg, rgba(148,163,184,.18) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(148,163,184,.18) 75%), linear-gradient(-45deg, transparent 75%, rgba(148,163,184,.18) 75%); background-size: 18px 18px; background-position: 0 0, 0 9px, 9px -9px, -9px 0px;';
+
+      modal.innerHTML = `
+        <div class="absolute inset-0 bg-slate-900/25 backdrop-blur-md" data-mermaid-export-close="1"></div>
+        <div class="absolute inset-0 flex items-start justify-center px-3 pb-3 pt-3 sm:px-6 sm:pb-6 sm:pt-6">
+          <div class="w-[min(1120px,98vw)] h-[min(740px,94vh)] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col" role="dialog" aria-modal="true" aria-labelledby="mermaid-export-title" aria-describedby="mermaid-export-desc" tabindex="-1" data-mermaid-export-dialog="1">
+            <div class="h-16 px-6 border-b border-border flex items-center justify-between bg-surface/80 backdrop-blur-md">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M3 3a1 1 0 011-1h4a1 1 0 010 2H5v12h10V4h-3a1 1 0 110-2h4a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V3z" />
+                    <path d="M9 9a1 1 0 011-1h0a1 1 0 011 1v4.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 111.414-1.414L9 13.586V9z" />
+                  </svg>
+                </div>
+                <div>
+                  <div id="mermaid-export-title" class="text-sm font-extrabold text-text-primary">Export diagram</div>
+                  <div id="mermaid-export-desc" class="text-xs text-text-secondary/70">PNG / SVG / MMD • Background • Advanced</div>
+                </div>
+              </div>
+              <button type="button" class="p-2 rounded-xl hover:bg-surface-elevated text-text-secondary/70 hover:text-text-primary transition-colors" data-mermaid-export-close="1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-5">
+              <div class="md:col-span-2 p-5 border-b md:border-b-0 md:border-r border-border overflow-auto">
+                <div class="text-xs font-black uppercase tracking-wider text-text-secondary/60">Export format</div>
+                <div class="mt-3 grid grid-cols-3 gap-2">
+                  <button type="button" data-mermaid-export-format="png" class="mermaid-export-format px-3 py-3 rounded-xl border border-border bg-surface-elevated/40 hover:bg-surface-elevated transition-colors text-left">
+                    <div class="text-sm font-extrabold text-text-primary">PNG</div>
+                    <div class="text-[11px] text-text-secondary/70 mt-0.5">Raster image</div>
+                  </button>
+                  <button type="button" data-mermaid-export-format="svg" class="mermaid-export-format px-3 py-3 rounded-xl border border-border bg-surface hover:bg-surface-elevated/60 transition-colors text-left">
+                    <div class="text-sm font-extrabold text-text-primary">SVG</div>
+                    <div class="text-[11px] text-text-secondary/70 mt-0.5">Vector</div>
+                  </button>
+                  <button type="button" data-mermaid-export-format="mmd" class="mermaid-export-format px-3 py-3 rounded-xl border border-border bg-surface hover:bg-surface-elevated/60 transition-colors text-left">
+                    <div class="text-sm font-extrabold text-text-primary">MMD</div>
+                    <div class="text-[11px] text-text-secondary/70 mt-0.5">Mermaid source</div>
+                  </button>
+                </div>
+
+                <div data-mermaid-export-section="background">
+                  <div class="mt-6 text-xs font-black uppercase tracking-wider text-text-secondary/60">Background</div>
+                  <div class="mt-3 grid grid-cols-2 gap-2">
+                    <button type="button" data-mermaid-export-bg="transparent" class="mermaid-export-bg px-3 py-3 rounded-xl border border-border bg-surface-elevated/40 hover:bg-surface-elevated transition-colors text-left">
+                      <div class="text-sm font-extrabold text-text-primary">Transparent</div>
+                      <div class="text-[11px] text-text-secondary/70 mt-0.5">Checker preview</div>
+                    </button>
+                    <button type="button" data-mermaid-export-bg="light" class="mermaid-export-bg px-3 py-3 rounded-xl border border-border bg-surface hover:bg-surface-elevated/60 transition-colors text-left">
+                      <div class="text-sm font-extrabold text-text-primary">Light</div>
+                      <div class="text-[11px] text-text-secondary/70 mt-0.5">White</div>
+                    </button>
+                    <button type="button" data-mermaid-export-bg="dark" class="mermaid-export-bg px-3 py-3 rounded-xl border border-border bg-surface hover:bg-surface-elevated/60 transition-colors text-left">
+                      <div class="text-sm font-extrabold text-text-primary">Dark</div>
+                      <div class="text-[11px] text-text-secondary/70 mt-0.5">Deep navy</div>
+                    </button>
+                    <button type="button" data-mermaid-export-bg="custom" class="mermaid-export-bg px-3 py-3 rounded-xl border border-border bg-surface hover:bg-surface-elevated/60 transition-colors text-left">
+                      <div class="flex items-center justify-between">
+                        <div>
+                          <div class="text-sm font-extrabold text-text-primary">Custom</div>
+                          <div class="text-[11px] text-text-secondary/70 mt-0.5">Pick a color</div>
+                        </div>
+                        <input data-mermaid-export-bgcolor="1" type="color" value="${backgroundColor}" class="w-9 h-9 rounded-xl border border-border bg-transparent p-1 cursor-pointer" />
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <details class="mt-6 group">
+                  <summary class="cursor-pointer select-none text-xs font-black uppercase tracking-wider text-text-secondary/60 flex items-center justify-between">
+                    <span>Advanced</span>
+                    <span class="text-[11px] text-text-secondary/40 group-open:hidden">Show</span>
+                    <span class="text-[11px] text-text-secondary/40 hidden group-open:inline">Hide</span>
+                  </summary>
+                  <div class="mt-3 space-y-4">
+                    <div data-mermaid-export-only="png">
+                      <div class="flex items-center justify-between">
+                        <div class="text-sm font-bold text-text-primary">PNG scale</div>
+                        <div class="text-xs font-mono text-text-secondary/70"><span data-mermaid-export-scale-label="1">${scale}x</span></div>
+                      </div>
+                      <input data-mermaid-export-scale="1" type="range" min="1" max="4" step="1" value="${scale}" class="w-full mt-2" />
+                      <div class="mt-1 text-[11px] text-text-secondary/60">Only affects PNG export.</div>
+                    </div>
+                    <div data-mermaid-export-only="svgpng">
+                      <div class="flex items-center justify-between">
+                        <div class="text-sm font-bold text-text-primary">Padding</div>
+                        <div class="text-xs font-mono text-text-secondary/70"><span data-mermaid-export-padding-label="1">${padding}px</span></div>
+                      </div>
+                      <input data-mermaid-export-padding="1" type="range" min="0" max="96" step="4" value="${padding}" class="w-full mt-2" />
+                      <div class="mt-1 text-[11px] text-text-secondary/60">Adds margin around the diagram.</div>
+                    </div>
+                    <div>
+                      <div class="text-sm font-bold text-text-primary">File name</div>
+                      <input data-mermaid-export-filename="1" type="text" value="${filename}" class="mt-2 w-full px-3 py-2 rounded-xl border border-border bg-surface text-sm font-semibold text-text-primary placeholder:text-text-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="diagram" />
+                      <div class="mt-1 text-[11px] text-text-secondary/60">Extension is added automatically.</div>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="md:col-span-3 p-5 min-h-0 flex flex-col">
+                <div class="flex items-center justify-between">
+                  <div class="text-xs font-black uppercase tracking-wider text-text-secondary/60">Preview</div>
+                  <div class="flex items-center gap-2">
+                    <button type="button" data-mermaid-export-copy="1" class="px-3 py-2 rounded-xl border border-border bg-surface hover:bg-surface-elevated/70 transition-colors text-sm font-bold text-text-primary">Copy</button>
+                    <button type="button" data-mermaid-export-download="1" class="px-3 py-2 rounded-xl bg-primary text-white hover:brightness-110 transition-colors text-sm font-black">Export</button>
+                  </div>
+                </div>
+                <div class="mt-4 flex-1 min-h-0 rounded-2xl border border-border overflow-hidden">
+                  <div data-mermaid-export-preview="1" class="w-full h-full overflow-auto px-5 pb-5 pt-3" style="${previewChecker}"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="h-16 px-6 border-t border-border flex items-center justify-between bg-surface/80 backdrop-blur-md">
+              <div class="text-[11px] text-text-secondary/60 font-mono truncate">mermaid</div>
+              <div class="flex items-center gap-2">
+                <button type="button" data-mermaid-export-close="1" class="px-4 py-2 rounded-xl border border-border bg-surface hover:bg-surface-elevated/70 transition-colors text-sm font-bold text-text-primary">Cancel</button>
+                <button type="button" data-mermaid-export-download="1" class="px-4 py-2 rounded-xl bg-primary text-white hover:brightness-110 transition-colors text-sm font-black">Export</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const updateButtons = () => {
+        const fmt = (modal.dataset.format || 'png') as any;
+        const busy = modal.dataset.busy === '1';
+        modal.querySelectorAll('.mermaid-export-format').forEach((el) => {
+          const btn = el as HTMLButtonElement;
+          const id = btn.getAttribute('data-mermaid-export-format');
+          const active = id === fmt;
+          btn.className = `mermaid-export-format px-3 py-3 rounded-xl border transition-colors text-left ${active ? 'border-primary/40 bg-primary/10' : 'border-border bg-surface hover:bg-surface-elevated/60'}`;
+          btn.disabled = busy;
+        });
+        const bg = modal.dataset.background || 'transparent';
+        modal.querySelectorAll('.mermaid-export-bg').forEach((el) => {
+          const btn = el as HTMLButtonElement;
+          const id = btn.getAttribute('data-mermaid-export-bg');
+          const active = id === bg;
+          btn.className = `mermaid-export-bg px-3 py-3 rounded-xl border transition-colors text-left ${active ? 'border-primary/40 bg-primary/10' : 'border-border bg-surface hover:bg-surface-elevated/60'}`;
+          btn.disabled = busy;
+        });
+
+        modal.querySelectorAll('[data-mermaid-export-section="background"]').forEach((el) => {
+          (el as HTMLElement).classList.toggle('hidden', fmt === 'mmd');
+        });
+        modal.querySelectorAll('[data-mermaid-export-only="png"]').forEach((el) => {
+          (el as HTMLElement).classList.toggle('hidden', fmt !== 'png');
+        });
+        modal.querySelectorAll('[data-mermaid-export-only="svgpng"]').forEach((el) => {
+          (el as HTMLElement).classList.toggle('hidden', fmt === 'mmd');
+        });
+
+        const filenameInput = modal.querySelector('[data-mermaid-export-filename="1"]') as HTMLInputElement | null;
+        if (filenameInput) filenameInput.disabled = busy;
+        const scaleInput = modal.querySelector('[data-mermaid-export-scale="1"]') as HTMLInputElement | null;
+        if (scaleInput) scaleInput.disabled = busy;
+        const paddingInput = modal.querySelector('[data-mermaid-export-padding="1"]') as HTMLInputElement | null;
+        if (paddingInput) paddingInput.disabled = busy;
+        const colorInput = modal.querySelector('[data-mermaid-export-bgcolor="1"]') as HTMLInputElement | null;
+        if (colorInput) colorInput.disabled = busy;
+
+        const copyBtn = modal.querySelector('[data-mermaid-export-copy="1"]') as HTMLButtonElement | null;
+        if (copyBtn) {
+          const isPng = fmt === 'png';
+          copyBtn.disabled = busy || (isPng && !canCopyPng());
+          copyBtn.className = `px-3 py-2 rounded-xl border border-border transition-colors text-sm font-bold ${copyBtn.disabled ? 'bg-surface text-text-secondary/40 cursor-not-allowed' : 'bg-surface hover:bg-surface-elevated/70 text-text-primary'}`;
+          copyBtn.textContent = fmt === 'mmd' ? 'Copy MMD' : fmt === 'svg' ? 'Copy SVG' : 'Copy PNG';
+          copyBtn.title = copyBtn.disabled && isPng && !canCopyPng() ? 'Your browser does not support copying PNG to clipboard.' : '';
+        }
+
+        modal.querySelectorAll('[data-mermaid-export-download="1"]').forEach((el) => {
+          const btn = el as HTMLButtonElement;
+          btn.disabled = busy;
+          btn.textContent = busy ? 'Exporting…' : 'Export';
+        });
+      };
+
+      const renderPreview = async () => {
+        const preview = modal.querySelector('[data-mermaid-export-preview="1"]') as HTMLElement | null;
+        if (!preview) return;
+        const fmt = (modal.dataset.format || 'png') as 'png' | 'svg' | 'mmd';
+        const bg = (modal.dataset.background || 'transparent') as 'transparent' | 'light' | 'dark' | 'custom';
+        const bgColor = modal.dataset.backgroundColor || '#ffffff';
+        const pad = parseInt(modal.dataset.padding || '0', 10) || 0;
+
+        preview.innerHTML = '';
+        const setPreviewBackground = () => {
+          if (bg === 'transparent') {
+            preview.setAttribute('style', previewChecker);
+            return;
+          }
+          const fill = bg === 'custom' ? bgColor : bg === 'dark' ? '#0b1220' : '#ffffff';
+          preview.setAttribute('style', `background: ${fill};`);
+        };
+        setPreviewBackground();
+
+        if (fmt === 'mmd') {
+          const pre = document.createElement('pre');
+          pre.className = 'text-xs leading-relaxed font-mono bg-[#0d1117] text-[#c9d1d9] border border-white/10 rounded-2xl p-4 overflow-auto whitespace-pre-wrap';
+          pre.textContent = normalized;
+          preview.appendChild(pre);
+          return;
+        }
+
+        const chart = widget.querySelector('.mermaid-chart');
+        const existingSvg = getWidgetMermaidSvg(widget);
+        if (!existingSvg && chart) {
+          chart.setAttribute('data-processed', 'false');
+          await renderMermaidChart(chart);
+        }
+        const svgEl = getWidgetMermaidSvg(widget);
+        if (!svgEl) return;
+        const svgString = buildExportSvgString(svgEl, { padding: pad, background: bg, backgroundColor: bgColor });
+        const holder = document.createElement('div');
+        holder.className = 'w-full flex justify-center items-start';
+        holder.innerHTML = svgString;
+        preview.appendChild(holder);
+        preview.scrollTop = 0;
+      };
+
+      const setBusy = (next: boolean) => {
+        modal.dataset.busy = next ? '1' : '0';
+        updateButtons();
+      };
+
+      const getCurrentOpts = () => {
+        return {
+          format: (modal.dataset.format || 'png') as 'png' | 'svg' | 'mmd',
+          background: (modal.dataset.background || 'transparent') as 'transparent' | 'light' | 'dark' | 'custom',
+          backgroundColor: modal.dataset.backgroundColor || '#ffffff',
+          scale: parseInt(modal.dataset.scale || '2', 10) || 2,
+          padding: parseInt(modal.dataset.padding || '0', 10) || 0,
+          filename: modal.dataset.filename || 'diagram',
+        };
+      };
+
+      const onClick = async (e: MouseEvent) => {
+        const t = e.target as HTMLElement | null;
+        if (!t) return;
+        const closeBtn = t.closest('[data-mermaid-export-close="1"]') as HTMLElement | null;
+        if (closeBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeMermaidExportModal();
+          return;
+        }
+
+        const formatBtn = t.closest('[data-mermaid-export-format]') as HTMLElement | null;
+        if (formatBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const nextFmt = (formatBtn.getAttribute('data-mermaid-export-format') || 'png') as any;
+          modal.dataset.format = nextFmt;
+          setMermaidExportPrefs({ format: nextFmt });
+          updateButtons();
+          await renderPreview();
+          return;
+        }
+
+        const bgBtn = t.closest('[data-mermaid-export-bg]') as HTMLElement | null;
+        if (bgBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const nextBg = (bgBtn.getAttribute('data-mermaid-export-bg') || 'transparent') as any;
+          modal.dataset.background = nextBg;
+          setMermaidExportPrefs({ background: nextBg });
+          updateButtons();
+          await renderPreview();
+          return;
+        }
+
+        const copyBtn = t.closest('[data-mermaid-export-copy="1"]') as HTMLElement | null;
+        if (copyBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (modal.dataset.busy === '1') return;
+          setBusy(true);
+          try {
+            const opts = getCurrentOpts();
+            await copyMermaidFromWidget(widget, opts);
+            showToast('success', opts.format === 'mmd' ? 'Copied MMD' : opts.format === 'svg' ? 'Copied SVG' : 'Copied PNG');
+          } catch (err) {
+            showToast('error', 'Copy failed');
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+
+        const dlBtn = t.closest('[data-mermaid-export-download="1"]') as HTMLElement | null;
+        if (dlBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (modal.dataset.busy === '1') return;
+          setBusy(true);
+          try {
+            const opts = getCurrentOpts();
+            await exportMermaidFromWidget(widget, opts);
+            showToast('success', opts.format === 'mmd' ? 'Exported MMD' : opts.format === 'svg' ? 'Exported SVG' : 'Exported PNG');
+          } catch (err) {
+            showToast('error', 'Export failed');
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+      };
+
+      const onInput = async (e: Event) => {
+        const t = e.target as HTMLElement | null;
+        if (!t) return;
+        if (t instanceof HTMLInputElement && t.getAttribute('data-mermaid-export-bgcolor') === '1') {
+          modal.dataset.backgroundColor = t.value || '#ffffff';
+          modal.dataset.background = 'custom';
+          setMermaidExportPrefs({ backgroundColor: modal.dataset.backgroundColor, background: 'custom' });
+          updateButtons();
+          await renderPreview();
+          return;
+        }
+        if (t instanceof HTMLInputElement && t.getAttribute('data-mermaid-export-scale') === '1') {
+          modal.dataset.scale = t.value;
+          const label = modal.querySelector('[data-mermaid-export-scale-label="1"]') as HTMLElement | null;
+          if (label) label.textContent = `${t.value}x`;
+          setMermaidExportPrefs({ scale: parseInt(t.value, 10) || 2 });
+          return;
+        }
+        if (t instanceof HTMLInputElement && t.getAttribute('data-mermaid-export-padding') === '1') {
+          modal.dataset.padding = t.value;
+          const label = modal.querySelector('[data-mermaid-export-padding-label="1"]') as HTMLElement | null;
+          if (label) label.textContent = `${t.value}px`;
+          setMermaidExportPrefs({ padding: parseInt(t.value, 10) || 0 });
+          await renderPreview();
+          return;
+        }
+        if (t instanceof HTMLInputElement && t.getAttribute('data-mermaid-export-filename') === '1') {
+          modal.dataset.filename = t.value || '';
+          setMermaidExportPrefs({ filename: modal.dataset.filename });
+          return;
+        }
+      };
+
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeMermaidExportModal();
+          return;
+        }
+        if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+          const active = document.activeElement as HTMLElement | null;
+          if (active && active.tagName === 'TEXTAREA') return;
+          const btn = modal.querySelector('[data-mermaid-export-download="1"]') as HTMLButtonElement | null;
+          if (btn && !btn.disabled) {
+            e.preventDefault();
+            btn.click();
+          }
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        const dialog = modal.querySelector('[data-mermaid-export-dialog="1"]') as HTMLElement | null;
+        if (!dialog) return;
+        const focusable = Array.from(
+          dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+        ).filter((el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true' && el.offsetParent !== null);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const current = document.activeElement as HTMLElement | null;
+        if (e.shiftKey) {
+          if (!current || current === first || !dialog.contains(current)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (!current || current === last || !dialog.contains(current)) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      };
+
+      document.body.appendChild(modal);
+      mermaidExportEl = modal;
+      updateButtons();
+      await renderPreview();
+      modal.addEventListener('click', onClick);
+      modal.addEventListener('input', onInput);
+      modal.addEventListener('keydown', onKeyDown);
+      const primary = modal.querySelector('[data-mermaid-export-download="1"]') as HTMLButtonElement | null;
+      const dialog = modal.querySelector('[data-mermaid-export-dialog="1"]') as HTMLElement | null;
+      (primary || dialog)?.focus?.();
     };
 
     const openMermaidOverlay = async (encoded: string) => {
       closeMermaidOverlay();
       document.body.style.overflow = 'hidden';
+      const preset = getMermaidThemePreset();
 
       const overlay = document.createElement('div');
       overlay.id = 'mermaid-overlay';
@@ -680,6 +1182,12 @@ export default function Chat() {
                       </svg>
                     </button>
                     <div class="w-px h-5 bg-gray-200 mx-1"></div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm font-semibold text-gray-500">Theme</span>
+                      <select data-mermaid-theme-select="1" class="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-1.5 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                        ${getMermaidThemeOptionsHtml(preset)}
+                      </select>
+                    </div>
                     <button type="button" data-mermaid-action="fit" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fit">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M8 3H3v5" />
@@ -689,11 +1197,11 @@ export default function Chat() {
                       </svg>
                       <span class="text-sm font-semibold">Fit</span>
                     </button>
-                    <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Download">
+                    <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Export">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
                       </svg>
-                      <span class="text-sm font-semibold">Download</span>
+                      <span class="text-sm font-semibold">Export</span>
                     </button>
                     <button type="button" data-mermaid-action="reset" class="px-2 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Reset zoom">
                       <span class="mermaid-widget-zoom-label text-sm font-semibold">100%</span>
@@ -703,7 +1211,7 @@ export default function Chat() {
                 <div class="mt-3 bg-white border border-gray-200 rounded-2xl overflow-hidden">
                   <div class="mermaid-widget-diagram-panel">
                     <div class="mermaid-widget-viewport w-full h-[calc(94vh-220px)] overflow-auto">
-                      <div class="mermaid-widget-zoom-area min-h-[360px] flex justify-center items-start p-4 sm:p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top left;">
+                      <div class="mermaid-widget-zoom-area min-h-[360px] flex justify-center items-start p-4 sm:p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top center;">
                         <div class="mermaid-chart w-full flex justify-center" data-code="${encoded}">
                           <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
                         </div>
@@ -740,7 +1248,7 @@ export default function Chat() {
       const zoomArea = widget.querySelector('.mermaid-widget-zoom-area') as HTMLElement | null;
       if (zoomArea) {
         zoomArea.style.transform = `translate(${nextTx}px, ${nextTy}px) scale(${clamped})`;
-        zoomArea.style.transformOrigin = 'top left';
+        zoomArea.style.transformOrigin = 'top center';
         if (!zoomArea.style.cursor) zoomArea.style.cursor = 'grab';
       }
       const label = widget.querySelector('.mermaid-widget-zoom-label') as HTMLElement | null;
@@ -784,10 +1292,17 @@ export default function Chat() {
       }
       if (!baseW || !baseH) return;
 
-      const padding = 24;
-      const nextScale = Math.min((availW - padding) / baseW, (availH - padding) / baseH);
+      const padding = 56;
+      const rawScale = Math.min((availW - padding) / baseW, (availH - padding) / baseH);
+      const nextScale = Math.min(rawScale * 0.95, 1.2);
       if (!Number.isFinite(nextScale) || nextScale <= 0) return;
       applyWidgetTransform(widget, nextScale, 0, 0);
+      try {
+        viewport.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      } catch (e) {
+        viewport.scrollTop = 0;
+        viewport.scrollLeft = 0;
+      }
     };
 
     let activePan: { widget: HTMLElement; startX: number; startY: number; startTx: number; startTy: number } | null = null;
@@ -847,18 +1362,7 @@ export default function Chat() {
         const encoded = widget.getAttribute('data-code') || '';
         openMermaidOverlay(encoded);
       }
-      if (action === 'download') {
-        const svg = widget.querySelector('svg');
-        if (!svg) return;
-        const data = new XMLSerializer().serializeToString(svg);
-        const blob = new Blob([data], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `diagram-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.svg`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      if (action === 'download') void openMermaidExportModal(widget);
     };
 
     const handleMermaidWheel = (e: WheelEvent) => {
@@ -904,13 +1408,36 @@ export default function Chat() {
       activePan = null;
     };
 
+    const handleMermaidChange = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (!(target instanceof HTMLSelectElement)) return;
+      if (target.getAttribute('data-mermaid-theme-select') !== '1') return;
+
+      const next = target.value as MermaidThemePreset;
+      setMermaidThemePreset(next);
+
+      document.querySelectorAll('select[data-mermaid-theme-select="1"]').forEach((el) => {
+        if (el instanceof HTMLSelectElement) el.value = next;
+      });
+
+      document.querySelectorAll('.mermaid-chart').forEach((container) => {
+        container.setAttribute('data-processed', 'false');
+        renderMermaidChart(container);
+      });
+    };
+
     document.addEventListener('click', handleMermaidClick);
     document.addEventListener('wheel', handleMermaidWheel, { passive: false });
+    document.addEventListener('change', handleMermaidChange);
     document.addEventListener('pointerdown', handleMermaidPointerDown);
     document.addEventListener('pointermove', handleMermaidPointerMove, { passive: false } as any);
     document.addEventListener('pointerup', handleMermaidPointerUp);
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeMermaidOverlay();
+      if (e.key === 'Escape') {
+        if (e.defaultPrevented) return;
+        if (mermaidExportEl) closeMermaidExportModal();
+        else closeMermaidOverlay();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
 
@@ -918,10 +1445,12 @@ export default function Chat() {
       window.removeEventListener('click', handleGlobalClick);
       document.removeEventListener('click', handleMermaidClick);
       document.removeEventListener('wheel', handleMermaidWheel as any);
+      document.removeEventListener('change', handleMermaidChange);
       document.removeEventListener('pointerdown', handleMermaidPointerDown);
       document.removeEventListener('pointermove', handleMermaidPointerMove as any);
       document.removeEventListener('pointerup', handleMermaidPointerUp);
       document.removeEventListener('keydown', handleKeyDown);
+      closeMermaidExportModal();
       closeMermaidOverlay();
     };
   });
@@ -2052,6 +2581,33 @@ export default function Chat() {
         </div>
       </div>
       
+      <Show when={toast()}>
+        <div class="fixed bottom-6 right-6 z-[2000]">
+          <div
+            class={`px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md flex items-center gap-3 min-w-[240px] ${
+              toast()!.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200'
+                : toast()!.type === 'error'
+                  ? 'bg-rose-500/10 border-rose-500/20 text-rose-200'
+                  : 'bg-slate-500/10 border-slate-500/20 text-slate-200'
+            }`}
+          >
+            <div class={`w-2 h-2 rounded-full ${toast()!.type === 'success' ? 'bg-emerald-400' : toast()!.type === 'error' ? 'bg-rose-400' : 'bg-slate-300'}`} />
+            <div class="text-sm font-bold">{toast()!.message}</div>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              class="ml-auto p-1.5 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+              aria-label="Close"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </Show>
+
       {/* Mobile Overlays */}
       {(showHistory() || (showKnowledge() && isMobile())) && (
         <div 
