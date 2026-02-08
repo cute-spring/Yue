@@ -4,6 +4,8 @@ import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import mermaid from 'mermaid';
+import MermaidViewer from '../components/MermaidViewer';
 
 // Configure marked to use highlight.js via a custom renderer
 const renderer = new marked.Renderer();
@@ -74,15 +76,52 @@ const renderMath = (text: string) => {
 
   return text;
 };
-renderer.code = ({ text, lang }) => {
-  const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
-  const highlighted = hljs.highlight(text, { language }).value;
-  
-  const isPreviewable = ['html', 'svg', 'xml'].includes(language);
-  // Encode content and escape single quotes to prevent breaking the onclick attribute
-  const encodedContent = isPreviewable ? encodeURIComponent(text).replace(/'/g, '%27') : '';
 
-  return `
+const normalizeMermaidCode = (code: string) => {
+  let normalized = code.replace(/^\uFEFF/, '').trim();
+  const lines = normalized.split('\n');
+  if (lines.length >= 2) {
+    const first = lines[0].trim();
+    const last = lines[lines.length - 1].trim();
+    if (/^```/.test(first)) lines.shift();
+    if (/^```/.test(last)) lines.pop();
+  }
+  normalized = lines.join('\n').trim();
+  normalized = normalized.replace(/^```mermaid\s*/i, '').trim();
+  return normalized;
+};
+
+const renderMermaidChart = async (container: Element) => {
+  if (container.getAttribute('data-processed') === 'true') return;
+  const code = normalizeMermaidCode(decodeURIComponent(container.getAttribute('data-code') || ''));
+  if (!code) return;
+  try {
+    const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
+    await mermaid.parse(code);
+    const { svg } = await mermaid.render(id, code);
+    container.innerHTML = svg;
+    container.setAttribute('data-processed', 'true');
+  } catch (err) {
+    console.error('Mermaid render error:', err);
+    container.innerHTML = `
+      <div class="text-red-500 text-sm p-2 border border-red-500/20 rounded bg-red-500/10 font-mono">
+        <div class="font-bold mb-1">Mermaid Syntax Error</div>
+        ${err instanceof Error ? err.message : 'Unknown error'}
+      </div>
+      <pre class="text-xs text-gray-500 mt-2 overflow-auto p-2 bg-black/10 rounded">${code}</pre>
+    `;
+    container.setAttribute('data-processed', 'true');
+  }
+};
+renderer.code = ({ text, lang }) => {
+  const displayLanguage = lang || 'plaintext';
+  const highlightLanguage = hljs.getLanguage(displayLanguage) ? displayLanguage : 'plaintext';
+  const highlighted = hljs.highlight(text, { language: highlightLanguage }).value;
+  
+  const isPreviewable = ['html', 'svg', 'xml', 'mermaid'].includes(displayLanguage);
+  const encodedContent = encodeURIComponent(text).replace(/'/g, '%27');
+
+  const codeBlockHtml = `
     <div class="code-block-container relative group my-6 rounded-xl overflow-hidden border border-border/50 bg-[#0d1117] shadow-xl transition-all duration-300 hover:border-primary/30">
       <div class="flex items-center justify-between px-4 py-2.5 bg-[#161b22]/80 backdrop-blur-sm border-b border-border/10">
         <div class="flex items-center gap-2">
@@ -92,12 +131,12 @@ renderer.code = ({ text, lang }) => {
             <div class="w-3 h-3 rounded-full bg-[#27c93f] shadow-inner"></div>
           </div>
           <div class="h-4 w-[1px] bg-border/10 mx-1"></div>
-          <span class="text-[10px] font-black font-mono text-text-secondary/60 uppercase tracking-[0.2em] ml-1">${language}</span>
+          <span class="text-[10px] font-black font-mono text-text-secondary/60 uppercase tracking-[0.2em] ml-1">${displayLanguage}</span>
         </div>
         <div class="flex items-center gap-2">
           ${isPreviewable ? `
             <button 
-              onclick="window.openArtifact('${language}', '${encodedContent}')"
+              onclick="window.openArtifact('${displayLanguage}', '${encodedContent}')"
               class="px-2 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-all flex items-center gap-1.5 border border-primary/20"
               title="Open Preview"
             >
@@ -120,9 +159,80 @@ renderer.code = ({ text, lang }) => {
           </button>
         </div>
       </div>
-      <pre class="p-5 overflow-x-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent selection:bg-primary/20"><code class="hljs language-${language} text-[14px] leading-relaxed font-mono block">${highlighted}</code></pre>
+      <pre class="p-5 overflow-x-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent selection:bg-primary/20"><code class="hljs language-${highlightLanguage} text-[14px] leading-relaxed font-mono block">${highlighted}</code></pre>
     </div>
   `;
+
+  if (lang === 'mermaid') {
+    return `
+      <div class="mermaid-widget my-4" data-code="${encodedContent}" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
+        <div class="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
+          <div class="flex items-center gap-2">
+            <button type="button" data-mermaid-action="tab-diagram" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors bg-gray-100 text-gray-900">Diagram</button>
+            <button type="button" data-mermaid-action="tab-code" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors text-gray-500 hover:text-gray-800 hover:bg-gray-50">Code</button>
+          </div>
+          <div class="flex items-center gap-1.5 text-gray-500">
+            <button type="button" data-mermaid-action="zoom-out" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom out">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <line x1="8" y1="11" x2="14" y2="11" />
+              </svg>
+            </button>
+            <button type="button" data-mermaid-action="zoom-in" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom in">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <line x1="11" y1="8" x2="11" y2="14" />
+                <line x1="8" y1="11" x2="14" y2="11" />
+              </svg>
+            </button>
+            <div class="w-px h-5 bg-gray-200 mx-1"></div>
+            <button type="button" data-mermaid-action="fit" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fit">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 3H3v5" />
+                <path d="M16 3h5v5" />
+                <path d="M21 16v5h-5" />
+                <path d="M3 16v5h5" />
+              </svg>
+              <span class="text-sm font-semibold">Fit</span>
+            </button>
+            <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Download">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+              <span class="text-sm font-semibold">Download</span>
+            </button>
+            <button type="button" data-mermaid-action="fullscreen" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fullscreen">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h5a1 1 0 110 2H6v3a1 1 0 11-2 0V4zm14 0a1 1 0 00-1-1h-5a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h5a1 1 0 100-2H6v-3a1 1 0 10-2 0v4zm14 0a1 1 0 01-1 1h-5a1 1 0 110-2h3v-3a1 1 0 112 0v4z" clip-rule="evenodd" />
+              </svg>
+              <span class="text-sm font-semibold">Fullscreen</span>
+            </button>
+            <button type="button" data-mermaid-action="reset" class="px-2 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Reset zoom">
+              <span class="mermaid-widget-zoom-label text-sm font-semibold">100%</span>
+            </button>
+          </div>
+        </div>
+        <div class="mt-3 bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div class="mermaid-widget-diagram-panel">
+            <div class="mermaid-widget-viewport w-full overflow-auto">
+              <div class="mermaid-widget-zoom-area min-h-[240px] flex justify-center items-start p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top left;">
+                <div class="mermaid-chart w-full flex justify-center" data-code="${encodedContent}">
+                  <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mermaid-widget-code-panel hidden p-4">
+            <pre class="mermaid-widget-code-pre text-xs leading-relaxed font-mono bg-[#0d1117] text-[#c9d1d9] border border-white/10 rounded-xl p-4 overflow-auto whitespace-pre-wrap"><code class="hljs language-plaintext mermaid-widget-code-code"></code></pre>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return codeBlockHtml;
 };
 
 marked.setOptions({
@@ -460,6 +570,36 @@ export default function Chat() {
   };
   
   onMount(() => {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#10B981', // Emerald 500
+        primaryTextColor: '#1f2937', // Gray 800
+        primaryBorderColor: '#059669',
+        lineColor: '#64748b', // Slate 500
+        secondaryColor: '#ecfdf5', // Emerald 50
+        tertiaryColor: '#f0fdf4', // Emerald 50 lighter
+        fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+        fontSize: '14px',
+      },
+      flowchart: {
+        curve: 'basis',
+        htmlLabels: true,
+        padding: 15,
+      },
+      sequence: {
+        actorMargin: 50,
+        boxMargin: 10,
+        boxTextMargin: 5,
+        noteMargin: 10,
+        messageMargin: 35,
+        mirrorActors: false,
+        bottomMarginAdj: 1,
+      },
+      securityLevel: 'loose',
+    });
+
     const storedProvider = localStorage.getItem(PROVIDER_STORAGE_KEY);
     const storedModel = localStorage.getItem(MODEL_STORAGE_KEY);
     if (storedProvider) setSelectedProvider(storedProvider);
@@ -469,7 +609,6 @@ export default function Chat() {
     loadHistory();
     loadProviders();
 
-    // Register global artifact opener
     (window as any).openArtifact = (lang: string, encodedContent: string) => {
       try {
         const content = decodeURIComponent(encodedContent);
@@ -481,13 +620,320 @@ export default function Chat() {
       }
     };
 
-    // Global click listener to close dropdowns
     const handleGlobalClick = () => {
       setShowLLMSelector(false);
       setShowAgentSelector(false);
     };
     window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
+
+    let mermaidOverlayEl: HTMLElement | null = null;
+    const previousOverflow = document.body.style.overflow;
+
+    const closeMermaidOverlay = () => {
+      if (mermaidOverlayEl) {
+        mermaidOverlayEl.remove();
+        mermaidOverlayEl = null;
+        document.body.style.overflow = previousOverflow;
+      }
+    };
+
+    const openMermaidOverlay = async (encoded: string) => {
+      closeMermaidOverlay();
+      document.body.style.overflow = 'hidden';
+
+      const overlay = document.createElement('div');
+      overlay.id = 'mermaid-overlay';
+      overlay.className = 'fixed inset-0 z-[1200]';
+      overlay.innerHTML = `
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" data-mermaid-overlay-close="1"></div>
+        <div class="absolute inset-0 p-2 sm:p-4 md:p-6 flex items-center justify-center">
+          <div class="w-[98vw] h-[94vh] max-w-none bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <div class="text-sm font-bold text-gray-800">Mermaid</div>
+              <button type="button" class="p-2 rounded-lg hover:bg-gray-50 text-gray-500 hover:text-gray-800" data-mermaid-overlay-close="1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
+            </div>
+            <div class="p-3 sm:p-4 flex-1 min-h-0">
+              <div class="mermaid-widget my-0" data-code="${encoded}" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
+                <div class="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
+                  <div class="flex items-center gap-2">
+                    <button type="button" data-mermaid-action="tab-diagram" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors bg-gray-100 text-gray-900">Diagram</button>
+                    <button type="button" data-mermaid-action="tab-code" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors text-gray-500 hover:text-gray-800 hover:bg-gray-50">Code</button>
+                  </div>
+                  <div class="flex items-center gap-1.5 text-gray-500">
+                    <button type="button" data-mermaid-action="zoom-out" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom out">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        <line x1="8" y1="11" x2="14" y2="11" />
+                      </svg>
+                    </button>
+                    <button type="button" data-mermaid-action="zoom-in" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom in">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        <line x1="11" y1="8" x2="11" y2="14" />
+                        <line x1="8" y1="11" x2="14" y2="11" />
+                      </svg>
+                    </button>
+                    <div class="w-px h-5 bg-gray-200 mx-1"></div>
+                    <button type="button" data-mermaid-action="fit" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fit">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 3H3v5" />
+                        <path d="M16 3h5v5" />
+                        <path d="M21 16v5h-5" />
+                        <path d="M3 16v5h5" />
+                      </svg>
+                      <span class="text-sm font-semibold">Fit</span>
+                    </button>
+                    <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Download">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                      </svg>
+                      <span class="text-sm font-semibold">Download</span>
+                    </button>
+                    <button type="button" data-mermaid-action="reset" class="px-2 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Reset zoom">
+                      <span class="mermaid-widget-zoom-label text-sm font-semibold">100%</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="mt-3 bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                  <div class="mermaid-widget-diagram-panel">
+                    <div class="mermaid-widget-viewport w-full h-[calc(94vh-220px)] overflow-auto">
+                      <div class="mermaid-widget-zoom-area min-h-[360px] flex justify-center items-start p-4 sm:p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top left;">
+                        <div class="mermaid-chart w-full flex justify-center" data-code="${encoded}">
+                          <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mermaid-widget-code-panel hidden p-4">
+                    <pre class="mermaid-widget-code-pre text-xs leading-relaxed font-mono bg-[#0d1117] text-[#c9d1d9] border border-white/10 rounded-xl p-4 overflow-auto whitespace-pre-wrap"><code class="hljs language-plaintext mermaid-widget-code-code"></code></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+      mermaidOverlayEl = overlay;
+
+      requestAnimationFrame(async () => {
+        const chartEl = overlay.querySelector('.mermaid-chart');
+        if (chartEl) {
+          chartEl.setAttribute('data-processed', 'false');
+          await renderMermaidChart(chartEl);
+        }
+      });
+    };
+
+    const applyWidgetTransform = (widget: HTMLElement, nextScale: number, nextTx: number, nextTy: number) => {
+      const clamped = Math.min(4, Math.max(0.25, nextScale));
+      widget.setAttribute('data-scale', String(clamped));
+      widget.setAttribute('data-tx', String(nextTx));
+      widget.setAttribute('data-ty', String(nextTy));
+      const zoomArea = widget.querySelector('.mermaid-widget-zoom-area') as HTMLElement | null;
+      if (zoomArea) {
+        zoomArea.style.transform = `translate(${nextTx}px, ${nextTy}px) scale(${clamped})`;
+        zoomArea.style.transformOrigin = 'top left';
+        if (!zoomArea.style.cursor) zoomArea.style.cursor = 'grab';
+      }
+      const label = widget.querySelector('.mermaid-widget-zoom-label') as HTMLElement | null;
+      if (label) label.textContent = `${Math.round(clamped * 100)}%`;
+    };
+
+    const getWidgetScale = (widget: HTMLElement) => parseFloat(widget.getAttribute('data-scale') || '1') || 1;
+    const getWidgetTx = (widget: HTMLElement) => parseFloat(widget.getAttribute('data-tx') || '0') || 0;
+    const getWidgetTy = (widget: HTMLElement) => parseFloat(widget.getAttribute('data-ty') || '0') || 0;
+
+    const applyWidgetScale = (widget: HTMLElement, nextScale: number) => {
+      applyWidgetTransform(widget, nextScale, getWidgetTx(widget), getWidgetTy(widget));
+    };
+
+    const fitWidget = (widget: HTMLElement) => {
+      const viewport = widget.querySelector('.mermaid-widget-viewport') as HTMLElement | null;
+      const svg = widget.querySelector('svg') as SVGSVGElement | null;
+      if (!viewport || !svg) return;
+      const availW = viewport.clientWidth;
+      const availH = viewport.clientHeight;
+      if (!availW || !availH) return;
+
+      let baseW = 0;
+      let baseH = 0;
+      const vb = (svg as any).viewBox?.baseVal;
+      if (vb && vb.width > 0 && vb.height > 0) {
+        baseW = vb.width;
+        baseH = vb.height;
+      } else {
+        const wAttr = svg.getAttribute('width') || '';
+        const hAttr = svg.getAttribute('height') || '';
+        baseW = parseFloat(wAttr.replace('px', '')) || 0;
+        baseH = parseFloat(hAttr.replace('px', '')) || 0;
+      }
+
+      if (!baseW || !baseH) {
+        const current = getWidgetScale(widget);
+        const rect = svg.getBoundingClientRect();
+        baseW = rect.width / current;
+        baseH = rect.height / current;
+      }
+      if (!baseW || !baseH) return;
+
+      const padding = 24;
+      const nextScale = Math.min((availW - padding) / baseW, (availH - padding) / baseH);
+      if (!Number.isFinite(nextScale) || nextScale <= 0) return;
+      applyWidgetTransform(widget, nextScale, 0, 0);
+    };
+
+    let activePan: { widget: HTMLElement; startX: number; startY: number; startTx: number; startTy: number } | null = null;
+
+    const setWidgetTab = (widget: HTMLElement, next: 'diagram' | 'code') => {
+      widget.setAttribute('data-tab', next);
+      const diagramBtn = widget.querySelector('[data-mermaid-action="tab-diagram"]') as HTMLElement | null;
+      const codeBtn = widget.querySelector('[data-mermaid-action="tab-code"]') as HTMLElement | null;
+      if (diagramBtn) diagramBtn.className = `px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${next === 'diagram' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'}`;
+      if (codeBtn) codeBtn.className = `px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${next === 'code' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'}`;
+      const diagramPanel = widget.querySelector('.mermaid-widget-diagram-panel') as HTMLElement | null;
+      const codePanel = widget.querySelector('.mermaid-widget-code-panel') as HTMLElement | null;
+      if (diagramPanel) diagramPanel.classList.toggle('hidden', next !== 'diagram');
+      if (codePanel) codePanel.classList.toggle('hidden', next !== 'code');
+      if (next === 'code') {
+        const codeEl = widget.querySelector('.mermaid-widget-code-code') as HTMLElement | null;
+        if (codeEl && !codeEl.innerHTML) {
+          const encoded = widget.getAttribute('data-code') || '';
+          const raw = decodeURIComponent(encoded);
+          const normalized = normalizeMermaidCode(raw);
+          codeEl.innerHTML = hljs.highlight(normalized, { language: 'plaintext' }).value;
+        }
+      }
+    };
+
+    const handleMermaidClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const overlayClose = target.closest('[data-mermaid-overlay-close="1"]') as HTMLElement | null;
+      if (overlayClose) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeMermaidOverlay();
+        return;
+      }
+      const btn = target.closest('[data-mermaid-action]') as HTMLElement | null;
+      if (!btn) return;
+      const widget = btn.closest('.mermaid-widget') as HTMLElement | null;
+      if (!widget) return;
+      const action = btn.getAttribute('data-mermaid-action') || '';
+
+      if (action === 'tab-diagram' || action === 'tab-code' || action === 'zoom-in' || action === 'zoom-out' || action === 'reset' || action === 'fit' || action === 'download' || action === 'fullscreen') {
+        e.preventDefault();
+        e.stopPropagation();
+      } else {
+        return;
+      }
+
+      const currentScale = getWidgetScale(widget);
+      if (action === 'tab-diagram') setWidgetTab(widget, 'diagram');
+      if (action === 'tab-code') setWidgetTab(widget, 'code');
+      if (action === 'zoom-in') applyWidgetScale(widget, currentScale * 1.2);
+      if (action === 'zoom-out') applyWidgetScale(widget, currentScale / 1.2);
+      if (action === 'reset') applyWidgetScale(widget, 1);
+      if (action === 'fit') fitWidget(widget);
+      if (action === 'fullscreen') {
+        const encoded = widget.getAttribute('data-code') || '';
+        openMermaidOverlay(encoded);
+      }
+      if (action === 'download') {
+        const svg = widget.querySelector('svg');
+        if (!svg) return;
+        const data = new XMLSerializer().serializeToString(svg);
+        const blob = new Blob([data], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `diagram-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.svg`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    const handleMermaidWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const widget = target.closest('.mermaid-widget') as HTMLElement | null;
+      if (!widget) return;
+      e.preventDefault();
+      const currentScale = getWidgetScale(widget);
+      const next = e.deltaY > 0 ? currentScale * 0.9 : currentScale * 1.1;
+      applyWidgetTransform(widget, next, getWidgetTx(widget), getWidgetTy(widget));
+    };
+
+    const handleMermaidPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const viewport = target.closest('.mermaid-widget-viewport') as HTMLElement | null;
+      if (!viewport) return;
+      const widget = viewport.closest('.mermaid-widget') as HTMLElement | null;
+      if (!widget) return;
+      if ((widget.getAttribute('data-tab') || 'diagram') !== 'diagram') return;
+      if (e.button !== 0) return;
+      const zoomArea = widget.querySelector('.mermaid-widget-zoom-area') as HTMLElement | null;
+      if (zoomArea) zoomArea.style.cursor = 'grabbing';
+      activePan = { widget, startX: e.clientX, startY: e.clientY, startTx: getWidgetTx(widget), startTy: getWidgetTy(widget) };
+      e.preventDefault();
+    };
+
+    const handleMermaidPointerMove = (e: PointerEvent) => {
+      if (!activePan) return;
+      e.preventDefault();
+      const { widget, startX, startY, startTx, startTy } = activePan;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      applyWidgetTransform(widget, getWidgetScale(widget), startTx + dx, startTy + dy);
+    };
+
+    const handleMermaidPointerUp = () => {
+      if (!activePan) return;
+      const zoomArea = activePan.widget.querySelector('.mermaid-widget-zoom-area') as HTMLElement | null;
+      if (zoomArea) zoomArea.style.cursor = 'grab';
+      activePan = null;
+    };
+
+    document.addEventListener('click', handleMermaidClick);
+    document.addEventListener('wheel', handleMermaidWheel, { passive: false });
+    document.addEventListener('pointerdown', handleMermaidPointerDown);
+    document.addEventListener('pointermove', handleMermaidPointerMove, { passive: false } as any);
+    document.addEventListener('pointerup', handleMermaidPointerUp);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeMermaidOverlay();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      document.removeEventListener('click', handleMermaidClick);
+      document.removeEventListener('wheel', handleMermaidWheel as any);
+      document.removeEventListener('pointerdown', handleMermaidPointerDown);
+      document.removeEventListener('pointermove', handleMermaidPointerMove as any);
+      document.removeEventListener('pointerup', handleMermaidPointerUp);
+      document.removeEventListener('keydown', handleKeyDown);
+      closeMermaidOverlay();
+    };
+  });
+
+  createEffect(() => {
+    messages();
+    requestAnimationFrame(() => {
+      const charts = document.querySelectorAll('.mermaid-chart');
+      charts.forEach(async (container) => {
+        await renderMermaidChart(container);
+      });
+    });
   });
 
   const handleRegenerate = async (index: number) => {
@@ -1517,6 +1963,11 @@ export default function Chat() {
                     <Show when={previewContent()?.lang === 'svg'}>
                       <div class="w-full h-full flex items-center justify-center p-4 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIi8+CjxwYXRoIGQ9Ik0wIDBMOCA4Wk04IDBMMCA4WiIgc3Ryb2tlPSIjZWVlIiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')]">
                         <div innerHTML={previewContent()?.content} />
+                      </div>
+                    </Show>
+                    <Show when={previewContent()?.lang === 'mermaid'}>
+                      <div class="w-full h-full p-4 bg-white overflow-hidden">
+                        <MermaidViewer code={previewContent()?.content || ''} />
                       </div>
                     </Show>
                   </div>
