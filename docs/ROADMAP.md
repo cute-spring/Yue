@@ -96,8 +96,44 @@ This document serves as a structured task list for AI development. Each phase is
   - [x] Implement `@` mention system to quickly switch between Agents/Tools in the input box.
   - [x] Add `/` slash command system (e.g., `/search`, `/note`, `/help`).
 
-- [ ] **2.5 MCP Ecosystem & Connectors Expansion (MCP 工具库与连接器扩展)**
-  - **Core Extension Directions (核心扩展方向)**
+## Phase 3: Architecture Refinement & Quality Assurance (架构优化与质量保障) - [IN PROGRESS]
+*Goal: Refactor the service layer for modularity and implement a comprehensive testing framework.*
+
+- ### Status Snapshot — Phase 3 (2026-02-09)
+  - Completed
+    - **LLM Service Modularization**: Refactored the monolithic `model_factory.py` into a dedicated `llm/` package.
+    - **Provider Separation**: Each provider (OpenAI, DeepSeek, Gemini, etc.) is now isolated in its own module under `llm/providers/`.
+    - **Registry-based Factory**: Implemented a dynamic provider registration system for better extensibility and cleaner `get_model` logic.
+    - **Shared Utilities**: Centralized proxy handling, HTTP clients, and caching logic in `llm/utils.py`.
+    - **Backward Compatibility**: Preserved the original `model_factory.py` interface as a compatibility layer to prevent breaking existing code.
+    - **Backend Integration Testing**: Created `backend/tests/test_comprehensive_api.py` covering Models, Config, Chat, Agents, and MCP endpoints.
+    - **Frontend E2E Testing**: Developed Playwright suites in `frontend/e2e/` covering critical user workflows and interactive elements.
+  - Verified
+    - All 6 backend integration tests passed successfully.
+    - All 5 frontend E2E tests (including comprehensive workflow) passed successfully.
+    - Refactored LLM service layer verified to correctly handle streaming and model selection.
+  - Known Notes
+    - The E2E tests now include a mandatory model selection step to ensure chat functionality is enabled.
+  - Next Steps
+    - [ ] Implement automated CI/CD pipeline integration for the new test suites.
+    - [ ] Add performance benchmarking for the modular LLM factory.
+    - [ ] Extend E2E tests to cover multi-modal interactions (image uploads).
+
+- [x] **3.1 Architectural Refactoring**
+  - [x] Extract LLM providers into separate files under `app/services/llm/providers/`.
+  - [x] Implement Abstract Base Class (ABC) for provider interface standardization.
+  - [x] Centralize shared utilities (proxy, HTTP client, caching) in `app/services/llm/utils.py`.
+  - [x] Implement a dynamic provider registry to replace hardcoded switches.
+- [x] **3.2 Comprehensive Testing Strategy**
+  - [x] Design and implement backend integration tests for all core API modules.
+  - [x] Develop frontend E2E tests using Playwright covering navigation, configuration, and chat.
+  - [x] Verify state persistence (settings, agent creation) through end-to-end flows.
+- [ ] **3.3 Performance & Security Audit**
+  - [ ] Conduct performance profiling for agent generation and chat streaming.
+  - [ ] Implement rate limiting and request validation middleware.
+  - [ ] Finalize production-ready Docker configuration with security hardening.
+
+## Phase 4: MCP Ecosystem & Connectors Expansion (MCP 工具库与连接器扩展) - [PLANNED]
     - [ ] **Built-in Connectors**:
       - [ ] Web Search Connector (Tavily/DuckDuckGo integration).
       - [ ] Advanced Code Analysis (AST-aware navigation/search).
