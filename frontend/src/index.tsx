@@ -1,6 +1,7 @@
 /* @refresh reload */
 import { render } from 'solid-js/web';
 import { Router, Route } from '@solidjs/router';
+import { ToastProvider } from './context/ToastContext';
 import './index.css';
 import App from './App';
 import Chat from './pages/Chat';
@@ -18,10 +19,12 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 }
 
 render(() => (
-  <Router root={App}>
-    <Route path="/" component={Chat} />
-    <Route path="/agents" component={Agents} />
-    <Route path="/settings" component={Settings} />
-    <Route path="/notebook" component={Notebook} />
-  </Router>
+  <ToastProvider>
+    <Router root={App}>
+      <Route path="/" component={Chat} />
+      <Route path="/agents" component={Agents} />
+      <Route path="/settings" component={Settings} />
+      <Route path="/notebook" component={Notebook} />
+    </Router>
+  </ToastProvider>
 ), root!);
