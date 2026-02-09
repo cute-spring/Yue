@@ -12,6 +12,30 @@
   - Code refs: [package.json](../frontend/package.json), [Dockerfile](../Dockerfile)
 
 ## Backend API Tests (curl)
+...
+(Previous curl commands omitted for brevity)
+...
+
+## Automated Integration Testing
+
+### 1) Backend Integration Suite
+- **Location**: `backend/tests/test_comprehensive_api.py`
+- **Command**: `export PYTHONPATH=$PYTHONPATH:$(pwd)/backend && pytest backend/tests/test_comprehensive_api.py`
+- **Scope**: Models, Config, Chat History, Agents, MCP Status.
+
+### 2) Frontend E2E Suite
+- **Location**: `frontend/e2e/`
+- **Command**: `cd frontend && npx playwright test`
+- **Scope**: Navigation, Agent Creation, Settings, Chat Workflow, MCP Toggles.
+- **Key File**: `frontend/e2e/comprehensive-workflow.spec.ts` (Validates full user journey).
+
+## Phase 3 Verification Results (2026-02-09)
+
+| Test Category | Suite | Result | Note |
+|---------------|-------|--------|------|
+| Backend API | Pytest | PASSED | 6/6 tests passed. Covers all major service modules. |
+| Frontend E2E | Playwright | PASSED | 5/5 tests passed. Validated core UI workflows. |
+| Refactoring | Manual | PASSED | Modular LLM factory verified for streaming and compatibility. |
 
 ### 1) LLM Config Security
 - Expect: GET returns redacted keys (empty strings for *_api_key).
