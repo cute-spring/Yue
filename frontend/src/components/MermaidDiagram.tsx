@@ -1,6 +1,6 @@
 import { onMount, createSignal, Show, createEffect } from 'solid-js';
 import mermaid from 'mermaid';
-import { getMermaidInitConfig, getMermaidThemePreset } from '../lib/mermaidTheme';
+import { getMermaidInitConfig, getMermaidThemePreset } from '../utils/mermaidTheme';
 
 interface MermaidDiagramProps {
   chart: string;

@@ -7,8 +7,8 @@ import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
 import MermaidViewer from '../components/MermaidViewer';
 import { useToast } from '../context/ToastContext';
-import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../lib/mermaidTheme';
-import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../lib/mermaidExport';
+import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../utils/mermaidTheme';
+import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../utils/mermaidExport';
 
 // Configure marked to use highlight.js via a custom renderer
 const renderer = new marked.Renderer();

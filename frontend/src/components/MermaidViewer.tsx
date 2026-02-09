@@ -1,8 +1,8 @@
 import { createEffect, createMemo, createSignal, onMount, Show } from 'solid-js';
 import hljs from 'highlight.js';
 import mermaid from 'mermaid';
-import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../lib/mermaidTheme';
-import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../lib/mermaidExport';
+import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../utils/mermaidTheme';
+import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../utils/mermaidExport';
 
 interface MermaidViewerProps {
   code: string;
