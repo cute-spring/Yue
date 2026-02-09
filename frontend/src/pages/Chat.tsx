@@ -6,6 +6,7 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
 import MermaidViewer from '../components/MermaidViewer';
+import { useToast } from '../context/ToastContext';
 import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../lib/mermaidTheme';
 import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../lib/mermaidExport';
 
@@ -340,12 +341,12 @@ export default function Chat() {
   const [imageAttachments, setImageAttachments] = createSignal<File[]>([]);
   let imageInputRef: HTMLInputElement | undefined;
 
-  const [toast, setToast] = createSignal<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [inlineToast, setInlineToast] = createSignal<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   let toastTimer: number | undefined;
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     if (toastTimer) window.clearTimeout(toastTimer);
-    setToast({ type, message });
-    toastTimer = window.setTimeout(() => setToast(null), 2200);
+    setInlineToast({ type, message });
+    toastTimer = window.setTimeout(() => setInlineToast(null), 2200);
   };
   
   // History & Knowledge State
@@ -2645,22 +2646,22 @@ export default function Chat() {
         </div>
       </div>
       
-      <Show when={toast()}>
+      <Show when={inlineToast()}>
         <div class="fixed bottom-6 right-6 z-[2000]">
           <div
             class={`px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md flex items-center gap-3 min-w-[240px] ${
-              toast()!.type === 'success'
+              inlineToast()!.type === 'success'
                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200'
-                : toast()!.type === 'error'
+                : inlineToast()!.type === 'error'
                   ? 'bg-rose-500/10 border-rose-500/20 text-rose-200'
                   : 'bg-slate-500/10 border-slate-500/20 text-slate-200'
             }`}
           >
-            <div class={`w-2 h-2 rounded-full ${toast()!.type === 'success' ? 'bg-emerald-400' : toast()!.type === 'error' ? 'bg-rose-400' : 'bg-slate-300'}`} />
-            <div class="text-sm font-bold">{toast()!.message}</div>
+            <div class={`w-2 h-2 rounded-full ${inlineToast()!.type === 'success' ? 'bg-emerald-400' : inlineToast()!.type === 'error' ? 'bg-rose-400' : 'bg-slate-300'}`} />
+            <div class="text-sm font-bold">{inlineToast()!.message}</div>
             <button
               type="button"
-              onClick={() => setToast(null)}
+              onClick={() => setInlineToast(null)}
               class="ml-auto p-1.5 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-colors"
               aria-label="Close"
             >

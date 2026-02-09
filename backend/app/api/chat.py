@@ -5,7 +5,7 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart, ImageUrl
 from app.mcp.manager import mcp_manager
 from app.services.agent_store import agent_store
-from app.services.model_factory import get_model
+from app.services.model_factory import get_model, fetch_ollama_models
 from app.services.chat_service import chat_service, ChatSession
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import json
@@ -169,6 +169,19 @@ async def chat_stream(request: ChatRequest):
             model_name = model_name or "gpt-4o"
             system_prompt = system_prompt or "You are a helpful assistant."
 
+            if provider == "ollama":
+                models = await fetch_ollama_models()
+                if not models:
+                    yield f"data: {json.dumps({'error': 'Ollama 未响应或没有可用模型，请确认服务已启动并可访问'})}\n\n"
+                    return
+                if model_name not in models:
+                    latest_name = f"{model_name}:latest"
+                    if latest_name in models:
+                        model_name = latest_name
+                    else:
+                        yield f"data: {json.dumps({'error': f'Ollama 未找到模型 {model_name}，请先执行 `ollama pull {model_name}`'})}\n\n"
+                        return
+
             tool_names = []
             for tool in tools:
                 name = getattr(tool, "name", None)
@@ -296,8 +309,10 @@ async def chat_stream(request: ChatRequest):
                             yield f"data: {json.dumps({'content': new_content})}\n\n"
                             last_length = len(message)
             except Exception as stream_err:
-                # Handle models that don't support tools (like smaller Ollama models)
                 err_str = str(stream_err)
+                if "status_code: 502" in err_str and provider == "ollama":
+                    yield f"data: {json.dumps({'error': 'Ollama 返回 502，请检查模型是否已拉取且服务正常运行'})}\n\n"
+                    return
                 if "does not support tools" in err_str or "Tool use is not supported" in err_str:
                     logger.info("Model %s does not support tools, falling back to pure chat.", model_name)
                     # Re-create agent without tools
