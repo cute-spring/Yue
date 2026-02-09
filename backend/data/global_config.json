@@ -19,7 +19,8 @@
     "zhipu_model": "glm-4.6v",
     "provider": "zhipu",
     "openai_enabled_models_mode": "allowlist",
-    "ollama_enabled_models_mode": "allowlist"
+    "ollama_enabled_models_mode": "allowlist",
+    "openai_api_key": 123
   },
   "doc_access": {
     "allow_roots": [
