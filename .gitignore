@@ -59,6 +59,11 @@ frontend/.env
 *.log
 logs/
 
+# SQLite & Temp files
+*.db-shm
+*.db-wal
+*.bak
+
 # Data
 backend/data/*.db
 backend/data/*.json
