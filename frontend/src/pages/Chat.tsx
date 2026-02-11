@@ -539,6 +539,9 @@ export default function Chat() {
       const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
       const data = await res.json();
       setProviders(data);
+      if (refresh) {
+        toast.success("Models refreshed");
+      }
 
       let currentProvider = data.find((p: any) => p.name === selectedProvider());
 

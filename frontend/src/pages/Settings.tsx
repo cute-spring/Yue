@@ -61,6 +61,7 @@ type LLMProvider = {
     const [managedModels, setManagedModels] = createSignal<string[]>([]);
     const [enabledModels, setEnabledModels] = createSignal<Set<string>>(new Set());
     const [isSavingModels, setIsSavingModels] = createSignal(false);
+    const [isRefreshingProviders, setIsRefreshingProviders] = createSignal(false);
     
     // Agents State
     const [agents, setAgents] = createSignal<Agent[]>([]);
@@ -694,12 +695,28 @@ type LLMProvider = {
               <div class="mt-2">
                 <button 
                   onClick={async () => {
-                    const providersRes = await fetch('/api/models/providers?refresh=1');
-                    setProviders(await providersRes.json());
+                    setIsRefreshingProviders(true);
+                    try {
+                      const providersRes = await fetch('/api/models/providers?refresh=1');
+                      setProviders(await providersRes.json());
+                      showToast('success', 'Models refreshed from providers');
+                    } catch (e) {
+                      showToast('error', 'Failed to refresh models');
+                    } finally {
+                      setIsRefreshingProviders(false);
+                    }
                   }}
-                  class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                  disabled={isRefreshingProviders()}
+                  class={`text-xs px-3 py-1.5 rounded-md border flex items-center gap-2 transition-colors ${
+                    isRefreshingProviders() 
+                    ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                    : 'bg-white hover:bg-gray-50 text-gray-700'
+                  }`}
                 >
-                  Refresh Available Models
+                  <Show when={isRefreshingProviders()}>
+                    <div class="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+                  </Show>
+                  {isRefreshingProviders() ? 'Refreshing...' : 'Refresh Available Models'}
                 </button>
                 <button 
                   onClick={() => { 

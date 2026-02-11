@@ -353,7 +353,7 @@ async def chat_stream(request: ChatRequest):
                 else:
                     thought_duration = time.time() - thought_start_time
 
-            if thought_duration:
+            if thought_duration is not None:
                 yield f"data: {json.dumps({'thought_duration': thought_duration})}\n\n"
 
             citations = deps.get("citations") if isinstance(deps, dict) else None

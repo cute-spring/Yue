@@ -42,23 +42,21 @@ async def list_providers(refresh: bool = False) -> List[Dict[str, Any]]:
         enabled_mode = llm_config.get(f"{name}_enabled_models_mode")
         use_allowlist = enabled_mode == "allowlist"
         
-        if isinstance(config_enabled, list) and (use_allowlist or len(config_enabled) > 0):
-            if models:
-                available_models = [m for m in models if m in config_enabled]
-            else:
-                available_models = config_enabled
+        # available_models is used for picking in dropdowns (filtered by allowlist)
+        # models (all_models) is used in Settings to allow enabling new ones
+        if isinstance(config_enabled, list) and (use_allowlist or (config_enabled and len(config_enabled) > 0)):
+            available_models = [m for m in models if m in config_enabled] if models else config_enabled
         else:
             available_models = models
             
-        if not models and isinstance(config_enabled, list) and (use_allowlist or len(config_enabled) > 0):
-            models = config_enabled
-            
+        # Ensure 'models' always contains all physically available models from the provider
+        # and 'available_models' respects the user's allowlist configuration
         providers_info.append({
             "name": name,
             "configured": handler.configured(),
             "requirements": handler.requirements(),
             "available_models": available_models,
-            "models": models,
+            "models": models or (config_enabled if isinstance(config_enabled, list) else []),
             "supports_model_refresh": _supports_model_refresh(name),
             "current_model": llm_config.get(f"{name}_model")
         })
