@@ -196,12 +196,14 @@ class McpManager:
             from app.services.agent_store import agent_store
             agent = agent_store.get_agent(agent_id) if agent_id else None
 
-            allowed_tools = None
-            if agent:
-                allowed_tools = set(agent.enabled_tools)
+            # CRITICAL: Default Policy - No tools allowed unless explicitly authorized for an agent
+            if not agent:
+                logger.info("No agent context provided. Returning zero tools for safety.")
+                return []
 
-            # In a real app, we would filter by agent_id
-            # For now, expose all tools from all connected sessions
+            allowed_tools = set(agent.enabled_tools)
+
+            # Filter MCP server tools based on agent authorization
             for name, session in self.sessions.items():
                 try:
                     if getattr(session, "is_closed", False):
@@ -209,17 +211,18 @@ class McpManager:
                     result = await session.list_tools()
                     for tool in result.tools:
                         composite_id = f"{name}:{tool.name}"
-                        if allowed_tools is not None and (composite_id not in allowed_tools and tool.name not in allowed_tools):
-                            continue
-                        tools.append(self._convert_tool(name, session, tool))
+                        # Strict matching: tool must be explicitly in the allowed list
+                        # We check both the composite ID (preferred) and the raw tool name (legacy support)
+                        if composite_id in allowed_tools or tool.name in allowed_tools:
+                            tools.append(self._convert_tool(name, session, tool))
                 except Exception as e:
                     logger.exception("Error listing tools for %s", name)
 
+            # Filter Built-in tools based on agent authorization
             for tool_name, tool_func in self._get_builtin_tools():
                 composite_id = f"builtin:{tool_name}"
-                if allowed_tools is not None and (composite_id not in allowed_tools and tool_name not in allowed_tools):
-                    continue
-                tools.append(tool_func)
+                if composite_id in allowed_tools or tool_name in allowed_tools:
+                    tools.append(tool_func)
 
             return tools
 

@@ -171,9 +171,31 @@ class AgentStore:
             require_citations=True,
         )
 
+    def _builtin_architect_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-architect",
+            name="System Architect",
+            system_prompt=(
+                "You are an expert system architect who excels at visual communication through UML diagrams. "
+                "Your core principle: \"A picture is worth a thousand words\" - always visualize complex concepts.\n\n"
+                "VISUALIZATION GUIDELINES:\n"
+                "1. Proactive Visualization: When users ask about system architecture, workflows, or data flows, generate diagrams.\n"
+                "2. Mermaid Syntax: Always use ```mermaid code blocks with proper language identifier.\n"
+                "3. Best Practices: Use Sequence Diagrams for interactions, Flowcharts for logic, and ER Diagrams for data models.\n"
+                "4. Structure: Visualize first, explain second. Users love diagrams!"
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[],
+        )
+
     def _ensure_builtin_agents(self):
         agents = self.list_agents()
-        builtins = [self._builtin_docs_agent(), self._builtin_local_docs_agent()]
+        builtins = [
+            self._builtin_docs_agent(),
+            self._builtin_local_docs_agent(),
+            self._builtin_architect_agent()
+        ]
         
         changed_any = False
         for builtin in builtins:

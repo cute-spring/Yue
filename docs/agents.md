@@ -268,7 +268,25 @@ Todos updated: 3 items
 
 </details>
 
-## 1.2 权限系统 (Permission System)
+## 1.2 权限系统与工具授权 (Permissions & Tool Authorization)
+
+Yue 采用**“默认拒绝 (Default Deny)”**的安全策略，确保 Agent 只能在授权范围内运行。
+
+### 工具授权机制
+工具的可用性遵循以下白名单逻辑：
+1. **显式白名单**：Agent 只能调用在其 `enabled_tools` 配置中明确列出的工具。
+2. **标识符匹配**：
+   - **MCP 工具**：格式为 `{server_name}:{tool_name}`（例如 `filesystem:read_file`）。
+   - **系统内置工具**：格式为 `builtin:{tool_name}`（例如 `builtin:architect`）。
+3. **隔离策略**：
+   - **默认助手 (Default Agent)**：如果未指定特定的 Agent，系统默认不加载任何 MCP 或内置工具，以防止敏感能力泄露。
+   - **越权防护**：任何未在配置中勾选的工具，即使模型知道其名称，在运行时也会被权限层拦截。
+
+### 权限控制维度
+| 维度 | 字段 | 作用 | 策略 |
+| :--- | :--- | :--- | :--- |
+| **工具可见性** | `enabled_tools` | 控制模型是否能看到并调用该工具 | 白名单准入 |
+| **执行边界** | `permission` | 定义工具执行时的危险程度控制 | `allow` (自动执行) / `ask` (需用户确认) / `deny` (彻底禁止) | (Permission System)
 
 OpenCode 实现了细粒度的权限控制，默认策略通过 `mergeAgentPermissions` 函数进行合并 (`packages/opencode/src/agent/agent.ts:333`)。
 
