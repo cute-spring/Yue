@@ -16,11 +16,17 @@
     "ollama_base_url": "http://localhost:11434",
     "zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4/",
     "llm_request_timeout": 60,
+    "enabled_providers": "openai,azure_openai,deepseek,ollama",
     "zhipu_model": "glm-4.6v",
     "provider": "zhipu",
     "openai_enabled_models_mode": "allowlist",
     "ollama_enabled_models_mode": "allowlist",
-    "openai_api_key": 123
+    "openai_api_key": 123,
+    "azure_deployments": [],
+    "azure_openai_endpoint": "https://test-resource.openai.azure.com",
+    "azure_openai_deployment": "gpt-4o:2024-06-01,o1-preview:2024-09-01-preview",
+    "azure_openai_api_version": "2024-06-01",
+    "azure_openai_token": "your-api-key"
   },
   "doc_access": {
     "allow_roots": [
