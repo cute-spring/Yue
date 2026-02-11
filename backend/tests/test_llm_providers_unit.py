@@ -76,12 +76,12 @@ async def test_azure_provider(mock_config):
     model = provider.build("gpt-4")
     assert model.model_name == "gpt-4"
     assert provider.configured()
-    assert "AZURE_TENANT_ID" in provider.requirements()
+    assert any("AZURE_TENANT_ID" in req for req in provider.requirements())
     
     # Test build error
     with patch("app.services.llm.providers.azure.config_service") as mock_cfg:
         mock_cfg.get_llm_config.return_value = {}
-        with pytest.raises(ValueError, match="Azure OpenAI base_url or deployment missing"):
+        with pytest.raises(ValueError, match="Azure OpenAI configuration missing: base_url and deployment are required"):
             provider.build()
 
 @pytest.mark.asyncio

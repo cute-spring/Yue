@@ -97,7 +97,8 @@ class ConfigService:
             'provider': 'LLM_PROVIDER',
             'llm_base_url': 'LLM_BASE_URL',
             'llm_api_key': 'LLM_API_KEY',
-            'llm_model_name': 'LLM_MODEL_NAME'
+            'llm_model_name': 'LLM_MODEL_NAME',
+            'enabled_providers': 'ENABLED_PROVIDERS'
         }
         
         for key, env_var in env_mapping.items():

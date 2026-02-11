@@ -31,7 +31,17 @@ async def list_providers(refresh: bool = False) -> List[Dict[str, Any]]:
     llm_config = config_service.get_llm_config()
     registered_providers = get_registered_providers()
     
+    # Simple turn on/off provider logic
+    enabled_providers_str = llm_config.get("enabled_providers")
+    enabled_providers = None
+    if enabled_providers_str:
+        enabled_providers = [p.strip().lower() for p in enabled_providers_str.split(",") if p.strip()]
+    
     for name, handler in registered_providers.items():
+        # Filter by enabled_providers if configured
+        if enabled_providers is not None and name.lower() not in enabled_providers:
+            continue
+            
         try:
             models = await handler.list_models(refresh=refresh)
         except Exception:
