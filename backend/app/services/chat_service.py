@@ -16,6 +16,11 @@ class Message(BaseModel):
     images: Optional[List[str]] = None
     timestamp: datetime = Field(default_factory=datetime.now)
     thought_duration: Optional[float] = None
+    ttft: Optional[float] = None
+    total_duration: Optional[float] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
 
 class ChatSession(BaseModel):
     id: str
@@ -60,6 +65,11 @@ class ChatService:
                     content TEXT NOT NULL,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     thought_duration REAL,
+                    ttft REAL,
+                    total_duration REAL,
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
+                    total_tokens INTEGER,
                     FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
                 )
             """)
@@ -69,11 +79,31 @@ class ChatService:
             
             conn.commit()
             
-            # Ensure thought_duration column exists (for existing dbs)
+            # Ensure columns exist (for existing dbs)
             cursor = conn.execute("PRAGMA table_info(messages)")
             columns = [info[1] for info in cursor.fetchall()]
             if "thought_duration" not in columns:
                 conn.execute("ALTER TABLE messages ADD COLUMN thought_duration REAL")
+                conn.commit()
+            
+            if "ttft" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN ttft REAL")
+                conn.commit()
+
+            if "total_duration" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN total_duration REAL")
+                conn.commit()
+
+            if "prompt_tokens" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN prompt_tokens INTEGER")
+                conn.commit()
+
+            if "completion_tokens" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN completion_tokens INTEGER")
+                conn.commit()
+
+            if "total_tokens" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN total_tokens INTEGER")
                 conn.commit()
             
             # Ensure images column exists
@@ -123,7 +153,7 @@ class ChatService:
             sessions = []
             for row in cursor.fetchall():
                 # Get messages for each session
-                msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (row['id'],))
+                msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (row['id'],))
                 messages = []
                 for m in msg_cursor.fetchall():
                     msg_dict = dict(m)
@@ -151,7 +181,7 @@ class ChatService:
             if not row:
                 return None
             
-            msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
+            msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
             messages = []
             for m in msg_cursor.fetchall():
                 msg_dict = dict(m)
@@ -190,7 +220,19 @@ class ChatService:
             updated_at=now
         )
 
-    def add_message(self, chat_id: str, role: str, content: str, thought_duration: Optional[float] = None, images: Optional[List[str]] = None) -> Optional[ChatSession]:
+    def add_message(
+        self, 
+        chat_id: str, 
+        role: str, 
+        content: str, 
+        thought_duration: Optional[float] = None, 
+        images: Optional[List[str]] = None, 
+        ttft: Optional[float] = None, 
+        total_duration: Optional[float] = None,
+        prompt_tokens: Optional[int] = None,
+        completion_tokens: Optional[int] = None,
+        total_tokens: Optional[int] = None
+    ) -> Optional[ChatSession]:
         now = datetime.now()
         with self._get_connection() as conn:
             # Check if session exists
@@ -202,8 +244,8 @@ class ChatService:
             # Add message
             images_json = json.dumps(images) if images else None
             conn.execute(
-                "INSERT INTO messages (session_id, role, content, images, timestamp, thought_duration) VALUES (?, ?, ?, ?, ?, ?)",
-                (chat_id, role, content, images_json, now, thought_duration)
+                "INSERT INTO messages (session_id, role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (chat_id, role, content, images_json, now, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens)
             )
             
             # Update title if it's the first user message

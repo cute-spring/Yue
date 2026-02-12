@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai import Agent
@@ -9,9 +9,11 @@ from app.services.model_factory import get_model, fetch_ollama_models
 from app.services.chat_service import chat_service, ChatSession
 from app.services.llm.utils import handle_llm_exception
 from app.utils.image_handler import save_base64_image, load_image_to_base64
-import json
 import time
+import uuid
+import json
 import logging
+from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +238,8 @@ async def chat_stream(request: ChatRequest):
             full_response = ""
             thought_start_time = None
             thought_end_time = None
+            start_time = time.time()
+            first_token_time = None
             
             try:
                 # Prepare input
@@ -248,6 +252,10 @@ async def chat_stream(request: ChatRequest):
                 # Run with history
                 async with agent.run_stream(user_input, message_history=history, deps=deps) as result:
                     async for message in result.stream_text():
+                        # Track TTFT
+                        if not first_token_time:
+                            first_token_time = time.time()
+
                         # Track thinking time
                         if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
                             thought_start_time = time.time()
@@ -280,6 +288,7 @@ async def chat_stream(request: ChatRequest):
                     full_response = ""
                     thought_start_time = None
                     thought_end_time = None
+                    first_token_time = None # Reset for second attempt
                     
                     # Prepare input
                     user_input = request.message
@@ -290,6 +299,10 @@ async def chat_stream(request: ChatRequest):
 
                     async with agent_no_tools.run_stream(user_input, message_history=history, deps=deps) as result:
                         async for message in result.stream_text():
+                            # Track TTFT
+                            if not first_token_time:
+                                first_token_time = time.time()
+
                             # Track thinking time
                             if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
                                 thought_start_time = time.time()
@@ -305,6 +318,12 @@ async def chat_stream(request: ChatRequest):
                     raise stream_err
             
             # Calculate duration
+            total_end_time = time.time()
+            total_duration = total_end_time - start_time
+            ttft = None
+            if first_token_time:
+                ttft = first_token_time - start_time
+
             thought_duration = None
             if thought_start_time:
                 if thought_end_time:
@@ -314,6 +333,41 @@ async def chat_stream(request: ChatRequest):
 
             if thought_duration is not None:
                 yield f"data: {json.dumps({'thought_duration': thought_duration})}\n\n"
+
+            if ttft is not None:
+                yield f"data: {json.dumps({'ttft': ttft})}\n\n"
+            
+            yield f"data: {json.dumps({'total_duration': total_duration})}\n\n"
+
+            # Capture Usage from Pydantic AI
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            tps = None
+            
+            try:
+                usage = result.usage()
+                
+                # Helper to safely extract integer tokens (avoiding mocks in tests)
+                def to_int(v):
+                    return int(v) if v is not None and isinstance(v, (int, float)) else None
+                
+                prompt_tokens = to_int(usage.request_tokens)
+                completion_tokens = to_int(usage.response_tokens)
+                total_tokens = to_int(usage.total_tokens)
+                
+                if completion_tokens and total_duration > 0:
+                    tps = completion_tokens / total_duration
+                    
+                usage_dict = {
+                    'prompt_tokens': prompt_tokens,
+                    'completion_tokens': completion_tokens,
+                    'total_tokens': total_tokens,
+                    'tps': tps
+                }
+                yield f"data: {json.dumps(usage_dict)}\n\n"
+            except Exception as usage_err:
+                logger.error(f"Failed to get usage: {usage_err}")
 
             citations = deps.get("citations") if isinstance(deps, dict) else None
             if isinstance(citations, list) and citations:
@@ -354,7 +408,17 @@ async def chat_stream(request: ChatRequest):
                     yield f"data: {json.dumps({'content': suffix})}\n\n"
 
             # Save Assistant Message after completion
-            chat_service.add_message(chat_id, "assistant", full_response, thought_duration)
+            chat_service.add_message(
+                chat_id, 
+                "assistant", 
+                full_response, 
+                thought_duration=thought_duration,
+                ttft=ttft,
+                total_duration=total_duration,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens
+            )
             
         except Exception as e:
             logger.exception("Chat error")
