@@ -18,7 +18,7 @@
     "ollama_base_url": "http://localhost:11434",
     "zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4/",
     "llm_request_timeout": 60,
-    "enabled_providers": "openai,azure_openai,deepseek,ollama",
+    "enabled_providers": "azure_openai,deepseek,ollama,zhipu",
     "zhipu_model": "glm-4.6v",
     "provider": "zhipu",
     "openai_enabled_models_mode": "allowlist",

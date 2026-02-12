@@ -333,6 +333,7 @@ class McpManager:
         return [
             ("docs_search", self.docs_search),
             ("docs_read", self.docs_read),
+            ("docs_inspect", self.docs_inspect),
             ("docs_search_pdf", self.docs_search_pdf),
             ("docs_read_pdf", self.docs_read_pdf),
             ("get_current_time", self.get_current_time),
@@ -343,7 +344,7 @@ class McpManager:
             {
                 "id": "builtin:docs_search",
                 "name": "docs_search",
-                "description": "Search files under Yue/docs (or an allowed root_dir) and return matching snippets. mode=markdown limits to .md; mode=text includes .md/.txt/.log/.json/.yaml/.yml/.csv/.ts/.tsx/.js/.jsx/.css/.html.",
+                "description": "Fast keyword search under Yue/docs (or root_dir) using Ripgrep. Returns smart snippets with line numbers. Use concise keywords (2-3 words) for best performance. mode=markdown/text.",
                 "server": "builtin",
                 "input_schema": {
                     "type": "object",
@@ -351,7 +352,7 @@ class McpManager:
                         "query": {"type": "string"},
                         "mode": {"type": "string"},
                         "root_dir": {"type": "string"},
-                        "limit": {"type": "integer"},
+                        "limit": {"type": "integer", "description": "Maximum number of files to return."},
                         "max_files": {"type": "integer"},
                         "timeout_s": {"type": "number"},
                     },
@@ -361,7 +362,7 @@ class McpManager:
             {
                 "id": "builtin:docs_read",
                 "name": "docs_read",
-                "description": "Read a file under Yue/docs (or an allowed root_dir) with line-based pagination. mode=markdown limits to .md; mode=text includes .md/.txt/.log/.json/.yaml/.yml/.csv/.ts/.tsx/.js/.jsx/.css/.html.",
+                "description": "Read file content. Only use this if `docs_search` snippets are insufficient. Supports pagination or centering via `target_line`.",
                 "server": "builtin",
                 "input_schema": {
                     "type": "object",
@@ -370,7 +371,22 @@ class McpManager:
                         "mode": {"type": "string"},
                         "root_dir": {"type": "string"},
                         "start_line": {"type": "integer"},
-                        "max_lines": {"type": "integer"},
+                        "max_lines": {"type": "integer", "description": "Maximum lines to read (default 200)."},
+                        "target_line": {"type": "integer", "description": "If provided, centers the output window around this line."},
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "id": "builtin:docs_inspect",
+                "name": "docs_inspect",
+                "description": "Get document structure (headers), size, and metadata without reading full content. Useful for mapping large documents.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "root_dir": {"type": "string"},
                     },
                     "required": ["path"],
                 },
@@ -593,8 +609,9 @@ class McpManager:
         path: str,
         mode: str = "text",
         root_dir: Optional[str] = None,
-        start_line: int = 1,
+        start_line: Optional[int] = None,
         max_lines: int = 200,
+        target_line: Optional[int] = None,
     ) -> str:
         normalized_mode = (mode or "text").strip().lower()
         if normalized_mode == "markdown":
@@ -623,6 +640,7 @@ class McpManager:
             file_patterns=file_patterns if isinstance(file_patterns, list) else None,
             start_line=start_line,
             max_lines=max_lines,
+            target_line=target_line,
         )
         if isinstance(deps, dict):
             citations = deps.get("citations")
@@ -636,6 +654,33 @@ class McpManager:
                     }
                 )
         return f"{abs_path}#L{start}-L{end}\n{snippet}"
+
+    async def docs_inspect(
+        self,
+        ctx: RunContext[Any],
+        path: str,
+        root_dir: Optional[str] = None,
+    ) -> str:
+        allow_roots, deny_roots = self._get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=doc_retrieval.TEXT_LIKE_EXTENSIONS,
+            require_md=False,
+        )
+        
+        info = doc_retrieval.inspect_doc(
+            path,
+            docs_root=docs_root,
+            allowed_extensions=doc_retrieval.TEXT_LIKE_EXTENSIONS,
+        )
+        return json.dumps(info, ensure_ascii=False, indent=2)
 
     def _get_doc_access(self) -> tuple[List[str], List[str]]:
         cfg = config_service.get_config().get("doc_access", {})
