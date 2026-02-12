@@ -5,6 +5,7 @@ pydantic-ai
 pydantic-ai-slim[openai,anthropic,google,groq,mistral,ollama]
 python-dotenv
 httpx
+certifi
 mcp
 logfire
 fastmcp

@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_async_client, get_model_cache, get_cache_ttl
+from ..utils import get_http_client, build_async_client, get_model_cache, get_cache_ttl, get_ssl_verify, handle_llm_exception
 from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,7 @@ async def fetch_openai_models(refresh: bool = False) -> List[str]:
     if not api_key:
         return ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o3-mini']
         
-    ssl_cert_file = llm_config.get('ssl_cert_file')
-    verify = ssl_cert_file if ssl_cert_file else True
+    verify = get_ssl_verify()
     try:
         async with build_async_client(timeout=2.5, verify=verify, llm_config=llm_config) as client:
             r = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
@@ -34,8 +33,8 @@ async def fetch_openai_models(refresh: bool = False) -> List[str]:
                 filtered = [n for n in names if any(n.startswith(p) for p in ("gpt-", "o1", "o3"))]
                 model_cache["openai"] = {"models": filtered or names, "ts": now}
                 return model_cache["openai"]["models"]
-    except Exception:
-        logger.exception("OpenAI model discovery error")
+    except Exception as e:
+        logger.warning(f"OpenAI model discovery error: {handle_llm_exception(e)}")
     return ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o3-mini']
 
 class OpenAIProviderImpl(SimpleProvider):

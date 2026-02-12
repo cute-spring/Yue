@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_async_client, get_model_cache, get_cache_ttl
+from ..utils import get_http_client, build_async_client, get_model_cache, get_cache_ttl, get_ssl_verify, handle_llm_exception
 from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,7 @@ async def fetch_gemini_models(refresh: bool = False) -> List[str]:
         return ['gemini-1.5-pro', 'gemini-1.5-flash']
         
     url = base_url.rstrip('/') + '/models'
-    ssl_cert_file = llm_config.get('ssl_cert_file')
-    verify = ssl_cert_file if ssl_cert_file else True
+    verify = get_ssl_verify()
     try:
         async with build_async_client(timeout=2.5, verify=verify, llm_config=llm_config) as client:
             r = await client.get(url, params={"key": api_key})
@@ -36,8 +35,8 @@ async def fetch_gemini_models(refresh: bool = False) -> List[str]:
                 short = [n.split('/')[-1] for n in names if isinstance(n, str)]
                 model_cache["gemini"] = {"models": short or names, "ts": now}
                 return model_cache["gemini"]["models"]
-    except Exception:
-        logger.exception("Gemini model discovery error")
+    except Exception as e:
+        logger.warning(f"Gemini model discovery error: {handle_llm_exception(e)}")
     return ['gemini-1.5-pro', 'gemini-1.5-flash']
 
 class GeminiProviderImpl(SimpleProvider):

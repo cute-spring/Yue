@@ -7,6 +7,7 @@ from app.mcp.manager import mcp_manager
 from app.services.agent_store import agent_store
 from app.services.model_factory import get_model, fetch_ollama_models
 from app.services.chat_service import chat_service, ChatSession
+from app.services.llm.utils import handle_llm_exception
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import json
 import time
@@ -264,6 +265,13 @@ async def chat_stream(request: ChatRequest):
                 if "status_code: 502" in err_str and provider == "ollama":
                     yield f"data: {json.dumps({'error': 'Ollama 返回 502，请检查模型是否已拉取且服务正常运行'})}\n\n"
                     return
+                
+                # Check for TLS/SSL or Proxy errors
+                friendly_error = handle_llm_exception(stream_err)
+                if friendly_error != err_str:
+                    yield f"data: {json.dumps({'error': friendly_error})}\n\n"
+                    return
+
                 if "does not support tools" in err_str or "Tool use is not supported" in err_str:
                     logger.info("Model %s does not support tools, falling back to pure chat.", model_name)
                     # Re-create agent without tools
@@ -350,6 +358,6 @@ async def chat_stream(request: ChatRequest):
             
         except Exception as e:
             logger.exception("Chat error")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield f"data: {json.dumps({'error': handle_llm_exception(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

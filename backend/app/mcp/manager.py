@@ -129,23 +129,20 @@ class McpManager:
             # Add proxy settings to MCP server environment if configured
             llm_config = config_service.get_llm_config()
             proxy_url = llm_config.get('proxy_url')
-            no_proxy = llm_config.get('no_proxy')
-            ssl_cert_file = llm_config.get('ssl_cert_file')
+            from app.services.llm.utils import get_ssl_verify, _build_no_proxy_value
+            ssl_verify = get_ssl_verify()
             
             mcp_env = {**os.environ, **(env or {})}
             if proxy_url:
-                mcp_env["HTTP_PROXY"] = proxy_url
-                mcp_env["HTTPS_PROXY"] = proxy_url
-            
-            # 默认包含本地回环地址，确保本地 MCP Server 始终直连
-            default_no_proxy = "localhost,127.0.0.1,::1,0.0.0.0"
-            if no_proxy:
-                mcp_env["NO_PROXY"] = f"{default_no_proxy},{no_proxy}"
-            else:
-                mcp_env["NO_PROXY"] = default_no_proxy
+                for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
+                    mcp_env[key] = proxy_url
                 
-            if ssl_cert_file:
-                mcp_env["SSL_CERT_FILE"] = ssl_cert_file
+                no_proxy_val = _build_no_proxy_value(llm_config.get('no_proxy'), llm_config)
+                mcp_env["NO_PROXY"] = no_proxy_val
+                mcp_env["no_proxy"] = no_proxy_val
+                
+            if isinstance(ssl_verify, str):
+                mcp_env["SSL_CERT_FILE"] = ssl_verify
 
             server_params = StdioServerParameters(
                 command=command,

@@ -8,7 +8,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from openai import AsyncAzureOpenAI
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_client, get_model_cache, get_cache_ttl
+from ..utils import get_http_client, build_client, get_model_cache, get_cache_ttl, get_ssl_verify, handle_llm_exception
 from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)
@@ -90,8 +90,7 @@ def _get_azure_bearer_token(llm_config: Dict[str, Any], max_retries: int = 3) ->
         "scope": AZURE_COGNITIVE_SCOPE,
     }
     
-    ssl_cert_file = llm_config.get("ssl_cert_file")
-    verify = ssl_cert_file if ssl_cert_file else True
+    verify = get_ssl_verify()
     
     last_exc = None
     for attempt in range(max_retries):
@@ -123,7 +122,7 @@ def _get_azure_bearer_token(llm_config: Dict[str, Any], max_retries: int = 3) ->
     
     # Raise the last exception caught during attempts
     if last_exc:
-        raise last_exc
+        raise ValueError(handle_llm_exception(last_exc))
     raise RuntimeError("Failed to fetch Azure AD token for unknown reasons")
 
 def _get_azure_token_provider(llm_config: Dict[str, Any]):
@@ -260,22 +259,19 @@ class AzureOpenAIProviderImpl(SimpleProvider):
         has_static_token = token_value not in (None, "")
         
         try:
+            # Special-case Azure client construction: avoid embedding api-version into base_url
+            # and pass it via client-level default query params instead for better compatibility.
             azure_client = AsyncAzureOpenAI(
                 azure_endpoint=endpoint,
                 api_version=api_version,
                 api_key=token if has_static_token else None,
                 azure_ad_token_provider=token_provider if not has_static_token else None,
-                http_client=get_http_client()
+                http_client=get_http_client(),
+                default_query={"api-version": api_version}
             )
         except Exception as e:
-            error_msg = str(e).lower()
-            if "azure_endpoint" in error_msg or "url" in error_msg:
-                raise ValueError(f"Invalid Azure endpoint '{endpoint}'. Expected format: https://<resource-name>.openai.azure.com")
-            elif "api_key" in error_msg and "azure_ad_token_provider" in error_msg:
-                raise ValueError("Azure OpenAI configuration error: Must provide either azure_openai_token or Azure AD credentials")
-            else:
-                logger.error("Failed to initialize Azure OpenAI client: %s", e)
-                raise
+            logger.error("Failed to initialize Azure OpenAI client: %s", e)
+            raise ValueError(handle_llm_exception(e))
         
         return OpenAIChatModel(
             deployment,

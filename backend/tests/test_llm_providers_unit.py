@@ -166,7 +166,7 @@ async def test_azure_token_fetch_error(mock_config):
             "azure_client_id": "client",
             "azure_client_secret": "secret"
         }
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(ValueError):
             _get_azure_bearer_token(llm_cfg)
 
 @pytest.mark.asyncio
