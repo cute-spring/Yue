@@ -43,7 +43,7 @@ async def test_chat_integration_flow(client, test_db):
         # Mock stream_text generator
         async def mock_stream_text():
             yield "Hello"
-            yield " world"
+            yield "Hello world"
             
         mock_result.stream_text.return_value = mock_stream_text()
         
