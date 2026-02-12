@@ -41,14 +41,34 @@ class McpManager:
         async with self._lock:
             configs = self.load_config()
             logger.info("Loading MCP configs from %s: %s", self.config_path, self._redact_configs(configs))
+            
+            # Use asyncio.gather to connect to all servers in parallel
+            tasks = []
             for config in configs:
-                try:
-                    if config.get("enabled", True):
-                        await self._connect_to_server_unlocked(config)
-                except Exception as e:
-                    logger.exception("Failed to connect to %s", config.get("name"))
-                    name = config.get("name") or "unknown"
-                    self.last_errors[name] = str(e)
+                if config.get("enabled", True):
+                    tasks.append(self._connect_with_retry_and_timeout(config))
+            
+            if tasks:
+                await asyncio.gather(*tasks)
+
+    async def _connect_with_retry_and_timeout(self, config: Dict[str, Any]):
+        name = config.get("name") or "unknown"
+        max_retries = 1
+        timeout = config.get("timeout", 60.0) # Default 60s timeout for each server
+        
+        for attempt in range(max_retries + 1):
+            try:
+                await asyncio.wait_for(self._connect_to_server_unlocked(config), timeout=timeout)
+                return
+            except asyncio.TimeoutError:
+                logger.error("Timeout connecting to MCP server: %s (attempt %d/%d)", name, attempt + 1, max_retries + 1)
+                self.last_errors[name] = "Connection timeout"
+            except Exception as e:
+                logger.exception("Failed to connect to %s (attempt %d/%d)", name, attempt + 1, max_retries + 1)
+                self.last_errors[name] = str(e)
+            
+            if attempt < max_retries:
+                await asyncio.sleep(1) # Wait a bit before retry
 
     async def cleanup(self):
         """Close all connections."""
