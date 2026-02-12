@@ -98,6 +98,68 @@ sequenceDiagram
 2.  **阶段 2（直连内网时）**：
     *   **现象**：私有终点（Private Endpoint）通常使用企业内部 CA 签发的证书，或者是默认的 Azure 证书。
     *   **为何需要配置**：
+        *   如果不信任该证书，连接将无法建立。
+        *   应用需要加载包含该内网 CA 证书的 PEM 文件。
+
+## 4. 核心配置项详解
+
+在 `backend/data/global_config.json` 的 `llm` 部分，你可以进行以下关键配置：
+
+### 4.1 模型列表管理 (`enabled_models` & `enabled_models_mode`)
+
+系统支持对每个 Provider 的模型列表进行精细化管理。这对于控制成本、确保安全以及优化用户界面（隐藏无关模型）非常有用。
+
+#### 配置项说明
+- **`{provider}_enabled_models`**: 一个字符串数组，列出允许或拒绝的模型 ID。
+- **`{provider}_enabled_models_mode`**: 控制列表的行为模式。
+  - `allowlist` (白名单模式): **仅**在该列表中的模型才会在 UI 界面和模型选择器中显示。
+  - `denylist` (黑名单模式): 列表中的模型将被隐藏，其余所有 Provider 发现的模型都将显示。
+  - `off` 或未配置: 禁用过滤，显示 Provider 发现的所有模型。
+
+#### 配置示例 (Azure OpenAI)
+```json
+{
+  "llm": {
+    "azure_openai_enabled_models": ["gpt4o", "o1"],
+    "azure_openai_enabled_models_mode": "allowlist"
+  }
+}
+```
+*在此配置下，用户在界面上只能看到并使用 `gpt4o` 和 `o1` 两个模型。*
+
+### 4.2 Azure 部署昵称支持 (`azure_openai_deployment`)
+
+Azure OpenAI 的部署名称（Deployment Name）在企业环境中往往由于命名规范而变得非常冗长（如 `enterprise-gpt-4o-prod-001`）。系统支持通过“昵称”来简化界面显示。
+
+#### 配置格式
+`[nickname=]real_deployment_name[:api_version]`
+
+- **`nickname`** (可选): 在 UI 界面上显示的简短名称。
+- **`real_deployment_name`**: Azure Portal 中实际的部署名称。
+- **`api_version`** (可选): 该部署特定的 API 版本。如果未提供，则使用全局配置。
+
+#### 配置示例
+```json
+{
+  "llm": {
+    "azure_openai_deployment": "gpt4o=enterprise-gpt-4o-prod-001:2024-06-01, o1=internal-o1-preview-2024"
+  }
+}
+```
+*用户在界面上看到的是 `gpt4o` 和 `o1`，但系统实际调用的是冗长的真实名称。*
+
+## 5. 企业代理与 TLS 配置 (回顾)
+
+为了确保上述配置在内网环境下生效，请确保基础网络配置正确：
+
+### 5.1 环境变量与证书隔离
+系统会自动处理 `HTTP_PROXY` 与 `NO_PROXY`。如果你的企业代理需要证书验证：
+1. 将企业根证书保存为 `.pem` 格式。
+2. 在配置中设置 `SSL_CERT_FILE` 指向该路径。
+3. 系统会自动将该证书与 `certifi` 的公网证书合并，确保公网验证（AAD）和内网调用（AOAI）都能正常通过。
+
+### 5.2 自动 NO_PROXY 推理
+系统会自动从 `azure_openai_endpoint` 中提取主机名并加入 `NO_PROXY` 列表，你通常不需要手动配置 Azure 的直连规则。
         *   如果是**内部 CA 签发**：必须信任该内部 CA 根证书。
         *   如果是**默认 Azure 证书**（`*.openai.azure.com`）：通常由公网 CA 签发，**不需要**额外配置 `SSL_CERT_FILE`，除非你的服务器连根证书库（Mozilla CA bundle）都被精简掉了。
 

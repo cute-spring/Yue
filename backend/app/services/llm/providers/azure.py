@@ -24,7 +24,7 @@ async def fetch_azure_deployments(refresh: bool = False) -> List[str]:
     """
     Return the configured Azure OpenAI deployment(s).
     Supports multiple deployments via comma-separated string in AZURE_OPENAI_DEPLOYMENT.
-    Can also specify version per deployment using 'name:version' format.
+    Format: [nickname=]deployment_name[:version]
     """
     llm_config = config_service.get_llm_config()
     deployment_str = llm_config.get("azure_openai_deployment")
@@ -37,8 +37,13 @@ async def fetch_azure_deployments(refresh: bool = False) -> List[str]:
         d = d.strip()
         if not d:
             continue
-        # If format is name:version, only return the name for the list
-        if ":" in d:
+        
+        # Handle nickname=real_name:version or nickname=real_name
+        if "=" in d:
+            nickname = d.split("=")[0].strip()
+            deployments.append(nickname)
+        # Handle real_name:version
+        elif ":" in d:
             deployments.append(d.split(":")[0].strip())
         else:
             deployments.append(d)
@@ -211,7 +216,7 @@ class AzureOpenAIProviderImpl(SimpleProvider):
         Build and return an OpenAIChatModel instance configured for Azure.
         
         Args:
-            model_name: Optional deployment name to override configuration.
+            model_name: Optional deployment name (or nickname) to override configuration.
             
         Returns:
             An instance of OpenAIChatModel.
@@ -219,31 +224,51 @@ class AzureOpenAIProviderImpl(SimpleProvider):
         llm_config = self._get_config()
         base_url = llm_config.get("azure_openai_base_url") or llm_config.get("azure_openai_endpoint")
         
-        # Get all configured deployments and their optional versions
+        # Get all configured deployments and parse them
         deployment_str = llm_config.get("azure_openai_deployment") or ""
         deployments_info = [d.strip() for d in deployment_str.split(",") if d.strip()]
         
-        # Parse deployments into a mapping of name -> version
-        deployment_map = {}
+        # Parse deployments into a mapping of display_name -> (real_name, version)
+        deployment_info_map = {}
         for d in deployments_info:
-            if ":" in d:
-                name, version = d.split(":", 1)
-                deployment_map[name.strip()] = version.strip()
+            nickname = None
+            real_name = None
+            version = None
+            
+            if "=" in d:
+                nickname, rest = d.split("=", 1)
+                nickname = nickname.strip()
+                if ":" in rest:
+                    real_name, version = rest.split(":", 1)
+                    real_name = real_name.strip()
+                    version = version.strip()
+                else:
+                    real_name = rest.strip()
+            elif ":" in d:
+                real_name, version = d.split(":", 1)
+                real_name = real_name.strip()
+                version = version.strip()
             else:
-                deployment_map[d.strip()] = None
+                real_name = d.strip()
+            
+            display_name = nickname or real_name
+            deployment_info_map[display_name] = (real_name, version)
         
-        # Use provided model_name or default to the first configured deployment
-        deployment = model_name or (list(deployment_map.keys())[0] if deployment_map else None)
+        # Determine which deployment to use
+        display_name = model_name or (next(iter(deployment_info_map.keys())) if deployment_info_map else None)
         
-        if not (base_url and deployment):
+        if not (base_url and display_name):
             raise ValueError("Azure OpenAI configuration missing: base_url and deployment are required")
             
+        # Resolve real deployment name and optional version
+        real_deployment, version = deployment_info_map.get(display_name, (display_name, None))
+        
         token_provider = _get_azure_token_provider(llm_config)
         # Fetch initial token to verify connectivity and configuration
         token = token_provider()
         
         # Determine API version: 1. deployment-specific, 2. global config, 3. default
-        api_version = deployment_map.get(deployment) or llm_config.get("azure_openai_api_version") or DEFAULT_API_VERSION
+        api_version = version or llm_config.get("azure_openai_api_version") or DEFAULT_API_VERSION
         
         # Validate API version format
         if not re.match(r'^\d{4}-\d{2}-\d{2}(-preview)?$', api_version):
@@ -274,7 +299,7 @@ class AzureOpenAIProviderImpl(SimpleProvider):
             raise ValueError(handle_llm_exception(e))
         
         return OpenAIChatModel(
-            deployment,
+            real_deployment,
             provider=OpenAIProvider(
                 openai_client=azure_client
             )
@@ -284,7 +309,7 @@ class AzureOpenAIProviderImpl(SimpleProvider):
         """List required configuration keys for this provider."""
         return [
             'AZURE_OPENAI_BASE_URL (e.g. https://your-resource.openai.azure.com)',
-            'AZURE_OPENAI_DEPLOYMENT (Support multiple deployments and per-deployment versions, e.g. gpt-4o:2024-06-01,o1-preview:2024-09-01-preview)',
+            'AZURE_OPENAI_DEPLOYMENT (Support multiple deployments, nicknames and per-deployment versions, e.g. gpt4=gpt-4o:2024-06-01,o1=o1-preview:2024-09-01-preview)',
             'AZURE_OPENAI_API_VERSION (Default version if not specified per deployment, e.g. 2024-06-01)',
             'AZURE_OPENAI_TOKEN (API Key) OR Azure AD Credentials:',
             '- AZURE_TENANT_ID',
@@ -318,14 +343,25 @@ class AzureOpenAIProviderImpl(SimpleProvider):
         deployments_info = [d.strip() for d in deployment_str.split(",") if d.strip()]
         valid_deployments = 0
         for d in deployments_info:
-            if ":" in d:
+            # Handle [nickname=]real_name[:version]
+            if "=" in d:
+                _, rest = d.split("=", 1)
+                if ":" in rest:
+                    deployment, version = rest.split(":", 1)
+                else:
+                    deployment = rest
+                    version = None
+            elif ":" in d:
                 deployment, version = d.split(":", 1)
-                deployment = deployment.strip()
+            else:
+                deployment = d
+                version = None
+            
+            deployment = deployment.strip()
+            if version:
                 version = version.strip()
                 if not re.match(r'^\d{4}-\d{2}-\d{2}(-preview)?$', version):
                     logger.warning("Azure deployment '%s' has potentially invalid API version '%s'", deployment, version)
-            else:
-                deployment = d.strip()
             
             if not re.match(r'^[a-zA-Z0-9_-]+$', deployment):
                 logger.warning(
