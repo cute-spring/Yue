@@ -2,56 +2,66 @@ import pytest
 import httpx
 import os
 from app.services.llm.utils import (
-    _get_proxies_config, 
-    _build_no_proxy_value, 
+    get_ssl_verify,
     build_async_client,
     get_model_cache,
-    get_cache_ttl
+    get_cache_ttl,
+    handle_llm_exception
 )
+import tempfile
+from unittest.mock import patch, MagicMock
+
+def test_handle_llm_exception_tls():
+    e = Exception("SSL: CERTIFICATE_VERIFY_FAILED")
+    msg = handle_llm_exception(e)
+    assert "TLS/SSL Certificate Verification Failed" in msg
+    assert "ssl_cert_file" in msg
+
+def test_handle_llm_exception_proxy():
+    e = Exception("ProxyError: All connection attempts failed")
+    msg = handle_llm_exception(e)
+    assert "Proxy connection failed" in msg
+    assert "Proxy URL" in msg
+
+def test_handle_llm_exception_normal():
+    e = Exception("Some other error")
+    msg = handle_llm_exception(e)
+    assert msg == "Some other error"
 
 def test_model_cache_accessors():
     cache = get_model_cache()
     assert isinstance(cache, dict)
     assert get_cache_ttl() == 3600
 
-def test_get_proxies_config_empty():
-    assert _get_proxies_config({}) is None
+def test_get_ssl_verify_default(monkeypatch):
+    with patch("app.services.llm.utils.config_service") as mock_cfg:
+        mock_cfg.get_llm_config.return_value = {}
+        assert get_ssl_verify() is True
 
-def test_get_proxies_config_with_url():
-    config = {"proxy_url": "http://proxy:8080"}
-    proxies = _get_proxies_config(config)
-    assert proxies["all://"] == "http://proxy:8080"
-    assert proxies["all://localhost"] is None
-    assert proxies["all://127.0.0.1"] is None
-
-def test_get_proxies_config_with_no_proxy():
-    config = {
-        "proxy_url": "http://proxy:8080",
-        "no_proxy": "example.com, api.test.org"
-    }
-    proxies = _get_proxies_config(config)
-    assert proxies["all://example.com"] is None
-    assert proxies["all://api.test.org"] is None
-
-def test_build_no_proxy_value():
-    assert "localhost" in _build_no_proxy_value(None)
-    assert "custom.com" in _build_no_proxy_value("custom.com")
-    assert "localhost" in _build_no_proxy_value("custom.com")
+def test_get_ssl_verify_with_cert(monkeypatch):
+    with tempfile.NamedTemporaryFile(suffix=".pem") as tmp:
+        with patch("app.services.llm.utils.config_service") as mock_cfg:
+            mock_cfg.get_llm_config.return_value = {"ssl_cert_file": tmp.name}
+            # Should return a path to a combined bundle
+            verify = get_ssl_verify()
+            assert isinstance(verify, str)
+            assert os.path.exists(verify)
+            assert verify.endswith(".pem")
 
 @pytest.mark.asyncio
 async def test_build_async_client_basic():
     llm_config = {}
-    async with build_async_client(timeout=10.0, verify=True, llm_config=llm_config) as client:
-        assert isinstance(client, httpx.AsyncClient)
-        assert client.timeout.connect == 10.0
+    with patch("app.services.llm.utils.get_ssl_verify", return_value=True):
+        async with build_async_client(timeout=10.0, verify=True, llm_config=llm_config) as client:
+            assert isinstance(client, httpx.AsyncClient)
+            assert client.timeout.connect == 10.0
+            assert client.trust_env is True
 
 @pytest.mark.asyncio
 async def test_build_async_client_with_proxy(monkeypatch):
-    from unittest.mock import patch, MagicMock
     llm_config = {"proxy_url": "http://proxy:8080", "no_proxy": "local.net"}
     
-    with patch("httpx.AsyncClient") as mock_client, \
-         patch("app.services.llm.utils._client_supports_param", return_value=True):
+    with patch("httpx.AsyncClient") as mock_client:
         mock_instance = MagicMock()
         mock_instance.__aenter__.return_value = mock_instance
         mock_client.return_value = mock_instance
@@ -59,10 +69,13 @@ async def test_build_async_client_with_proxy(monkeypatch):
         async with build_async_client(timeout=5.0, verify=False, llm_config=llm_config) as client:
             pass
             
-        # Check if either 'proxies' or 'proxy' was passed to AsyncClient
         args, kwargs = mock_client.call_args
-        assert "proxies" in kwargs or "proxy" in kwargs
-        if "proxies" in kwargs:
-            assert kwargs["proxies"]["all://"] == "http://proxy:8080"
-        else:
-            assert kwargs["proxy"] == "http://proxy:8080"
+        # Should now use trust_env=True and environment variables instead of explicit proxies param
+        assert kwargs["trust_env"] is True
+        assert "proxies" not in kwargs
+        assert "proxy" not in kwargs
+        
+        # Verify environment variables were set
+        assert os.environ.get("HTTP_PROXY") == "http://proxy:8080"
+        assert os.environ.get("HTTPS_PROXY") == "http://proxy:8080"
+        assert "local.net" in os.environ.get("NO_PROXY", "")

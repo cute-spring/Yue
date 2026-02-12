@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from dotenv import load_dotenv
 from app.services.model_factory import list_supported_providers, list_providers, get_model, LLMProvider
-from app.services.config_service import config_service
+from app.services.llm import (
+    LLMProvider,
+    get_model,
+    list_providers,
+)
+from app.services.llm.utils import handle_llm_exception
 
 router = APIRouter()
-
-@router.get("/supported")
-async def supported():
-    return list_supported_providers()
 
 @router.get("/providers")
 async def providers(refresh: bool = Query(default=False)):
@@ -37,7 +38,7 @@ async def test_provider(provider: str, payload: dict = Body(None)):
         get_model(provider, model_name)
         return {"provider": provider, "ok": True}
     except Exception as e:
-        return {"provider": provider, "ok": False, "error": str(e)}
+        return {"provider": provider, "ok": False, "error": handle_llm_exception(e)}
 
 @router.get("/custom")
 async def list_custom_models():

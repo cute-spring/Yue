@@ -2,7 +2,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_async_client
+from ..utils import get_http_client, build_async_client, get_ssl_verify
 from app.services.config_service import config_service
 
 class LiteLLMProviderImpl(SimpleProvider):
@@ -15,8 +15,7 @@ class LiteLLMProviderImpl(SimpleProvider):
         if not base_url or not api_key:
             return []
         url = base_url.rstrip("/") + "/v1/models"
-        ssl_cert_file = llm_config.get('ssl_cert_file')
-        verify = ssl_cert_file if ssl_cert_file else True
+        verify = get_ssl_verify()
         try:
             async with build_async_client(timeout=2.0, verify=verify, llm_config=llm_config) as client:
                 r = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})

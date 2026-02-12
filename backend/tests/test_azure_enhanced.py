@@ -41,12 +41,17 @@ async def test_azure_build_with_specific_version(mock_config):
         # 检查 AsyncAzureOpenAI 初始化参数
         args, kwargs = mock_client.call_args
         assert kwargs["api_version"] == "2024-06-01"
+        # 验证 api-version 同时也通过 default_query 传递
+        assert kwargs["default_query"] == {"api-version": "2024-06-01"}
+        # 验证 base_url (azure_endpoint) 不包含 api-version
+        assert "api-version" not in str(kwargs["azure_endpoint"])
         
     # 2. 测试另一个显式指定版本的部署
     with patch("app.services.llm.providers.azure.AsyncAzureOpenAI") as mock_client:
         provider.build("o1-preview")
         args, kwargs = mock_client.call_args
         assert kwargs["api_version"] == "2024-09-01-preview"
+        assert kwargs["default_query"] == {"api-version": "2024-09-01-preview"}
         
     # 3. 测试未指定版本的部署（应回退到全局配置或默认值）
     with patch("app.services.llm.providers.azure.AsyncAzureOpenAI") as mock_client:
@@ -54,6 +59,7 @@ async def test_azure_build_with_specific_version(mock_config):
         args, kwargs = mock_client.call_args
         # 在 mock_config 中设置了 azure_openai_api_version 为 2024-02-01
         assert kwargs["api_version"] == "2024-02-01"
+        assert kwargs["default_query"] == {"api-version": "2024-02-01"}
 
 @pytest.mark.asyncio
 async def test_azure_configured_validation(mock_config):

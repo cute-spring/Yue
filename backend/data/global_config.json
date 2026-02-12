@@ -26,7 +26,7 @@
     "openai_api_key": 123,
     "azure_deployments": [],
     "azure_openai_endpoint": "https://test-resource.openai.azure.com",
-    "azure_openai_deployment": "gpt-4o:2024-06-01,o1-preview:2024-09-01-preview",
+    "azure_openai_deployment": "gpt4o=gpt-4o:2024-06-01,o1=o1-preview:2024-09-01-preview",
     "azure_openai_api_version": "2024-06-01",
     "azure_openai_token": "your-api-key"
   },

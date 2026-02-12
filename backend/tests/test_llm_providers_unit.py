@@ -63,6 +63,34 @@ async def test_fetch_openai_models_success(mock_config):
         assert "text-davinci" not in models # Filtered by prefix
 
 @pytest.mark.asyncio
+async def test_azure_provider_nicknames(mock_config):
+    provider = AzureOpenAIProviderImpl()
+    
+    with patch("app.services.llm.providers.azure.config_service") as mock_cfg:
+        mock_cfg.get_llm_config.return_value = {
+            "azure_openai_base_url": "https://test.openai.azure.com/",
+            "azure_openai_deployment": "gpt4=gpt-4-long-name:2024-06-01,o1=o1-preview",
+            "azure_openai_token": "token"
+        }
+        
+        # Test list_models returns nicknames
+        models = await provider.list_models()
+        assert "gpt4" in models
+        assert "o1" in models
+        assert "gpt-4-long-name" not in models
+        
+        # Test build resolves nickname to real name
+        model = provider.build("gpt4")
+        assert model.model_name == "gpt-4-long-name"
+        
+        model = provider.build("o1")
+        assert model.model_name == "o1-preview"
+        
+        # Test build works with real name if not in nickname map (fallback)
+        model = provider.build("direct-name")
+        assert model.model_name == "direct-name"
+
+@pytest.mark.asyncio
 async def test_azure_provider(mock_config):
     provider = AzureOpenAIProviderImpl()
     models = await provider.list_models()
@@ -166,7 +194,7 @@ async def test_azure_token_fetch_error(mock_config):
             "azure_client_id": "client",
             "azure_client_secret": "secret"
         }
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(ValueError):
             _get_azure_bearer_token(llm_cfg)
 
 @pytest.mark.asyncio
