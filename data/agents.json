@@ -73,5 +73,57 @@
     "require_citations": false,
     "created_at": "2026-02-11T22:27:49.859461",
     "updated_at": "2026-02-11T22:27:49.859462"
+  },
+  {
+    "id": "10b9e52c-71e2-4ae6-b4cd-9fbbb2f26994",
+    "name": "E2E Test Agent",
+    "system_prompt": "You are an E2E test agent.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "created_at": "2026-02-13T19:39:15.892791",
+    "updated_at": "2026-02-13T19:39:15.892796"
+  },
+  {
+    "id": "c57c14ca-15d4-44f2-a976-99d70f6917ab",
+    "name": "E2E Test Agent",
+    "system_prompt": "You are an E2E test agent.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "created_at": "2026-02-13T19:40:13.787654",
+    "updated_at": "2026-02-13T19:40:13.787659"
+  },
+  {
+    "id": "b3bbb107-4bdc-45de-ae0b-f63a6c231c28",
+    "name": "E2E Test Agent",
+    "system_prompt": "You are an E2E test agent.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "created_at": "2026-02-13T19:43:41.030387",
+    "updated_at": "2026-02-13T19:43:41.030392"
+  },
+  {
+    "id": "b56f8310-3b13-44cd-8d06-4bfe9df45f7a",
+    "name": "E2E Test Agent",
+    "system_prompt": "You are an E2E test agent.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "created_at": "2026-02-13T19:47:01.211046",
+    "updated_at": "2026-02-13T19:47:01.211050"
   }
 ]

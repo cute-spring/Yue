@@ -5,7 +5,22 @@ describe('Markdown Utils', () => {
   describe('normalizeMermaidCode', () => {
     it('should remove backticks and mermaid tag', () => {
       const input = '```mermaid\ngraph TD;\nA-->B;\n```';
-      expect(normalizeMermaidCode(input)).toBe('graph TD;\nA-->B;');
+      expect(normalizeMermaidCode(input)).toBe('graph TD;\nA --> B;');
+    });
+
+    it('should fix broken arrows with spaces', () => {
+      const input = 'graph TD;\nA - -> B;';
+      expect(normalizeMermaidCode(input)).toBe('graph TD;\nA --> B;');
+    });
+
+    it('should fix arrow spacing', () => {
+      const input = 'graph TD;\nA-->B;\nC-.->D;';
+      expect(normalizeMermaidCode(input)).toBe('graph TD;\nA --> B;\nC -.-> D;');
+    });
+
+    it('should fix participant declarations in sequence diagrams', () => {
+      const input = 'sequenceDiagram\nparticipant Alice as A';
+      expect(normalizeMermaidCode(input)).toBe('sequenceDiagram\nparticipant A as Alice');
     });
   });
 
