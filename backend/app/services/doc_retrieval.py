@@ -2,9 +2,14 @@ import os
 import re
 import time
 import sys
+import subprocess
+import json
+import shutil
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Dict, Any, Tuple, Set
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 @dataclass(frozen=True)
@@ -40,7 +45,17 @@ TEXT_LIKE_EXTENSIONS: List[str] = [
 PDF_EXTENSIONS: List[str] = [".pdf"]
 
 
+# Common noise directories to skip during document crawling/searching
+NOISE_DIRS: Set[str] = {
+    "venv", ".venv", "node_modules", ".git", "__pycache__", 
+    ".pytest_cache", ".idea", ".vscode", "dist", "build", "target",
+    "vendor", "pods"
+}
+
+
 def get_project_root() -> str:
+    # __file__ is /Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/doc_retrieval.py
+    # we want /Users/gavinzhang/ws-ai-recharge-2026/Yue
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
 
 
@@ -260,8 +275,15 @@ def iter_files(
             exts.append(e)
         normalized_exts = set(exts)
     count = 0
-    for root, _dirs, files in os.walk(docs_root):
+    for root, dirs, files in os.walk(docs_root):
+        # Skip hidden directories and common noise directories
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d.lower() not in NOISE_DIRS]
+        
         for name in files:
+            # Skip hidden files
+            if name.startswith("."):
+                continue
+                
             if normalized_exts is not None:
                 if not any(name.lower().endswith(ext) for ext in normalized_exts):
                     continue
@@ -317,14 +339,16 @@ def read_text_lines(
     docs_root: Optional[str] = None,
     allowed_extensions: Optional[List[str]] = None,
     file_patterns: Optional[List[str]] = None,
-    start_line: int = 1,
+    start_line: Optional[int] = None,
     max_lines: int = 200,
+    target_line: Optional[int] = None,
     max_bytes: int = 2 * 1024 * 1024,
 ) -> tuple[str, int, int, str]:
-    if start_line < 1:
-        raise DocAccessError("start_line must be >= 1")
     if max_lines < 1:
         raise DocAccessError("max_lines must be >= 1")
+    if start_line is not None and start_line < 1:
+        raise DocAccessError("start_line must be >= 1")
+    
     docs_root = docs_root or get_docs_root()
     abs_path = resolve_docs_path(
         requested_path,
@@ -335,11 +359,58 @@ def read_text_lines(
     )
     text = _read_text_file(abs_path, max_bytes=max_bytes)
     lines = text.splitlines()
-    start_idx = start_line - 1
-    end_idx = min(start_idx + max_lines, len(lines))
+    
+    if target_line is not None:
+        # Center the window around target_line
+        half = max_lines // 2
+        start_idx = max(0, target_line - 1 - half)
+        end_idx = min(len(lines), start_idx + max_lines)
+    else:
+        start_val = start_line if start_line is not None else 1
+        if start_val < 1:
+            raise DocAccessError("start_line must be >= 1")
+        start_idx = start_val - 1
+        end_idx = min(start_idx + max_lines, len(lines))
+        
     selected = lines[start_idx:end_idx]
     snippet = "\n".join(selected)
-    return abs_path, start_line, max(start_line, end_idx), snippet
+    return abs_path, start_idx + 1, max(start_idx + 1, end_idx), snippet
+
+
+def inspect_doc(
+    requested_path: str,
+    *,
+    docs_root: Optional[str] = None,
+    allowed_extensions: Optional[List[str]] = None,
+    max_bytes: int = 2 * 1024 * 1024,
+) -> dict:
+    """
+    Returns document structure (headers), size, and line count.
+    """
+    docs_root = docs_root or get_docs_root()
+    abs_path = resolve_docs_path(
+        requested_path,
+        docs_root=docs_root,
+        require_md=False,
+        allowed_extensions=allowed_extensions,
+    )
+    
+    st = os.stat(abs_path)
+    text = _read_text_file(abs_path, max_bytes=max_bytes)
+    lines = text.splitlines()
+    
+    headers = []
+    for i, line in enumerate(lines):
+        if line.startswith("#"):
+            headers.append({"line": i + 1, "text": line.strip()})
+            
+    return {
+        "path": abs_path,
+        "size_bytes": st.st_size,
+        "line_count": len(lines),
+        "headers": headers[:100], # Limit to first 100 headers
+        "extension": os.path.splitext(abs_path)[1].lower()
+    }
 
 
 def _read_pdf_pages_text(
@@ -421,30 +492,100 @@ def _make_line_snippet(text: str, idx: int, *, window_lines: int = 3, max_lines:
         end = min(len(lines), max_lines)
         snippet = "\n".join(lines[0:end])
         return snippet, 1, max(1, end)
+    
     line_idx = text[:idx].count("\n")
+    
+    # Smart boundary detection: Try to find the start of the current section (Markdown header)
     start_idx = max(0, line_idx - window_lines)
+    for i in range(line_idx, max(-1, line_idx - 10), -1):
+        if i < len(lines) and lines[i].startswith("#"):
+            start_idx = i
+            break
+            
     end_idx = min(len(lines), line_idx + window_lines + 1)
+    # If we hit another header shortly after, stop there
+    for i in range(line_idx + 1, min(len(lines), line_idx + window_lines + 5)):
+        if lines[i].startswith("#"):
+            end_idx = i
+            break
+
     snippet = "\n".join(lines[start_idx:end_idx])
     return snippet, start_idx + 1, max(start_idx + 1, end_idx)
+
+
+def _make_smart_snippets(text: str, tokens: List[str], *, max_snippets: int = 3, window_lines: int = 5) -> List[tuple[str, int, int]]:
+    """
+    Finds multiple high-density snippet areas in the text.
+    """
+    lower = text.lower()
+    lines = text.splitlines()
+    line_starts = []
+    curr = 0
+    for l in lines:
+        line_starts.append(curr)
+        curr += len(l) + 1
+        
+    # Calculate density for each line
+    line_scores = [0.0] * len(lines)
+    for t in tokens:
+        start = 0
+        while True:
+            idx = lower.find(t, start)
+            if idx == -1:
+                break
+            # Find which line this match is in
+            import bisect
+            l_idx = bisect.bisect_right(line_starts, idx) - 1
+            if 0 <= l_idx < len(line_scores):
+                line_scores[l_idx] += 1.0 if len(t) >= 3 else 0.5
+            start = idx + len(t)
+
+    # Cluster high-score lines into snippets
+    snippets = []
+    used_lines = set()
+    
+    # Get top scoring lines
+    scored_lines = sorted([(s, i) for i, s in enumerate(line_scores) if s > 0], reverse=True)
+    
+    for score, l_idx in scored_lines:
+        if len(snippets) >= max_snippets:
+            break
+        if l_idx in used_lines:
+            continue
+            
+        # Expand around this line
+        s_text, start_line, end_line = _make_line_snippet(text, line_starts[l_idx], window_lines=window_lines)
+        
+        # Mark lines as used
+        for i in range(start_line - 1, end_line):
+            used_lines.add(i)
+            
+        snippets.append((s_text, start_line, end_line))
+        
+    return snippets
 
 
 def _tokenize_query(query: str) -> List[str]:
     q = (query or "").strip().lower()
     if not q:
         return []
-    parts = re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", q)
+    # Include alphanumeric, Chinese characters, and common special characters for search
+    parts = re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+|[^\w\s]", q)
     tokens: List[str] = []
     for p in parts:
         if not p:
             continue
+        # For alphanumeric, keep if >= 2 chars
         if re.fullmatch(r"[a-z0-9]+", p):
             if len(p) >= 2:
                 tokens.append(p)
             continue
-        if len(p) >= 2:
-            tokens.append(p)
-        if len(p) > 2:
+        # For others (Chinese, special chars), keep as is
+        tokens.append(p)
+        # N-gram for Chinese
+        if re.fullmatch(r"[\u4e00-\u9fff]+", p) and len(p) > 2:
             tokens.extend(p[i : i + 2] for i in range(len(p) - 1))
+    
     seen = set()
     out: List[str] = []
     for t in tokens:
@@ -475,6 +616,125 @@ def search_markdown(
     )
 
 
+@lru_cache(maxsize=1)
+def _is_ripgrep_available() -> bool:
+    """Checks if ripgrep (rg) is installed and available in the system PATH."""
+    return shutil.which("rg") is not None
+
+
+def _search_with_ripgrep(
+    query: str,
+    docs_root: str,
+    allowed_extensions: Optional[List[str]] = None,
+    limit: int = 50,
+    max_file_bytes: int = 2 * 1024 * 1024,
+) -> List[DocSnippet]:
+    """
+    Performs a fast search using ripgrep.
+    Returns a list of DocSnippet objects based on rg's output.
+    """
+    if not _is_ripgrep_available():
+        return []
+
+    # rg <query> <root> --json --fixed-strings --context 1 --max-filesize 2M --max-columns 500 --max-results 50
+    cmd = [
+        "rg", 
+        query, 
+        docs_root, 
+        "--json", 
+        "--fixed-strings", # Treat query as a literal string
+        "--context", "1", 
+        "--max-filesize", str(max_file_bytes),
+        "--max-columns", "500",
+        "--max-count", str(limit),
+        "--heading",
+        "--glob", "!.*"  # Skip hidden files and directories
+    ]
+    
+    # Add exclusions for noise directories
+    for noise in NOISE_DIRS:
+        cmd.extend(["-g", f"!{noise}/"])
+    
+    if allowed_extensions:
+        for ext in allowed_extensions:
+            glob = f"*{ext}" if ext.startswith(".") else f"*.{ext}"
+            cmd.extend(["-g", glob])
+
+    try:
+        # Run rg with a timeout to prevent hanging
+        # Use Popen to read line by line if output is large
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            text=True
+        )
+        
+        hits_by_path = {} # path -> list of matches
+        
+        try:
+            # We don't want to spend too much time parsing if there are thousands of hits
+            # Limit the number of processed matches to avoid overhead
+            max_processed_matches = limit * 10
+            match_count = 0
+            
+            while True:
+                line = process.stdout.readline()
+                if not line or match_count >= max_processed_matches:
+                    break
+                
+                try:
+                    data = json.loads(line)
+                    if data["type"] == "match":
+                        path = data["data"]["path"]["text"]
+                        line_num = data["data"]["line_number"]
+                        line_text = data["data"]["lines"]["text"]
+                        
+                        match_count += 1
+                        if path not in hits_by_path:
+                            hits_by_path[path] = []
+                        
+                        # Only keep a few hits per path to allow diversity but also sampling
+                        if len(hits_by_path[path]) < 3:
+                            hits_by_path[path].append({
+                                "score": 1.0,
+                                "snippet": line_text.strip(),
+                                "start_line": line_num,
+                                "end_line": line_num
+                            })
+                    elif data["type"] == "summary":
+                        break
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    continue
+            
+            # If we hit the limit, kill the process
+            if process.poll() is None:
+                process.terminate()
+                
+        finally:
+            process.stdout.close()
+            process.stderr.close()
+            process.wait(timeout=1.0)
+        
+        snippets = []
+        for path, matches in hits_by_path.items():
+            for info in matches:
+                snippets.append(DocSnippet(
+                    path=path,
+                    snippet=info["snippet"],
+                    score=info["score"] * (1.0 / (len(matches) + 1)), # Slight penalty for multiple hits in same file
+                    start_line=info["start_line"],
+                    end_line=info["end_line"]
+                ))
+            
+        # Sort by score descending
+        snippets.sort(key=lambda x: x.score, reverse=True)
+        return snippets[:limit]
+        
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        return []
+
+
 def search_text(
     query: str,
     *,
@@ -494,9 +754,85 @@ def search_text(
     if not tokens:
         return []
     docs_root = docs_root or get_docs_root()
+    if not os.path.isdir(docs_root):
+        raise DocAccessError(f"Directory not found: {docs_root}")
+    
+    # Try Ripgrep first if available and no complex file_patterns are provided
+    if _is_ripgrep_available() and not file_patterns:
+        # Strategy: 
+        # 1. Try literal query first (fastest, most precise)
+        # 2. If no hits and multi-word, try searching for the longest token
+        
+        # Check if query is very short/common to avoid massive hits
+        if len(q) < 2:
+            return []
+
+        rg_hits = _search_with_ripgrep(
+            query=q,
+            docs_root=docs_root,
+            allowed_extensions=allowed_extensions,
+            limit=limit * 2,
+            max_file_bytes=max_file_bytes
+        )
+        
+        if not rg_hits and len(tokens) > 1:
+            # Try the longest token which is likely the most specific
+            longest_token = max(tokens, key=len)
+            if len(longest_token) >= 3: # Only if it's substantial
+                rg_hits = _search_with_ripgrep(
+                    query=longest_token,
+                    docs_root=docs_root,
+                    allowed_extensions=allowed_extensions,
+                    limit=limit * 2,
+                    max_file_bytes=max_file_bytes
+                )
+
+        if rg_hits:
+            # Parallelize refinement to speed up file reading and smart-snippeting
+            refined_hits = []
+            
+            def _refine_hit(hit: DocSnippet) -> List[DocSnippet]:
+                try:
+                    text = _read_text_file(hit.path, max_bytes=max_file_bytes)
+                    # Extract up to 3 snippets to allow for multi-sampling within the same file
+                    smart_snippets = _make_smart_snippets(text, tokens, max_snippets=3)
+                    if smart_snippets:
+                        return [
+                            DocSnippet(
+                                path=hit.path,
+                                snippet=s_text,
+                                score=hit.score + 1.0, # Boost score
+                                start_line=s_start,
+                                end_line=s_end
+                            )
+                            for s_text, s_start, s_end in smart_snippets
+                        ]
+                    return [hit]
+                except Exception:
+                    return [hit]
+
+            # Use ThreadPoolExecutor for I/O bound file reading
+            # Group by path to avoid redundant reading
+            unique_paths = list({hit.path for hit in rg_hits[:limit]})
+            path_to_hit = {hit.path: hit for hit in rg_hits[:limit]}
+            
+            with ThreadPoolExecutor(max_workers=min(len(unique_paths), 8)) as executor:
+                future_to_path = {executor.submit(_refine_hit, path_to_hit[p]): p for p in unique_paths}
+                for future in as_completed(future_to_path):
+                    res_list = future.result()
+                    if res_list:
+                        refined_hits.extend(res_list)
+            
+            if refined_hits:
+                return sorted(refined_hits, key=lambda x: x.score, reverse=True)[:limit]
+
+    # Fallback to existing Python implementation
     deadline = time.time() + timeout_s
     hits: List[DocSnippet] = []
     scanned_bytes = 0
+
+    # DEBUG
+    # print(f"DEBUG: tokens={tokens}, docs_root={docs_root}")
 
     for path in iter_files(
         docs_root=docs_root,
@@ -517,19 +853,38 @@ def search_text(
             score = 0.0
             text = _read_text_file(path, max_bytes=max_file_bytes)
             lower = text.lower()
-            best_idx = None
+            
+            # File name match score
             for t in tokens:
                 if t in base:
                     score += 2.0 if len(t) >= 3 else 1.0
-                idx = lower.find(t)
-                if idx != -1:
-                    score += 1.0 if len(t) >= 3 else 0.5
-                    if best_idx is None or idx < best_idx:
-                        best_idx = idx
-            snippet, start_line, end_line = _make_line_snippet(text, best_idx if best_idx is not None else -1)
-            if score <= 0.0:
+            
+            # Content match and snippet extraction
+            smart_snippets = _make_smart_snippets(text, tokens, max_snippets=2)
+            
+            # Update score based on content density if filename didn't match much
+            content_score = 0.0
+            if smart_snippets:
+                # Use the density scores from the snippets (implied by their existence)
+                content_score = 1.0 * len(smart_snippets)
+            
+            total_score = score + content_score
+            
+            if total_score <= 0.0:
                 continue
-            hits.append(DocSnippet(path=path, snippet=snippet, score=score, start_line=start_line, end_line=end_line))
+
+            if not smart_snippets:
+                # Fallback to simple snippet if score exists (e.g. filename match) but no density clusters found
+                snippet, start_line, end_line = _make_line_snippet(text, -1)
+                hits.append(DocSnippet(path=path, snippet=snippet, score=total_score, start_line=start_line, end_line=end_line))
+                continue
+
+            # Add snippets as separate hits if they are distinct enough
+            for i, (s_text, s_start, s_end) in enumerate(smart_snippets):
+                # Calculate snippet-specific score contribution
+                # Each subsequent snippet gets a slightly lower score to maintain order
+                snippet_score = total_score - (i * 0.1)
+                hits.append(DocSnippet(path=path, snippet=s_text, score=snippet_score, start_line=s_start, end_line=s_end))
         except Exception:
             continue
 
