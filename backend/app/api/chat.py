@@ -201,8 +201,14 @@ async def chat_stream(request: ChatRequest):
             is_reasoning_model = any(kw in model_name.lower() for kw in ["reasoner", "r1", "thought", "o1", "o3"])
             if not is_reasoning_model and "<thought>" not in system_prompt:
                 system_prompt += (
-                    "\n\nIMPORTANT: You must ALWAYS start your response by thinking step-by-step about the user's request. "
+                    "\n\n### Reasoning Protocol\n"
+                    "You must ALWAYS start your response by thinking step-by-step about the user's request. "
                     "Enclose your thinking process within <thought>...</thought> tags. "
+                    "Structure your thinking as follows:\n"
+                    "1. **[目标]**: Define the objective of the request.\n"
+                    "2. **[已知条件]**: List the available information and constraints.\n"
+                    "3. **[计划]**: Outline the steps to solve the problem.\n"
+                    "4. **[反思]**: (Optional) Self-correct or refine the plan if needed.\n\n"
                     "After your thinking process is complete, provide your final answer."
                 )
 
