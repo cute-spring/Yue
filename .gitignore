@@ -58,6 +58,9 @@ frontend/.env
 # Logs
 *.log
 logs/
+frontend/test-results/
+test-results/
+.trae/skills/
 
 # SQLite & Temp files
 *.db-shm
