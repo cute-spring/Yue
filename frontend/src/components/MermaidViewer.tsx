@@ -254,24 +254,54 @@ export default function MermaidViewer(props: MermaidViewerProps) {
   });
 
   const renderInto = async (containerId: string, code: string) => {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    
+    // Check if the code is complete (closed with backticks if it starts with them)
+    const trimmed = code.trim();
+    const hasStart = trimmed.startsWith('```mermaid');
+    const hasEnd = trimmed.endsWith('```') && trimmed.length > 10;
+    
+    // If it looks like a markdown block but isn't closed, show loading and wait
+    if (hasStart && !hasEnd) {
+      el.innerHTML = `
+        <div class="flex flex-col items-center justify-center text-gray-400">
+          <div class="w-8 h-8 border-2 border-gray-200 border-t-emerald-400 rounded-full animate-spin mb-4"></div>
+          <div class="text-sm font-medium animate-pulse">Generating diagram...</div>
+          <div class="text-xs mt-1 opacity-60">Waiting for code block to close</div>
+        </div>
+      `;
+      return;
+    }
+
     const chart = normalize(code);
     if (!chart) return;
     try {
       setError(null);
+      // Silent error handling: check if code is valid before rendering
+      try {
+        await (mermaid as any).parse(chart);
+      } catch (parseErr) {
+        // If parsing fails, it might be a real syntax error.
+        throw parseErr;
+      }
+      
       const renderId = `${baseId}-${containerId}-${Date.now()}`;
-      await mermaid.parse(chart);
-      const { svg } = await mermaid.render(renderId, chart);
-      const el = document.getElementById(containerId);
-      if (!el) return;
+      const { svg, bindFunctions } = await (mermaid as any).render(renderId, chart);
+      
+      el.classList.add('opacity-0', 'transition-opacity', 'duration-500');
       el.innerHTML = svg;
-      const parser = new DOMParser();
-      const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
-      const svgEl = svgDoc.documentElement;
-      const width = parseInt(svgEl.getAttribute('width') || '0');
-      const height = parseInt(svgEl.getAttribute('height') || '0');
-      setDimensions({ width, height });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to render diagram');
+      requestAnimationFrame(() => {
+        el.classList.remove('opacity-0');
+        el.classList.add('opacity-100');
+      });
+
+      if (bindFunctions) bindFunctions(el);
+      const s = el.querySelector('svg');
+      if (s) setDimensions({ width: s.viewBox.baseVal.width || s.clientWidth, height: s.viewBox.baseVal.height || s.clientHeight });
+    } catch (err) {
+      console.warn('Mermaid render error (silent):', err);
+      setError(err instanceof Error ? err.message.split('\n')[0] : 'Syntax error in diagram');
     }
   };
 
@@ -395,7 +425,7 @@ export default function MermaidViewer(props: MermaidViewerProps) {
                 onPointerCancel={endPan}
                 onPointerDown={startPan as any}
               >
-                <div class="min-h-[240px] flex justify-center items-start p-6" style={{ transform: `translate(${tx()}px, ${ty()}px) scale(${scale()})`, 'transform-origin': 'top center', cursor: isPanning() ? 'grabbing' : 'grab' }}>
+                <div class="min-h-[280px] flex justify-center items-center p-6 transition-all duration-300" style={{ transform: `translate(${tx()}px, ${ty()}px) scale(${scale()})`, 'transform-origin': 'top center', cursor: isPanning() ? 'grabbing' : 'grab' }}>
                   <div id={`${baseId}-diagram`} class="w-full flex justify-center" />
                 </div>
               </div>

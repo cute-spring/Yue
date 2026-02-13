@@ -100,24 +100,52 @@ const getMermaidThemeOptionsHtml = (selected: MermaidThemePreset) => {
 
 const renderMermaidChart = async (container: Element) => {
   if (container.getAttribute('data-processed') === 'true') return;
+  
+  const widget = container.closest('.mermaid-widget');
+  const isComplete = widget?.getAttribute('data-complete') === 'true';
+  
+  // If the block is not complete (streaming), don't render yet
+  if (!isComplete) return;
+
   const code = normalizeMermaidCode(decodeURIComponent(container.getAttribute('data-code') || ''));
   if (!code) return;
+
   try {
     const preset = getMermaidThemePreset();
     (mermaid as any).initialize(getMermaidInitConfig(preset));
     const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
-    await mermaid.parse(code);
+    
+    // Silent error handling: check if code is valid before rendering
+    try {
+      await mermaid.parse(code);
+    } catch (parseErr) {
+      // If parsing fails even when "complete", it's a real syntax error.
+      // We still want to handle it gracefully.
+      throw parseErr;
+    }
+
     const { svg } = await mermaid.render(id, code);
+    container.classList.add('opacity-0', 'transition-opacity', 'duration-500');
     container.innerHTML = svg;
+    requestAnimationFrame(() => {
+      container.classList.remove('opacity-0');
+      container.classList.add('opacity-100');
+    });
     container.setAttribute('data-processed', 'true');
   } catch (err) {
-    console.error('Mermaid render error:', err);
+    console.warn('Mermaid render error (silent):', err);
+    // Keep showing the code or a friendly error if it's truly broken
     container.innerHTML = `
-      <div class="text-red-500 text-sm p-2 border border-red-500/20 rounded bg-red-500/10 font-mono">
-        <div class="font-bold mb-1">Mermaid Syntax Error</div>
-        ${err instanceof Error ? err.message : 'Unknown error'}
+      <div class="text-amber-600 text-xs p-3 border border-amber-200 rounded-xl bg-amber-50/50 font-mono">
+        <div class="flex items-center gap-2 mb-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+          </svg>
+          <span class="font-bold">Mermaid Diagram Note</span>
+        </div>
+        <div class="opacity-80">${err instanceof Error ? err.message.split('\n')[0] : 'Syntax error in diagram'}</div>
+        <button type="button" data-mermaid-action="tab-code" class="mt-2 text-amber-700 hover:underline font-bold uppercase tracking-wider text-[9px]">View Code</button>
       </div>
-      <pre class="text-xs text-gray-500 mt-2 overflow-auto p-2 bg-black/10 rounded">${code}</pre>
     `;
     container.setAttribute('data-processed', 'true');
   }
@@ -174,22 +202,47 @@ renderer.code = ({ text, lang }) => {
 
   if (lang === 'mermaid') {
     const preset = getMermaidThemePreset();
+    
+    // Check if the mermaid block is closed
+    const raw = (renderer as any)._currentContent || '';
+    const blockCount = ((renderer as any)._mermaidCount || 0) + 1;
+    (renderer as any)._mermaidCount = blockCount;
+    
+    let isClosed = true;
+    let currentIdx = -1;
+    for (let i = 0; i < blockCount; i++) {
+      currentIdx = raw.indexOf('```mermaid', currentIdx + 1);
+      if (currentIdx === -1) {
+        // Fallback for case-insensitive or different spacing
+        currentIdx = raw.toLowerCase().indexOf('```mermaid', currentIdx + 1);
+      }
+    }
+    
+    if (currentIdx !== -1) {
+      const afterBlock = raw.substring(currentIdx + 10); // 10 is length of ```mermaid
+      // The content should be followed by closing backticks
+      // We look for the first ``` after the content
+      const closingIdx = afterBlock.indexOf('```');
+      // If we found a ``` and it's after the text content (approximately)
+      isClosed = closingIdx !== -1 && closingIdx >= text.trim().length;
+    }
+
     return `
-      <div class="mermaid-widget my-4" data-code="${encodedContent}" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
+      <div class="mermaid-widget my-4" data-code="${encodedContent}" data-complete="${isClosed}" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
         <div class="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
           <div class="flex items-center gap-2">
-            <button type="button" data-mermaid-action="tab-diagram" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors bg-gray-100 text-gray-900">Diagram</button>
+            <button type="button" data-mermaid-action="tab-diagram" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${isClosed ? 'bg-gray-100 text-gray-900' : 'text-gray-400 cursor-not-allowed'}" ${!isClosed ? 'disabled' : ''}>Diagram</button>
             <button type="button" data-mermaid-action="tab-code" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors text-gray-500 hover:text-gray-800 hover:bg-gray-50">Code</button>
           </div>
           <div class="flex items-center gap-1.5 text-gray-500">
-            <button type="button" data-mermaid-action="zoom-out" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom out">
+            <button type="button" data-mermaid-action="zoom-out" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom out" ${!isClosed ? 'disabled' : ''}>
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="7" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 <line x1="8" y1="11" x2="14" y2="11" />
               </svg>
             </button>
-            <button type="button" data-mermaid-action="zoom-in" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom in">
+            <button type="button" data-mermaid-action="zoom-in" class="p-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Zoom in" ${!isClosed ? 'disabled' : ''}>
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="7" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -200,11 +253,11 @@ renderer.code = ({ text, lang }) => {
             <div class="w-px h-5 bg-gray-200 mx-1"></div>
             <div class="flex items-center gap-2">
               <span class="text-sm font-semibold text-gray-500">Theme</span>
-              <select data-mermaid-theme-select="1" class="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-1.5 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+              <select data-mermaid-theme-select="1" class="text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-1.5 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" ${!isClosed ? 'disabled' : ''}>
                 ${getMermaidThemeOptionsHtml(preset)}
               </select>
             </div>
-            <button type="button" data-mermaid-action="fit" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fit">
+            <button type="button" data-mermaid-action="fit" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fit" ${!isClosed ? 'disabled' : ''}>
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M8 3H3v5" />
                 <path d="M16 3h5v5" />
@@ -213,19 +266,19 @@ renderer.code = ({ text, lang }) => {
               </svg>
               <span class="text-sm font-semibold">Fit</span>
             </button>
-            <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Export">
+            <button type="button" data-mermaid-action="download" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Export" ${!isClosed ? 'disabled' : ''}>
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
               </svg>
               <span class="text-sm font-semibold">Export</span>
             </button>
-            <button type="button" data-mermaid-action="fullscreen" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fullscreen">
+            <button type="button" data-mermaid-action="fullscreen" class="px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800 flex items-center gap-2" title="Fullscreen" ${!isClosed ? 'disabled' : ''}>
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h5a1 1 0 110 2H6v3a1 1 0 11-2 0V4zm14 0a1 1 0 00-1-1h-5a1 1 0 100 2h3v3a1 1 0 102 0V4zM3 16a1 1 0 001 1h5a1 1 0 100-2H6v-3a1 1 0 10-2 0v4zm14 0a1 1 0 01-1 1h-5a1 1 0 110-2h3v-3a1 1 0 112 0v4z" clip-rule="evenodd" />
               </svg>
               <span class="text-sm font-semibold">Fullscreen</span>
             </button>
-            <button type="button" data-mermaid-action="reset" class="px-2 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Reset zoom">
+            <button type="button" data-mermaid-action="reset" class="px-2 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-800" title="Reset zoom" ${!isClosed ? 'disabled' : ''}>
               <span class="mermaid-widget-zoom-label text-sm font-semibold">100%</span>
             </button>
           </div>
@@ -233,9 +286,20 @@ renderer.code = ({ text, lang }) => {
         <div class="mt-3 bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div class="mermaid-widget-diagram-panel">
             <div class="mermaid-widget-viewport w-full overflow-auto">
-              <div class="mermaid-widget-zoom-area min-h-[240px] flex justify-center items-start p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top center;">
+              <div class="mermaid-widget-zoom-area min-h-[280px] flex justify-center items-center p-6 transition-all duration-300" style="transform: translate(0px, 0px) scale(1); transform-origin: top center;">
                 <div class="mermaid-chart w-full flex justify-center" data-code="${encodedContent}">
-                  <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                  ${isClosed ? `
+                    <div class="flex flex-col items-center justify-center">
+                      <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                      <div class="text-[10px] mt-3 text-emerald-600/50 font-medium tracking-wider uppercase">Rendering Diagram...</div>
+                    </div>
+                  ` : `
+                    <div class="flex flex-col items-center justify-center text-gray-400">
+                      <div class="w-8 h-8 border-2 border-gray-200 border-t-emerald-400 rounded-full animate-spin mb-4"></div>
+                      <div class="text-xs font-medium animate-pulse">Generating diagram...</div>
+                      <div class="text-[10px] mt-1 opacity-60">Waiting for code block to close</div>
+                    </div>
+                  `}
                 </div>
               </div>
             </div>
@@ -247,6 +311,7 @@ renderer.code = ({ text, lang }) => {
       </div>
     `;
   }
+
 
   return codeBlockHtml;
 };
@@ -1192,7 +1257,7 @@ export default function Chat() {
               </button>
             </div>
             <div class="p-3 sm:p-4 flex-1 min-h-0">
-              <div class="mermaid-widget my-0" data-code="${encoded}" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
+              <div class="mermaid-widget my-0" data-code="${encoded}" data-complete="true" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
                 <div class="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
                   <div class="flex items-center gap-2">
                     <button type="button" data-mermaid-action="tab-diagram" class="px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors bg-gray-100 text-gray-900">Diagram</button>
@@ -1244,9 +1309,11 @@ export default function Chat() {
                 <div class="mt-3 bg-white border border-gray-200 rounded-2xl overflow-hidden">
                   <div class="mermaid-widget-diagram-panel">
                     <div class="mermaid-widget-viewport w-full h-[calc(94vh-220px)] overflow-auto">
-                      <div class="mermaid-widget-zoom-area min-h-[360px] flex justify-center items-start p-4 sm:p-6" style="transform: translate(0px, 0px) scale(1); transform-origin: top center;">
+                      <div class="mermaid-widget-zoom-area min-h-[360px] flex justify-center items-center p-4 sm:p-6 transition-all duration-300" style="transform: translate(0px, 0px) scale(1); transform-origin: top center;">
                         <div class="mermaid-chart w-full flex justify-center" data-code="${encoded}">
-                          <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                          <div class="flex flex-col items-center justify-center">
+                            <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2268,7 +2335,11 @@ export default function Chat() {
                               
                               <Show when={content || (isTyping() && !thought)}>
                                 <div 
-                                  innerHTML={marked.parse(renderMath(content)) as string} 
+                                  innerHTML={(() => {
+                                    (renderer as any)._currentContent = content;
+                                    (renderer as any)._mermaidCount = 0;
+                                    return marked.parse(renderMath(content)) as string;
+                                  })()} 
                                   class="prose prose-slate dark:prose-invert max-w-none 
                                     prose-p:leading-relaxed prose-p:my-3 prose-p:text-[15px]
                                     prose-headings:text-text-primary prose-headings:font-black prose-headings:tracking-tight
