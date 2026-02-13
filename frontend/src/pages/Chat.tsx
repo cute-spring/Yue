@@ -9,6 +9,7 @@ import MermaidViewer from '../components/MermaidViewer';
 import { useToast } from '../context/ToastContext';
 import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../utils/mermaidTheme';
 import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../utils/mermaidExport';
+import { parseThoughtAndContent } from '../utils/thoughtParser';
 
 // Configure marked to use highlight.js via a custom renderer
 const renderer = new marked.Renderer();
@@ -445,6 +446,20 @@ export default function Chat() {
       messagesEndRef?.scrollIntoView({ behavior: 'smooth' });
     }
   });
+
+  // Auto-expand thoughts when streaming starts
+  createEffect(() => {
+    const msgs = messages();
+    if (msgs.length === 0) return;
+    const lastIdx = msgs.length - 1;
+    const lastMsg = msgs[lastIdx];
+    if (lastMsg.role === 'assistant' && isTyping()) {
+      const { isThinking } = parseThoughtAndContent(lastMsg.content);
+      if (isThinking && !expandedThoughts()[lastIdx]) {
+        setExpandedThoughts(prev => ({ ...prev, [lastIdx]: true }));
+      }
+    }
+  });
   
   let abortController: AbortController | null = null;
 
@@ -464,17 +479,6 @@ export default function Chat() {
     const target = e.currentTarget as HTMLDivElement;
     const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100;
     setUserHasScrolledUp(!isAtBottom);
-  };
-
-   // Helper to split thought and content
-  const parseThoughtAndContent = (text: string) => {
-    const thoughtMatch = text.match(/<(?:thought|think)>([\s\S]*?)(?:<\/(?:thought|think)>|$)/);
-    if (thoughtMatch) {
-      const thought = thoughtMatch[1];
-      const rest = text.replace(/<(?:thought|think)>[\s\S]*?(?:<\/(?:thought|think)>|$)/, "").trim();
-      return { thought, content: rest };
-    }
-    return { thought: null, content: text };
   };
 
   const fileToBase64 = (file: File): Promise<string> => {
@@ -1859,6 +1863,31 @@ export default function Chat() {
     return "Completed";
   };
 
+  const renderThought = (thought: string | null) => {
+    if (!thought) return null;
+    
+    let processedThought = thought;
+    const protocolTags = [
+      { tag: '[目标]', icon: '🎯', color: 'text-blue-500', bg: 'bg-blue-500/10' },
+      { tag: '[已知条件]', icon: '📋', color: 'text-amber-500', bg: 'bg-amber-500/10' },
+      { tag: '[计划]', icon: '🗺️', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+      { tag: '[反思]', icon: '🔄', color: 'text-rose-500', bg: 'bg-rose-500/10' },
+    ];
+    
+    protocolTags.forEach(({ tag, icon, color, bg }) => {
+      const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(\\*\\*)?${escapedTag}(\\*\\*)?`, 'g');
+      processedThought = processedThought.replace(regex, `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-current/10 ${color} ${bg} font-bold text-[11px] mr-1"><span>${icon}</span><span>${tag}</span></span>`);
+    });
+
+    return (
+      <div 
+        class="prose prose-sm dark:prose-invert max-w-none opacity-90 leading-relaxed font-sans"
+        innerHTML={marked.parse(processedThought) as string}
+      />
+    );
+  };
+
   const modelLabel = (msg: Message) => {
     const provider = msg.provider || selectedProvider();
     const model = msg.model || selectedModel();
@@ -2287,10 +2316,10 @@ export default function Chat() {
                   ) : (
                      <div class="relative space-y-5">
                         {(() => {
-                          const { thought, content } = parseThoughtAndContent(msg.content);
+                          const { thought, content, isThinking } = parseThoughtAndContent(msg.content);
                           return (
                             <>
-                              <Show when={thought}>
+                              <Show when={thought || isThinking}>
                                 <div class="bg-black/5 dark:bg-black/20 -mx-6 -mt-5 rounded-t-[24px] border-b border-border/10 overflow-hidden group/thought mb-5">
                                   <button 
                                     onClick={() => toggleThought(index())}
@@ -2298,20 +2327,20 @@ export default function Chat() {
                                   >
                                     <div class="flex items-center gap-3">
                                       <div class="relative flex items-center justify-center w-5 h-5">
-                                        <Show when={isTyping() && !content}>
+                                        <Show when={isThinking}>
                                           <div class="absolute inset-0 bg-primary/10 rounded-full animate-ping"></div>
                                           <div class="absolute inset-0.5 border border-primary/20 rounded-full animate-[spin_3s_linear_infinite]"></div>
                                         </Show>
-                                        <div class={`relative w-2 h-2 rounded-full transition-all duration-700 ${isTyping() && !content ? 'bg-primary shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-text-secondary/30'}`}></div>
+                                        <div class={`relative w-2 h-2 rounded-full transition-all duration-700 ${isThinking ? 'bg-primary shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-text-secondary/30'}`}></div>
                                       </div>
                                       <div class="flex items-center gap-2">
                                         <span class="text-[13px] font-medium text-text-secondary">
-                                          {isTyping() && !content ? 'Thinking Process' : 'Reasoning Chain'}
+                                          {isThinking ? 'Thinking Process' : 'Reasoning Chain'}
                                         </span>
                                         <span class="text-[11px] font-mono text-text-secondary/40">
                                           {msg.thought_duration 
                                             ? `${msg.thought_duration < 60 ? msg.thought_duration.toFixed(1) + 's' : Math.floor(msg.thought_duration / 60) + 'm ' + (msg.thought_duration % 60).toFixed(0) + 's'}`
-                                            : (isTyping() && !content ? `${elapsedTime().toFixed(1)}s` : '')}
+                                            : (isThinking ? `${elapsedTime().toFixed(1)}s` : '')}
                                         </span>
                                       </div>
                                     </div>
@@ -2326,8 +2355,8 @@ export default function Chat() {
                                       expandedThoughts()[index()] ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
                                     }`}
                                   >
-                                    <div class="px-6 py-4 text-[13px] font-mono text-text-secondary/80 leading-relaxed overflow-y-auto max-h-[500px] border-t border-border/5 bg-black/5 dark:bg-black/10">
-                                      {thought}
+                                    <div class="px-6 py-4 text-[13px] text-text-secondary/80 leading-relaxed overflow-y-auto max-h-[500px] border-t border-border/5 bg-black/5 dark:bg-black/10">
+                                      {renderThought(thought)}
                                     </div>
                                   </div>
                                 </div>
