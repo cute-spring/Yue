@@ -109,6 +109,16 @@ export function renderMath(text: string): string {
 export function createMarkdownRenderer(): any {
   const renderer = new marked.Renderer();
 
+  renderer.link = function({ href, title, text }): string {
+    const titleAttr = title ? ` title="${title}"` : '';
+    return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer" class="text-primary hover:underline transition-all underline-offset-4 decoration-primary/30 hover:decoration-primary font-medium group/link inline-flex items-center gap-1">
+      ${text}
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+    </a>`;
+  };
+
   renderer.code = function({ text, lang }): string {
     const displayLanguage = lang || 'plaintext';
     const highlightLanguage = hljs.getLanguage(displayLanguage) ? displayLanguage : 'plaintext';

@@ -1,5 +1,6 @@
 from typing import List, Any, Dict, Optional, Type
 import os
+import sys
 import json
 import re
 import asyncio
@@ -288,6 +289,9 @@ class McpManager:
              ArgsModel = create_model(f"{tool_def.name}Args", **fields)
 
         async def wrapper(ctx: RunContext, args: ArgsModel) -> str:
+            # Send tool_call update to frontend if we have a way to reach the generator
+            # For now, we rely on the backend yielding this before the tool execution completes
+            
             # call_tool expects arguments as dict
             result = await session.call_tool(tool_def.name, arguments=args.model_dump())
             # Result content is a list of TextContent or ImageContent or EmbeddedResource
@@ -329,6 +333,69 @@ class McpManager:
         """Returns the current time."""
         return datetime.datetime.now().isoformat()
 
+    async def generate_pptx(self, ctx: RunContext[Any], data: dict) -> str:
+        """
+        Generate a PowerPoint (.pptx) file from a structured JSON object.
+        
+        Args:
+            data: A dictionary containing:
+                - title (str): The main title of the PPT.
+                - subtitle (str): The subtitle.
+                - slides (list): A list of slide objects, each with:
+                    - title (str): Slide title.
+                    - content (list of str): Bullet points (max 6).
+                    - layout (str, optional): Layout type (e.g., 'title_and_content').
+                - output_file (str, optional): Desired filename.
+        """
+        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        project_root = os.path.abspath(os.path.join(backend_dir, "../"))
+        script_path = os.path.join(project_root, ".trae/skills/ppt-expert/scripts/generate_pptx.py")
+        exports_dir = os.path.join(backend_dir, "data/exports")
+        
+        if not os.path.exists(script_path):
+            return f"Error: PPT generation script not found at {script_path}"
+
+        # Ensure exports directory exists
+        os.makedirs(exports_dir, exist_ok=True)
+
+        # Generate a unique filename if not provided
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = data.get("output_file") or f"presentation_{timestamp}.pptx"
+        if not filename.endswith(".pptx"):
+            filename += ".pptx"
+        
+        # Ensure it's just the filename, not a path
+        filename = os.path.basename(filename)
+        output_path = os.path.join(exports_dir, filename)
+        
+        # Update data with the absolute path for the script to write to
+        data["output_file"] = output_path
+
+        try:
+            # Run the script with JSON input
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, script_path,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate(input=json.dumps(data).encode())
+            
+            if process.returncode != 0:
+                return f"Error generating PPT: {stderr.decode()}"
+            
+            # Return both the local path and the download URL
+            download_url = f"/exports/{filename}"
+            return (
+                f"Successfully generated PPT!\n"
+                f"- **Local Path**: `{output_path}`\n"
+                f"- **Download Link**: [{filename}]({download_url})\n\n"
+                f"You can click the link above to download the file, or find it in the `backend/data/exports` directory."
+            )
+        except Exception as e:
+            logger.exception("Failed to run PPT generation script")
+            return f"Error: {str(e)}"
+
     def _get_builtin_tools(self) -> List[tuple[str, Any]]:
         return [
             ("docs_search", self.docs_search),
@@ -336,6 +403,7 @@ class McpManager:
             ("docs_inspect", self.docs_inspect),
             ("docs_search_pdf", self.docs_search_pdf),
             ("docs_read_pdf", self.docs_read_pdf),
+            ("generate_pptx", self.generate_pptx),
             ("get_current_time", self.get_current_time),
         ]
 
@@ -424,6 +492,22 @@ class McpManager:
                         "timeout_s": {"type": "number"},
                     },
                     "required": ["path"],
+                },
+            },
+            {
+                "id": "builtin:generate_pptx",
+                "name": "generate_pptx",
+                "description": "Generate a .pptx file from a structured JSON object. Use this ONLY after the user has confirmed the slide content and outline. The JSON must contain 'title', 'subtitle', and a 'slides' list (each with 'title' and 'content' array).",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "object",
+                            "description": "The presentation data including slides, titles, and layout information."
+                        }
+                    },
+                    "required": ["data"],
                 },
             },
         ]
@@ -615,7 +699,11 @@ class McpManager:
     ) -> str:
         normalized_mode = (mode or "text").strip().lower()
         if normalized_mode == "markdown":
-            allowed_extensions = [".md"]
+            # Fallback: if path is NOT .md, allow other text-like extensions
+            if path and not path.lower().endswith(".md"):
+                allowed_extensions = doc_retrieval.TEXT_LIKE_EXTENSIONS
+            else:
+                allowed_extensions = [".md"]
         else:
             allowed_extensions = doc_retrieval.TEXT_LIKE_EXTENSIONS
 

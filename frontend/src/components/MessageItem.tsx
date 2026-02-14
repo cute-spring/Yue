@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, For, Show, onCleanup, createEffect } from 'solid-js';
 import { Message } from '../types';
 import { renderMarkdown } from '../utils/markdown';
 import { parseThoughtAndContent } from '../utils/thoughtParser';
@@ -20,6 +20,38 @@ interface MessageItemProps {
 }
 
 export default function MessageItem(props: MessageItemProps) {
+  const [waitSecs, setWaitSecs] = createSignal(0);
+  let timer: any;
+
+  createEffect(() => {
+    const { thought, content } = parseThoughtAndContent(props.msg.content);
+    // 只要还在打字，且没有最终内容，就继续计时
+    if (props.isTyping && !content) {
+      if (!timer) {
+        setWaitSecs(0);
+        timer = setInterval(() => {
+          setWaitSecs(prev => prev + 1);
+        }, 1000);
+      }
+    } else {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+  });
+
+  onCleanup(() => {
+    if (timer) clearInterval(timer);
+  });
+
+  const getLoadingStatus = () => {
+    const s = waitSecs();
+    if (s < 3) return { title: "Initializing", sub: "Agent is preparing response..." };
+    if (s < 8) return { title: "Analyzing", sub: "Searching for the best approach..." };
+    if (s < 15) return { title: "Deep Thinking", sub: "Processing complex request details..." };
+    return { title: "Still Thinking", sub: "Taking longer than usual, thanks for your patience." };
+  };
   const formatTime = (value?: string) => {
     if (!value) return "—";
     const date = new Date(value);
@@ -285,47 +317,173 @@ export default function MessageItem(props: MessageItemProps) {
            </>
         ) : (
           (() => {
-            const { thought, content, isThinking } = parseThoughtAndContent(props.msg.content);
+            const { thought, content, isThinking: isActuallyThinking } = parseThoughtAndContent(props.msg.content);
+            const isReasoner = () => {
+              const model = (props.msg.model || props.selectedModel || "").toLowerCase();
+              return model.includes("reasoner") || model.includes("r1") || model.includes("thought") || model.includes("o1") || model.includes("o3");
+            };
+            const isThinking = isActuallyThinking || (props.isTyping && isReasoner() && !content);
+            const showInitializing = () => props.isTyping && !thought && !content && !isReasoner();
+
             return (
               <>
-                <Show when={thought}>
-                  <div class="mb-4 rounded-2xl border border-border/40 bg-background/40 overflow-hidden group/thought transition-all duration-300 hover:border-primary/20 hover:shadow-sm">
+                <Show when={showInitializing()}>
+                  <div class="flex flex-col gap-3 py-1">
+                    <div class="flex items-center gap-3">
+                      <div class="relative flex items-center justify-center w-5 h-5">
+                        <div class="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
+                        <div class="absolute inset-0 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                        <div class="relative w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_rgba(var(--primary-rgb),0.6)]"></div>
+                      </div>
+                      <span class="text-[11px] font-black uppercase tracking-[0.2em] text-primary/70 animate-pulse">
+                        {getLoadingStatus().title}
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-1.5 pl-1">
+                      <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce [animation-duration:1s]" style="animation-delay: 0ms"></div>
+                      <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce [animation-duration:1s]" style="animation-delay: 200ms"></div>
+                      <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce [animation-duration:1s]" style="animation-delay: 400ms"></div>
+                    </div>
+                    <div class={`text-[10px] font-medium italic transition-colors duration-500 ${waitSecs() > 15 ? 'text-amber-500/80' : 'text-text-secondary/40'}`}>
+                      {getLoadingStatus().sub}
+                    </div>
+
+                    <Show when={props.msg.tools && props.msg.tools.length > 0}>
+                      <div class="mt-2 flex flex-col gap-1.5 animate-in fade-in slide-in-from-bottom-1 duration-700 delay-300">
+                        <div class="flex items-center gap-1.5">
+                          <div class="w-1 h-1 rounded-full bg-primary/40"></div>
+                          <span class="text-[9px] font-bold uppercase tracking-wider text-text-secondary/30">Capabilities Ready</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5 pl-2">
+                          <For each={props.msg.tools?.slice(0, 5)}>
+                            {(tool) => (
+                              <div class="px-1.5 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-medium text-primary/60 flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                                {tool.replace('mcp__', '').replace('builtin:', '').split('__').pop()}
+                              </div>
+                            )}
+                          </For>
+                          <Show when={(props.msg.tools?.length || 0) > 5}>
+                            <div class="px-1.5 py-0.5 rounded bg-text-secondary/5 border border-border/20 text-[8px] font-medium text-text-secondary/40">
+                              +{(props.msg.tools?.length || 0) - 5} more
+                            </div>
+                          </Show>
+                        </div>
+                      </div>
+                    </Show>
+
+                    <Show when={waitSecs() > 20}>
+                      <div class="mt-1 px-3 py-1.5 rounded-lg bg-amber-500/5 border border-amber-500/10 text-[9px] text-amber-600/70 font-bold animate-in fade-in slide-in-from-top-1">
+                        ⚠️ The model is taking longer than expected. This can happen with complex reasoning or high server load.
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+
+                <Show when={thought || (props.isTyping && isReasoner() && !content)}>
+                  <div class="mb-4 rounded-2xl border border-border/40 bg-background/40 overflow-hidden group/thought transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.05)]">
                     <button 
                       onClick={() => props.toggleThought(props.index)}
-                      class="w-full flex items-center justify-between px-5 py-3.5 hover:bg-primary/5 transition-all group/btn"
+                      class="w-full flex items-center justify-between px-5 py-4 hover:bg-primary/[0.03] transition-all group/btn relative overflow-hidden"
                     >
-                      <div class="flex items-center gap-3">
-                        <div class="relative flex items-center justify-center w-5 h-5">
+                      <Show when={isThinking}>
+                        <div class="absolute inset-0 bg-gradient-to-r from-transparent via-primary/[0.05] to-transparent -translate-x-full animate-[shimmer_3s_infinite] pointer-events-none"></div>
+                      </Show>
+                      
+                      <div class="flex items-center gap-4 relative z-10">
+                        <div class="relative flex items-center justify-center w-6 h-6">
                           <Show when={isThinking}>
-                            <div class="absolute inset-0 bg-primary/10 rounded-full animate-ping"></div>
-                            <div class="absolute inset-0.5 border border-primary/20 rounded-full animate-[spin_3s_linear_infinite]"></div>
+                            <div class="absolute inset-[-4px] bg-primary/20 rounded-full animate-ping [animation-duration:2.5s]"></div>
+                            <div class="absolute inset-[-2px] bg-primary/10 rounded-full animate-pulse [animation-duration:1.8s]"></div>
+                            <div class="absolute inset-0 border-2 border-primary/20 rounded-full animate-spin-slow"></div>
+                            <div class="absolute inset-1 border-2 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin [animation-duration:0.8s]"></div>
                           </Show>
-                          <div class={`relative w-2 h-2 rounded-full transition-all duration-700 ${isThinking ? 'bg-primary shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-text-secondary/30'}`}></div>
+                          <div class={`relative w-2.5 h-2.5 rounded-full transition-all duration-1000 ${
+                            isThinking 
+                              ? 'bg-gradient-to-tr from-primary to-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.8)] scale-110' 
+                              : 'bg-text-secondary/20'
+                          }`}></div>
                         </div>
-                        <div class="flex items-center gap-2">
-                          <span class="text-[13px] font-medium text-text-secondary">
-                            {isThinking ? 'Thinking Process' : 'Reasoning Chain'}
+                        <div class="flex flex-col items-start -space-y-0.5">
+                          <span class={`text-[13px] font-black tracking-wide transition-colors duration-500 ${isThinking ? 'text-primary' : 'text-text-secondary'}`}>
+                            {isThinking 
+                              ? (isActuallyThinking ? 'Thinking & Analyzing' : getLoadingStatus().title) 
+                              : 'Reasoning Chain'}
                           </span>
-                          <span class="text-[11px] font-mono text-text-secondary/40">
-                            {props.msg.thought_duration 
-                              ? `${props.msg.thought_duration < 60 ? props.msg.thought_duration.toFixed(1) + 's' : Math.floor(props.msg.thought_duration / 60) + 'm ' + (props.msg.thought_duration % 60).toFixed(0) + 's'}`
-                              : (isThinking ? `${props.elapsedTime.toFixed(1)}s` : '')}
-                          </span>
+                          <Show when={isThinking}>
+                            <span class="text-[9px] font-bold text-primary/40 tabular-nums">
+                              Elapsed: {waitSecs()}s
+                            </span>
+                          </Show>
+                          <Show when={!isThinking && props.msg.thought_duration !== undefined}>
+                            <span class="text-[9px] font-bold text-text-secondary/40 tabular-nums">
+                              Took: {props.msg.thought_duration?.toFixed(1)}s
+                            </span>
+                          </Show>
                         </div>
                       </div>
-                      <div class={`p-1 rounded-md transition-all duration-300 ${props.expandedThoughts[props.index] ? 'bg-black/5 text-text-primary' : 'text-text-secondary/40'}`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" class={`h-4 w-4 transition-transform duration-300 ${props.expandedThoughts[props.index] ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-                          <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
+                      <div class="flex items-center gap-3 relative z-10">
+                        <Show when={isThinking}>
+                           <div class="px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                             <span class="text-[9px] font-black uppercase tracking-[0.15em] text-primary animate-pulse-fast">Live Processing</span>
+                           </div>
+                        </Show>
+                        <div class={`p-1.5 rounded-lg transition-all duration-300 ${props.expandedThoughts[props.index] ? 'bg-primary/10 text-primary' : 'bg-black/5 text-text-secondary/40'}`}>
+                          <svg xmlns="http://www.w3.org/2000/svg" class={`h-4 w-4 transition-transform duration-500 ${props.expandedThoughts[props.index] ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                          </svg>
+                        </div>
                       </div>
                     </button>
+                    
+                    {/* 新增：在思考块内部显示详细状态描述 */}
+                    <Show when={isThinking && !isActuallyThinking}>
+                      <div class="px-5 pb-4 -mt-1 animate-in fade-in slide-in-from-top-1 duration-500">
+                        <div class="flex flex-col gap-2 p-3 rounded-xl bg-primary/[0.02] border border-primary/5">
+                          <div class="flex items-center gap-2">
+                            <div class="flex gap-1">
+                              <div class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+                              <div class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay: 200ms"></div>
+                              <div class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay: 400ms"></div>
+                            </div>
+                            <span class="text-[10px] font-medium text-text-secondary/60 italic">
+                              {getLoadingStatus().sub}
+                            </span>
+                          </div>
+                          
+                          <Show when={props.msg.tools && props.msg.tools.length > 0}>
+                            <div class="flex flex-wrap gap-1.5 pt-1 border-t border-primary/5">
+                              <For each={props.msg.tools?.slice(0, 3)}>
+                                {(tool) => (
+                                  <div class="px-1.5 py-0.5 rounded bg-primary/5 text-[8px] font-medium text-primary/40">
+                                    {tool.replace('mcp__', '').replace('builtin:', '').split('__').pop()}
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                        </div>
+                      </div>
+                    </Show>
+
                     <div 
-                      class={`transition-all duration-300 ease-in-out overflow-hidden ${
-                        props.expandedThoughts[props.index] ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+                      class={`transition-all duration-500 ease-in-out overflow-hidden ${
+                        props.expandedThoughts[props.index] ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'
                       }`}
                     >
-                      <div class="px-6 py-4 text-[13px] text-text-secondary/80 leading-relaxed overflow-y-auto max-h-[500px] border-t border-border/5 bg-black/5 dark:bg-black/10">
-                        {renderThought(thought)}
+                      <div class="px-8 py-6 text-[13.5px] text-text-secondary/90 leading-relaxed overflow-y-auto max-h-[500px] border-t border-border/5 bg-gradient-to-b from-black/[0.02] to-transparent dark:from-white/[0.02]">
+                        <div class="prose prose-sm dark:prose-invert max-w-none opacity-80">
+                          {renderThought(thought)}
+                        </div>
+                        <Show when={isThinking}>
+                          <div class="flex items-center gap-3 mt-6 p-3 rounded-xl bg-primary/[0.03] border border-primary/5 text-primary/70 italic text-xs animate-pulse">
+                            <div class="relative flex w-4 h-4">
+                              <div class="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
+                              <div class="absolute inset-1 bg-primary/40 rounded-full animate-pulse"></div>
+                            </div>
+                            Exploring knowledge base and synthesizing optimal response...
+                          </div>
+                        </Show>
                       </div>
                     </div>
                   </div>

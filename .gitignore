@@ -71,6 +71,7 @@ test-results/
 backend/data/*.db
 backend/data/*.json
 backend/data/*.json.bak
+backend/data/exports/*.pptx
 !backend/data/agents.json
 !backend/data/mcp_configs.json
 !backend/data/global_config.json
