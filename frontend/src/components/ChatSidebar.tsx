@@ -7,7 +7,7 @@ interface ChatSidebarProps {
   currentChatId: string | null;
   onNewChat: () => void;
   onLoadChat: (id: string) => void;
-  onDeleteChat: (id: string, e: Event) => void;
+  onDeleteChat: (id: string) => void;
 }
 
 export default function ChatSidebar(props: ChatSidebarProps) {
@@ -48,7 +48,10 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                   <p class="text-[10px] text-text-secondary mt-1">{new Date(chat.updated_at).toLocaleDateString()}</p>
                 </div>
                 <button 
-                  onClick={(e) => props.onDeleteChat(chat.id, e)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onDeleteChat(chat.id);
+                  }}
                   class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 transition-all"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

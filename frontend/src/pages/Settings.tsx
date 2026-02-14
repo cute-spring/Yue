@@ -1,4 +1,5 @@
 import { createSignal, onMount, onCleanup, For, Show } from 'solid-js';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 type Tab = 'general' | 'mcp' | 'llm';
 
@@ -50,6 +51,7 @@ type LLMProvider = {
   const [showEditProvider, setShowEditProvider] = createSignal(false);
   const [editingProvider, setEditingProvider] = createSignal<string>("");
   const [toast, setToast] = createSignal<{type:'success'|'error';message:string;actionLabel?:string;action?:()=>void}|null>(null);
+  const [confirmDelete, setConfirmDelete] = createSignal<{id: string, type: 'model' | 'mcp'} | null>(null);
   const showToast = (type:'success'|'error', message:string, actionLabel?:string, action?:()=>void) => {
     setToast({ type, message, actionLabel, action });
     setTimeout(() => setToast(null), 3000);
@@ -133,12 +135,12 @@ type LLMProvider = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(parsed)
       });
-      alert("MCP Configuration saved!");
+      showToast('success', "MCP Configuration saved!");
       await fetch('/api/mcp/reload', { method: 'POST' });
       const mcpStatusRes = await fetch('/api/mcp/status');
       setMcpStatus(await mcpStatusRes.json());
     } catch (e) {
-      alert("Invalid JSON: " + e);
+      showToast('error', "Invalid JSON: " + e);
     }
   };
 
@@ -257,9 +259,9 @@ type LLMProvider = {
     });
     const data = await res.json();
     if (data.ok) {
-      alert(`${name} connection OK`);
+      showToast('success', `${name} connection OK`);
     } else {
-      alert(`${name} failed: ${data.error || 'Unknown error'}`);
+      showToast('error', `${name} failed: ${data.error || 'Unknown error'}`);
     }
   };
 
@@ -277,7 +279,7 @@ type LLMProvider = {
       const mcpStatusRes = await fetch('/api/mcp/status');
       setMcpStatus(await mcpStatusRes.json());
     } catch (e) {
-      alert("Failed to toggle server: " + e);
+      showToast('error', "Failed to toggle server: " + e);
     }
   };
   const reloadMcp = async () => {
@@ -361,14 +363,21 @@ type LLMProvider = {
 
 
   const deleteCustomModel = async (name: string) => {
-    if (!confirm(`Delete custom model ${name}?`)) return;
+    setConfirmDelete({ id: name, type: 'model' });
+  };
+
+  const actualDeleteCustomModel = async (name: string) => {
     await fetch(`/api/models/custom/${name}`, { method: 'DELETE' });
     const cmRes = await fetch('/api/models/custom');
     setCustomModels(await cmRes.json());
+    showToast('success', `Custom model ${name} deleted`);
   };
 
   const deleteMcpServer = async (serverName: string) => {
-    if (!confirm(`Are you sure you want to delete MCP server "${serverName}"? This action cannot be undone.`)) return;
+    setConfirmDelete({ id: serverName, type: 'mcp' });
+  };
+
+  const actualDeleteMcpServer = async (serverName: string) => {
     try {
       const res = await fetch(`/api/mcp/${serverName}`, { method: 'DELETE' });
       if (res.ok) {
@@ -390,7 +399,11 @@ type LLMProvider = {
       body: JSON.stringify({ base_url: m.base_url, api_key: m.api_key, model: m.model })
     });
     const data = await res.json();
-    alert(data.ok ? `Custom ${m.name} OK` : `Custom ${m.name} failed: ${data.error || 'Unknown error'}`);
+    if (data.ok) {
+      showToast('success', `Custom ${m.name} OK`);
+    } else {
+      showToast('error', `Custom ${m.name} failed: ${data.error || 'Unknown error'}`);
+    }
   };
 
   return (
@@ -1186,26 +1199,56 @@ type LLMProvider = {
           </div>
         </Show>
       <Show when={toast()}>
-        <div class="fixed bottom-6 right-6 z-50" role="status" aria-live="polite">
-          <div class={`px-4 py-3 rounded-xl shadow-lg border transition-all transform ${toast()!.type==='success' ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-red-600 text-white border-red-700'}`}>
-            <div class="flex items-center gap-3">
-              <div class="w-5 h-5">
-                <svg viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
-                  <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707l-4 4a1 1 0 01-1.414 0l-2-2 1.414-1.414L9 10.586l3.293-3.293 1.414 1.414z"/>
-                </svg>
-              </div>
-              <div class="text-sm font-semibold flex-1">{toast()!.message}</div>
-              <Show when={toast()!.actionLabel}>
-                <button class="text-xs px-2 py-1 rounded bg-white/20 hover:bg-white/30" onClick={() => { toast()!.action?.(); setToast(null); }}>
-                  {toast()!.actionLabel}
-                </button>
-              </Show>
-              <button class="text-white/80 hover:text-white" onClick={() => setToast(null)}>✕</button>
-            </div>
+        <div class="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300" role="status" aria-live="polite">
+          <div class={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border transition-all ${
+            toast()?.type === 'success' 
+              ? 'bg-emerald-50 border-emerald-100 text-emerald-800' 
+              : 'bg-red-50 border-red-100 text-red-800'
+          }`}>
+            <Show when={toast()?.type === 'success'} fallback={
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+              </svg>
+            }>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+              </svg>
+            </Show>
+            <p class="font-medium">{toast()?.message}</p>
+            <Show when={toast()?.action}>
+              <button 
+                onClick={() => { toast()?.action?.(); setToast(null); }}
+                class="ml-2 px-3 py-1 bg-white/50 hover:bg-white rounded-lg text-sm font-bold transition-colors"
+              >
+                {toast()?.actionLabel}
+              </button>
+            </Show>
+            <button class="ml-auto text-gray-400 hover:text-gray-600" onClick={() => setToast(null)}>✕</button>
           </div>
         </div>
       </Show>
+
+      <ConfirmModal
+        show={!!confirmDelete()}
+        title={confirmDelete()?.type === 'model' ? "Delete Custom Model" : "Delete MCP Server"}
+        message={confirmDelete()?.type === 'model' 
+          ? `Are you sure you want to delete the custom model "${confirmDelete()?.id}"?`
+          : `Are you sure you want to delete the MCP server "${confirmDelete()?.id}"? This action cannot be undone.`
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="danger"
+        onConfirm={() => {
+          const item = confirmDelete();
+          if (item) {
+            if (item.type === 'model') actualDeleteCustomModel(item.id);
+            else actualDeleteMcpServer(item.id);
+            setConfirmDelete(null);
+          }
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
-  </div>
+    </div>
   );
 }

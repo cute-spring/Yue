@@ -20,6 +20,7 @@ import ChatSidebar from '../components/ChatSidebar';
 import ChatInput from '../components/ChatInput';
 import MessageList from '../components/MessageList';
 import IntelligencePanel from '../components/IntelligencePanel';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { useLLMProviders } from '../hooks/useLLMProviders';
 import { useAgents } from '../hooks/useAgents';
 import { useChatState } from '../hooks/useChatState';
@@ -34,6 +35,7 @@ export default function Chat() {
   const [intelligenceTab, setIntelligenceTab] = createSignal<'notes' | 'graph' | 'actions' | 'preview'>('actions');
   const [previewContent, setPreviewContent] = createSignal<{lang: string, content: string} | null>(null);
   const [isArtifactExpanded, setIsArtifactExpanded] = createSignal(false);
+  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
   
   // Refs
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -346,7 +348,7 @@ export default function Chat() {
         currentChatId={currentChatId()} 
         onNewChat={() => startNewChat(isMobile(), setShowHistory)} 
         onLoadChat={(id) => loadChat(id, isMobile(), setShowHistory, setSelectedAgent)} 
-        onDeleteChat={deleteChat} 
+        onDeleteChat={(id) => setConfirmDeleteId(id)} 
       />
 
       {/* 2. Main Chat Area (flex) */}
@@ -493,6 +495,23 @@ export default function Chat() {
           class="fixed inset-0 bg-black/40 backdrop-blur-sm z-20 lg:hidden"
         />
       )}
+
+      <ConfirmModal
+        show={!!confirmDeleteId()}
+        title="Delete Chat"
+        message="Are you sure you want to delete this chat? This action cannot be undone."
+        confirmText="Delete Chat"
+        cancelText="Keep Chat"
+        type="danger"
+        onConfirm={() => {
+          const id = confirmDeleteId();
+          if (id) {
+            deleteChat(id);
+            setConfirmDeleteId(null);
+          }
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

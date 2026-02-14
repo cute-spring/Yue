@@ -255,7 +255,6 @@ export function useAgentsState() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete agent?")) return;
     await fetch(`/api/agents/${id}`, { method: 'DELETE' });
     loadAgents();
   };

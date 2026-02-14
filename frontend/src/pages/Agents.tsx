@@ -1,11 +1,13 @@
-import { For, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import { useAgentsState } from '../hooks/useAgentsState';
 import { SmartGenerateModal } from '../components/SmartGenerateModal';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { AgentCard } from '../components/AgentCard';
 import { AgentForm } from '../components/AgentForm';
 
 export default function Agents() {
   const state = useAgentsState();
+  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
 
   return (
     <div class="max-w-7xl mx-auto p-4 md:p-8">
@@ -58,11 +60,28 @@ export default function Agents() {
             <AgentCard
               agent={agent}
               onEdit={state.openEdit}
-              onDelete={state.handleDelete}
+              onDelete={(id) => setConfirmDeleteId(id)}
             />
           )}
         </For>
       </div>
+
+      <ConfirmModal
+        show={!!confirmDeleteId()}
+        title="Delete Agent"
+        message="Are you sure you want to delete this agent? This action cannot be undone."
+        confirmText="Delete Agent"
+        cancelText="Keep Agent"
+        type="danger"
+        onConfirm={() => {
+          const id = confirmDeleteId();
+          if (id) {
+            state.handleDelete(id);
+            setConfirmDeleteId(null);
+          }
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Show } from 'solid-js';
 import { Agent, Provider } from '../types';
 import LLMSelector from './LLMSelector';
 import AgentSelector from './AgentSelector';
+import { useToast } from '../context/ToastContext';
 
 interface ChatInputProps {
   // Agent Selector State
@@ -43,6 +44,8 @@ interface ChatInputProps {
 }
 
 export default function ChatInput(props: ChatInputProps) {
+  const toast = useToast();
+
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
       <div class="max-w-5xl mx-auto relative">
@@ -126,10 +129,10 @@ export default function ChatInput(props: ChatInputProps) {
                         const maxSize = 10 * 1024 * 1024;
                         const valid = files.filter(f => f.size <= maxSize);
                         if (files.length > maxCount) {
-                          alert(`最多选择 ${maxCount} 张图片`);
+                          toast.warning(`最多选择 ${maxCount} 张图片`);
                         }
                         if (valid.length !== files.length) {
-                          alert('部分文件超过 10MB 大小限制，已忽略');
+                          toast.warning('部分文件超过 10MB 大小限制，已忽略');
                         }
                         props.setImageAttachments(valid.slice(0, maxCount));
                         e.currentTarget.value = '';
