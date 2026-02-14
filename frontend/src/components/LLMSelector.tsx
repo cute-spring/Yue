@@ -1,41 +1,37 @@
 import { For, Show } from 'solid-js';
 import { Provider } from '../types';
 
-interface ModelSelectorProps {
-  showLLMSelector: boolean;
-  setShowLLMSelector: (show: boolean) => void;
+interface LLMSelectorProps {
+  show: boolean;
+  setShow: (show: boolean) => void;
   selectedModel: string;
-  setSelectedModel: (model: string) => void;
+  onSelectModel: (provider: string, model: string) => void;
   selectedProvider: string;
-  setSelectedProvider: (provider: string) => void;
   providers: Provider[];
   showAllModels: boolean;
   setShowAllModels: (show: boolean) => void;
   isRefreshingModels: boolean;
-  setIsRefreshingModels: (refreshing: boolean) => void;
-  loadProviders: (refresh?: boolean) => Promise<void>;
-  providerStorageKey: string;
-  modelStorageKey: string;
+  onRefreshModels: () => Promise<void>;
 }
 
-export default function ModelSelector(props: ModelSelectorProps) {
+export default function LLMSelector(props: LLMSelectorProps) {
   return (
     <div class="relative">
       <button 
         type="button"
         onClick={(e) => { 
           e.stopPropagation();
-          props.setShowLLMSelector(!props.showLLMSelector);
+          props.setShow(!props.show);
         }}
         class="flex items-center gap-2.5 px-4 py-2.5 bg-background border border-border hover:border-primary/30 hover:bg-primary/5 rounded-2xl transition-all active:scale-95 shadow-sm"
       >
         <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
         <span class="text-xs font-bold text-text-primary uppercase tracking-wider">{props.selectedModel || "Select Model"}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" class={`h-3.5 w-3.5 text-text-secondary transition-transform duration-300 ${props.showLLMSelector ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" class={`h-3.5 w-3.5 text-text-secondary transition-transform duration-300 ${props.show ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      <Show when={props.showLLMSelector}>
+      <Show when={props.show}>
         <div class="absolute bottom-full left-0 mb-3 w-72 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div class="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
             <span class="text-xs font-bold text-white/70 uppercase tracking-widest">{props.showAllModels ? 'All Models' : 'Enabled Models'}</span>
@@ -71,8 +67,7 @@ export default function ModelSelector(props: ModelSelectorProps) {
                       onClick={(e) => {
                         e.stopPropagation();
                         if (!provider.supports_model_refresh) return;
-                        props.setIsRefreshingModels(true);
-                        props.loadProviders(true).finally(() => props.setIsRefreshingModels(false));
+                        props.onRefreshModels();
                       }}
                       class={`text-[10px] px-2 py-1 rounded-lg border font-bold uppercase tracking-wider ${
                         provider.supports_model_refresh && !props.isRefreshingModels
@@ -87,11 +82,8 @@ export default function ModelSelector(props: ModelSelectorProps) {
                     {model => (
                       <button
                         onClick={() => {
-                          props.setSelectedProvider(provider.name);
-                          props.setSelectedModel(model);
-                          localStorage.setItem(props.providerStorageKey, provider.name);
-                          localStorage.setItem(props.modelStorageKey, model);
-                          props.setShowLLMSelector(false);
+                          props.onSelectModel(provider.name, model);
+                          props.setShow(false);
                         }}
                         class={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all flex items-center justify-between group ${
                           props.selectedModel === model

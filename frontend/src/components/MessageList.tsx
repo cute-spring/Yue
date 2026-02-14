@@ -13,23 +13,18 @@ interface MessageListProps {
   copyUserMessage: (content: string, index: number) => void;
   quoteUserMessage: (content: string) => void;
   handleRegenerate: (index: number) => void;
-  renderThought: (thought: string | null) => any;
-  renderMetaBadges: (msg: Message, index: number) => any;
   messagesEndRef: (el: HTMLDivElement) => void;
   chatContainerRef: (el: HTMLDivElement) => void;
   handleScroll: (e: Event) => void;
   setInput: (val: string) => void;
+  selectedProvider: string;
+  selectedModel: string;
 }
 
 export default function MessageList(props: MessageListProps) {
-  let scrollContainerRef: HTMLDivElement | undefined;
-
   return (
     <div 
-      ref={el => {
-        scrollContainerRef = el;
-        props.chatContainerRef(el);
-      }}
+      ref={props.chatContainerRef}
       onScroll={props.handleScroll}
       class="flex-1 overflow-y-auto px-4 py-8 lg:px-12 space-y-8 scroll-smooth scrollbar-thin scrollbar-thumb-border/50"
     >
@@ -103,8 +98,8 @@ export default function MessageList(props: MessageListProps) {
             copyUserMessage={props.copyUserMessage}
             quoteUserMessage={props.quoteUserMessage}
             handleRegenerate={props.handleRegenerate}
-            renderThought={props.renderThought}
-            renderMetaBadges={props.renderMetaBadges}
+            selectedProvider={props.selectedProvider}
+            selectedModel={props.selectedModel}
           />
         )}
       </For>

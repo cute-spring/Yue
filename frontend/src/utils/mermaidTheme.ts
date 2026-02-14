@@ -54,7 +54,7 @@ export const detectDiagramType = (code: string): string => {
   return 'unknown';
 };
 
-export const getMermaidInitConfig = (preset: MermaidThemePreset, code?: string) => {
+export const getMermaidInitConfig = (preset: MermaidThemePreset) => {
   return {
     startOnLoad: false,
     theme: preset,

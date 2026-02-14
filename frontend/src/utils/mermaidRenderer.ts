@@ -44,7 +44,7 @@ export const renderMermaidChart = async (container: Element) => {
       return;
     }
 
-    (mermaid as any).initialize(getMermaidInitConfig(preset, code));
+    (mermaid as any).initialize(getMermaidInitConfig(preset));
     const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
     
     // Silent error handling: check if code is valid before rendering

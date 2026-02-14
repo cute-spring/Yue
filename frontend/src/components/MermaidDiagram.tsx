@@ -36,7 +36,7 @@ export default function MermaidDiagram(props: MermaidDiagramProps) {
       setDiagramType(detectedType);
       
       // Re-initialize with type-specific config
-      (mermaid as any).initialize(getMermaidInitConfig('default', chart));
+      (mermaid as any).initialize(getMermaidInitConfig('default'));
       
       await mermaid.parse(chart);
       const { svg } = await mermaid.render(renderId, chart);

@@ -1,6 +1,7 @@
-import { For, Show } from 'solid-js';
+import { Show } from 'solid-js';
 import { Agent, Provider } from '../types';
-import ModelSelector from './ModelSelector';
+import LLMSelector from './LLMSelector';
+import AgentSelector from './AgentSelector';
 
 interface ChatInputProps {
   // Agent Selector State
@@ -18,21 +19,17 @@ interface ChatInputProps {
   activeAgentName: string;
   textareaRef: (el: HTMLTextAreaElement) => void;
   
-  // Model Selector Props
+  // LLM Selector Props
   showLLMSelector: boolean;
   setShowLLMSelector: (show: boolean) => void;
   selectedModel: string;
-  setSelectedModel: (model: string) => void;
+  onSelectModel: (provider: string, model: string) => void;
   selectedProvider: string;
-  setSelectedProvider: (provider: string) => void;
   providers: Provider[];
   showAllModels: boolean;
   setShowAllModels: (show: boolean) => void;
   isRefreshingModels: boolean;
-  setIsRefreshingModels: (refreshing: boolean) => void;
-  loadProviders: (refresh?: boolean) => Promise<void>;
-  providerStorageKey: string;
-  modelStorageKey: string;
+  onRefreshModels: () => Promise<void>;
 
   // Deep Thinking
   isDeepThinking: boolean;
@@ -49,51 +46,12 @@ export default function ChatInput(props: ChatInputProps) {
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
       <div class="max-w-5xl mx-auto relative">
-        <Show when={props.showAgentSelector}>
-          <div class="absolute bottom-full left-0 mb-4 w-80 bg-surface border border-border rounded-[24px] shadow-2xl overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-300 backdrop-blur-xl">
-            <div class="bg-primary/5 px-5 py-3 border-b border-border flex items-center justify-between">
-              <span class="text-[10px] font-bold text-primary uppercase tracking-[0.2em]">Mention Intelligence Agent</span>
-              <span class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">@</span>
-            </div>
-            <div class="max-h-72 overflow-y-auto p-2 scrollbar-thin">
-              <For each={props.filteredAgents}>
-                {(agent, index) => (
-                  <button
-                    onClick={() => props.selectAgent(agent)}
-                    class={`w-full text-left px-4 py-3 flex items-center justify-between rounded-xl transition-all duration-200 ${
-                      props.selectedIndex === index() ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-[1.02]' : 'hover:bg-primary/5 text-text-primary'
-                    }`}
-                  >
-                    <div class="flex items-center gap-3">
-                      <div class={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${props.selectedIndex === index() ? 'bg-white/20' : 'bg-primary/10 text-primary'}`}>
-                        {agent.name.charAt(0)}
-                      </div>
-                      <div>
-                        <span class="font-bold text-sm block">{agent.name}</span>
-                        <span class={`text-[10px] block opacity-70 ${props.selectedIndex === index() ? 'text-white' : 'text-text-secondary'}`}>Specialized Intelligence</span>
-                      </div>
-                    </div>
-                    <Show when={props.selectedIndex === index()}>
-                      <div class="flex items-center gap-1">
-                        <span class="text-[9px] font-black tracking-tighter border border-white/30 px-1 rounded">ENTER</span>
-                      </div>
-                    </Show>
-                  </button>
-                )}
-              </For>
-              <Show when={props.filteredAgents.length === 0}>
-                <div class="px-4 py-10 text-center">
-                  <div class="text-text-secondary opacity-30 mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </div>
-                  <p class="text-sm text-text-secondary italic">No matching agents</p>
-                </div>
-              </Show>
-            </div>
-          </div>
-        </Show>
+        <AgentSelector 
+          show={props.showAgentSelector}
+          agents={props.filteredAgents}
+          selectedIndex={props.selectedIndex}
+          onSelect={props.selectAgent}
+        />
 
         <form onSubmit={props.onSubmit} class="relative">
           <div class={`
@@ -114,21 +72,17 @@ export default function ChatInput(props: ChatInputProps) {
             <div class="absolute bottom-4 left-5 right-5 flex items-center justify-between">
               {/* Left Side: Configuration */}
               <div class="flex items-center gap-3">
-                <ModelSelector 
-                  showLLMSelector={props.showLLMSelector}
-                  setShowLLMSelector={props.setShowLLMSelector}
+                <LLMSelector 
+                  show={props.showLLMSelector}
+                  setShow={props.setShowLLMSelector}
                   selectedModel={props.selectedModel}
-                  setSelectedModel={props.setSelectedModel}
+                  onSelectModel={props.onSelectModel}
                   selectedProvider={props.selectedProvider}
-                  setSelectedProvider={props.setSelectedProvider}
                   providers={props.providers}
                   showAllModels={props.showAllModels}
                   setShowAllModels={props.setShowAllModels}
                   isRefreshingModels={props.isRefreshingModels}
-                  setIsRefreshingModels={props.setIsRefreshingModels}
-                  loadProviders={props.loadProviders}
-                  providerStorageKey={props.providerStorageKey}
-                  modelStorageKey={props.modelStorageKey}
+                  onRefreshModels={props.onRefreshModels}
                 />
 
                 {/* Deep Thinking Toggle */}

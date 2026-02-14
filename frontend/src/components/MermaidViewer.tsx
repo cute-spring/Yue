@@ -274,7 +274,7 @@ export default function MermaidViewer(props: MermaidViewerProps) {
       }
 
       // Re-initialize with type-specific config
-      (mermaid as any).initialize(getMermaidInitConfig(themePreset(), chart));
+      (mermaid as any).initialize(getMermaidInitConfig(themePreset()));
       
       // Silent error handling: check if code is valid before rendering
       try {

@@ -15,11 +15,195 @@ interface MessageItemProps {
   copyUserMessage: (content: string, index: number) => void;
   quoteUserMessage: (content: string) => void;
   handleRegenerate: (index: number) => void;
-  renderThought: (thought: string | null) => any;
-  renderMetaBadges: (msg: Message, index: number) => any;
+  selectedProvider: string;
+  selectedModel: string;
 }
 
 export default function MessageItem(props: MessageItemProps) {
+  const formatTime = (value?: string) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(date);
+  };
+
+  const formatTokenCount = (n: number) => {
+    return (n / 1000).toFixed(1) + 'k';
+  };
+
+  const responseStatus = (msg: Message) => {
+    if (msg.error || (msg.content && msg.content.startsWith("Error:"))) return "Failed";
+    if (msg.role === "assistant" && props.isTyping && props.index === 0) return "Generating";
+    return "Completed";
+  };
+
+  const modelLabel = (msg: Message) => {
+    const provider = msg.provider || props.selectedProvider;
+    const model = msg.model || props.selectedModel;
+    if (provider && model) return `${provider}/${model}`;
+    if (model) return model;
+    return "Unknown model";
+  };
+
+  const renderThought = (thought: string | null) => {
+    if (!thought) return null;
+    
+    let processedThought = thought;
+    const protocolTags = [
+      { tag: '[目标]', icon: '🎯', color: 'text-blue-500', bg: 'bg-blue-500/10' },
+      { tag: '[已知条件]', icon: '📋', color: 'text-amber-500', bg: 'bg-amber-500/10' },
+      { tag: '[计划]', icon: '🗺️', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+      { tag: '[反思]', icon: '🔄', color: 'text-rose-500', bg: 'bg-rose-500/10' },
+    ];
+    
+    protocolTags.forEach(({ tag, icon, color, bg }) => {
+      const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(\\*\\*)?${escapedTag}(\\*\\*)?`, 'g');
+      processedThought = processedThought.replace(regex, `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-current/10 ${color} ${bg} font-bold text-[11px] mr-1"><span>${icon}</span><span>${tag}</span></span>`);
+    });
+
+    return (
+      <div 
+        class="prose prose-sm dark:prose-invert max-w-none opacity-90 leading-relaxed font-sans"
+        innerHTML={renderMarkdown(processedThought)}
+      />
+    );
+  };
+
+  const renderMetaBadges = (msg: Message) => {
+    const isUser = msg.role === 'user';
+    const [hoveredMetric, setHoveredMetric] = createSignal<string | null>(null);
+
+    const MetricPopover = (p: { title: string; label: string; value: string | number; icon?: any; description?: string }) => {
+      const isVisible = () => hoveredMetric() === p.label;
+
+      return (
+        <div 
+          class="relative flex items-center"
+          onMouseEnter={() => setHoveredMetric(p.label)}
+          onMouseLeave={() => setHoveredMetric(null)}
+        >
+          <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/50 border border-border/40 text-[10px] font-medium text-text-secondary/80 hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 cursor-default">
+            {p.icon}
+            <span class="opacity-50 font-bold uppercase tracking-tighter text-[9px]">{p.label}</span>
+            <span class="font-semibold text-text-primary/90">{p.value}</span>
+          </div>
+          
+          <div 
+            class={`absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 pointer-events-none transition-all duration-300 ease-out z-[100] ${
+              isVisible() ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
+            }`}
+          >
+            <div class="bg-white/95 backdrop-blur-xl border border-border/50 shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-xl p-3 overflow-hidden">
+              <div class="flex items-center gap-2 mb-1.5">
+                <div class="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  {p.icon}
+                </div>
+                <div class="font-bold text-[11px] text-text-primary tracking-tight">
+                  {p.title}
+                </div>
+              </div>
+              <div class="text-[10px] leading-relaxed text-text-secondary/90 font-medium">
+                {p.description}
+              </div>
+              <div class="mt-2 pt-2 border-t border-border/30 flex justify-between items-center">
+                <span class="text-[9px] text-text-secondary/50 font-bold uppercase">{p.label}</span>
+                <span class="text-[10px] font-bold text-primary">{p.value}</span>
+              </div>
+            </div>
+            <div class="absolute bottom-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-b-white/95"></div>
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div class={`mt-4 flex flex-wrap items-center gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+        <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-text-secondary/5 border border-border/40 text-[10px] font-medium text-text-secondary/70">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          {formatTime(msg.timestamp)}
+        </div>
+
+        <Show when={!isUser}>
+          <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/5 border border-primary/10 text-[10px] font-bold text-primary/80 uppercase tracking-tight shadow-sm shadow-primary/5">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+            {modelLabel(msg)}
+          </div>
+
+          <div class={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] font-bold uppercase tracking-tight ${
+            responseStatus(msg) === 'Failed' 
+              ? 'bg-rose-500/5 border-rose-500/20 text-rose-500' 
+              : responseStatus(msg) === 'Generating' 
+                ? 'bg-amber-500/5 border-amber-500/20 text-amber-500' 
+                : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-500 shadow-sm shadow-emerald-500/5'
+          }`}>
+            <Show when={responseStatus(msg) === 'Generating'}>
+              <div class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div>
+            </Show>
+            <Show when={responseStatus(msg) === 'Completed'}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </Show>
+            {responseStatus(msg)}
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Show when={msg.ttft}>
+              <MetricPopover 
+                title="First Token Latency"
+                label="TTFT"
+                value={`${(msg.ttft! / 1000).toFixed(2)}s`}
+                icon={<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>}
+                description="The time taken from sending the request to receiving the very first token from the model."
+              />
+            </Show>
+            <Show when={msg.total_duration}>
+              <MetricPopover 
+                title="Generation Time"
+                label="Total"
+                value={`${(msg.total_duration! / 1000).toFixed(2)}s`}
+                icon={<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>}
+                description="The total wall-clock time elapsed for the complete response generation process."
+              />
+            </Show>
+            <Show when={msg.tps}>
+              <MetricPopover 
+                title="Inference Speed"
+                label="TPS"
+                value={msg.tps!.toFixed(1)}
+                icon={<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><path d="m16 18 6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>}
+                description="Tokens Per Second: The average speed at which the model generated the text content."
+              />
+            </Show>
+          </div>
+
+          <Show when={msg.prompt_tokens || msg.completion_tokens}>
+            <MetricPopover 
+              title="Token Consumption"
+              label="Usage"
+              value={`${formatTokenCount(msg.prompt_tokens ?? 0)}i / ${formatTokenCount(msg.completion_tokens ?? 0)}o`}
+              icon={<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7"/><path d="M16 5V3"/><path d="M8 5V3"/><path d="M3 9h18"/><path d="M16 19h6"/><path d="M19 16v6"/></svg>}
+              description="Detailed breakdown of input (prompt) tokens and output (generated) tokens used."
+            />
+          </Show>
+
+          <Show when={msg.citations && msg.citations.length > 0}>
+            <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-500/5 border border-indigo-500/20 text-[10px] font-bold text-indigo-500/80 uppercase tracking-tight">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1 0 2.5 0 5-2 7Z"/><path d="M14 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1 0 2.5 0 5-2 7Z"/></svg>
+              {msg.citations?.length} Citations
+            </div>
+          </Show>
+
+          <Show when={msg.tools && msg.tools.length > 0}>
+            <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/5 border border-amber-500/20 text-[10px] font-bold text-amber-500/80 uppercase tracking-tight">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              {msg.tools?.length} Tools
+            </div>
+          </Show>
+        </Show>
+      </div>
+    );
+  };
+
   return (
     <div class={`flex flex-col gap-2 ${props.msg.role === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
       <div class="flex items-center gap-2 px-1">
@@ -141,7 +325,7 @@ export default function MessageItem(props: MessageItemProps) {
                       }`}
                     >
                       <div class="px-6 py-4 text-[13px] text-text-secondary/80 leading-relaxed overflow-y-auto max-h-[500px] border-t border-border/5 bg-black/5 dark:bg-black/10">
-                        {props.renderThought(thought)}
+                        {renderThought(thought)}
                       </div>
                     </div>
                   </div>
@@ -257,7 +441,7 @@ export default function MessageItem(props: MessageItemProps) {
             </button>
           </div>
         </Show>
-        {props.renderMetaBadges(props.msg, props.index)}
+        {renderMetaBadges(props.msg)}
       </div>
     </div>
   );
