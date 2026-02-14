@@ -1,4 +1,5 @@
 import { createSignal, onMount, For, Show } from 'solid-js';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 type Note = {
   id: string;
@@ -15,6 +16,7 @@ export default function Notebook() {
   const [editTitle, setEditTitle] = createSignal("");
   const [editContent, setEditContent] = createSignal("");
   const [saveStatus, setSaveStatus] = createSignal("");
+  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
 
   const loadNotes = async () => {
     try {
@@ -76,9 +78,7 @@ export default function Notebook() {
     }
   };
 
-  const deleteNote = async (id: string, e: Event) => {
-    e.stopPropagation();
-    if (!confirm("Delete this note?")) return;
+  const deleteNote = async (id: string) => {
     try {
       await fetch(`/api/notebook/${id}`, { method: 'DELETE' });
       await loadNotes();
@@ -119,7 +119,10 @@ export default function Notebook() {
                     {note.title || "Untitled Note"}
                   </h3>
                   <button 
-                    onClick={(e) => deleteNote(note.id, e)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDeleteId(note.id);
+                    }}
                     class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 rounded-md hover:bg-red-50 transition-all"
                     title="Delete note"
                   >
@@ -199,6 +202,23 @@ export default function Notebook() {
           />
         </Show>
       </div>
+
+      <ConfirmModal
+        show={!!confirmDeleteId()}
+        title="Delete Note"
+        message="Are you sure you want to delete this note? This action cannot be undone."
+        confirmText="Delete Note"
+        cancelText="Keep Note"
+        type="danger"
+        onConfirm={() => {
+          const id = confirmDeleteId();
+          if (id) {
+            deleteNote(id);
+            setConfirmDeleteId(null);
+          }
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

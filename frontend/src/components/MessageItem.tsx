@@ -24,7 +24,7 @@ export default function MessageItem(props: MessageItemProps) {
   let timer: any;
 
   createEffect(() => {
-    const { thought, content } = parseThoughtAndContent(props.msg.content);
+    const { content } = parseThoughtAndContent(props.msg.content);
     // 只要还在打字，且没有最终内容，就继续计时
     if (props.isTyping && !content) {
       if (!timer) {

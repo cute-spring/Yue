@@ -2,6 +2,7 @@ import { Show } from 'solid-js';
 import { Agent, Provider } from '../types';
 import LLMSelector from './LLMSelector';
 import AgentSelector from './AgentSelector';
+import { useToast } from '../context/ToastContext';
 
 interface ChatInputProps {
   // Agent Selector State
@@ -43,9 +44,11 @@ interface ChatInputProps {
 }
 
 export default function ChatInput(props: ChatInputProps) {
+  const toast = useToast();
+
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
-      <div class="max-w-5xl mx-auto relative">
+      <div class="max-w-6xl mx-auto relative">
         <AgentSelector 
           show={props.showAgentSelector}
           agents={props.filteredAgents}
@@ -55,7 +58,7 @@ export default function ChatInput(props: ChatInputProps) {
 
         <form onSubmit={props.onSubmit} class="relative">
           <div class={`
-            relative bg-surface/80 backdrop-blur-xl border-2 rounded-[28px] transition-all duration-500 p-2 shadow-2xl
+            relative bg-surface/80 backdrop-blur-xl border-2 rounded-[28px] transition-all duration-500 p-1.5 shadow-2xl
             ${props.isTyping ? 'border-primary/40 ring-8 ring-primary/5 shadow-primary/10' : 'border-border focus-within:border-primary/40 focus-within:ring-8 focus-within:ring-primary/5'}
           `}>
             <textarea
@@ -64,14 +67,14 @@ export default function ChatInput(props: ChatInputProps) {
               onInput={props.onInput}
               onKeyDown={props.onKeyDown}
               placeholder={`You are chatting with ${props.activeAgentName} now`}
-              class="w-full bg-transparent px-6 pt-5 pb-20 focus:outline-none resize-none min-h-[96px] max-h-[400px] overflow-y-auto text-text-primary leading-relaxed text-lg font-medium placeholder:text-text-secondary/30"
+              class="w-full bg-transparent px-6 pt-3.5 pb-14 focus:outline-none resize-none min-h-[72px] max-h-[400px] overflow-y-auto text-text-primary leading-relaxed text-lg font-medium placeholder:text-text-secondary/30"
               rows={1}
             />
             
             {/* Unified Action Bar */}
-            <div class="absolute bottom-4 left-5 right-5 flex items-center justify-between">
+            <div class="absolute bottom-3 left-4 right-4 flex items-center justify-between">
               {/* Left Side: Configuration */}
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-2">
                 <LLMSelector 
                   show={props.showLLMSelector}
                   setShow={props.setShowLLMSelector}
@@ -89,7 +92,7 @@ export default function ChatInput(props: ChatInputProps) {
                 <button
                   type="button"
                   onClick={() => props.setIsDeepThinking(!props.isDeepThinking)}
-                  class={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl transition-all active:scale-95 border shadow-sm ${
+                  class={`flex items-center gap-2 px-3 py-2 rounded-2xl transition-all active:scale-95 border shadow-sm ${
                     props.isDeepThinking 
                       ? 'bg-primary/10 border-primary/30 text-primary' 
                       : 'bg-background border-border text-text-secondary hover:text-primary hover:bg-primary/5'
@@ -103,12 +106,12 @@ export default function ChatInput(props: ChatInputProps) {
               </div>
 
               {/* Right Side: Tools + Action */}
-              <div class="flex items-center gap-4">
+              <div class="flex items-center gap-3">
                 {/* Tools Group */}
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-1.5">
                   <div class="relative group/tooltip">
-                    <button type="button" class="p-3 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <button type="button" class="p-2.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
                     </button>
@@ -126,17 +129,17 @@ export default function ChatInput(props: ChatInputProps) {
                         const maxSize = 10 * 1024 * 1024;
                         const valid = files.filter(f => f.size <= maxSize);
                         if (files.length > maxCount) {
-                          alert(`最多选择 ${maxCount} 张图片`);
+                          toast.warning(`最多选择 ${maxCount} 张图片`);
                         }
                         if (valid.length !== files.length) {
-                          alert('部分文件超过 10MB 大小限制，已忽略');
+                          toast.warning('部分文件超过 10MB 大小限制，已忽略');
                         }
                         props.setImageAttachments(valid.slice(0, maxCount));
                         e.currentTarget.value = '';
                       }} />
-                    <button type="button" class="relative p-3 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Upload images"
+                    <button type="button" class="relative p-2.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Upload images"
                       onClick={props.onImageClick}>
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-width="2" />
                         <circle cx="8.5" cy="8.5" r="1.5" stroke-width="2" />
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15l-5-5L5 21" />
@@ -152,8 +155,8 @@ export default function ChatInput(props: ChatInputProps) {
                     </div>
                   </div>
                   <div class="relative group/tooltip">
-                    <button type="button" class="p-3 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Voice input">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <button type="button" class="p-2.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Voice input">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </button>
@@ -168,7 +171,7 @@ export default function ChatInput(props: ChatInputProps) {
                   type="submit"
                   disabled={!props.isTyping && (!props.input.trim() || !props.selectedModel)}
                   class={`
-                    flex items-center justify-center p-4 rounded-2xl transition-all duration-500 shadow-lg
+                    flex items-center justify-center p-3 rounded-2xl transition-all duration-500 shadow-lg
                     ${(props.input.trim() && props.selectedModel) || props.isTyping 
                       ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/30 hover:scale-[1.02] active:scale-95' 
                       : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}

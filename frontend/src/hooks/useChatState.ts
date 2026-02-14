@@ -61,9 +61,7 @@ export function useChatState(
     }
   };
 
-  const deleteChat = async (id: string, e: Event) => {
-    e.stopPropagation();
-    if (!confirm("Delete this chat?")) return;
+  const deleteChat = async (id: string) => {
     try {
       await fetch(`/api/chat/${id}`, { method: 'DELETE' });
       loadHistory();
