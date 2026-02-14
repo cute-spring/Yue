@@ -199,6 +199,15 @@ export default function MessageItem(props: MessageItemProps) {
           })()
         )}
         
+        <Show when={props.msg.finish_reason === 'length'}>
+          <div class="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[13px] flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>Response truncated due to output length limit. Try asking for a shorter summary or continuing from where it left off.</span>
+          </div>
+        </Show>
+
         <Show when={props.isTyping && props.index === 0}>
           <span class="inline-block w-2.5 h-5 ml-1 bg-primary/30 animate-pulse align-middle rounded-sm shadow-[0_0_8px_rgba(16,185,129,0.3)]"></span>
         </Show>

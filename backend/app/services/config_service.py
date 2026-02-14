@@ -107,12 +107,15 @@ class ConfigService:
         
         # 默认配置增强：内网环境超时处理
         if not config.get('llm_request_timeout'):
-            config['llm_request_timeout'] = 60
+            config['llm_request_timeout'] = 300
         else:
             try:
                 config['llm_request_timeout'] = int(config['llm_request_timeout'])
+                # 如果用户设置的超时时间过短，也建议至少 60s
+                if config['llm_request_timeout'] < 60:
+                    config['llm_request_timeout'] = 60
             except (ValueError, TypeError):
-                config['llm_request_timeout'] = 60
+                config['llm_request_timeout'] = 300
                 
         return config
 

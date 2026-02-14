@@ -27,6 +27,7 @@ export type Message = {
   citations?: any[];
   context_id?: string;
   error?: string;
+  finish_reason?: string;
 };
 
 export interface Provider {

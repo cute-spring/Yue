@@ -620,7 +620,7 @@ export default function Chat() {
                     newMsgs[lastIndex] = { ...newMsgs[lastIndex], total_duration: data.total_duration * 1000 };
                     return newMsgs;
                   });
-                } else if (data.prompt_tokens !== undefined || data.completion_tokens !== undefined || data.total_tokens !== undefined || data.tps !== undefined) {
+                } else if (data.prompt_tokens !== undefined || data.completion_tokens !== undefined || data.total_tokens !== undefined || data.tps !== undefined || data.finish_reason !== undefined) {
                   setMessages(prev => {
                     const newMsgs = [...prev];
                     const lastIndex = newMsgs.length - 1;
@@ -629,7 +629,8 @@ export default function Chat() {
                       prompt_tokens: data.prompt_tokens,
                       completion_tokens: data.completion_tokens,
                       total_tokens: data.total_tokens,
-                      tps: data.tps
+                      tps: data.tps,
+                      finish_reason: data.finish_reason
                     };
                     return newMsgs;
                   });
