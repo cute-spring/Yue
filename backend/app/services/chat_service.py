@@ -21,6 +21,7 @@ class Message(BaseModel):
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    finish_reason: Optional[str] = None
 
 class ChatSession(BaseModel):
     id: str
@@ -70,6 +71,7 @@ class ChatService:
                     prompt_tokens INTEGER,
                     completion_tokens INTEGER,
                     total_tokens INTEGER,
+                    finish_reason TEXT,
                     FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
                 )
             """)
@@ -104,6 +106,10 @@ class ChatService:
 
             if "total_tokens" not in columns:
                 conn.execute("ALTER TABLE messages ADD COLUMN total_tokens INTEGER")
+                conn.commit()
+            
+            if "finish_reason" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN finish_reason TEXT")
                 conn.commit()
             
             # Ensure images column exists
@@ -153,7 +159,7 @@ class ChatService:
             sessions = []
             for row in cursor.fetchall():
                 # Get messages for each session
-                msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (row['id'],))
+                msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (row['id'],))
                 messages = []
                 for m in msg_cursor.fetchall():
                     msg_dict = dict(m)
@@ -181,7 +187,7 @@ class ChatService:
             if not row:
                 return None
             
-            msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
+            msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
             messages = []
             for m in msg_cursor.fetchall():
                 msg_dict = dict(m)
@@ -231,7 +237,8 @@ class ChatService:
         total_duration: Optional[float] = None,
         prompt_tokens: Optional[int] = None,
         completion_tokens: Optional[int] = None,
-        total_tokens: Optional[int] = None
+        total_tokens: Optional[int] = None,
+        finish_reason: Optional[str] = None
     ) -> Optional[ChatSession]:
         now = datetime.now()
         with self._get_connection() as conn:
@@ -244,8 +251,8 @@ class ChatService:
             # Add message
             images_json = json.dumps(images) if images else None
             conn.execute(
-                "INSERT INTO messages (session_id, role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (chat_id, role, content, images_json, now, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens)
+                "INSERT INTO messages (session_id, role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (chat_id, role, content, images_json, now, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason)
             )
             
             # Update title if it's the first user message

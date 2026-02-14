@@ -37,6 +37,23 @@ export const cycleMermaidThemePreset = (current?: MermaidThemePreset): MermaidTh
 
 export const getMermaidThemeLabel = (preset: MermaidThemePreset) => PRESETS.find((p) => p.id === preset)?.label || 'Theme';
 
+export const detectDiagramType = (code: string): string => {
+  const normalized = code.toLowerCase().trim();
+  if (normalized.includes('sequencediagram')) return 'sequence';
+  if (normalized.includes('graph')) {
+    if (normalized.includes('flowchart')) return 'flowchart';
+    if (normalized.includes('classdiagram')) return 'class';
+    if (normalized.includes('statediagram')) return 'state';
+    if (normalized.includes('entityrelationship')) return 'er';
+    return 'graph';
+  }
+  if (normalized.includes('gantt')) return 'gantt';
+  if (normalized.includes('pie')) return 'pie';
+  if (normalized.includes('journey')) return 'journey';
+  if (normalized.includes('gitgraph')) return 'git';
+  return 'unknown';
+};
+
 export const getMermaidInitConfig = (preset: MermaidThemePreset) => {
   return {
     startOnLoad: false,

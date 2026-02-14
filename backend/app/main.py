@@ -74,4 +74,9 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8003, reload=True)
+    # 增加超时时间以支持长时间生成的 LLM 请求
+    # timeout_keep_alive: 保持连接活跃的时间
+    # timeout_graceful_shutdown: 优雅停机等待时间
+    # 注意：uvicorn 本身没有直接限制 HTTP 请求处理时间的参数（由 FastAPI/程序控制）
+    # 但我们可以通过增加 keep-alive 超时来防止网络层面的断连
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8003, reload=True, timeout_keep_alive=600)

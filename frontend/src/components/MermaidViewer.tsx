@@ -3,6 +3,8 @@ import hljs from 'highlight.js';
 import mermaid from 'mermaid';
 import { getMermaidInitConfig, getMermaidThemePreset, MERMAID_THEME_PRESETS, setMermaidThemePreset, type MermaidThemePreset } from '../utils/mermaidTheme';
 import { buildExportSvgString, canCopyPng, copyPngBlobToClipboard, copyTextToClipboard, downloadBlob, getMermaidExportPrefs, getMermaidExportTimestamp, sanitizeFilenameBase, setMermaidExportPrefs, svgStringToPngBlob } from '../utils/mermaidExport';
+import { normalizeMermaidCode } from '../utils/markdown';
+import { getCachedMermaidSvg, setCachedMermaidSvg } from '../utils/mermaidCache';
 
 interface MermaidViewerProps {
   code: string;
@@ -36,23 +38,6 @@ export default function MermaidViewer(props: MermaidViewerProps) {
   let exportPrimaryBtnRef: HTMLButtonElement | undefined;
   let exportLastFocus: HTMLElement | null = null;
   let exportPrevOverflow = '';
-
-  const normalize = (code: string) => {
-    let normalized = code.replace(/^\uFEFF/, '').trim();
-    const lines = normalized.split('\n');
-    if (lines.length >= 2) {
-      const first = lines[0].trim();
-      const last = lines[lines.length - 1].trim();
-      if (/^```/.test(first)) lines.shift();
-      if (/^```/.test(last)) lines.pop();
-    }
-    normalized = lines.join('\n').trim();
-    normalized = normalized.replace(/^```mermaid\s*/i, '').trim();
-    normalized = normalized.replace(/ - -?> /g, ' --> ');
-    normalized = normalized.replace(/ = =?> /g, ' ==> ');
-    normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    return normalized;
-  };
 
   const zoomTo = (next: number) => setScale(Math.min(4, Math.max(0.25, next)));
   const zoomIn = () => zoomTo(scale() * 1.2);
@@ -274,10 +259,23 @@ export default function MermaidViewer(props: MermaidViewerProps) {
       return;
     }
 
-    const chart = normalize(code);
+    const chart = normalizeMermaidCode(code);
     if (!chart) return;
     try {
       setError(null);
+
+      // Check cache first
+      const cached = getCachedMermaidSvg(chart, themePreset());
+      if (cached) {
+        el.innerHTML = cached;
+        const s = el.querySelector('svg');
+        if (s) setDimensions({ width: s.viewBox.baseVal.width || s.clientWidth, height: s.viewBox.baseVal.height || s.clientHeight });
+        return;
+      }
+
+      // Re-initialize with type-specific config
+      (mermaid as any).initialize(getMermaidInitConfig(themePreset()));
+      
       // Silent error handling: check if code is valid before rendering
       try {
         await (mermaid as any).parse(chart);
@@ -289,6 +287,9 @@ export default function MermaidViewer(props: MermaidViewerProps) {
       const renderId = `${baseId}-${containerId}-${Date.now()}`;
       const { svg, bindFunctions } = await (mermaid as any).render(renderId, chart);
       
+      // Save to cache
+      setCachedMermaidSvg(chart, themePreset(), svg);
+
       el.classList.add('opacity-0', 'transition-opacity', 'duration-500');
       el.innerHTML = svg;
       requestAnimationFrame(() => {
@@ -305,7 +306,7 @@ export default function MermaidViewer(props: MermaidViewerProps) {
     }
   };
 
-  const normalizedCode = createMemo(() => normalize(props.code));
+  const normalizedCode = createMemo(() => normalizeMermaidCode(props.code));
   const highlightedCode = createMemo(() => hljs.highlight(normalizedCode(), { language: 'plaintext' }).value);
 
   onMount(() => {

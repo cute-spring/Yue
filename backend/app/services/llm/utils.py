@@ -85,11 +85,20 @@ def get_ollama_http_client() -> httpx.AsyncClient:
         verify = get_ssl_verify()
         timeout_val = float(llm_config.get('llm_request_timeout', 60))
         
-        _shared_ollama_client = httpx.AsyncClient(
-            timeout=timeout_val,
-            verify=verify,
-            trust_env=False  # Bypass system proxies for local Ollama
-        )
+        kwargs: Dict[str, Any] = {
+            "timeout": timeout_val,
+            "verify": verify,
+            "trust_env": False  # Bypass system proxies for local Ollama
+        }
+        
+        # Try to enable HTTP/2 if h2 is installed
+        try:
+            import h2
+            kwargs["http2"] = True
+        except ImportError:
+            pass
+
+        _shared_ollama_client = httpx.AsyncClient(**kwargs)
     return _shared_ollama_client
 
 def _get_proxies_config(llm_config: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -184,6 +193,13 @@ def build_async_client(
     if limits is not None:
         kwargs["limits"] = limits
     
+    # Try to enable HTTP/2 if h2 is installed
+    try:
+        import h2
+        kwargs["http2"] = True
+    except ImportError:
+        pass
+    
     return httpx.AsyncClient(**kwargs)
 
 def build_client(
@@ -198,6 +214,14 @@ def build_client(
         "verify": verify,
         "trust_env": True
     }
+    
+    # Try to enable HTTP/2 if h2 is installed
+    try:
+        import h2
+        kwargs["http2"] = True
+    except ImportError:
+        pass
+        
     return httpx.Client(**kwargs)
 
 def get_http_client() -> Optional[httpx.AsyncClient]:
@@ -217,7 +241,7 @@ def get_http_client() -> Optional[httpx.AsyncClient]:
             timeout=timeout_val,
             verify=verify,
             llm_config=llm_config,
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=10, keepalive_expiry=10.0),
         )
     return _shared_http_client
 
@@ -255,6 +279,13 @@ def handle_llm_exception(e: Exception) -> str:
          return (
             f"Proxy connection failed. Please check your 'Proxy URL' and 'No Proxy' settings. "
             f"Original error: {error_str}"
+        )
+
+    # Check for RemoteProtocolError (Incomplete Chunked Read)
+    if "RemoteProtocolError" in error_str and "incomplete chunked read" in error_str:
+        return (
+            "Network connection was closed prematurely by the server (Incomplete Chunked Read). "
+            "This often happens due to network instability or proxy timeouts. Please try again."
         )
 
     return error_str

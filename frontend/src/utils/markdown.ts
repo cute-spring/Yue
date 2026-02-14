@@ -2,9 +2,11 @@ import { marked } from 'marked';
 import hljs from 'highlight.js';
 import katex from 'katex';
 import { getMermaidThemePreset, MERMAID_THEME_PRESETS, type MermaidThemePreset } from './mermaidTheme';
+import { getCachedMermaidSvg } from './mermaidCache';
 
 /**
  * Normalizes mermaid code by removing backticks and language tags.
+ * Includes auto-fixes for common syntax errors.
  */
 export function normalizeMermaidCode(code: string): string {
   let normalized = code.replace(/^\uFEFF/, '').trim();
@@ -17,6 +19,19 @@ export function normalizeMermaidCode(code: string): string {
   }
   normalized = lines.join('\n').trim();
   normalized = normalized.replace(/^```mermaid\s*/i, '').trim();
+
+  // Auto-fix common syntax errors
+  // 1. Fix broken arrows with spaces
+  normalized = normalized.replace(/ - -> /g, ' --> ');
+  normalized = normalized.replace(/ = => /g, ' ==> ');
+  // 2. Fix common arrow spacing issues
+  normalized = normalized.replace(/(\w)\s*-->\s*(\w)/g, '$1 --> $2');
+  normalized = normalized.replace(/(\w)\s*-.->\s*(\w)/g, '$1 -.-> $2');
+  // 3. Fix participant declarations in sequence diagrams
+  normalized = normalized.replace(/participant\s+(\w+)\s+as\s+(\w+)/gi, 'participant $2 as $1');
+  // 4. Ensure proper line endings for better parsing
+  normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
   return normalized;
 }
 
@@ -173,6 +188,9 @@ export function createMarkdownRenderer(): any {
         isClosed = closingIdx !== -1 && closingIdx >= text.trim().length;
       }
 
+      const normalizedCode = normalizeMermaidCode(text);
+      const cachedSvg = isClosed ? getCachedMermaidSvg(normalizedCode, preset) : null;
+
       return `
         <div class="mermaid-widget my-4" data-code="${encodedContent}" data-complete="${isClosed}" data-scale="1" data-tx="0" data-ty="0" data-tab="diagram">
           <div class="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
@@ -234,7 +252,7 @@ export function createMarkdownRenderer(): any {
               <div class="mermaid-widget-viewport w-full overflow-auto">
                 <div class="mermaid-widget-zoom-area min-h-[280px] flex justify-center items-center p-6 transition-all duration-300" style="transform: translate(0px, 0px) scale(1); transform-origin: top center;">
                   <div class="mermaid-chart w-full flex justify-center" data-code="${encodedContent}">
-                    ${isClosed ? `
+                    ${cachedSvg ? cachedSvg : (isClosed ? `
                       <div class="flex flex-col items-center justify-center">
                         <div class="loading-spinner w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
                         <div class="text-[10px] mt-3 text-emerald-600/50 font-medium tracking-wider uppercase">Rendering Diagram...</div>
@@ -244,7 +262,7 @@ export function createMarkdownRenderer(): any {
                         <div class="w-8 h-8 border-2 border-gray-200 border-t-emerald-400 rounded-full animate-spin mb-4"></div>
                         <div class="text-xs font-medium animate-pulse">Generating diagram...</div>
                       </div>
-                    `}
+                    `)}
                   </div>
                 </div>
               </div>

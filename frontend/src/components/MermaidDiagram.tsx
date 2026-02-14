@@ -1,6 +1,7 @@
-import { onMount, createSignal, Show, createEffect } from 'solid-js';
+import { createSignal, Show, createEffect } from 'solid-js';
 import mermaid from 'mermaid';
-import { getMermaidInitConfig, getMermaidThemePreset } from '../utils/mermaidTheme';
+import { getMermaidInitConfig, detectDiagramType } from '../utils/mermaidTheme';
+import { normalizeMermaidCode } from '../utils/markdown';
 
 interface MermaidDiagramProps {
   chart: string;
@@ -19,59 +20,6 @@ export default function MermaidDiagram(props: MermaidDiagramProps) {
   const diagramId = props.id || `mermaid-${Math.random().toString(36).slice(2, 11)}`;
   let renderSeq = 0;
 
-  const detectDiagramType = (code: string): string => {
-    const normalized = code.toLowerCase().trim();
-    if (normalized.includes('sequencediagram')) return 'sequence';
-    if (normalized.includes('graph')) {
-      if (normalized.includes('flowchart')) return 'flowchart';
-      if (normalized.includes('classdiagram')) return 'class';
-      if (normalized.includes('statediagram')) return 'state';
-      if (normalized.includes('entityrelationship')) return 'er';
-      return 'graph';
-    }
-    if (normalized.includes('gantt')) return 'gantt';
-    if (normalized.includes('pie')) return 'pie';
-    if (normalized.includes('journey')) return 'journey';
-    if (normalized.includes('gitgraph')) return 'git';
-    return 'unknown';
-  };
-
-const normalizeMermaidCode = (code: string) => {
-    let normalized = code.replace(/^\uFEFF/, '').trim();
-    const lines = normalized.split('\n');
-    if (lines.length >= 2) {
-      const first = lines[0].trim();
-      const last = lines[lines.length - 1].trim();
-      if (/^```/.test(first)) lines.shift();
-      if (/^```/.test(last)) lines.pop();
-    }
-    normalized = lines.join('\n').trim();
-    normalized = normalized.replace(/^```mermaid\s*/i, '').trim();
-    
-    // Auto-fix common syntax errors (Enhanced DeepSeek/Doubao style)
-    // 1. Fix broken arrows with spaces
-    normalized = normalized.replace(/ - -> /g, ' --> ');
-    normalized = normalized.replace(/ = => /g, ' ==> ');
-    // 2. Fix common arrow spacing issues
-    normalized = normalized.replace(/(\w)\s*-->\s*(\w)/g, '$1 --> $2');
-    normalized = normalized.replace(/(\w)\s*-.->\s*(\w)/g, '$1 -.-> $2');
-    // 3. Fix participant declarations in sequence diagrams
-    normalized = normalized.replace(/participant\s+(\w+)\s+as\s+(\w+)/gi, 'participant $2 as $1');
-    // 4. Ensure proper line endings for better parsing
-    normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    
-    return normalized;
-  };
-
-  onMount(() => {
-    try {
-      const preset = getMermaidThemePreset();
-      (mermaid as any).initialize(getMermaidInitConfig(preset));
-    } catch (err) {
-      console.warn('Mermaid initialization warning:', err);
-    }
-  });
-
   const renderDiagram = async () => {
     const chart = normalizeMermaidCode(props.chart);
     if (!chart) {
@@ -87,60 +35,8 @@ const normalizeMermaidCode = (code: string) => {
       const detectedType = detectDiagramType(chart);
       setDiagramType(detectedType);
       
-      // Configure mermaid based on diagram type (DeepSeek/Doubao style optimization)
-      const config = {
-        startOnLoad: false,
-        theme: 'base' as const,
-        themeVariables: {
-          primaryColor: '#10B981', // Emerald 500
-          primaryTextColor: '#1f2937', // Gray 800
-          primaryBorderColor: '#059669',
-          lineColor: '#64748b', // Slate 500
-          secondaryColor: '#ecfdf5', // Emerald 50
-          tertiaryColor: '#f0fdf4', // Emerald 50 lighter
-          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
-          fontSize: '14px',
-          // Type-specific colors
-          ...(detectedType === 'sequence' && {
-            actorBkg: '#10B981',
-            actorBorder: '#059669',
-            actorTextColor: '#ffffff',
-            actorLineColor: '#64748b',
-            signalColor: '#1f2937',
-            signalTextColor: '#1f2937',
-          }),
-          ...(detectedType === 'flowchart' && {
-            nodeBkg: '#10B981',
-            nodeBorder: '#059669',
-            clusterBkg: '#ecfdf5',
-            clusterBorder: '#a7f3d0',
-          }),
-        },
-        // Type-specific configurations
-        flowchart: {
-          curve: 'basis',
-          htmlLabels: true,
-          padding: 15,
-          nodeSpacing: 50,
-          rankSpacing: 80,
-        },
-        sequence: {
-          actorMargin: 50,
-          boxMargin: 10,
-          boxTextMargin: 5,
-          noteMargin: 10,
-          messageMargin: 35,
-          mirrorActors: false,
-          bottomMarginAdj: 1,
-          activationWidth: 20,
-          diagramMarginX: 50,
-          diagramMarginY: 10,
-        },
-        securityLevel: 'loose',
-      };
-      
       // Re-initialize with type-specific config
-      (mermaid as any).initialize(config);
+      (mermaid as any).initialize(getMermaidInitConfig('default'));
       
       await mermaid.parse(chart);
       const { svg } = await mermaid.render(renderId, chart);

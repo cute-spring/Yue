@@ -345,14 +345,16 @@ async def chat_stream(request: ChatRequest):
             
             yield f"data: {json.dumps({'total_duration': total_duration})}\n\n"
 
-            # Capture Usage from Pydantic AI
+            # Capture Usage and Finish Reason from Pydantic AI
             prompt_tokens = None
             completion_tokens = None
             total_tokens = None
             tps = None
+            finish_reason = None
             
             try:
                 usage = result.usage()
+                finish_reason = result.response.finish_reason
                 
                 # Helper to safely extract integer tokens (avoiding mocks in tests)
                 def to_int(v):
@@ -369,7 +371,8 @@ async def chat_stream(request: ChatRequest):
                     'prompt_tokens': prompt_tokens,
                     'completion_tokens': completion_tokens,
                     'total_tokens': total_tokens,
-                    'tps': tps
+                    'tps': tps,
+                    'finish_reason': finish_reason
                 }
                 yield f"data: {json.dumps(usage_dict)}\n\n"
             except Exception as usage_err:
@@ -423,7 +426,8 @@ async def chat_stream(request: ChatRequest):
                 total_duration=total_duration,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                total_tokens=total_tokens
+                total_tokens=total_tokens,
+                finish_reason=finish_reason
             )
             
         except Exception as e:
