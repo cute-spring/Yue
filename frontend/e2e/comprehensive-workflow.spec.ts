@@ -59,6 +59,9 @@ test('Comprehensive User Workflow', async ({ page }) => {
   // Check for chat bubble (user message)
   await expect(page.locator('div').filter({ hasText: /^Hello Yue$/ }).first()).toBeVisible({ timeout: 10000 });
   
+  // Wait for assistant to finish typing
+  await expect(page.locator('text=System Ready')).toBeVisible({ timeout: 30000 });
+  
   // 8. Test Slash Command
   await input.fill('/help');
   await input.press('Enter');

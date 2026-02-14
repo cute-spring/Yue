@@ -7,6 +7,7 @@ from app.services.llm import (
     list_providers,
 )
 from app.services.llm.utils import handle_llm_exception
+from app.services.config_service import config_service
 
 router = APIRouter()
 

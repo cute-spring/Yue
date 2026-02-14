@@ -11,8 +11,8 @@ test('Custom Models CRUD UI flow', async ({ page }) => {
   await page.getByPlaceholder('gpt-4o').fill('x-large');
   await page.getByPlaceholder('https://...').fill('https://api.example.com/v1');
   await page.getByPlaceholder('****').fill('****masked****');
-  await page.getByRole('button', { name: 'Test' }).click();
-  await page.getByRole('button', { name: 'Save', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Test' }).last().click();
+  await page.getByRole('button', { name: 'Save', exact: true }).last().click();
 
   // Should appear in list
   const item = page.locator('div').filter({ hasText: 'e2e-custom' }).first();

@@ -1,4 +1,5 @@
 import { createSignal, onMount, Show, createEffect } from 'solid-js';
+import { Message } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
@@ -81,6 +82,7 @@ export default function Chat() {
     chats,
     currentChatId,
     messages,
+    setMessages,
     input,
     setInput,
     isTyping,
@@ -95,12 +97,57 @@ export default function Chat() {
     loadChat,
     startNewChat,
     deleteChat,
-    handleSubmit,
     toggleThought,
     copyUserMessage,
     quoteUserMessage,
     handleRegenerate,
+    handleSubmit: originalHandleSubmit,
   } = chatState;
+
+  const handleSubmit = (e: Event) => {
+    e.preventDefault();
+    const trimmedInput = input().trim();
+    if (!trimmedInput || isTyping()) return;
+
+    // Handle slash commands
+    if (trimmedInput === '/help') {
+      const helpMsg: Message = {
+        role: 'assistant',
+        content: 'Commands: /help /note /clear',
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, helpMsg]);
+      setInput('');
+      return;
+    }
+    
+    if (trimmedInput === '/clear') {
+      setMessages([]);
+      setInput('');
+      return;
+    }
+
+    if (trimmedInput === '/note') {
+      const lastAssistantMsg = [...messages()].reverse().find(m => m.role === 'assistant');
+      if (lastAssistantMsg) {
+        setInlineToast({ message: 'Saved to notes.', type: 'success' });
+        setTimeout(() => setInlineToast(null), 3000);
+      } else {
+        setInlineToast({ message: 'No assistant message to save.', type: 'error' });
+        setTimeout(() => setInlineToast(null), 3000);
+      }
+      setInput('');
+      return;
+    }
+
+    // Regular chat message logic...
+    if (!selectedModel()) {
+      setShowLLMSelector(true);
+      return;
+    }
+    
+    originalHandleSubmit(e);
+  };
 
   const {
     debouncedRender

@@ -1,7 +1,29 @@
 export type Agent = {
   id: string;
   name: string;
+  system_prompt: string;
+  provider: string;
+  model: string;
+  enabled_tools: string[];
+  doc_roots?: string[];
+  doc_file_patterns?: string[];
   avatar?: string;
+};
+
+export type McpTool = {
+  id: string;
+  name: string;
+  description: string;
+  server: string;
+};
+
+export type SmartDraft = {
+  name?: string;
+  system_prompt?: string;
+  enabled_tools?: string[];
+  recommended_tools?: string[];
+  tool_reasons?: Record<string, string>;
+  tool_risks?: Record<string, string>;
 };
 
 export type ChatSession = {
