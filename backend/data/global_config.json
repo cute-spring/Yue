@@ -33,7 +33,8 @@
   "doc_access": {
     "allow_roots": [
       "/Users/gavinzhang/ws-ai-recharge-2026/Yue",
-      "/Users/gavinzhang/ws-ai-recharge-2026/opencode"
+      "/Users/gavinzhang/ws-ai-recharge-2026/opencode",
+      "/Users/gavinzhang/ws-ai-recharge-2026/Yue/.trae/skills"
     ],
     "deny_roots": []
   }

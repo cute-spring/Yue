@@ -41,6 +41,10 @@ TEXT_LIKE_EXTENSIONS: List[str] = [
     ".jsx",
     ".css",
     ".html",
+    ".py",
+    ".sh",
+    ".sql",
+    ".jsonl",
 ]
 PDF_EXTENSIONS: List[str] = [".pdf"]
 

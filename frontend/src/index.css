@@ -5,6 +5,7 @@
 :root {
   /* 主色调 */
   --primary: #10B981;      /* 翡翠绿 - 主品牌色 */
+  --primary-rgb: 16 185 129;
   --primary-hover: #059669;
   --primary-active: #047857;
 

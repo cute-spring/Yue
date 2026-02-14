@@ -56,11 +56,15 @@ app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(notebook.router, prefix="/api/notebook", tags=["notebook"])
 
-# Mount Uploads Directory
+# Mount Uploads & Exports Directory
 uploads_dir = Path(__file__).parent.parent / "data" / "uploads"
-if not uploads_dir.exists():
-    uploads_dir.mkdir(parents=True, exist_ok=True)
+exports_dir = Path(__file__).parent.parent / "data" / "exports"
+for d in [uploads_dir, exports_dir]:
+    if not d.exists():
+        d.mkdir(parents=True, exist_ok=True)
+
 app.mount("/files", StaticFiles(directory=str(uploads_dir)), name="uploads")
+app.mount("/exports", StaticFiles(directory=str(exports_dir)), name="exports")
 
 # Mount Static Files (Frontend)
 # In production, we expect the frontend build to be in 'static' folder

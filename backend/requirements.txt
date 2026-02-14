@@ -11,3 +11,4 @@ mcp
 logfire
 fastmcp
 pypdf
+python-pptx

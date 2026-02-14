@@ -104,15 +104,6 @@ export default function MessageList(props: MessageListProps) {
         )}
       </For>
       
-      <Show when={props.isTyping && props.messages.length > 0 && props.messages[props.messages.length-1].content === ""}>
-        <div class="flex justify-start animate-in fade-in duration-300">
-          <div class="bg-surface px-5 py-4 rounded-2xl rounded-bl-none border border-border shadow-sm flex items-center gap-1.5">
-            <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 0ms"></div>
-            <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 150ms"></div>
-            <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 300ms"></div>
-          </div>
-        </div>
-      </Show>
       <div ref={props.messagesEndRef} />
     </div>
   );

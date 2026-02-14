@@ -356,6 +356,42 @@ class SubagentRunner:
         }
 ```
 
+### 5. Enhanced Sandbox Architecture
+
+To ensure secure execution of skill scripts, the platform will implement a tiered sandboxing strategy:
+
+| Feature | Specification | Implementation Detail |
+|---------|---------------|-----------------------|
+| **Isolation Tier** | Container-level (gVisor) | Use gVisor as the Docker runtime to intercept syscalls and provide a stronger security boundary than standard Docker. |
+| **Network Policy** | Default: Deny All | Egress restricted to specific CIDRs or domains if required by the skill; otherwise, `network: none`. |
+| **Filesystem** | Read-Only Root + Ephemeral `/tmp` | Skill source code is mounted as read-only. Scripts only have write access to an ephemeral 100MB RAM-disk at `/workspace`. |
+| **Resource Quotas** | Strict Limits | CPU: 0.5 vCPU max, RAM: 512MB max, Timeout: 30s (default) to 300s (long-running). |
+| **System Calls** | Seccomp Filtering | Allow only a minimal set of syscalls required for language runtimes (Python/Node). |
+| **Audit Logs** | Real-time Stream | All `stdout`/`stderr` and syscall violations are logged to a secure central audit service. |
+
+#### Sandbox Execution Flow:
+1. **Provision**: Spin up an ephemeral container (or Wasm runtime) from a hardened base image.
+2. **Mount**: Mount the specific `skills/{skill}/scripts` directory as **Read-Only**.
+3. **Inject**: Inject validated parameters as environment variables or a secure JSON file.
+4. **Execute**: Run the script as a non-privileged user or in a restricted VM context.
+5. **Reap**: Immediately destroy the environment after execution or timeout.
+
+### 6. Lightweight Local Sandbox Options
+
+For local development or resource-constrained environments where full gVisor/Docker infrastructure is undesirable, the following lightweight alternatives can be used:
+
+| Level | Strategy | Tooling | Use Case |
+|-------|----------|---------|----------|
+| **L1: Container Lite** | Optimized Docker | [OrbStack](https://orbstack.dev/) | macOS native, 10x faster and lighter than Docker Desktop. |
+| **L2: Runtime Native** | Permission-based | [Deno](https://deno.com/) | For JS/TS skills. Built-in security (no net/read by default). |
+| **L3: Virtual Machine** | WebAssembly (Wasm) | [Pyodide](https://pyodide.org/) | Run Python in a Wasm sandbox. Zero-Docker, high isolation. |
+| **L4: Process Isolation** | Environment restriction | `python -m venv` | Minimal isolation. Use only for trusted built-in skills. |
+
+#### Recommended Local Setup:
+1. **Primary**: Use **OrbStack** with standard Docker images. It provides the best balance of security and local performance.
+2. **Secondary (Zero-Docker)**: Implement a **Wasm-based runner** using `wasmer` or `pyodide` for core Python logic. This allows skills to run directly in the backend process with near-zero overhead.
+3. **Tertiary**: Use `deno` for any frontend-related scripts (linting, optimization) to leverage its native security model.
+
 ## Integration Points with Existing System
 
 ### 1. MCP Manager Integration
