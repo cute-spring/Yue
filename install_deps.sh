@@ -31,7 +31,14 @@ fi
 # Backend detection and installation
 echo "--- Backend ---"
 if [ -d "backend/venv" ]; then
-    echo "Backend virtual environment already exists. Skipping."
+    echo "Backend virtual environment already exists. Updating dependencies..."
+    source backend/venv/bin/activate
+    pip install --upgrade pip
+    if [ -f "backend/requirements.txt" ]; then
+        pip install -r backend/requirements.txt
+        echo "Backend dependencies updated successfully."
+    fi
+    deactivate
 else
     echo "Backend virtual environment not found. Creating and installing dependencies..."
     if [ -d "backend" ]; then

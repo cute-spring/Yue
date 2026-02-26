@@ -4,48 +4,50 @@
 
 ## 🚀 快速启动
 
-### 1. 准备配置
-在 `backend` 目录下创建 `.env` 文件：
+### 1. 环境初始化
+项目提供了全自动的初始化脚本，会自动检查配置并安装所有依赖：
 ```bash
-cp backend/.env.example backend/.env
-# 编辑 backend/.env 并填入你的 API Keys
+./setup.sh
+```
+> **注意**: 脚本会自动基于 `backend/.env.example` 创建 `backend/.env`。请务必编辑该文件填入你的 API Keys (如 `DEEPSEEK_API_KEY`)。
+
+### 2. 本地运行
+
+#### 开发模式 (推荐)
+在前台同时启动前后端服务，并实时查看日志：
+```bash
+./dev.sh
 ```
 
-### 2. 本地开发运行
-
-#### 一键启动
-项目提供了便捷的脚本来同时启动前后端服务：
+#### 后台运行
+将服务作为后台进程启动：
 ```bash
 ./start.sh
-```
-要停止所有服务，可以运行：
-```bash
+# 停止后台服务
 ./stop.sh
 ```
 
-#### 分步启动 (可选)
+### 3. 代码质量检查
+在提交代码前，建议运行全栈检查（包含后端测试与前端类型检查）：
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python -m app.main
+./check.sh
 ```
 
-#### 前端
-```bash
-cd frontend
-npm install
-npm run dev
-```
+---
 
-### 3. Docker 部署
-项目支持一键 Docker 化部署：
-```bash
-cd Yue
-docker build -t yue-agent .
-docker run -p 8000:8000 --env-file backend/.env yue-agent
-```
+## 🛠️ 脚本说明 (CLI Tools)
+项目根目录下提供了以下实用工具脚本：
+
+| 脚本 | 功能描述 |
+| :--- | :--- |
+| `setup.sh` | **初始化**: 自动创建 `.env` 并安装前后端依赖。 |
+| `dev.sh` | **开发模式**: 前台启动服务，实时输出日志，支持 `Ctrl+C` 退出。 |
+| `start.sh` | **后台启动**: 增强版启动脚本，支持进程自愈与日志重定向。 |
+| `stop.sh` | **停止服务**: 深度清理后台进程，确保无残留。 |
+| `check.sh` | **质量门禁**: 自动运行 Pytest (后端) 与 TSC/Vitest (前端)。 |
+| `clean.sh` | **环境清理**: 深度删除 `node_modules`, `venv` 及各种缓存。 |
+| `install_deps.sh`| **依赖安装**: 仅执行依赖检查与安装。 |
+| `deploy_docker.sh`| **Docker 部署**: 一键构建并启动容器。 |
 
 ## 🛠️ 技术栈
 - **后端**: FastAPI, Pydantic-AI, MCP SDK, SQLite (Pydantic AI 集成)
