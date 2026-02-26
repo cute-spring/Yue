@@ -18,6 +18,12 @@
 
 ## Automated Integration Testing
 
+### 0) Full Stack Check (Recommended)
+项目根目录提供了一个一键检查脚本，集成了后端测试、前端类型检查和前端单元测试：
+```bash
+./check.sh
+```
+
 ### 1) Backend Integration Suite
 - **Location**: `backend/tests/test_comprehensive_api.py`
 - **Command**: `export PYTHONPATH=$PYTHONPATH:$(pwd)/backend && pytest backend/tests/test_comprehensive_api.py`

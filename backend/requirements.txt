@@ -2,7 +2,7 @@ fastapi
 uvicorn
 pydantic
 pydantic-ai
-pydantic-ai-slim[openai,anthropic,google,groq,mistral,ollama]
+pydantic-ai-slim[openai,google,ollama]
 python-dotenv
 httpx
 h2
@@ -12,3 +12,6 @@ logfire
 fastmcp
 pypdf
 python-pptx
+pytest
+pytest-asyncio
+pytest-cov
