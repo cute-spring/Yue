@@ -1,0 +1,36 @@
+[project]
+name = "yue-backend"
+version = "0.1.0"
+description = "Backend for Yue - AI Powered Intelligence Platform"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "pydantic-ai",
+    "pydantic-ai-slim[openai,google]",
+    "python-dotenv",
+    "httpx",
+    "h2",
+    "certifi",
+    "mcp",
+    "logfire",
+    "fastmcp",
+    "pypdf",
+    "python-pptx",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

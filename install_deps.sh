@@ -30,7 +30,13 @@ fi
 
 # Backend detection and installation
 echo "--- Backend ---"
-if [ -d "backend/venv" ]; then
+if command -v uv &> /dev/null; then
+    echo "Using uv for backend dependency management..."
+    cd backend
+    uv sync
+    echo "Backend dependencies synced successfully with uv."
+    cd "$PROJECT_ROOT"
+elif [ -d "backend/venv" ]; then
     echo "Backend virtual environment already exists. Updating dependencies..."
     source backend/venv/bin/activate
     pip install --upgrade pip
