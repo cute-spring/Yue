@@ -26,8 +26,8 @@ cp backend/.env.example backend/.env
 #### 分步启动 (可选)
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python -m app.main
 ```

@@ -22,10 +22,12 @@ echo "🚀 Starting Yue Agent Platform..."
 # 1. Start Backend
 echo "📡 Starting backend service on http://127.0.0.1:8000..."
 cd backend
-if [ -d "venv" ]; then
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+elif [ -d "venv" ]; then
     source venv/bin/activate
 else
-    echo "⚠️  Warning: backend/venv not found. Attempting to run with system python..."
+    echo "⚠️  Warning: backend/.venv not found. Attempting to run with system python..."
 fi
 python -m app.main > ../backend.log 2>&1 &
 BACKEND_PID=$!
