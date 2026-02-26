@@ -23,12 +23,15 @@ echo -e "${GREEN}🚀 Starting Yue Agent Platform in Dev Mode...${NC}"
 # 1. Start Backend
 echo -e "${YELLOW}📡 Starting backend...${NC}"
 cd "$PROJECT_ROOT/backend"
-if [ -d "venv" ]; then
+if command -v uv &> /dev/null; then
+    uv run python -m app.main &
+    BACKEND_PID=$!
+elif [ -d "venv" ]; then
     source venv/bin/activate
     python -m app.main &
     BACKEND_PID=$!
 else
-    echo -e "${RED}⚠️  Backend venv not found. Run ./setup.sh first.${NC}"
+    echo -e "${RED}⚠️  Backend environment not found. Run ./setup.sh first.${NC}"
     exit 1
 fi
 

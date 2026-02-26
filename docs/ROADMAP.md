@@ -99,6 +99,19 @@ This document serves as a structured task list for AI development. Each phase is
 ## Phase 3: Architecture Refinement & Quality Assurance (架构优化与质量保障) - [IN PROGRESS]
 *Goal: Refactor the service layer for modularity and implement a comprehensive testing framework.*
 
+- ### Status Snapshot — Phase 3 (2026-02-26)
+  - Completed
+    - **Dependency Management Modernization**: Migrated from `requirements.txt` to `uv` ([pyproject.toml](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/pyproject.toml) + [uv.lock](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/uv.lock)).
+    - **Unified Project Configuration**: Centralized metadata and dependency groups (production vs dev) in `pyproject.toml`.
+    - **Workflow Optimization**: Updated `setup.sh`, `install_deps.sh`, `dev.sh`, and `start.sh` to support `uv run` and `uv sync`, ensuring near-instant environment synchronization.
+    - **Build System Integration**: Configured `hatchling` as the build backend for the backend package.
+  - Verified
+    - All backend smoke tests and factory tests passed using `uv run pytest`.
+    - Script compatibility verified: `install_deps.sh` successfully syncs both frontend (npm) and backend (uv).
+  - Next Steps
+    - [ ] Complete production-ready Docker configuration with `uv` multi-stage builds.
+    - [ ] Integrate `uv lock --check` into the CI pipeline (`check.sh`).
+
 - ### Status Snapshot — Phase 3 (2026-02-09)
   - Completed
     - **LLM Service Modularization**: Refactored the monolithic `model_factory.py` into a dedicated `llm/` package.
