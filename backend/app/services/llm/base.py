@@ -49,3 +49,7 @@ class ProviderInfo(BaseModel):
     models: List[str]
     supports_model_refresh: bool = False
     current_model: Optional[str] = None
+    description: Optional[str] = None
+    status: str = "unknown"
+    error: Optional[str] = None
+    model_count: Optional[int] = None

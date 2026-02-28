@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook
+from app.api import chat, agents, mcp, models, config, notebook, health
 from app.mcp.manager import mcp_manager
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
@@ -18,11 +19,17 @@ setup_logging()
 logger = logging.getLogger(__name__)
 logger.info("Loading env from: %s", env_path.absolute())
 
+from app.services.health_monitor import health_monitor
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize MCP Manager
+    # Initialize MCP Manager first
     await mcp_manager.initialize()
+    # Start Health Monitor
+    await health_monitor.start()
     yield
+    # Stop Health Monitor
+    await health_monitor.stop()
     # Cleanup MCP Manager
     await mcp_manager.cleanup()
 
@@ -55,6 +62,7 @@ app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(notebook.router, prefix="/api/notebook", tags=["notebook"])
+app.include_router(health.router, prefix="/api/health", tags=["health"])
 
 # Mount Uploads & Exports Directory
 uploads_dir = Path(__file__).parent.parent / "data" / "uploads"
@@ -83,4 +91,4 @@ if __name__ == "__main__":
     # timeout_graceful_shutdown: 优雅停机等待时间
     # 注意：uvicorn 本身没有直接限制 HTTP 请求处理时间的参数（由 FastAPI/程序控制）
     # 但我们可以通过增加 keep-alive 超时来防止网络层面的断连
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8003, reload=True, timeout_keep_alive=600)
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8003, reload=False, timeout_keep_alive=600)

@@ -34,12 +34,19 @@ class ConfigService:
 
     def _load_config(self) -> Dict[str, Any]:
         """从磁盘加载 JSON 配置文件"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Loading global config from: %s", self.config_path.absolute())
         if self.config_path.exists():
             try:
                 with open(self.config_path, 'r') as f:
-                    return json.load(f)
-            except Exception:
+                    config = json.load(f)
+                    logger.info("Loaded config: %s", json.dumps(config, indent=2))
+                    return config
+            except Exception as e:
+                logger.error("Error loading config: %s", e)
                 return {}
+        logger.warning("Config file not found: %s", self.config_path.absolute())
         return {}
 
     def get_config(self) -> Dict[str, Any]:

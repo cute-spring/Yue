@@ -19,7 +19,8 @@ test('Custom Models CRUD UI flow', async ({ page }) => {
   await expect(item).toBeVisible();
 
   // Delete
-  await page.evaluate(() => { (window as any).confirm = () => true; });
   await item.locator('button', { hasText: 'Delete' }).first().click();
+  // Click the confirm button in the custom modal
+  await page.locator('button').filter({ hasText: /^Delete$/ }).last().click();
   await expect(page.getByText('e2e-custom', { exact: true })).toHaveCount(0, { timeout: 10000 });
 });

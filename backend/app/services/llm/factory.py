@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional, List, Dict, Any
 from .base import LLMProvider, ProviderInfo
@@ -26,7 +27,7 @@ def get_model(provider_name: str, model_name: Optional[str] = None):
 def list_supported_providers() -> List[str]:
     return list_registered_providers()
 
-async def list_providers(refresh: bool = False) -> List[Dict[str, Any]]:
+async def list_providers(refresh: bool = False, check_connectivity: bool = False) -> List[Dict[str, Any]]:
     providers_info = []
     llm_config = config_service.get_llm_config()
     registered_providers = get_registered_providers()
@@ -47,7 +48,7 @@ async def list_providers(refresh: bool = False) -> List[Dict[str, Any]]:
         except Exception:
             logger.exception("Provider list_models error: %s", name)
             models = []
-        
+            
         config_enabled = llm_config.get(f"{name}_enabled_models")
         enabled_mode = llm_config.get(f"{name}_enabled_models_mode")
         use_allowlist = enabled_mode == "allowlist"
@@ -58,18 +59,38 @@ async def list_providers(refresh: bool = False) -> List[Dict[str, Any]]:
             available_models = [m for m in models if m in config_enabled] if models else config_enabled
         else:
             available_models = models
-            
-        # Ensure 'models' always contains all physically available models from the provider
-        # and 'available_models' respects the user's allowlist configuration
-        providers_info.append({
+        
+        is_configured = handler.configured()
+        if not is_configured:
+            available_models = []
+        provider_data = {
             "name": name,
-            "configured": handler.configured(),
+            "configured": is_configured,
             "requirements": handler.requirements(),
             "available_models": available_models,
             "models": models or (config_enabled if isinstance(config_enabled, list) else []),
             "supports_model_refresh": _supports_model_refresh(name),
-            "current_model": llm_config.get(f"{name}_model")
-        })
+            "current_model": llm_config.get(f"{name}_model"),
+            "description": handler.__doc__ or f"{name} provider",
+            "status": "online" if is_configured and models else ("unknown" if not is_configured else "offline")
+        }
+        
+        if check_connectivity and is_configured:
+            try:
+                # Shallow connectivity check: list models with a short timeout
+                # We already called list_models above, so we can just use that result if we want,
+                # but if check_connectivity is True, we might want to force a fresh check.
+                if not models:
+                    models = await asyncio.wait_for(handler.list_models(refresh=True), timeout=5.0)
+                provider_data["status"] = "online" if models else "offline"
+                provider_data["model_count"] = len(models)
+            except Exception as e:
+                logger.warning(f"Connectivity check failed for {name}: {e}")
+                provider_data["status"] = "error"
+                provider_data["error"] = str(e)
+        
+        providers_info.append(provider_data)
+        
     return providers_info
 
 async def list_providers_structured(refresh: bool = False) -> List[ProviderInfo]:

@@ -16,6 +16,9 @@ from pydantic import create_model, Field, BaseModel
 from app.services import doc_retrieval
 from app.services.config_service import config_service
 
+import shutil
+from .models import ServerConfig
+
 logger = logging.getLogger(__name__)
 
 class McpManager:
@@ -35,28 +38,58 @@ class McpManager:
         self._lock = asyncio.Lock()
         self.sessions: Dict[str, ClientSession] = {}
         self.last_errors: Dict[str, str] = {}
+        self.server_info: Dict[str, Dict[str, Any]] = {} # Store server name and version
+        self.is_initializing = False
         self.initialized = True
 
     async def initialize(self):
         """Connect to all configured servers."""
         async with self._lock:
+            if self.is_initializing:
+                logger.info("MCP initialization already in progress.")
+                return
+            self.is_initializing = True
+            
+        try:
             configs = self.load_config()
             logger.info("Loading MCP configs from %s: %s", self.config_path, self._redact_configs(configs))
             
             # Use asyncio.gather to connect to all servers in parallel
             tasks = []
             for config in configs:
-                if config.get("enabled", True):
-                    tasks.append(self._connect_with_retry_and_timeout(config))
+                try:
+                    # Validate config structure
+                    validated_config = ServerConfig(**config).model_dump()
+                    if validated_config.get("enabled", True):
+                        tasks.append(self._connect_with_retry_and_timeout(validated_config))
+                except Exception as e:
+                    name = config.get("name") or "unknown"
+                    logger.error("Invalid config for MCP server %s: %s", name, str(e))
+                    self.last_errors[name] = f"Invalid configuration: {str(e)}"
             
             if tasks:
+                # Release the lock while waiting for all connections
                 await asyncio.gather(*tasks)
+        finally:
+            async with self._lock:
+                self.is_initializing = False
 
     async def _connect_with_retry_and_timeout(self, config: Dict[str, Any]):
         name = config.get("name") or "unknown"
-        max_retries = 1
-        timeout = config.get("timeout", 60.0) # Default 60s timeout for each server
+        max_retries = 2 # Increased retry
+        timeout = config.get("timeout", 60.0)
         
+        # Check if command exists before attempting to connect
+        command = config.get("command")
+        if command and not shutil.which(command):
+            # Try to resolve relative to project root if it's not in PATH
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+            local_cmd = os.path.join(project_root, command)
+            if not os.path.exists(local_cmd):
+                logger.error("Command not found for MCP server %s: %s", name, command)
+                self.last_errors[name] = f"Command not found: {command}"
+                return
+
         for attempt in range(max_retries + 1):
             try:
                 await asyncio.wait_for(self._connect_to_server_unlocked(config), timeout=timeout)
@@ -69,7 +102,8 @@ class McpManager:
                 self.last_errors[name] = str(e)
             
             if attempt < max_retries:
-                await asyncio.sleep(1) # Wait a bit before retry
+                # Exponential backoff for retries
+                await asyncio.sleep(min(2 ** attempt, 10))
 
     async def cleanup(self):
         """Close all connections."""
@@ -80,6 +114,7 @@ class McpManager:
                 logger.exception("Error during MCP cleanup")
             self.exit_stack = AsyncExitStack()
             self.sessions.clear()
+            self.server_info.clear()
 
     def load_config(self) -> List[Dict[str, Any]]:
         if not os.path.exists(self.config_path):
@@ -105,6 +140,7 @@ class McpManager:
             return existing
         if existing and getattr(existing, "is_closed", False):
             self.sessions.pop(name, None)
+            self.server_info.pop(name, None)
 
         transport = config.get("transport", "stdio")
         logger.info("Connecting to MCP server: %s (%s)", name, transport)
@@ -115,8 +151,6 @@ class McpManager:
             env = config.get("env", None)
             
             # Resolve placeholders in args
-            # In a self-contained structure, PROJECT_ROOT is the parent of the backend directory (the 'Yue' folder)
-            # manager.py is in Yue/backend/app/mcp/, so ../../../ is Yue/
             project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
             
             resolved_args = []
@@ -153,13 +187,48 @@ class McpManager:
             
             read, write = await self.exit_stack.enter_async_context(stdio_client(server_params))
             session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            init_result = await session.initialize()
+            
+            # Extract server version and info if available
+            server_v = "unknown"
+            if hasattr(init_result, "serverInfo"):
+                server_v = getattr(init_result.serverInfo, "version", "unknown")
+                self.server_info[name] = {
+                    "name": getattr(init_result.serverInfo, "name", "unknown"),
+                    "version": server_v
+                }
+            
+            # Version compatibility check
+            min_v = config.get("min_version")
+            if min_v and server_v != "unknown":
+                if not self._is_version_compatible(server_v, min_v):
+                    error_msg = f"Incompatible version: {server_v} < {min_v}"
+                    logger.error("MCP server %s version error: %s", name, error_msg)
+                    self.last_errors[name] = error_msg
+                    # Optionally disconnect or just keep as warning
+            
             self.sessions[name] = session
-            logger.info("Connected to %s", name)
+            self.last_errors.pop(name, None) # Clear error on success
+            logger.info("Connected to %s (version: %s)", name, server_v)
             return session
         
         # TODO: Implement SSE
         return None
+
+    def _is_version_compatible(self, current: str, required: str) -> bool:
+        """Simple semantic version comparison."""
+        try:
+            c_parts = [int(p) for p in re.split(r'[^0-9]', current) if p.isdigit()]
+            r_parts = [int(p) for p in re.split(r'[^0-9]', required) if p.isdigit()]
+            
+            for i in range(max(len(c_parts), len(r_parts))):
+                c = c_parts[i] if i < len(c_parts) else 0
+                r = r_parts[i] if i < len(r_parts) else 0
+                if c > r: return True
+                if c < r: return False
+            return True
+        except Exception:
+            return True # Fallback if parsing fails
 
     def _redact_configs(self, configs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         redacted = []
@@ -254,12 +323,15 @@ class McpManager:
             name = cfg.get("name")
             enabled = cfg.get("enabled", True)
             connected = name in self.sessions
+            info = self.server_info.get(name, {})
             status_list.append({
                 "name": name,
                 "enabled": enabled,
                 "connected": connected,
                 "transport": cfg.get("transport", "stdio"),
-                "last_error": self.last_errors.get(name)
+                "last_error": self.last_errors.get(name),
+                "server_name": info.get("name"),
+                "version": info.get("version")
             })
         return status_list
 

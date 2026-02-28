@@ -11,11 +11,16 @@ test('Stop generation functionality', async ({ page }) => {
   await expect(input).toBeVisible({ timeout: 15000 });
   
   // Check if we need to select a model
-  const currentModel = await page.locator('button span.uppercase').first().textContent();
-  if (!currentModel || currentModel.includes("SELECT MODEL")) {
-    await page.locator('button').filter({ hasText: /Select Model/i }).click();
-    // Wait for the dropdown to appear and click the first button in it
-    await page.locator('div.absolute.bottom-full button').first().click();
+  const modelButton = page.locator('button').filter({ hasText: /Select Model|GPT-|QWEN|DEEPSEEK/i }).first();
+  const currentModel = await modelButton.textContent();
+  
+  if (!currentModel || currentModel.toUpperCase().includes("SELECT MODEL")) {
+    await modelButton.click();
+    // Wait for the dropdown to appear and click a model button specifically (not the toggle)
+    // We target buttons that have text and don't contain 'All' or 'Enabled'
+    const dropdownModel = page.locator('div.absolute.bottom-full button').filter({ hasText: /gpt-oss|qwen|deepseek/i }).first();
+    await dropdownModel.waitFor({ state: 'visible' });
+    await dropdownModel.click();
   }
 
   // Type a prompt that would trigger a long response

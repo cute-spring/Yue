@@ -58,4 +58,5 @@ class OpenAIProviderImpl(SimpleProvider):
         
     def configured(self) -> bool:
         llm_config = config_service.get_llm_config()
-        return bool(llm_config.get('openai_api_key'))
+        api_key = llm_config.get('openai_api_key')
+        return bool(api_key and not api_key.startswith("your_api_key"))

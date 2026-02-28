@@ -429,7 +429,7 @@ async def test_convert_tool_image_content(mcp_manager):
 
 @pytest.mark.asyncio
 async def test_initialize_connect_error(mcp_manager):
-    config = [{"name": "test-server", "enabled": True}]
+    config = [{"name": "test-server", "enabled": True, "command": "node"}]
     with patch.object(mcp_manager, "load_config", return_value=config), \
          patch.object(mcp_manager, "_connect_to_server_unlocked", side_effect=Exception("Connection failed")):
         await mcp_manager.initialize()

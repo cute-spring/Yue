@@ -19,6 +19,7 @@ dependencies = [
     "fastmcp",
     "pypdf",
     "python-pptx",
+    "psutil",
 ]
 
 [dependency-groups]

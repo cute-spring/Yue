@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-02-28
+
+### Added
+- **Asynchronous Startup Optimization**:
+  - Implemented non-blocking MCP initialization using `asyncio.create_task` in `backend/app/main.py` for immediate API readiness.
+  - Added `is_initializing` state to `McpManager` in `backend/app/mcp/manager.py` for background status tracking.
+  - Enhanced `/api/health` in `backend/app/api/health.py` to return `status: "initializing"` during MCP startup, improving system observability.
+- **Production-grade Model Availability Check**:
+  - Implemented parallel initialization for MCP servers in `backend/app/mcp/manager.py` for faster startup.
+  - Added Pydantic-based configuration validation and semantic version compatibility checks for MCP servers.
+  - Implemented exponential backoff retry logic for resilient MCP server reconnections.
+- **Global Health Monitoring System**:
+  - Created a singleton `HealthMonitor` in `backend/app/services/health_monitor.py` for background periodic checks of MCP and LLM providers.
+  - Added a comprehensive `/api/health` endpoint for real-time system status observability.
+  - Implemented deep connectivity checks for LLM providers (network-level verification).
+- **Enhanced LLM Provider Management**:
+  - Improved configuration security by detecting placeholder API keys in `openai.py`.
+  - Added smart model filtering in `factory.py` to only show available models from healthy providers in the UI.
+
+### Fixed
+- **API Stability**:
+  - Resolved 500 Internal Server Error and JSON parsing issues by disabling unstable test MCP servers in `backend/data/mcp_configs.json`.
+  - Fixed `NameError: name 'asyncio' is not defined` in `backend/app/main.py` lifespan hook.
+  - Resolved import conflicts in `backend/app/api/models.py` by unifying LLM provider imports.
+- **Uvicorn Lifecycle**:
+  - Disabled auto-reload mode in `backend/app/main.py` to prevent incomplete responses during high-frequency configuration changes.
+
+### Changed
+- **E2E Testing Stability**:
+  - Fixed multiple Playwright E2E tests (`comprehensive-workflow.spec.ts`, `verify-stop.spec.ts`, `custom-models.spec.ts`) to align with UI changes and improve reliability.
+  - Updated `global_config.json` to include the latest enabled models and configuration schema.
+
 ## [Unreleased] - 2026-02-27
 
 ### Added
