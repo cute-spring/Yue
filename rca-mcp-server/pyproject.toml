@@ -1,0 +1,21 @@
+[project]
+name = "rca-mcp-server"
+version = "0.1.0"
+description = "A standalone MCP server for Root Cause Analysis and Solution Knowledge Base"
+authors = [
+    { name = "Gavin Zhang", email = "gavin@example.com" }
+]
+dependencies = [
+    "mcp[cli]>=0.1.0",
+    "fastmcp>=0.1.0",
+    "pydantic>=2.0.0",
+    "aiofiles>=23.0.0"
+]
+requires-python = ">=3.10"
+
+[project.scripts]
+rca-mcp = "src.rca_server:mcp.run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

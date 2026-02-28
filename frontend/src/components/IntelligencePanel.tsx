@@ -1,14 +1,16 @@
 import { For, Show, Switch, Match } from 'solid-js';
 import MermaidViewer from './MermaidViewer';
+import { Message } from '../types';
 
 interface IntelligencePanelProps {
   showKnowledge: boolean;
   setShowKnowledge: (val: boolean) => void;
   isArtifactExpanded: boolean;
   setIsArtifactExpanded: (val: boolean) => void;
-  intelligenceTab: 'notes' | 'graph' | 'actions' | 'preview';
-  setIntelligenceTab: (val: 'notes' | 'graph' | 'actions' | 'preview') => void;
+  intelligenceTab: 'notes' | 'graph' | 'actions' | 'preview' | 'stats';
+  setIntelligenceTab: (val: 'notes' | 'graph' | 'actions' | 'preview' | 'stats') => void;
   previewContent: { lang: string, content: string } | null;
+  lastMessage: Message | undefined;
   isMobile: boolean;
 }
 
@@ -66,6 +68,12 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
             class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'graph' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
           >
             Graph
+          </button>
+          <button 
+            onClick={() => props.setIntelligenceTab('stats')}
+            class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'stats' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+          >
+            Stats
           </button>
           <Show when={props.previewContent}>
             <button 
@@ -180,6 +188,137 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
                     <p class="text-xs text-text-secondary/60 font-medium">Graph visualization will appear here as entities are discovered.</p>
                   </div>
                 </div>
+              </div>
+            </Match>
+
+            <Match when={props.intelligenceTab === 'stats'}>
+              <div class="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div class="flex items-center justify-between">
+                  <h4 class="text-[10px] font-black text-text-secondary uppercase tracking-[0.2em]">Performance Statistics</h4>
+                  <Show when={props.lastMessage?.model}>
+                    <span class="text-[9px] font-mono bg-primary/10 text-primary px-2 py-0.5 rounded-full">{props.lastMessage?.model}</span>
+                  </Show>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="bg-surface border border-border rounded-2xl p-4 shadow-sm relative overflow-hidden group">
+                    <div class="absolute inset-0 bg-primary/5 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
+                    <div class="relative">
+                      <div class="text-[10px] font-black text-text-secondary uppercase tracking-wider mb-1">Tokens/Sec</div>
+                      <div class="text-2xl font-black text-primary leading-none flex items-baseline gap-1">
+                        {props.lastMessage?.tps?.toFixed(1) || '0.0'}
+                        <span class="text-[10px] text-primary/60 font-bold">TPS</span>
+                      </div>
+                      {/* Simple visual indicator for TPS */}
+                      <div class="mt-2 flex gap-0.5 h-1 items-end">
+                        <For each={Array(10).fill(0)}>
+                          {(_, i) => (
+                            <div 
+                              class={`flex-1 rounded-full transition-all duration-500 ${
+                                (props.lastMessage?.tps || 0) / 10 > i() ? 'bg-primary' : 'bg-primary/10'
+                              }`}
+                              style={{ height: `${20 + i() * 8}%` }}
+                            ></div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="bg-surface border border-border rounded-2xl p-4 shadow-sm relative overflow-hidden group">
+                    <div class="absolute inset-0 bg-text-primary/5 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
+                    <div class="relative">
+                      <div class="text-[10px] font-black text-text-secondary uppercase tracking-wider mb-1">Total Tokens</div>
+                      <div class="text-2xl font-black text-text-primary leading-none flex items-baseline gap-1">
+                        {props.lastMessage?.total_tokens || '0'}
+                        <span class="text-[10px] text-text-secondary/60 font-bold">SUM</span>
+                      </div>
+                      {/* Mini bar chart placeholder for total */}
+                      <div class="mt-2 flex gap-0.5 h-1 items-end">
+                         <div class="w-full h-1 bg-text-primary/10 rounded-full overflow-hidden">
+                           <div class="h-full bg-text-primary/30 rounded-full" style={{ width: '60%' }}></div>
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="space-y-4 bg-surface border border-border rounded-2xl p-5 shadow-sm relative overflow-hidden group">
+                  <div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-primary/10 transition-colors duration-700"></div>
+                  
+                  <div class="flex items-center gap-6 relative">
+                    {/* Donut Chart for Token Distribution */}
+                    <div class="relative w-20 h-20 shrink-0">
+                      <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r="16" fill="none" class="stroke-background" stroke-width="3.5"></circle>
+                        <circle 
+                          cx="18" cy="18" r="16" fill="none" 
+                          class="stroke-primary/30" stroke-width="3.5"
+                          stroke-dasharray={`${(props.lastMessage?.prompt_tokens || 0) / (props.lastMessage?.total_tokens || 1) * 100} 100`}
+                        ></circle>
+                        <circle 
+                          cx="18" cy="18" r="16" fill="none" 
+                          class="stroke-primary" stroke-width="3.5"
+                          stroke-dasharray={`${(props.lastMessage?.completion_tokens || 0) / (props.lastMessage?.total_tokens || 1) * 100} 100`}
+                          stroke-dashoffset={`-${(props.lastMessage?.prompt_tokens || 0) / (props.lastMessage?.total_tokens || 1) * 100}`}
+                        ></circle>
+                      </svg>
+                      <div class="absolute inset-0 flex flex-col items-center justify-center">
+                        <span class="text-[10px] font-black text-text-primary leading-none">
+                          {Math.round(((props.lastMessage?.completion_tokens || 0) / (props.lastMessage?.total_tokens || 1)) * 100)}%
+                        </span>
+                        <span class="text-[7px] font-bold text-text-secondary uppercase tracking-tighter">Out</span>
+                      </div>
+                    </div>
+
+                    <div class="flex-1 space-y-3">
+                      <div class="space-y-1">
+                        <div class="flex items-center justify-between text-[11px]">
+                          <div class="flex items-center gap-1.5">
+                            <div class="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+                            <span class="font-bold text-text-secondary uppercase tracking-wider">Prompt</span>
+                          </div>
+                          <span class="font-mono text-text-primary">{props.lastMessage?.prompt_tokens || 0}</span>
+                        </div>
+                        <div class="w-full h-1 bg-background rounded-full overflow-hidden">
+                          <div 
+                            class="h-full bg-primary/40 rounded-full transition-all duration-1000" 
+                            style={{ width: `${(props.lastMessage?.prompt_tokens || 0) / (props.lastMessage?.total_tokens || 1) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div class="space-y-1">
+                        <div class="flex items-center justify-between text-[11px]">
+                          <div class="flex items-center gap-1.5">
+                            <div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+                            <span class="font-bold text-text-secondary uppercase tracking-wider">Completion</span>
+                          </div>
+                          <span class="font-mono text-text-primary">{props.lastMessage?.completion_tokens || 0}</span>
+                        </div>
+                        <div class="w-full h-1 bg-background rounded-full overflow-hidden">
+                          <div 
+                            class="h-full bg-primary rounded-full transition-all duration-1000" 
+                            style={{ width: `${(props.lastMessage?.completion_tokens || 0) / (props.lastMessage?.total_tokens || 1) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <Show when={props.lastMessage?.finish_reason}>
+                  <div class="bg-background/50 border border-border rounded-2xl p-4 flex items-center justify-between">
+                    <span class="text-[10px] font-black text-text-secondary uppercase tracking-wider">Finish Reason</span>
+                    <span class="text-[10px] font-mono font-bold text-primary uppercase">{props.lastMessage?.finish_reason}</span>
+                  </div>
+                </Show>
+
+                <Show when={props.lastMessage?.thought_duration}>
+                   <div class="bg-background/50 border border-border rounded-2xl p-4 flex items-center justify-between">
+                     <span class="text-[10px] font-black text-text-secondary uppercase tracking-wider">Thinking Time</span>
+                     <span class="text-[10px] font-mono font-bold text-text-primary">{(props.lastMessage?.thought_duration || 0) / 1000}s</span>
+                   </div>
+                 </Show>
               </div>
             </Match>
           </Switch>

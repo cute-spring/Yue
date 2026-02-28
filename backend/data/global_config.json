@@ -1,41 +1,146 @@
 {
   "llm": {
-    "custom_models": [],
-    "openai_enabled_models": [],
-    "gemini_enabled_models": [],
-    "ollama_enabled_models": [
-      "deepseek-r1:1.5b",
-      "qwen3:8b",
-      "qwen3-vl:4b",
-      "glm-ocr:latest",
-      "deepseek-ocr:latest",
-      "gpt-oss:latest",
-      "qwen3:0.6b",
-      "ministral-3:8b",
-      "ministral-3:3b"
-    ],
-    "openai_model": "gpt-4o",
-    "ollama_base_url": "http://localhost:11434",
-    "zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4/",
-    "llm_request_timeout": 60,
+    "provider": "deepseek",
     "enabled_providers": "azure_openai,deepseek,ollama,zhipu",
-    "zhipu_model": "glm-4.6v",
-    "provider": "zhipu",
-    "openai_enabled_models_mode": "allowlist",
-    "ollama_enabled_models_mode": "allowlist",
-    "openai_api_key": 123,
-    "azure_deployments": [],
-    "azure_openai_endpoint": "https://test-resource.openai.azure.com",
-    "azure_openai_deployment": "gpt4o=gpt-4o:2024-06-01,o1=o1-preview:2024-09-01-preview",
-    "azure_openai_api_version": "2024-06-01",
-    "azure_openai_token": "your-api-key"
+    "settings": {
+      "request_timeout": 300
+    },
+    "providers": {
+      "openai": {
+        "default_model": "gpt-4o",
+        "max_output_tokens": 8192
+      },
+      "zhipu": {
+        "default_model": "glm-4.6v",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+        "max_output_tokens": 4096
+      },
+      "deepseek": {
+        "default_model": "deepseek-chat",
+        "max_output_tokens": 8192
+      },
+      "ollama": {
+        "default_model": "deepseek-r1:1.5b",
+        "base_url": "http://localhost:11434",
+        "max_output_tokens": 8192
+      },
+      "azure_openai": {
+        "default_model": "gpt4o",
+        "endpoint": "https://test-resource.openai.azure.com",
+        "api_version": "2024-06-01",
+        "max_output_tokens": 8192
+      }
+    },
+    "models": {
+      "deepseek/deepseek-chat": {
+        "display_name": "DeepSeek Chat",
+        "context_window": 128000,
+        "max_output_tokens": 8192,
+        "capabilities": ["text", "function_calling"],
+        "enabled": true
+      },
+      "deepseek/deepseek-reasoner": {
+        "display_name": "DeepSeek Reasoner",
+        "context_window": 128000,
+        "max_output_tokens": 8192,
+        "capabilities": ["text", "reasoning"],
+        "enabled": true
+      },
+      "openai/gpt-4o": {
+        "display_name": "GPT-4o",
+        "context_window": 128000,
+        "max_output_tokens": 16384,
+        "capabilities": ["text", "vision", "function_calling"],
+        "enabled": true
+      },
+      "openai/gpt-4o-mini": {
+        "display_name": "GPT-4o Mini",
+        "context_window": 128000,
+        "max_output_tokens": 16384,
+        "capabilities": ["text", "function_calling"],
+        "enabled": true
+      },
+      "openai/o1-preview": {
+        "display_name": "O1 Preview",
+        "context_window": 128000,
+        "max_output_tokens": 32768,
+        "capabilities": ["text", "reasoning"],
+        "enabled": false
+      },
+      "zhipu/glm-4.6v": {
+        "display_name": "GLM-4.6V",
+        "context_window": 32000,
+        "max_output_tokens": 4096,
+        "capabilities": ["text", "vision"],
+        "enabled": true
+      },
+      "zhipu/glm-4-flash": {
+        "display_name": "GLM-4 Flash",
+        "context_window": 32000,
+        "max_output_tokens": 4096,
+        "capabilities": ["text"],
+        "enabled": true
+      },
+      "deepseek/deepseek-coder": {
+        "display_name": "DeepSeek Coder",
+        "context_window": 128000,
+        "max_output_tokens": 8192,
+        "capabilities": ["text", "code"],
+        "enabled": true
+      },
+      "ollama/deepseek-r1:1.5b": {
+        "display_name": "DeepSeek R1 (1.5B)",
+        "context_window": 8000,
+        "max_output_tokens": 20,
+        "capabilities": ["text", "reasoning"],
+        "local": true,
+        "enabled": true
+      },
+      "ollama/qwen3:8b": {
+        "display_name": "Qwen3 (8B)",
+        "context_window": 32000,
+        "max_output_tokens": 4096,
+        "capabilities": ["text"],
+        "local": true,
+        "enabled": true
+      },
+      "ollama/qwen3-vl:4b": {
+        "display_name": "Qwen3-VL (4B)",
+        "context_window": 8000,
+        "max_output_tokens": 2048,
+        "capabilities": ["text", "vision"],
+        "local": true,
+        "enabled": true
+      },
+      "ollama/glm-ocr:latest": {
+        "display_name": "GLM-OCR",
+        "context_window": 4000,
+        "max_output_tokens": 1024,
+        "capabilities": ["vision", "ocr"],
+        "local": true,
+        "enabled": true
+      },
+      "azure_openai/gpt4o": {
+        "display_name": "GPT-4o (Azure)",
+        "context_window": 128000,
+        "max_output_tokens": 4096,
+        "capabilities": ["text", "vision", "function_calling"],
+        "enabled": true
+      },
+      "azure_openai/o1": {
+        "display_name": "O1 Preview (Azure)",
+        "context_window": 128000,
+        "max_output_tokens": 32768,
+        "capabilities": ["text", "reasoning"],
+        "enabled": false
+      }
+    },
+    "custom_models": []
   },
   "doc_access": {
     "allow_roots": [
-      "/Users/gavinzhang/ws-ai-recharge-2026/Yue",
-      "/Users/gavinzhang/ws-ai-recharge-2026/opencode",
-      "/Users/gavinzhang/ws-ai-recharge-2026/Yue/.trae/skills"
-    ],
-    "deny_roots": []
+      "..",
+      "../../opencode"
+    ]
   }
 }

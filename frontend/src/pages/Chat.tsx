@@ -32,7 +32,7 @@ export default function Chat() {
   // History & Knowledge State
   const [showHistory, setShowHistory] = createSignal(true); // Default to true on desktop
   const [showKnowledge, setShowKnowledge] = createSignal(false);
-  const [intelligenceTab, setIntelligenceTab] = createSignal<'notes' | 'graph' | 'actions' | 'preview'>('actions');
+  const [intelligenceTab, setIntelligenceTab] = createSignal<'notes' | 'graph' | 'actions' | 'preview' | 'stats'>('actions');
   const [previewContent, setPreviewContent] = createSignal<{lang: string, content: string} | null>(null);
   const [isArtifactExpanded, setIsArtifactExpanded] = createSignal(false);
   const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
@@ -149,6 +149,13 @@ export default function Chat() {
     }
     
     originalHandleSubmit(e);
+  };
+
+  const handleContinue = (msg: Message) => {
+    setInput("继续");
+    setTimeout(() => {
+      handleSubmit(new Event('submit'));
+    }, 0);
   };
 
   const {
@@ -411,6 +418,7 @@ export default function Chat() {
           copyUserMessage={copyUserMessage}
           quoteUserMessage={quoteUserMessage}
           handleRegenerate={handleRegenerate}
+          onContinue={handleContinue}
           messagesEndRef={el => messagesEndRef = el}
           setInput={setInput}
           selectedProvider={selectedProvider()}
@@ -458,6 +466,7 @@ export default function Chat() {
         intelligenceTab={intelligenceTab()}
         setIntelligenceTab={setIntelligenceTab}
         previewContent={previewContent()}
+        lastMessage={[...messages()].reverse().find(m => m.role === 'assistant')}
         isMobile={isMobile()}
       />
       

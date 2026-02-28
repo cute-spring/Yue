@@ -106,7 +106,7 @@ export function renderMath(text: string): string {
 /**
  * Configures and returns a custom marked renderer.
  */
-export function createMarkdownRenderer(): any {
+export function createMarkdownRenderer(isTyping: boolean = false): any {
   const renderer = new marked.Renderer();
 
   renderer.link = function({ href, title, text }): string {
@@ -122,7 +122,27 @@ export function createMarkdownRenderer(): any {
   renderer.code = function({ text, lang }): string {
     const displayLanguage = lang || 'plaintext';
     const highlightLanguage = hljs.getLanguage(displayLanguage) ? displayLanguage : 'plaintext';
-    const highlighted = hljs.highlight(text, { language: highlightLanguage }).value;
+    
+    // Performance optimization: Skip highlighting for very large blocks while typing
+    // to prevent main thread freezing during streaming
+    let highlighted = "";
+    const isVeryLarge = text.length > 8000;
+    
+    if (isTyping && isVeryLarge) {
+      // Basic escape for security when not highlighting
+      highlighted = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    } else {
+      try {
+        highlighted = hljs.highlight(text, { language: highlightLanguage, ignoreIllegals: true }).value;
+      } catch (e) {
+        highlighted = text; // Fallback to raw text
+      }
+    }
     
     const isPreviewable = ['html', 'svg', 'xml', 'mermaid'].includes(displayLanguage);
     const encodedContent = encodeURIComponent(text).replace(/'/g, '%27');
@@ -138,6 +158,7 @@ export function createMarkdownRenderer(): any {
             </div>
             <div class="h-4 w-[1px] bg-border/10 mx-1"></div>
             <span class="text-[10px] font-black font-mono text-text-secondary/60 uppercase tracking-[0.2em] ml-1">${displayLanguage}</span>
+            ${isTyping && isVeryLarge ? '<span class="ml-2 px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-500 text-[8px] font-black uppercase animate-pulse">Streaming Optimization Active</span>' : ''}
           </div>
           <div class="flex items-center gap-2">
     `;
@@ -294,9 +315,9 @@ export function createMarkdownRenderer(): any {
 /**
  * Main function to render markdown content with math and custom code blocks.
  */
-export function renderMarkdown(content: string): string {
+export function renderMarkdown(content: string, isTyping: boolean = false): string {
   const mathProcessed = renderMath(content);
-  const renderer = createMarkdownRenderer();
+  const renderer = createMarkdownRenderer(isTyping);
   
   // Attach state for mermaid block tracking
   (renderer as any)._currentContent = content;

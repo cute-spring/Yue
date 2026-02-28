@@ -35,7 +35,20 @@ def test_config_service_update(temp_config_file):
         assert json.load(f) == new_data
 
 def test_get_llm_config_merges_env(temp_config_file, monkeypatch):
-    data = {"llm": {"openai_model": "gpt-4"}}
+    # 使用新的结构化配置格式
+    data = {
+        "llm": {
+            "provider": "openai",
+            "providers": {
+                "openai": {
+                    "default_model": "gpt-4"
+                }
+            },
+            "settings": {
+                "request_timeout": 60
+            }
+        }
+    }
     temp_config_file.write_text(json.dumps(data))
     
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
@@ -44,12 +57,24 @@ def test_get_llm_config_merges_env(temp_config_file, monkeypatch):
     service = ConfigService(str(temp_config_file))
     llm_config = service.get_llm_config()
     
+    # 验证配置加载
     assert llm_config["openai_model"] == "gpt-4"
     assert llm_config["openai_api_key"] == "sk-test-key"
+    # 环境变量优先级更高
     assert llm_config["llm_request_timeout"] == 30
 
 def test_update_llm_config_protects_secrets(temp_config_file):
-    data = {"llm": {"openai_api_key": "secret-key", "provider": "openai"}}
+    # 使用新的结构化配置格式
+    data = {
+        "llm": {
+            "provider": "openai",
+            "providers": {
+                "openai": {
+                    "api_key": "secret-key"
+                }
+            }
+        }
+    }
     temp_config_file.write_text(json.dumps(data))
     service = ConfigService(str(temp_config_file))
     
@@ -57,6 +82,7 @@ def test_update_llm_config_protects_secrets(temp_config_file):
     service.update_llm_config({"openai_api_key": "****", "provider": "ollama"})
     
     llm_config = service.get_llm_config()
+    # 掩码值应该被保护，保留原有值
     assert llm_config["openai_api_key"] == "secret-key"
     assert llm_config["provider"] == "ollama"
 

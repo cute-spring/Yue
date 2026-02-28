@@ -35,6 +35,7 @@ export type ChatSession = {
 export type Message = {
   role: string;
   content: string;
+  thought?: string;
   images?: string[];
   thought_duration?: number;
   ttft?: number;
