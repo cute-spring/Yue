@@ -76,12 +76,18 @@ export function useChatState(
   };
 
   const stopGeneration = () => {
+    console.log("Stopping generation...");
     if (abortController) {
+      console.log("Aborting fetch request");
       abortController.abort();
       abortController = null;
-      setIsTyping(false);
-      clearInterval(timerInterval);
     }
+    setIsTyping(false);
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    toast.info("Generation stopped");
   };
 
   const fileToBase64 = (file: File): Promise<string> => {
@@ -95,6 +101,12 @@ export function useChatState(
 
   const handleSubmit = async (e?: Event) => {
     e?.preventDefault();
+
+    if (isTyping()) {
+      stopGeneration();
+      return;
+    }
+
     const text = input().trim();
     if (!text) return;
 
@@ -104,11 +116,6 @@ export function useChatState(
       if (!last || last.role !== 'assistant' || last.content !== 'Please select a model before starting a chat.') {
         setMessages([...messages(), { role: 'assistant', content: 'Please select a model before starting a chat.' }]);
       }
-      return;
-    }
-
-    if (isTyping()) {
-      stopGeneration();
       return;
     }
 

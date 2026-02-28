@@ -108,8 +108,14 @@ export default function Chat() {
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
+
+    if (isTyping()) {
+      originalHandleSubmit(e);
+      return;
+    }
+
     const trimmedInput = input().trim();
-    if (!trimmedInput || isTyping()) return;
+    if (!trimmedInput) return;
 
     // Handle slash commands
     if (trimmedInput === '/help') {
