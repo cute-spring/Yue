@@ -14,6 +14,7 @@ from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
+import asyncio
 import uuid
 import json
 import logging
@@ -148,6 +149,15 @@ async def chat_stream(request: ChatRequest):
         # Yield the chat ID first so frontend knows where we are
         yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
         
+        full_response = ""
+        thought_duration = None
+        ttft = None
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        finish_reason = None
+        total_duration = None
+
         try:
             # Get agent config if provided
             agent_config = None
@@ -238,7 +248,6 @@ async def chat_stream(request: ChatRequest):
             parser = get_parser(provider, model_name, capabilities)
             
             last_length = 0
-            full_response = ""
             start_time = time.time()
             first_token_time = None
             
@@ -312,11 +321,9 @@ async def chat_stream(request: ChatRequest):
             # Calculate duration
             total_end_time = time.time()
             total_duration = total_end_time - start_time
-            ttft = None
             if first_token_time:
                 ttft = first_token_time - start_time
 
-            thought_duration = None
             if parser.thought_start_time:
                 if parser.thought_end_time:
                     thought_duration = parser.thought_end_time - parser.thought_start_time
@@ -394,22 +401,26 @@ async def chat_stream(request: ChatRequest):
                     full_response += suffix
                     yield f"data: {json.dumps({'content': suffix})}\n\n"
 
+        except (Exception, GeneratorExit, asyncio.CancelledError) as e:
+            if isinstance(e, (GeneratorExit, asyncio.CancelledError)):
+                logger.info("Chat stream cancelled by client")
+            else:
+                logger.exception("Chat error")
+                yield f"data: {json.dumps({'error': handle_llm_exception(e)})}\n\n"
+        finally:
             # Save Assistant Message after completion
-            chat_service.add_message(
-                chat_id, 
-                "assistant", 
-                full_response, 
-                thought_duration=thought_duration,
-                ttft=ttft,
-                total_duration=total_duration,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                finish_reason=finish_reason
-            )
-            
-        except Exception as e:
-            logger.exception("Chat error")
-            yield f"data: {json.dumps({'error': handle_llm_exception(e)})}\n\n"
+            if full_response:
+                chat_service.add_message(
+                    chat_id, 
+                    "assistant", 
+                    full_response, 
+                    thought_duration=thought_duration,
+                    ttft=ttft,
+                    total_duration=total_duration,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    finish_reason=finish_reason or (e.__class__.__name__ if 'e' in locals() and isinstance(e, (GeneratorExit, asyncio.CancelledError)) else None)
+                )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

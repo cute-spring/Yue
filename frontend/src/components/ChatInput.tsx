@@ -169,20 +169,32 @@ export default function ChatInput(props: ChatInputProps) {
 
                 <button 
                   type="submit"
+                  onClick={(e) => {
+                    if (props.isTyping) {
+                      e.preventDefault();
+                      props.onSubmit(e);
+                    }
+                  }}
                   disabled={!props.isTyping && (!props.input.trim() || !props.selectedModel)}
                   class={`
                     flex items-center justify-center p-3 rounded-2xl transition-all duration-500 shadow-lg
-                    ${(props.input.trim() && props.selectedModel) || props.isTyping 
-                      ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/30 hover:scale-[1.02] active:scale-95' 
-                      : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}
+                    ${props.isTyping 
+                      ? 'bg-rose-500 text-white hover:bg-rose-600 hover:shadow-rose-500/30 active:scale-95' 
+                      : (props.input.trim() && props.selectedModel)
+                        ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/30 hover:scale-[1.02] active:scale-95' 
+                        : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}
                   `}
+                  title={props.isTyping ? "Stop Generation" : "Send Message"}
                 >
                   <Show when={props.isTyping} fallback={
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
                       <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
                     </svg>
                   }>
-                    <div class="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <div class="relative flex items-center justify-center">
+                      <div class="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      <div class="absolute w-2 h-2 bg-white rounded-sm"></div>
+                    </div>
                   </Show>
                 </button>
               </div>
