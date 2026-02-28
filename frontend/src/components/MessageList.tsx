@@ -13,6 +13,7 @@ interface MessageListProps {
   copyUserMessage: (content: string, index: number) => void;
   quoteUserMessage: (content: string) => void;
   handleRegenerate: (index: number) => void;
+  onContinue: (msg: Message) => void;
   messagesEndRef: (el: HTMLDivElement) => void;
   chatContainerRef: (el: HTMLDivElement) => void;
   handleScroll: (e: Event) => void;
@@ -98,6 +99,7 @@ export default function MessageList(props: MessageListProps) {
             copyUserMessage={props.copyUserMessage}
             quoteUserMessage={props.quoteUserMessage}
             handleRegenerate={props.handleRegenerate}
+            onContinue={props.onContinue}
             selectedProvider={props.selectedProvider}
             selectedModel={props.selectedModel}
           />

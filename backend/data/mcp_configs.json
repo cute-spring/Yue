@@ -6,7 +6,7 @@
       "-e",
       "console.log(JSON.stringify({mcpVersion: '1.0.0', capabilities: {}, serverInfo: {name: 'test', version: '1.0.0'}}))"
     ],
-    "enabled": true,
+    "enabled": false,
     "transport": "stdio",
     "env": null
   }

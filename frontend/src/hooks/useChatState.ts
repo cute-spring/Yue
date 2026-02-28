@@ -157,89 +157,154 @@ export function useChatState(
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let accumulatedResponse = "";
+      let buffer = "";
+      let lastUpdateTime = 0;
+      let lineRemainder = ""; // Buffer for partial lines
+      const UPDATE_INTERVAL = 40; // ~25fps for smoothness
+
+      const flushBuffer = () => {
+        if (buffer) {
+          accumulatedResponse += buffer;
+          buffer = "";
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const lastIndex = newMsgs.length - 1;
+            if (lastIndex >= 0) {
+              newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: accumulatedResponse };
+            }
+            return newMsgs;
+          });
+        }
+      };
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          if (done) {
+            // Process any remaining partial line
+            if (lineRemainder) {
+              processLine(lineRemainder);
+              lineRemainder = "";
+            }
+            flushBuffer();
+            break;
+          }
+
+          // Use stream: true to handle split multi-byte characters
+          const chunk = decoder.decode(value, { stream: true });
+          const combined = lineRemainder + chunk;
+          const lines = combined.split('\n');
+          
+          // The last element is potentially a partial line
+          lineRemainder = lines.pop() || "";
+          
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.chat_id) {
-                  setCurrentChatId(data.chat_id);
-                  setMessages(prev => prev.map(m => m.context_id ? m : { ...m, context_id: data.chat_id }));
-                  loadHistory();
-                } else if (data.meta) {
-                  setMessages(prev => {
-                    const newMsgs = [...prev];
-                    const lastIndex = newMsgs.length - 1;
-                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], ...data.meta };
-                    return newMsgs;
-                  });
-                } else if (data.content || data.thought) {
-                  if (!firstTokenTime) {
-                    firstTokenTime = Date.now();
-                    const ttft = firstTokenTime - startTime;
-                    setMessages(prev => {
-                      const newMsgs = [...prev];
-                      const lastIndex = newMsgs.length - 1;
-                      newMsgs[lastIndex] = { ...newMsgs[lastIndex], ttft };
-                      return newMsgs;
-                    });
-                  }
-                  if (data.content) {
-                    accumulatedResponse += data.content;
-                    setMessages(prev => {
-                      const newMsgs = [...prev];
-                      const lastIndex = newMsgs.length - 1;
-                      newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: accumulatedResponse };
-                      return newMsgs;
-                    });
-                  }
-                } else if (data.thought_duration) {
-                  setMessages(prev => {
-                    const newMsgs = [...prev];
-                    const lastIndex = newMsgs.length - 1;
-                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], thought_duration: data.thought_duration };
-                    return newMsgs;
-                  });
-                } else if (data.total_duration) {
-                  setMessages(prev => {
-                    const newMsgs = [...prev];
-                    const lastIndex = newMsgs.length - 1;
-                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], total_duration: data.total_duration * 1000 };
-                    return newMsgs;
-                  });
-                } else if (data.prompt_tokens !== undefined || data.completion_tokens !== undefined || data.total_tokens !== undefined || data.tps !== undefined || data.finish_reason !== undefined) {
-                  setMessages(prev => {
-                    const newMsgs = [...prev];
-                    const lastIndex = newMsgs.length - 1;
-                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], ...data };
-                    return newMsgs;
-                  });
-                } else if (data.citations) {
-                  setMessages(prev => {
-                    const newMsgs = [...prev];
-                    const lastIndex = newMsgs.length - 1;
-                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], citations: data.citations };
-                    return newMsgs;
-                  });
-                } else if (data.error) {
-                  setMessages(prev => {
-                    const newMsgs = [...prev];
-                    const lastIndex = newMsgs.length - 1;
-                    newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: `Error: ${data.error}`, error: data.error };
-                    return newMsgs;
-                  });
+            processLine(line);
+          }
+        }
+      }
+
+      function processLine(line: string) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) return;
+        
+        const jsonStr = trimmed.slice(6);
+        try {
+          const data = JSON.parse(jsonStr);
+          if (data.chat_id) {
+            setCurrentChatId(data.chat_id);
+            setMessages(prev => prev.map(m => m.context_id ? m : { ...m, context_id: data.chat_id }));
+            loadHistory();
+          } else if (data.meta) {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], ...data.meta };
+              }
+              return newMsgs;
+            });
+          } else if (data.content || data.thought) {
+            if (!firstTokenTime) {
+              firstTokenTime = Date.now();
+              const ttft = firstTokenTime - startTime;
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIndex = newMsgs.length - 1;
+                if (lastIndex >= 0) {
+                  newMsgs[lastIndex] = { ...newMsgs[lastIndex], ttft };
                 }
-              } catch (e) {
-                console.warn("Failed to parse stream message", e);
+                return newMsgs;
+              });
+            }
+            if (data.content) {
+              buffer += data.content;
+              const now = Date.now();
+              if (now - lastUpdateTime > UPDATE_INTERVAL) {
+                flushBuffer();
+                lastUpdateTime = now;
               }
             }
+            if (data.thought) {
+              // Handle structured thought if present
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIndex = newMsgs.length - 1;
+                if (lastIndex >= 0) {
+                  const currentThought = newMsgs[lastIndex].thought || "";
+                  newMsgs[lastIndex] = { ...newMsgs[lastIndex], thought: currentThought + data.thought };
+                }
+                return newMsgs;
+              });
+            }
+          } else if (data.thought_duration) {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], thought_duration: data.thought_duration };
+              }
+              return newMsgs;
+            });
+          } else if (data.total_duration) {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], total_duration: data.total_duration * 1000 };
+              }
+              return newMsgs;
+            });
+          } else if (data.prompt_tokens !== undefined || data.completion_tokens !== undefined || data.total_tokens !== undefined || data.tps !== undefined || data.finish_reason !== undefined) {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], ...data };
+              }
+              return newMsgs;
+            });
+          } else if (data.citations) {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], citations: data.citations };
+              }
+              return newMsgs;
+            });
+          } else if (data.error) {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: `Error: ${data.error}`, error: data.error };
+              }
+              return newMsgs;
+            });
           }
+        } catch (e) {
+          console.warn("Failed to parse stream message", e, "Line:", line, "JSON:", jsonStr);
         }
       }
       const total_duration = Date.now() - startTime;

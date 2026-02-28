@@ -14,9 +14,9 @@ import {
 } from '../utils/mermaidRenderer';
 
 export function useMermaid(showToast: (type: 'success' | 'error' | 'info', message: string) => void) {
+  let renderTimeout: any;
   
   const debouncedRender = () => {
-    let renderTimeout: any;
     if (renderTimeout) clearTimeout(renderTimeout);
     renderTimeout = setTimeout(() => {
       requestAnimationFrame(() => {

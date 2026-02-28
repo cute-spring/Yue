@@ -1,0 +1,28 @@
+[
+  {
+    "id": "53bf9f4a-4d48-496b-b104-8b086835d7c7",
+    "timestamp": "2026-02-28T06:51:48.478077",
+    "issue_description": "API truncation issue with deepseek-reasoner",
+    "root_cause": "Token limit (8192) was too small for long HTML/Tailwind content and reasoning chain.",
+    "solution": "Increased max_output_tokens to 32768 in global_config.json and fixed model_settings missing in fallback logic.",
+    "code_changes": [
+      "backend/data/global_config.json",
+      "backend/app/api/chat.py"
+    ],
+    "verification_steps": [
+      "Ran repro script with full coffee shop landing page request",
+      "Verified 27k+ character output"
+    ],
+    "prevention_measures": [
+      "Regularly review token limits for new model versions",
+      "Ensure config settings are propagated in all execution paths"
+    ],
+    "impact_scope": "DeepSeek Reasoner users generating long content",
+    "complexity": "low",
+    "tags": [
+      "performance",
+      "llm",
+      "config"
+    ]
+  }
+]

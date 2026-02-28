@@ -7,6 +7,10 @@ from app.mcp.manager import mcp_manager
 from app.services.agent_store import agent_store
 from app.services.model_factory import get_model, fetch_ollama_models
 from app.services.chat_service import chat_service, ChatSession
+from app.services.config_service import config_service
+from app.services.prompt_service import build_system_prompt
+from app.services.response_parser_service import get_parser
+from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
@@ -195,36 +199,14 @@ async def chat_stream(request: ChatRequest):
                 tool_names.append(name)
 
             yield f"data: {json.dumps({'meta': {'provider': provider, 'model': model_name, 'tools': tool_names, 'context_id': chat_id, 'agent_id': request.agent_id}})}\n\n"
-
-            # 1. Inject thinking process instruction for non-reasoning models
-            # We skip this if the model name suggests it's already a reasoning model (like deepseek-reasoner or r1)
-            is_reasoning_model = any(kw in model_name.lower() for kw in ["reasoner", "r1", "thought", "o1", "o3"])
-            if not is_reasoning_model and "<thought>" not in system_prompt:
-                system_prompt += (
-                    "\n\n### Reasoning Protocol\n"
-                    "You must ALWAYS start your response by thinking step-by-step about the user's request. "
-                    "Enclose your thinking process within <thought>...</thought> tags. "
-                    "Structure your thinking as follows:\n"
-                    "1. **[目标]**: Define the objective of the request.\n"
-                    "2. **[已知条件]**: List the available information and constraints.\n"
-                    "3. **[计划]**: Outline the steps to solve the problem.\n"
-                    "4. **[反思]**: (Optional) Self-correct or refine the plan if needed.\n\n"
-                    "After your thinking process is complete, provide your final answer."
-                )
-
-            # 2. Smart Visualization Injection
-            # Only inject UML/Mermaid guidelines if the user's query suggests a need for visualization
-            viz_keywords = ["diagram", "uml", "mermaid", "flowchart", "sequence", "architecture", "流程图", "架构图", "时序图"]
-            needs_viz = any(kw in request.message.lower() for kw in viz_keywords)
             
-            if needs_viz and "mermaid" not in system_prompt.lower():
-                system_prompt += (
-                    "\n\nVISUALIZATION GUIDELINES - UML Diagram Generation:\n"
-                    "You are an expert system architect. When requested, visualize complex concepts using Mermaid UML.\n"
-                    "1. **Mermaid Syntax**: Always use ```mermaid code blocks.\n"
-                    "2. **Diagram Types**: Use Sequence Diagrams for interactions, Flowcharts for logic, and ER Diagrams for data models.\n"
-                    "3. **Proactive Visualization**: Since the user asked for a diagram/architecture, ensure you provide at least one clear Mermaid chart."
-                )
+            # Use PromptBuilder to enhance system prompt (Builder Pattern)
+            system_prompt = build_system_prompt(
+                base_prompt=system_prompt,
+                provider=provider,
+                model_name=model_name,
+                user_message=request.message
+            )
 
             model = get_model(provider, model_name)
 
@@ -240,10 +222,23 @@ async def chat_stream(request: ChatRequest):
             if agent_config and getattr(agent_config, "doc_file_patterns", None):
                 deps["doc_file_patterns"] = agent_config.doc_file_patterns
             
+            # Retrieve model settings (max_tokens etc)
+            model_settings = config_service.get_model_settings(provider, model_name)
+            
+            # DeepSeek/Ollama compatibility: ensure max_tokens is also in extra_body
+            # because some providers (like DeepSeek) might not support max_completion_tokens
+            # which is what pydantic-ai uses by default for OpenAI-compatible models now.
+            if "max_tokens" in model_settings:
+                if "extra_body" not in model_settings:
+                    model_settings["extra_body"] = {}
+                model_settings["extra_body"]["max_tokens"] = model_settings["max_tokens"]
+            
+            # Prepare Parser (Adapter Pattern)
+            capabilities = config_service.get_model_capabilities(provider, model_name)
+            parser = get_parser(provider, model_name, capabilities)
+            
             last_length = 0
             full_response = ""
-            thought_start_time = None
-            thought_end_time = None
             start_time = time.time()
             first_token_time = None
             
@@ -255,25 +250,21 @@ async def chat_stream(request: ChatRequest):
                     for img in request.images:
                         user_input.append(ImageUrl(url=img))
 
-                # Run with history
-                async with agent.run_stream(user_input, message_history=history, deps=deps) as result:
+                # Run with history and model settings
+                async with agent.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings) as result:
                     async for message in result.stream_text():
                         # Track TTFT
                         if not first_token_time:
                             first_token_time = time.time()
 
-                        # Track thinking time
-                        if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
-                            thought_start_time = time.time()
-                        if ("</thought>" in message or "</think>" in message) and thought_end_time is None:
-                            thought_end_time = time.time()
+                        # Use Parser to process chunk (Adapter Pattern)
+                        results = parser.parse_chunk(message)
+                        for item in results:
+                            if "content" in item:
+                                full_response += item["content"]
+                            # Ensure data is followed by exactly two newlines for SSE spec
+                            yield f"data: {json.dumps(item)}\n\n"
 
-                        # Get only the new part of the message
-                        new_content = message[last_length:]
-                        if new_content:
-                            full_response += new_content
-                            yield f"data: {json.dumps({'content': new_content})}\n\n"
-                            last_length = len(message)
             except Exception as stream_err:
                 err_str = str(stream_err)
                 if "status_code: 502" in err_str and provider == "ollama":
@@ -290,11 +281,10 @@ async def chat_stream(request: ChatRequest):
                     logger.info("Model %s does not support tools, falling back to pure chat.", model_name)
                     # Re-create agent without tools
                     agent_no_tools = Agent(model, system_prompt=system_prompt)
-                    last_length = 0
+                    # Reset parser and response tracking for second attempt
+                    parser = get_parser(provider, model_name, capabilities)
                     full_response = ""
-                    thought_start_time = None
-                    thought_end_time = None
-                    first_token_time = None # Reset for second attempt
+                    first_token_time = None 
                     
                     # Prepare input
                     user_input = request.message
@@ -303,23 +293,19 @@ async def chat_stream(request: ChatRequest):
                         for img in request.images:
                             user_input.append(ImageUrl(url=img))
 
-                    async with agent_no_tools.run_stream(user_input, message_history=history, deps=deps) as result:
+                    async with agent_no_tools.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings) as result:
                         async for message in result.stream_text():
                             # Track TTFT
                             if not first_token_time:
                                 first_token_time = time.time()
 
-                            # Track thinking time
-                            if ("<thought>" in message or "<think>" in message) and thought_start_time is None:
-                                thought_start_time = time.time()
-                            if ("</thought>" in message or "</think>" in message) and thought_end_time is None:
-                                thought_end_time = time.time()
-
-                            new_content = message[last_length:]
-                            if new_content:
-                                full_response += new_content
-                                yield f"data: {json.dumps({'content': new_content})}\n\n"
-                                last_length = len(message)
+                            # Use Parser to process chunk (Adapter Pattern)
+                            results = parser.parse_chunk(message)
+                            for item in results:
+                                if "content" in item:
+                                    full_response += item["content"]
+                                # Ensure data is followed by exactly two newlines for SSE spec
+                                yield f"data: {json.dumps(item)}\n\n"
                 else:
                     raise stream_err
             
@@ -331,11 +317,11 @@ async def chat_stream(request: ChatRequest):
                 ttft = first_token_time - start_time
 
             thought_duration = None
-            if thought_start_time:
-                if thought_end_time:
-                    thought_duration = thought_end_time - thought_start_time
+            if parser.thought_start_time:
+                if parser.thought_end_time:
+                    thought_duration = parser.thought_end_time - parser.thought_start_time
                 else:
-                    thought_duration = time.time() - thought_start_time
+                    thought_duration = time.time() - parser.thought_start_time
 
             if thought_duration is not None:
                 yield f"data: {json.dumps({'thought_duration': thought_duration})}\n\n"
@@ -345,38 +331,30 @@ async def chat_stream(request: ChatRequest):
             
             yield f"data: {json.dumps({'total_duration': total_duration})}\n\n"
 
-            # Capture Usage and Finish Reason from Pydantic AI
-            prompt_tokens = None
-            completion_tokens = None
-            total_tokens = None
-            tps = None
-            finish_reason = None
-            
+            # Capture Usage and Finish Reason using UsageAdapter (Adapter Pattern)
             try:
-                usage = result.usage()
-                finish_reason = result.response.finish_reason
+                usage_stats = calculate_usage(
+                    provider=provider,
+                    raw_usage=result.usage(),
+                    duration=total_duration,
+                    finish_reason=result.response.finish_reason
+                )
                 
-                # Helper to safely extract integer tokens (avoiding mocks in tests)
-                def to_int(v):
-                    return int(v) if v is not None and isinstance(v, (int, float)) else None
+                # Update local variables for chat_service.add_message
+                prompt_tokens = usage_stats.prompt_tokens
+                completion_tokens = usage_stats.completion_tokens
+                total_tokens = usage_stats.total_tokens
+                finish_reason = usage_stats.finish_reason
                 
-                prompt_tokens = to_int(usage.request_tokens)
-                completion_tokens = to_int(usage.response_tokens)
-                total_tokens = to_int(usage.total_tokens)
-                
-                if completion_tokens and total_duration > 0:
-                    tps = completion_tokens / total_duration
-                    
-                usage_dict = {
-                    'prompt_tokens': prompt_tokens,
-                    'completion_tokens': completion_tokens,
-                    'total_tokens': total_tokens,
-                    'tps': tps,
-                    'finish_reason': finish_reason
-                }
-                yield f"data: {json.dumps(usage_dict)}\n\n"
+                yield f"data: {json.dumps(usage_stats.model_dump())}\n\n"
+
+                # Manual continuation guidance logic
+                if finish_reason == "length":
+                    continue_msg = "\n\n> ⚠️ **[系统提示]** 由于输出长度限制，内容可能未完全生成。您可以输入 **“继续”** 来获取剩余部分。"
+                    full_response += continue_msg
+                    yield f"data: {json.dumps({'content': continue_msg})}\n\n"
             except Exception as usage_err:
-                logger.error(f"Failed to get usage: {usage_err}")
+                logger.error(f"Failed to get usage via adapter: {usage_err}")
 
             citations = deps.get("citations") if isinstance(deps, dict) else None
             if isinstance(citations, list) and citations:

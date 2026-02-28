@@ -1,7 +1,7 @@
-import { createSignal, For, Show, onCleanup, createEffect } from 'solid-js';
+import { createSignal, For, Show, onCleanup, createEffect, createMemo } from 'solid-js';
 import { Message } from '../types';
 import { renderMarkdown } from '../utils/markdown';
-import { parseThoughtAndContent } from '../utils/thoughtParser';
+import { parseThoughtAndContent, getAdaptedThought } from "../utils/thoughtParser";
 
 interface MessageItemProps {
   msg: Message;
@@ -15,6 +15,7 @@ interface MessageItemProps {
   copyUserMessage: (content: string, index: number) => void;
   quoteUserMessage: (content: string) => void;
   handleRegenerate: (index: number) => void;
+  onContinue: (msg: Message) => void;
   selectedProvider: string;
   selectedModel: string;
 }
@@ -23,8 +24,11 @@ export default function MessageItem(props: MessageItemProps) {
   const [waitSecs, setWaitSecs] = createSignal(0);
   let timer: any;
 
+  // Memoize parsing to avoid redundant work and logic issues during non-typing states
+  const adapted = createMemo(() => getAdaptedThought(props.msg, props.isTyping));
+
   createEffect(() => {
-    const { content } = parseThoughtAndContent(props.msg.content);
+    const { content } = adapted();
     // 只要还在打字，且没有最终内容，就继续计时
     if (props.isTyping && !content) {
       if (!timer) {
@@ -51,6 +55,21 @@ export default function MessageItem(props: MessageItemProps) {
     if (s < 8) return { title: "Analyzing", sub: "Searching for the best approach..." };
     if (s < 15) return { title: "Deep Thinking", sub: "Processing complex request details..." };
     return { title: "Still Thinking", sub: "Taking longer than usual, thanks for your patience." };
+  };
+
+  const isTruncated = () => {
+    if (props.msg.finish_reason === 'length') return true;
+    if (props.msg.role !== 'assistant' || props.isTyping) return false;
+    
+    const content = props.msg.content || "";
+    // Check for unclosed code blocks
+    const codeBlockCount = (content.match(/```/g) || []).length;
+    if (codeBlockCount > 0 && codeBlockCount % 2 !== 0) return true;
+    
+    // Check for unclosed HTML tags if it looks like HTML (basic check)
+    if (content.includes('<html') && !content.includes('</html>')) return true;
+    
+    return false;
   };
   const formatTime = (value?: string) => {
     if (!value) return "—";
@@ -97,7 +116,7 @@ export default function MessageItem(props: MessageItemProps) {
     return (
       <div 
         class="prose prose-sm dark:prose-invert max-w-none opacity-90 leading-relaxed font-sans"
-        innerHTML={renderMarkdown(processedThought)}
+        innerHTML={renderMarkdown(processedThought, props.isTyping)}
       />
     );
   };
@@ -201,9 +220,19 @@ export default function MessageItem(props: MessageItemProps) {
               <MetricPopover 
                 title="Inference Speed"
                 label="TPS"
-                value={msg.tps!.toFixed(1)}
+                value={`${msg.tps!.toFixed(1)} t/s`}
                 icon={<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><path d="m16 18 6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>}
                 description="Tokens Per Second: The average speed at which the model generated the text content."
+              />
+            </Show>
+
+            <Show when={msg.finish_reason}>
+              <MetricPopover 
+                title="Finish Reason"
+                label="Exit"
+                value={msg.finish_reason!}
+                icon={<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
+                description="The reason why the model stopped generating (e.g., 'stop', 'length', 'tool_calls')."
               />
             </Show>
           </div>
@@ -317,12 +346,17 @@ export default function MessageItem(props: MessageItemProps) {
            </>
         ) : (
           (() => {
-            const { thought, content, isThinking: isActuallyThinking } = parseThoughtAndContent(props.msg.content);
+            const res = adapted();
+            const thought = res.thought;
+            const content = res.content;
+            const isActuallyThinking = res.isThinking;
+            const thoughtSource = res.source;
+            
             const isReasoner = () => {
               const model = (props.msg.model || props.selectedModel || "").toLowerCase();
               return model.includes("reasoner") || model.includes("r1") || model.includes("thought") || model.includes("o1") || model.includes("o3");
             };
-            const isThinking = isActuallyThinking || (props.isTyping && isReasoner() && !content);
+            const isThinking = isActuallyThinking || (props.isTyping && (isReasoner() || !!thought) && !content);
             const showInitializing = () => props.isTyping && !thought && !content && !isReasoner();
 
             return (
@@ -389,6 +423,11 @@ export default function MessageItem(props: MessageItemProps) {
                       <Show when={isThinking}>
                         <div class="absolute inset-0 bg-gradient-to-r from-transparent via-primary/[0.05] to-transparent -translate-x-full animate-[shimmer_3s_infinite] pointer-events-none"></div>
                       </Show>
+                      <Show when={props.isTyping}>
+                        <div class="absolute bottom-0 left-0 h-[2px] bg-primary/20 w-full overflow-hidden">
+                          <div class="h-full bg-primary/40 animate-[loading_2s_infinite_ease-in-out]"></div>
+                        </div>
+                      </Show>
                       
                       <div class="flex items-center gap-4 relative z-10">
                         <div class="relative flex items-center justify-center w-6 h-6">
@@ -405,11 +444,18 @@ export default function MessageItem(props: MessageItemProps) {
                           }`}></div>
                         </div>
                         <div class="flex flex-col items-start -space-y-0.5">
-                          <span class={`text-[13px] font-black tracking-wide transition-colors duration-500 ${isThinking ? 'text-primary' : 'text-text-secondary'}`}>
-                            {isThinking 
-                              ? (isActuallyThinking ? 'Thinking & Analyzing' : getLoadingStatus().title) 
-                              : 'Reasoning Chain'}
-                          </span>
+                          <div class="flex items-center gap-1.5">
+                            <span class={`text-[13px] font-black tracking-wide transition-colors duration-500 ${isThinking ? 'text-primary' : 'text-text-secondary'}`}>
+                              {isThinking 
+                                ? (isActuallyThinking ? 'Thinking & Analyzing' : getLoadingStatus().title) 
+                                : 'Reasoning Chain'}
+                            </span>
+                            <Show when={thoughtSource === 'structured'}>
+                              <div class="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20" title="Structured reasoning from model API">
+                                <span class="text-[8px] font-black uppercase tracking-wider text-emerald-500/80">Structured</span>
+                              </div>
+                            </Show>
+                          </div>
                           <Show when={isThinking}>
                             <span class="text-[9px] font-bold text-primary/40 tabular-nums">
                               Elapsed: {waitSecs()}s
@@ -491,7 +537,7 @@ export default function MessageItem(props: MessageItemProps) {
                 
                 <Show when={content || (props.isTyping && !thought)}>
                   <div 
-                    innerHTML={renderMarkdown(content)} 
+                    innerHTML={renderMarkdown(content, props.isTyping)} 
                     class="prose prose-slate dark:prose-invert max-w-none 
                       prose-p:leading-relaxed prose-p:my-3 prose-p:text-[15px]
                       prose-headings:text-text-primary prose-headings:font-black prose-headings:tracking-tight
@@ -504,6 +550,20 @@ export default function MessageItem(props: MessageItemProps) {
                       prose-th:bg-primary/5 prose-th:text-primary prose-th:p-3 prose-th:text-left prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-wider prose-th:border prose-th:border-border/60
                       prose-td:p-3 prose-td:text-sm prose-td:border prose-td:border-border/60 prose-td:text-text-secondary" 
                   />
+                </Show>
+
+                <Show when={isTruncated()}>
+                  <div class="mt-4 flex justify-start">
+                    <button
+                      onClick={() => props.onContinue(props.msg)}
+                      class="group flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                      </svg>
+                      继续生成
+                    </button>
+                  </div>
                 </Show>
 
                 <Show when={(props.msg.citations?.length ?? 0) > 0}>
