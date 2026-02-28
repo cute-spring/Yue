@@ -17,20 +17,20 @@ export function parseThoughtAndContent(text: string, isStreaming: boolean = true
   let i = 0;
   let isThinking = false;
   let hasFoundAnyThought = false;
+  let hasContentStarted = false; // NEW: Track if we've started receiving actual content
   const n = text.length;
 
-  // Potential reasoning tag prefixes to avoid flickering in content
-  // Added support for [thought] and [thinking]
   const allowedTags = [
     "<think>", "<thought>", "</think>", "</thought>",
     "[thought]", "[thinking]", "[/thought]", "[/thinking]"
   ];
 
   while (i < n) {
-    if (text[i] === '<' || text[i] === '[') {
+    // Check for potential reasoning tags ONLY IF content hasn't started yet
+    // This distinguishes between "Protocol Tags" and "Content Examples"
+    if (!hasContentStarted && (text[i] === '<' || text[i] === '[')) {
       const remaining = text.slice(i);
       
-      // Check for complete opening tags (supports <think>, <thought>, [thought], [thinking])
       const openMatch = remaining.match(/^<(think|thought)>|^\[(thought|thinking)\]/i);
       if (openMatch) {
         hasFoundAnyThought = true;
@@ -41,12 +41,10 @@ export function parseThoughtAndContent(text: string, isStreaming: boolean = true
         const closeIndex = text.indexOf(closeTag, i + fullTag.length);
         
         if (closeIndex !== -1) {
-          // Found complete block
           thought += (thought ? "\n" : "") + text.slice(i + fullTag.length, closeIndex);
           i = closeIndex + closeTag.length;
           continue;
         } else if (isStreaming) {
-          // Streaming: tag opened but not closed
           thought += (thought ? "\n" : "") + text.slice(i + fullTag.length);
           isThinking = true;
           i = n;
@@ -54,12 +52,9 @@ export function parseThoughtAndContent(text: string, isStreaming: boolean = true
         }
       }
 
-      // Check for potential incomplete tag at the very end of the string
-      // ONLY if we are still streaming. If not streaming, treat as regular text.
       if (isStreaming) {
         const isPotentialTag = allowedTags.some(tag => tag.startsWith(remaining.toLowerCase()));
         if (isPotentialTag && i + remaining.length === n) {
-          // It's a prefix at the end of the string, don't add to content yet
           isThinking = true;
           hasFoundAnyThought = true;
           break;
@@ -67,7 +62,14 @@ export function parseThoughtAndContent(text: string, isStreaming: boolean = true
       }
     }
     
-    content += text[i];
+    // Once we hit a non-whitespace character that isn't part of a reasoning tag,
+    // we consider the content started.
+    const char = text[i];
+    if (!hasContentStarted && char.trim().length > 0) {
+      hasContentStarted = true;
+    }
+    
+    content += char;
     i++;
   }
 
