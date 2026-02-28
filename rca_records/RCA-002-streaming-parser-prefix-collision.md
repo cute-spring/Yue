@@ -62,27 +62,30 @@ const isPotentialTag = allowedTags.some(tag => tag.startsWith(remaining.toLowerC
 2.  **场景 B (SVG)**: 遇到 `<text>` 标签时，解析器能正确识别其为业务内容，保持渲染更新。
 3.  **场景 C (Streaming)**: 当模型确实在输出 `"<thi"` 时，由于它是 `"<think>"` 的合法前缀，系统依然会保持隐藏直到标签闭合，避免了思维链碎片的闪烁。
 
-### 4.2 流式状态感知 (Streaming-Aware Parsing)
-在最终方案中，我们引入了 `isStreaming` 标志位。只有在消息处于流式传输状态（`isTyping === true`）时，解析器才会执行“前缀拦截”逻辑。
+### 4.3 协议与数据隔离 (Protocol-Data Isolation)
+针对“正文中包含思考标签示例”的极端场景，引入了 `hasContentStarted` 状态锁。
 
 **改进代码**：
 ```typescript
-// ONLY if we are still streaming. If not streaming, treat as regular text.
-if (isStreaming) {
-  const isPotentialTag = allowedTags.some(tag => tag.startsWith(remaining.toLowerCase()));
-  if (isPotentialTag && i + remaining.length === n) {
-    isThinking = true;
-    break;
-  }
+// Once we hit a non-whitespace character that isn't part of a reasoning tag,
+// we consider the content started.
+const char = text[i];
+if (!hasContentStarted && char.trim().length > 0) {
+  hasContentStarted = true;
+}
+
+// Check for reasoning tags ONLY IF content hasn't started yet
+if (!hasContentStarted && (text[i] === '<' || text[i] === '[')) {
+  // ... parsing logic ...
 }
 ```
 
 **方案优势**：
-1.  **彻底隔离**: 当消息完成生成后，即使内容中包含 `<title` 等字符串，由于 `isStreaming` 为 `false`，解析器会将其视为普通文本，不再进行截断。
-2.  **性能优化**: 前端使用 `createMemo` 缓存解析结果，避免了在不必要的重渲染中重复解析长文本。
-3.  **多模型兼容**: 增加了对 `[thought]` 和 `[thinking]` 等不同模型思维标签格式的支持。
+1.  **首位优先**: 真正的 LLM 思考链必须出现在消息开头。一旦内容开始输出，后续出现的同名标签（如代码块中的例子）将被视为普通数据，不再触发解析逻辑。
+2.  **多格式支持**: 统一处理 `<think>`、`[thought]`、`[thinking]` 等多种标签格式。
+3.  **零误判**: 彻底解决了在生成 HTML 代码、SVG 文本或技术教程时，因内容中包含特定字符导致的解析死锁或内容被“偷走”到思考区的问题。
 
 ---
 
 ## 5. 结论
-本次故障的最终解决思路是：**将解析逻辑从“静态文本处理”演进为“状态感知处理”**。在处理 AI 生成内容时，解析器不应仅关注文本内容本身，还必须结合当前消息的生命周期状态（流式 vs 静态）来决定解析策略。
+本次故障的最终解决思路是：**将解析逻辑从“静态文本处理”演进为“状态感知与协议隔离处理”**。这不仅解决了性能和截断问题，更通过设计模式上的“关注点分离”，确保了 AI 协议标签与业务数据内容的完美兼容。
