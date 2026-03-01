@@ -39,12 +39,14 @@
 - **阶段一核心**：`BaseTool`、Schema→Pydantic 模型转换、参数预处理与错误包装已实现；单测覆盖。
 - **阶段二核心**：`ToolRegistry` 已引入；`chat.py` 已通过注册表获取工具；Registry 与 BaseTool 相关测试已补充。
 - **阶段二影子模式**：新增 `MCP_TOOL_SHADOW_MODE` 开关；新旧路径工具清单与 Schema 对比日志已加入；对比单测已补充。
-- **阶段三部分**：参数校验 `validate_params` 与错误提示 Hint 已落地（在 BaseTool wrapper 中）。
-- **阶段三 Provider Schema 翻译器**：已新增 `schema_translator.py` 并接入 BaseTool/Registry/Chat 链路；OpenAI/Claude/DeepSeek 统一输出并支持 provider 透传。
+- **阶段三核心**：参数校验 `validate_params`、Provider Schema 翻译器（`schema_translator.py`）已落地并接入 `BaseTool/Registry/Chat` 链路。
+- **阶段三/四错误分流与 Hint 规范化**：已在 `ToolRegistry` 中实现 `_handle_tool_error` 和 `_classify_tool_error`，支持结构化错误响应（`error_code/message/hint`），并完成了安全性（不泄露敏感路径）与功能性（提供 LLM 自愈 Hint）的测试。
+- **内置工具扩展**：新增 `builtin:docs_list` 工具用于目录结构遍历，并已同步至 `Local Docs` 等默认 Agent 配置。
 
-### 未完成 / 待补齐
-- **阶段四注册表层错误分流**：目前 Hint 在 BaseTool wrapper 层，注册表层未体现专用 `try-except` 分流与验证用例。
-- **阶段三 Provider 差异化规则**：当前 Schema 翻译器为统一输出，尚未对各 Provider 做差异化字段/兼容性细节的深度适配。
+### 待处理 / 待补齐
+- **工具元数据接口归一化**：目前 `/api/mcp/tools` 仍直接调用 `McpManager`。计划将其迁移至 `ToolRegistry`，实现 UI 展示与执行逻辑的完全同源。
+- **Provider 差异化深度适配**：当前 Schema 翻译器已支持多 Provider，但仍可针对不同模型的 Long Context 或特定约束做进一步微调。
+- **影子模式下线**：待生产环境验证稳定后，移除 `MCP_TOOL_SHADOW_MODE` 相关兼容逻辑，彻底停用 `McpManager` 中的旧工具包装代码。
 
 ### 当前测试状态（基线）
 - `PYTHONPATH=backend pytest backend/tests/test_agent_regression.py` ✅  
@@ -240,7 +242,21 @@
    - `python3 -m unittest discover backend/tests -v`  
 2. 对比工具清单与 Schema  
 3. 确认回滚开关与文档一致
-**完成标准**：验收清单全部通过，且可回滚。
+**完成标准**：验收清单全部通过，且可回滚。### Step 5：工具元数据查询归一化 (Metadata Unification)
+**目标**：将 `/api/mcp/tools` 的后端实现由 `McpManager` 迁移至 `ToolRegistry`。
+1. 在 `ToolRegistry` 中新增 `get_all_available_tools_metadata()` 方法，复用已有的内置与 MCP 工具扫描逻辑。
+2. 修改 `backend/app/api/mcp.py`，将 `list_tools` 路由指向注册表。
+3. 验证前端 UI 展示的工具列表与执行时的工具属性（如 Schema）完全一致。
+**完成标准**：UI 展示无误，后端 `McpManager.get_available_tools` 引用计数清零。
+
+### Step 6：生产验证与清理 (Cleanup)
+**目标**：彻底停用旧路径，简化代码库。
+1. 在生产环境运行一段时间，观察日志中“影子模式”的匹配情况。
+2. 若无异常，移除 `MCP_TOOL_SHADOW_MODE` 开关及其对比代码。
+3. 清理 `McpManager` 中不再需要的工具包装函数（如旧的 `_wrap_mcp_tool` 等）。
+**完成标准**：代码库无冗余逻辑，注册表成为唯一的工具管理入口。
+
+---
 
 ## 5. 验证与回归策略 (Verification & Regression)
 
