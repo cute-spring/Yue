@@ -14,7 +14,7 @@ echo -e "${YELLOW}🧹 Starting Deep Cleanup...${NC}"
 echo -e "\n${YELLOW}--- [1/2] Cleaning Backend ---${NC}"
 cd "$PROJECT_ROOT/backend"
 echo "Removing backend artifacts..."
-rm -rf venv/
+rm -rf .venv/
 rm -rf __pycache__/
 rm -rf .pytest_cache/
 rm -rf .coverage

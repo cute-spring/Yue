@@ -1,6 +1,7 @@
 # Docker ignore
 **/node_modules
 **/venv
+**/.venv
 **/.env
 **/__pycache__
 **/.git

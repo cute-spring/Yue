@@ -26,8 +26,8 @@ cd "$PROJECT_ROOT/backend"
 if command -v uv &> /dev/null; then
     uv run python -m app.main &
     BACKEND_PID=$!
-elif [ -d "venv" ]; then
-    source venv/bin/activate
+elif [ -d ".venv" ]; then
+    source .venv/bin/activate
     python -m app.main &
     BACKEND_PID=$!
 else

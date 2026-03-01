@@ -45,7 +45,7 @@
 | `start.sh` | **后台启动**: 增强版启动脚本，支持进程自愈与日志重定向。 |
 | `stop.sh` | **停止服务**: 深度清理后台进程，确保无残留。 |
 | `check.sh` | **质量门禁**: 自动运行 Pytest (后端) 与 TSC/Vitest (前端)。 |
-| `clean.sh` | **环境清理**: 深度删除 `node_modules`, `venv` 及各种缓存。 |
+| `clean.sh` | **环境清理**: 深度删除 `node_modules`, `.venv` 及各种缓存。 |
 | `install_deps.sh`| **依赖安装**: 仅执行依赖检查与安装。 |
 | `deploy_docker.sh`| **Docker 部署**: 一键构建并启动容器。 |
 

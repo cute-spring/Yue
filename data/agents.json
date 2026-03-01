@@ -32,8 +32,7 @@
     "enabled_tools": [
       "builtin:docs_list",
       "builtin:docs_search",
-      "builtin:docs_read",
-      "builtin:exec"
+      "builtin:docs_read"
     ],
     "doc_roots": [],
     "doc_file_patterns": [
