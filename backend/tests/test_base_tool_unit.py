@@ -145,3 +145,22 @@ def test_provider_schema_preserves_shapes(provider):
     assert schema["properties"]["mode"]["enum"] == ["fast", "slow"]
     assert schema["properties"]["tags"]["items"]["type"] == "string"
     assert schema["properties"]["payload"]["type"] == "object"
+
+
+def test_exec_tool_local_mode_overrides():
+    from app.mcp.exec_tool import ExecToolConfig
+    import os
+
+    config = ExecToolConfig.from_settings({"local_mode": True})
+    assert config.allow_patterns == []
+    assert config.timeout_s >= 180
+    assert config.restrict_to_workspace is True
+    if os.name != "nt":
+        assert config.enable_windows_path_checks is False
+
+
+def test_exec_tool_default_denylist():
+    from app.mcp.exec_tool import ExecToolConfig
+
+    config = ExecToolConfig.from_settings({})
+    assert config.deny_patterns

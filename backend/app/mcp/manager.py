@@ -19,6 +19,7 @@ from app.services.config_service import config_service
 import shutil
 from .models import ServerConfig
 from .base import McpTool, BuiltinTool
+from .exec_tool import ExecTool, build_exec_tool_config
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class McpManager:
         self.last_errors: Dict[str, str] = {}
         self.server_info: Dict[str, Dict[str, Any]] = {} # Store server name and version
         self.is_initializing = False
+        self._exec_tool: Optional[ExecTool] = None
         self.initialized = True
 
     async def initialize(self):
@@ -364,8 +366,18 @@ class McpManager:
             logger.exception("Failed to run PPT generation script")
             return f"Error: {str(e)}"
 
+    def _get_exec_tool(self) -> ExecTool:
+        if self._exec_tool is None:
+            self._exec_tool = ExecTool(build_exec_tool_config())
+        return self._exec_tool
+
+    async def exec_tool(self, ctx: RunContext[Any], command: str, working_dir: Optional[str] = None) -> str:
+        exec_tool = self._get_exec_tool()
+        return await exec_tool.execute(ctx, {"command": command, "working_dir": working_dir})
+
     def _get_builtin_tools(self) -> List[tuple[str, Any]]:
         return [
+            ("exec", self.exec_tool),
             ("docs_list", self.docs_list),
             ("docs_search", self.docs_search),
             ("docs_read", self.docs_read),
@@ -378,6 +390,20 @@ class McpManager:
 
     def _get_builtin_tools_metadata(self) -> List[Dict[str, Any]]:
         return [
+            {
+                "id": "builtin:exec",
+                "name": "exec",
+                "description": "Execute a shell command and return its output. Use with caution.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "The shell command to execute"},
+                        "working_dir": {"type": "string", "description": "Optional working directory for the command"},
+                    },
+                    "required": ["command"],
+                },
+            },
             {
                 "id": "builtin:docs_list",
                 "name": "docs_list",

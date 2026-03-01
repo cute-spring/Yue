@@ -335,6 +335,12 @@ class ConfigService:
         deny = [r for r in deny_roots if isinstance(r, str) and r.strip()] if isinstance(deny_roots, list) else []
         return {"allow_roots": allow, "deny_roots": deny}
 
+    def get_exec_tool_config(self) -> Dict[str, Any]:
+        exec_cfg = self._config.get("exec_tool", {})
+        if not isinstance(exec_cfg, dict):
+            return {}
+        return exec_cfg
+
     def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:
         incoming_allow = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
         incoming_deny = doc_access.get("deny_roots") if isinstance(doc_access, dict) else []
