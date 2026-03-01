@@ -141,7 +141,7 @@ class AgentStore:
                 "builtin:docs_search",
                 "builtin:docs_read",
             ],
-            doc_file_patterns=["**/*.md"],
+            doc_file_patterns=["**/*.md", "**/*.txt", "**/*.log", "**/*.json", "**/*.yaml", "**/*.yml"],
             require_citations=True,
         )
 
@@ -150,13 +150,13 @@ class AgentStore:
             id="builtin-local-docs",
             name="Local Docs",
             system_prompt=(
-                "你是一个专门基于用户提供的本地目录中的 Markdown 文档回答问题的助手。\n"
+                "你是一个专门基于用户提供的本地目录中的文档（如 Markdown、文本、日志等）回答问题的助手。\n"
                 "你必须首先使用 docs_search / docs_read 工具在指定目录下检索证据，然后再给出回答。\n"
                 "用户可以提供一个或多个目录；如果提供多个目录，请按目录逐个检索并合并命中结果。\n"
                 "你的工作流程：\n"
                 "1. 确认用户提供的目录路径。\n"
-                "2. 使用 docs_search(root_dir=目录, mode=\"markdown\") 在目录下搜索关键词。\n"
-                "3. 使用 docs_read(root_dir=目录, mode=\"markdown\") 读取相关文档的详细内容。\n"
+                "2. 使用 docs_search(root_dir=目录) 在目录下搜索关键词（模式默认为 text 以支持多种格式）。\n"
+                "3. 使用 docs_read(root_dir=目录) 读取相关文档的详细内容。\n"
                 "4. 基于找到的内容回答问题，并在回答中附带引用的文件路径（path）。\n"
                 "如果找不到证据：明确说明“在指定目录下未找到相关文档依据”，不要用常识或猜测补全，并给出可继续检索的建议。\n"
                 "安全提示：你只能访问被系统允许的白名单目录。如果目录不合法，工具会返回错误，请如实告知用户。"
@@ -167,7 +167,7 @@ class AgentStore:
                 "builtin:docs_search",
                 "builtin:docs_read",
             ],
-            doc_file_patterns=["**/*.md"],
+            doc_file_patterns=["**/*.md", "**/*.txt", "**/*.log", "**/*.json", "**/*.yaml", "**/*.yml"],
             require_citations=True,
         )
 

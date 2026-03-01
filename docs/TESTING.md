@@ -29,6 +29,22 @@
 - **Command**: `export PYTHONPATH=$PYTHONPATH:$(pwd)/backend && pytest backend/tests/test_comprehensive_api.py`
 - **Scope**: Models, Config, Chat History, Agents, MCP Status.
 
+### 2) Agent Refactor Regression (Mandatory)
+- **Location**: `backend/tests/test_agent_regression.py`
+- **Command**: `export PYTHONPATH=$PYTHONPATH:$(pwd)/backend && pytest backend/tests/test_agent_regression.py`
+- **Scope**: Specific functional cases after agent layer refactoring.
+- **Mandatory Case 1**: Builtin Local Docs - Master-Sub Agent Query.
+  - Payload:
+    ```json
+    {
+      "message": "有什么讲到关于主子agent的内容？",
+      "agent_id": "builtin-local-docs",
+      "chat_id": "e355cd56-873c-4bba-a70a-9a4ae62685fb",
+      "provider": "deepseek",
+      "model": "deepseek-reasoner"
+    }
+    ```
+
 ### 2) Frontend E2E Suite
 - **Location**: `frontend/e2e/`
 - **Command**: `cd frontend && npx playwright test`

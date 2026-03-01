@@ -236,6 +236,14 @@ def _matches_one_pattern(rel_posix: str, pattern: str) -> bool:
     if not pat:
         return False
     rel = PurePosixPath(rel_posix)
+    
+    # Python 3.11 match with **/* does not match root files.
+    # We want it to be zero or more directories.
+    if pat.startswith("**/"):
+        simple_pat = pat[3:]
+        if rel.match(pat) or rel.match(simple_pat):
+            return True
+            
     if "/" not in pat:
         return rel.match(pat) or rel.match(f"**/{pat}")
     return rel.match(pat)

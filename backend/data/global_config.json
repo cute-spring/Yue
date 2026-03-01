@@ -182,7 +182,7 @@
   "doc_access": {
     "allow_roots": [
       "..",
-      "../../opencode"
+      "/Users/gavinzhang/ws-ai-recharge-2026/Yue"
     ]
   }
 }
