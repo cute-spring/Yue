@@ -33,6 +33,7 @@ export function useAgentsState() {
   const [smartApplyName, setSmartApplyName] = createSignal(true);
   const [smartApplyPrompt, setSmartApplyPrompt] = createSignal(true);
   const [smartApplyTools, setSmartApplyTools] = createSignal(true);
+  const [isRefreshingTools, setIsRefreshingTools] = createSignal(false);
   
   // Form state
   const [formName, setFormName] = createSignal("");
@@ -71,6 +72,7 @@ export function useAgentsState() {
 
   const loadTools = async () => {
     try {
+      setIsRefreshingTools(true);
       const res = await fetch('/api/mcp/tools');
       const data = await res.json();
       const tools = Array.isArray(data) ? data : [];
@@ -89,6 +91,8 @@ export function useAgentsState() {
       setAvailableTools(next);
     } catch (e) {
       console.error("Failed to load tools", e);
+    } finally {
+      setIsRefreshingTools(false);
     }
   };
 
@@ -119,6 +123,7 @@ export function useAgentsState() {
   });
 
   const openCreate = () => {
+    loadTools(); // Auto refresh tools when opening form
     setFormName("");
     setFormPrompt("");
     setFormProvider("openai");
@@ -132,6 +137,7 @@ export function useAgentsState() {
   };
 
   const openEdit = (agent: Agent) => {
+    loadTools(); // Auto refresh tools when opening form
     setFormName(agent.name);
     setFormPrompt(agent.system_prompt);
     setFormProvider(agent.provider);
@@ -315,13 +321,13 @@ export function useAgentsState() {
 
   return {
     agents, availableTools, groupedTools, isEditing, editingId, providers,
-    showLLMSelector, isRefreshingModels, showAllModels, showSmartGenerate,
+    showLLMSelector, isRefreshingModels, isRefreshingTools, showAllModels, showSmartGenerate,
     smartDescription, smartUpdateTools, smartIsGenerating, smartError, smartDraft,
     smartApplyName, smartApplyPrompt, smartApplyTools, formName, formPrompt,
     formProvider, formModel, formTools, formDocRoots, formDocRootInput,
     formDocFilePatternsText, expandedGroups, allowDocRoots, denyDocRoots,
     setAgents, setAvailableTools, setIsEditing, setEditingId, setProviders,
-    setShowLLMSelector, setIsRefreshingModels, setShowAllModels, setShowSmartGenerate,
+    setShowLLMSelector, setIsRefreshingModels, setIsRefreshingTools, setShowAllModels, setShowSmartGenerate,
     setSmartDescription, setSmartUpdateTools, setSmartIsGenerating, setSmartError,
     setSmartDraft, setSmartApplyName, setSmartApplyPrompt, setSmartApplyTools,
     setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools,

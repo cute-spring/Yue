@@ -40,6 +40,8 @@ interface AgentFormProps {
   handleSubmit: (e: Event) => Promise<void>;
   setIsEditing: (editing: boolean) => void;
   openSmartGenerate: () => void;
+  isRefreshingTools: () => boolean;
+  loadTools: () => Promise<void>;
 }
 
 export function AgentForm(props: AgentFormProps) {
@@ -205,6 +207,21 @@ export function AgentForm(props: AgentFormProps) {
                 class="text-[10px] uppercase tracking-wider font-bold text-gray-500 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded"
               >
                 Clear All
+              </button>
+              <button 
+                type="button"
+                disabled={props.isRefreshingTools()}
+                onClick={() => props.loadTools()}
+                class={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded flex items-center gap-1.5 transition-all ${
+                  props.isRefreshingTools() 
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                    : 'text-sky-600 hover:text-sky-700 bg-sky-50 hover:bg-sky-100 active:scale-95'
+                }`}
+              >
+                <Show when={props.isRefreshingTools()}>
+                  <div class="w-2.5 h-2.5 border-2 border-sky-600/20 border-t-sky-600 rounded-full animate-spin"></div>
+                </Show>
+                {props.isRefreshingTools() ? 'Refreshing...' : 'Refresh Tools'}
               </button>
             </div>
           </div>
