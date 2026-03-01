@@ -7,6 +7,10 @@ class ProviderConfigStrategy:
         self.name = name
         self.env_map = env_map
 
+    def _is_placeholder(self, value: str) -> bool:
+        v = value.strip().lower()
+        return v in {"your_api_key_here", "your_api_key", "your-api-key"} or v.startswith("your_api_key") or v.startswith("your-api-key")
+
     def get_config(self, json_config: Dict[str, Any]) -> Dict[str, Any]:
         """从 JSON 和环境变量中获取合并后的配置"""
         provider_config = json_config.get("providers", {}).get(self.name, {}).copy()
@@ -14,7 +18,7 @@ class ProviderConfigStrategy:
         # 合并环境变量（环境变量优先级更高）
         for key, env_var in self.env_map.items():
             env_val = os.getenv(env_var)
-            if env_val:
+            if env_val and not self._is_placeholder(env_val):
                 provider_config[key] = env_val
         
         # 如果没有设置 model，使用 default_model

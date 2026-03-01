@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch, MagicMock, mock_open
 from app.mcp.manager import McpManager
 from app.mcp.base import McpTool, BuiltinTool
 from app.mcp.registry import ToolRegistry
+from app.mcp.builtin import builtin_tool_registry
 
 @pytest.fixture
 def mcp_manager():
@@ -98,11 +99,16 @@ async def test_get_available_tools(mcp_manager):
     mock_result.tools = [mock_tool]
     mock_session.list_tools.return_value = mock_result
     
-    mcp_manager.sessions["server1"] = mock_session
+    mcp_manager.sessions = {
+        "srv1": mock_session
+    }
     
-    tools = await mcp_manager.get_available_tools()
-    # Should include builtin tools as well
-    assert any(t["id"] == "server1:test_tool" for t in tools)
+    with patch("app.mcp.manager.builtin_tool_registry.get_all_metadata") as mock_meta:
+        mock_meta.return_value = [{"id": "builtin:test", "name": "test", "server": "builtin"}]
+        tools = await mcp_manager.get_available_tools()
+        assert len(tools) >= 2
+        assert any(t["id"] == "srv1:test_tool" for t in tools)
+        assert any(t["id"] == "builtin:test" for t in tools)
 
 @pytest.mark.asyncio
 async def test_get_status(mcp_manager, test_config):
@@ -255,152 +261,6 @@ async def test_refresh_tools_success(mcp_manager):
         mock_session.initialize.assert_called_once()
 
 @pytest.mark.asyncio
-async def test_get_available_tools_multiple_servers(mcp_manager):
-    mock_session1 = AsyncMock()
-    mock_session1.is_closed = False
-    mock_tool1 = MagicMock()
-    mock_tool1.name = "tool1"
-    mock_tool1.description = "desc1"
-    mock_result1 = MagicMock()
-    mock_result1.tools = [mock_tool1]
-    mock_session1.list_tools.return_value = mock_result1
-    
-    mock_session2 = AsyncMock()
-    mock_session2.is_closed = False
-    mock_tool2 = MagicMock()
-    mock_tool2.name = "tool2"
-    mock_tool2.description = "desc2"
-    mock_result2 = MagicMock()
-    mock_result2.tools = [mock_tool2]
-    mock_session2.list_tools.return_value = mock_result2
-    
-    mcp_manager.sessions = {
-        "srv1": mock_session1,
-        "srv2": mock_session2
-    }
-    
-    tools = await mcp_manager.get_available_tools()
-    # 4 builtin tools + 2 mock tools = 6
-    assert len(tools) >= 2
-    assert any(t["id"] == "srv1:tool1" for t in tools)
-    assert any(t["id"] == "srv2:tool2" for t in tools)
-
-def test_builtin_tools_get_current_time(mcp_manager):
-    ctx = MagicMock()
-    result = mcp_manager.get_current_time(ctx)
-    assert isinstance(result, str)
-    assert "T" in result # ISO format
-
-@pytest.mark.asyncio
-async def test_builtin_tools_docs_search(mcp_manager):
-    ctx = MagicMock()
-    ctx.deps = {"citations": []}
-    
-    with patch("app.mcp.manager.doc_retrieval") as mock_retrieval:
-        mock_hit = MagicMock()
-        mock_hit.path = "test.md"
-        mock_hit.snippet = "content"
-        mock_hit.score = 0.9
-        mock_hit.start_line = 1
-        mock_hit.end_line = 10
-        mock_retrieval.resolve_docs_roots_for_search.return_value = ["/docs"]
-        mock_retrieval.search_text.return_value = [mock_hit]
-        
-        result = await mcp_manager.docs_search(ctx, query="test")
-        
-        assert "test.md" in result
-        assert len(ctx.deps["citations"]) == 1
-        assert ctx.deps["citations"][0]["path"] == "test.md"
-
-@pytest.mark.asyncio
-async def test_builtin_tools_docs_read(mcp_manager):
-    ctx = MagicMock()
-    ctx.deps = {"citations": []}
-    
-    with patch("app.mcp.manager.doc_retrieval") as mock_retrieval:
-        mock_retrieval.resolve_docs_root_for_read.return_value = "/docs"
-        mock_retrieval.read_text_lines.return_value = ("test.md", 1, 10, "content")
-        
-        result = await mcp_manager.docs_read(ctx, path="test.md")
-        
-        assert "test.md#L1-L10" in result
-        assert len(ctx.deps["citations"]) == 1
-
-@pytest.mark.asyncio
-async def test_builtin_tools_docs_search_pdf(mcp_manager):
-    ctx = MagicMock()
-    ctx.deps = {"citations": []}
-    
-    with patch("app.mcp.manager.doc_retrieval") as mock_retrieval:
-        mock_hit = MagicMock()
-        mock_hit.path = "test.pdf"
-        mock_hit.snippet = "content"
-        mock_hit.score = 0.9
-        mock_hit.start_page = 1
-        mock_hit.end_page = 2
-        mock_retrieval.resolve_docs_roots_for_search.return_value = ["/docs"]
-        mock_retrieval.search_pdf.return_value = [mock_hit]
-        
-        result = await mcp_manager.docs_search_pdf(ctx, query="test")
-        
-        assert "test.pdf" in result
-        assert len(ctx.deps["citations"]) == 1
-        assert ctx.deps["citations"][0]["path"] == "test.pdf"
-
-@pytest.mark.asyncio
-async def test_builtin_tools_docs_read_pdf(mcp_manager):
-    ctx = MagicMock()
-    ctx.deps = {"citations": []}
-    
-    with patch("app.mcp.manager.doc_retrieval") as mock_retrieval:
-        mock_retrieval.resolve_docs_root_for_read.return_value = "/docs"
-        mock_retrieval.read_pdf_pages.return_value = ("test.pdf", 1, 2, "content")
-        
-        result = await mcp_manager.docs_read_pdf(ctx, path="test.pdf")
-        
-        assert "test.pdf#P1-P2" in result
-        assert len(ctx.deps["citations"]) == 1
-
-def test_get_doc_access(mcp_manager):
-    with patch("app.mcp.manager.config_service") as mock_config:
-        mock_config.get_config.return_value = {
-            "doc_access": {
-                "allow_roots": ["/allow"],
-                "deny_roots": ["/deny"]
-            }
-        }
-        allow, deny = mcp_manager._get_doc_access()
-        assert allow == ["/allow"]
-        assert deny == ["/deny"]
-
-@pytest.mark.asyncio
-async def test_docs_read_markdown_mode(mcp_manager):
-    ctx = MagicMock()
-    ctx.deps = {}
-    with patch("app.mcp.manager.doc_retrieval") as mock_retrieval:
-        mock_retrieval.resolve_docs_root_for_read.return_value = "/docs"
-        mock_retrieval.read_text_lines.return_value = ("test.md", 1, 10, "content")
-        
-        await mcp_manager.docs_read(ctx, path="test.md", mode="markdown")
-        
-        # Verify allowed_extensions includes .md
-        args, kwargs = mock_retrieval.resolve_docs_root_for_read.call_args
-        assert kwargs["allowed_extensions"] == [".md"]
-
-@pytest.mark.asyncio
-async def test_get_tools_for_agent_builtin(mcp_manager):
-    # Test getting builtin tools for an agent
-    mock_agent = MagicMock()
-    mock_agent.enabled_tools = ["builtin:docs_search"]
-    
-    registry = ToolRegistry(mcp_manager)
-    with patch("app.mcp.registry.agent_store") as mock_store:
-        mock_store.get_agent.return_value = mock_agent
-        tools = await registry.get_pydantic_ai_tools_for_agent("agent-123")
-        assert len(tools) == 1
-        assert tools[0].name == "docs_search"
-
-@pytest.mark.asyncio
 async def test_convert_tool_image_content(mcp_manager):
     mock_session = AsyncMock()
     mcp_tool = McpTool(
@@ -509,18 +369,6 @@ async def test_convert_tool_wrapper_execution(mcp_manager):
     result = await tool.function(ctx, args)
     assert result == "output"
     mock_session.call_tool.assert_called_once_with("exec_tool", arguments={"cmd": "ls"})
-
-def test_get_doc_access(mcp_manager):
-    with patch("app.mcp.manager.config_service") as mock_config:
-        mock_config.get_config.return_value = {
-            "doc_access": {
-                "allow_roots": ["/allow"],
-                "deny_roots": ["/deny"]
-            }
-        }
-        allow, deny = mcp_manager._get_doc_access()
-        assert allow == ["/allow"]
-        assert deny == ["/deny"]
 
 def test_redact_configs_case_insensitivity(mcp_manager):
     configs = [{

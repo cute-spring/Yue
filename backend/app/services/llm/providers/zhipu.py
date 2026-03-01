@@ -9,14 +9,14 @@ class ZhipuProviderImpl(SimpleProvider):
     name = LLMProvider.ZHIPU.value
     
     async def list_models(self, refresh: bool = False) -> List[str]:
-        return ['glm-4.6v']
+        return ['glm-4v']
         
     def build(self, model_name: Optional[str] = None) -> Any:
         llm_config = config_service.get_llm_config()
         api_key = llm_config.get('zhipu_api_key')
         base_url = llm_config.get('zhipu_base_url') or 'https://open.bigmodel.cn/api/paas/v4/'
         return OpenAIChatModel(
-            model_name or llm_config.get('zhipu_model') or 'glm-4.6v',
+            model_name or llm_config.get('zhipu_model') or 'glm-4v',
             provider=OpenAIProvider(
                 base_url=base_url,
                 api_key=api_key,

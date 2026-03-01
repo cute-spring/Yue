@@ -148,7 +148,7 @@ def test_provider_schema_preserves_shapes(provider):
 
 
 def test_exec_tool_local_mode_overrides():
-    from app.mcp.exec_tool import ExecToolConfig
+    from app.mcp.builtin.exec import ExecToolConfig
     import os
 
     config = ExecToolConfig.from_settings({"local_mode": True})
@@ -160,7 +160,27 @@ def test_exec_tool_local_mode_overrides():
 
 
 def test_exec_tool_default_denylist():
-    from app.mcp.exec_tool import ExecToolConfig
+    from app.mcp.builtin.exec import ExecToolConfig
 
     config = ExecToolConfig.from_settings({})
     assert config.deny_patterns
+
+
+def test_exec_tool_allowlist_enforced():
+    from app.mcp.builtin.exec import ExecToolConfig, ExecTool
+    from unittest.mock import MagicMock
+
+    config = ExecToolConfig.from_settings({
+        "allow_patterns": ["^echo\\b"]
+    })
+    tool = ExecTool(config)
+    ctx = MagicMock()
+
+    result = None
+    try:
+        import asyncio
+        result = asyncio.run(tool.execute(ctx, {"command": "ls", "working_dir": "."}))
+    except PermissionError as e:
+        result = str(e)
+
+    assert result and "allowlist" in result

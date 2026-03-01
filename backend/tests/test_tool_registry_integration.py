@@ -4,32 +4,32 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from app.mcp.registry import ToolRegistry
 from app.mcp.base import McpTool, BuiltinTool
 from app.mcp.schema_translator import to_provider_schema
+from app.mcp.builtin import builtin_tool_registry
+
+@pytest.fixture
+def mock_builtin_tool():
+    async def mock_handler(ctx, arg):
+        return f"Builtin handled: {arg}"
+        
+    return BuiltinTool(
+        name="test_builtin",
+        description="A test builtin tool",
+        parameters={"type": "object", "properties": {"arg": {"type": "string"}}},
+        handler=mock_handler
+    )
 
 @pytest.fixture
 def mock_mcp_manager():
     manager = MagicMock()
     manager.sessions = {}
     manager.last_errors = {}
-    manager._get_builtin_tools_metadata.return_value = [
-        {
-            "id": "builtin:test_builtin",
-            "name": "test_builtin",
-            "description": "A test builtin tool",
-            "input_schema": {"type": "object", "properties": {"arg": {"type": "string"}}}
-        }
-    ]
-    
-    async def mock_handler(ctx, arg):
-        return f"Builtin handled: {arg}"
-        
-    manager._get_builtin_tools.return_value = [
-        ("test_builtin", mock_handler)
-    ]
     return manager
 
 @pytest.fixture
-def registry(mock_mcp_manager):
-    return ToolRegistry(mock_mcp_manager)
+def registry(mock_mcp_manager, mock_builtin_tool):
+    with patch("app.mcp.builtin.builtin_tool_registry.get_all_tools") as mock_get:
+        mock_get.return_value = [mock_builtin_tool]
+        yield ToolRegistry(mock_mcp_manager)
 
 @pytest.mark.asyncio
 async def test_registry_no_agent(registry):
@@ -200,36 +200,34 @@ async def test_registry_tool_error_structured_hint():
     manager = MagicMock()
     manager.sessions = {}
     manager.last_errors = {}
-    manager._get_builtin_tools_metadata.return_value = [
-        {
-            "id": "builtin:test_builtin",
-            "name": "test_builtin",
-            "description": "A test builtin tool",
-            "input_schema": {"type": "object", "properties": {"arg": {"type": "string"}}}
-        }
-    ]
-
+    
     async def error_handler(ctx, arg):
         raise FileNotFoundError("/private/secret/file.txt")
 
-    manager._get_builtin_tools.return_value = [
-        ("test_builtin", error_handler)
-    ]
-    registry = ToolRegistry(manager)
-    mock_agent = MagicMock()
-    mock_agent.enabled_tools = ["builtin:test_builtin"]
-    with patch("app.mcp.registry.agent_store") as mock_store:
-        mock_store.get_agent.return_value = mock_agent
-        tools = await registry.get_pydantic_ai_tools_for_agent("agent-1")
-        tool = tools[0]
-        import inspect
-        sig = inspect.signature(tool.function)
-        ArgsModel = sig.parameters["args"].annotation
-        args = ArgsModel(arg="nope")
-        result = await tool.function(MagicMock(), args)
-        payload = json.loads(result)
-        assert set(payload.keys()) == {"error_code", "message", "hint"}
-        assert payload["error_code"] == "tool_not_found"
-        assert payload["hint"]
-        assert "/private" not in payload["message"]
-        assert "/private" not in payload["hint"]
+    mock_tool = BuiltinTool(
+        name="test_builtin",
+        description="A test builtin tool",
+        parameters={"type": "object", "properties": {"arg": {"type": "string"}}},
+        handler=error_handler
+    )
+
+    with patch("app.mcp.builtin.builtin_tool_registry.get_all_tools") as mock_get:
+        mock_get.return_value = [mock_tool]
+        registry = ToolRegistry(manager)
+        mock_agent = MagicMock()
+        mock_agent.enabled_tools = ["builtin:test_builtin"]
+        with patch("app.mcp.registry.agent_store") as mock_store:
+            mock_store.get_agent.return_value = mock_agent
+            tools = await registry.get_pydantic_ai_tools_for_agent("agent-1")
+            tool = tools[0]
+            import inspect
+            sig = inspect.signature(tool.function)
+            ArgsModel = sig.parameters["args"].annotation
+            args = ArgsModel(arg="nope")
+            result = await tool.function(MagicMock(), args)
+            payload = json.loads(result)
+            assert set(payload.keys()) == {"error_code", "message", "hint"}
+            assert payload["error_code"] == "tool_not_found"
+            assert payload["hint"]
+            assert "/private" not in payload["message"]
+            assert "/private" not in payload["hint"]

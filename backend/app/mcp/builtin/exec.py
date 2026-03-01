@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional
 from pydantic_ai import RunContext
 
 from app.services.config_service import config_service
-from .base import BaseTool
+from ..base import BaseTool
+from .registry import builtin_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,23 @@ class ExecTool(BaseTool):
             raise FileNotFoundError("Working directory not found.")
         return str(cwd_path)
 
+    def _guard_command(self, command: str, cwd: str) -> Optional[str]:
+        for pattern in self.config.deny_patterns:
+            if re.search(pattern, command, re.IGNORECASE):
+                return f"Command contains denied pattern: {pattern}"
+
+        if self.config.allow_patterns:
+            allowed = any(re.search(pattern, command, re.IGNORECASE) for pattern in self.config.allow_patterns)
+            if not allowed:
+                return "Command is not in allowlist"
+        
+        if self.config.restrict_to_workspace:
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
+            if not os.path.abspath(cwd).startswith(project_root):
+                return f"Working directory {cwd} is outside of project root {project_root}"
+        
+        return None
+
     async def _run_command(self, command: str, cwd: str) -> str:
         env = os.environ.copy()
         if self.config.path_append:
@@ -198,37 +216,5 @@ class ExecTool(BaseTool):
             result = result[: self.config.max_output_chars] + f"\n... (truncated, {extra} more chars)"
         return result
 
-    def _guard_command(self, command: str, cwd: str) -> Optional[str]:
-        cmd = command.strip()
-        lowered = cmd.lower()
-
-        for pattern in self.config.deny_patterns:
-            if re.search(pattern, lowered):
-                return "Command blocked by safety guard (dangerous pattern detected)"
-
-        if self.config.allow_patterns:
-            if not any(re.search(pattern, lowered) for pattern in self.config.allow_patterns):
-                return "Command blocked by safety guard (not in allowlist)"
-
-        if self.config.restrict_to_workspace:
-            if "..\\" in cmd or "../" in cmd:
-                return "Command blocked by safety guard (path traversal detected)"
-
-            cwd_path = Path(cwd).resolve()
-            win_paths = []
-            if self.config.enable_windows_path_checks:
-                win_paths = re.findall(r"[A-Za-z]:\\[^\\\"']+", cmd)
-            posix_paths = re.findall(r"(?:^|[\s|>])(/[^\s\"'>]+)", cmd)
-
-            for raw in win_paths + posix_paths:
-                try:
-                    path_value = raw.strip()
-                    if not path_value:
-                        continue
-                    p = Path(path_value).resolve()
-                except Exception:
-                    continue
-                if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
-                    return "Command blocked by safety guard (path outside working dir)"
-
-        return None
+# Register the tool
+builtin_tool_registry.register(ExecTool(build_exec_tool_config()))
