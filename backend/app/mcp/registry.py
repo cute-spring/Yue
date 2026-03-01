@@ -132,6 +132,46 @@ class ToolRegistry:
             "Retry with simpler inputs or verify parameters.",
         )
 
+    async def get_all_available_tools_metadata(self) -> List[Dict[str, Any]]:
+        """
+        Returns a list of all available tools from both MCP and built-in sources.
+        Used for UI configuration and tool selection.
+        This provides a single source of truth for both display and execution.
+        """
+        # We can pass an "allow all" set or modify internal methods
+        # To avoid complex logic, we'll implement a clean version here
+        tools_meta = []
+        
+        # 1. Built-in tools
+        builtin_meta = self.mcp_manager._get_builtin_tools_metadata()
+        for meta in builtin_meta:
+            tools_meta.append({
+                "id": meta["id"],
+                "name": meta["name"],
+                "description": meta["description"],
+                "server": "builtin",
+                "input_schema": meta["input_schema"]
+            })
+            
+        # 2. MCP tools
+        for name, session in self.mcp_manager.sessions.items():
+            try:
+                if getattr(session, "is_closed", False):
+                    continue
+                result = await session.list_tools()
+                for tool_def in result.tools:
+                    tools_meta.append({
+                        "id": f"{name}:{tool_def.name}",
+                        "name": tool_def.name,
+                        "description": tool_def.description,
+                        "server": name,
+                        "input_schema": tool_def.inputSchema
+                    })
+            except Exception:
+                logger.exception(f"Error listing tools for MCP server in metadata: {name}")
+                
+        return sorted(tools_meta, key=lambda t: (t.get("server", ""), t.get("name", "")))
+
     async def _get_mcp_tools(self, allowed_tools: Set[str]) -> List[McpTool]:
         mcp_tools = []
         for name, session in self.mcp_manager.sessions.items():

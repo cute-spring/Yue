@@ -5,6 +5,7 @@ import json
 import os
 import logging
 from app.mcp.manager import mcp_manager
+from app.mcp.registry import tool_registry
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ async def list_configs():
 
 @router.get("/tools")
 async def list_tools():
-    return await mcp_manager.get_available_tools()
+    return await tool_registry.get_all_available_tools_metadata()
 
 @router.get("/status")
 async def status():
