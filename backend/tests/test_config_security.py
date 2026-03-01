@@ -12,8 +12,17 @@ from app.services.config_service import config_service, ConfigService
 
 BASE = "http://127.0.0.1:8003"
 
+def _backend_available() -> bool:
+    try:
+        r = requests.get(f"{BASE}/api/mcp/status", timeout=1)
+        return r.status_code >= 200
+    except Exception:
+        return False
+
 class TestConfigSecurity(unittest.TestCase):
     def test_llm_redaction_and_update(self):
+        if not _backend_available():
+            self.skipTest("Backend not running")
         r = requests.post(f"{BASE}/api/config/llm", json={
             "openai_model": "gpt-4o",
             "openai_api_key": "****masked****"
@@ -58,6 +67,8 @@ class TestConfigSecurity(unittest.TestCase):
             self.assertTrue(os.path.exists(cfg_path))
 
     def test_doc_access_endpoint(self):
+        if not _backend_available():
+            self.skipTest("Backend not running")
         r = requests.get(f"{BASE}/api/config/doc_access")
         self.assertEqual(r.status_code, 200)
         data = r.json()

@@ -17,8 +17,9 @@
     "provider": "openai",
     "model": "gpt-4o",
     "enabled_tools": [
-      "builtin:docs_search_markdown",
-      "builtin:docs_read_markdown"
+      "builtin:docs_list",
+      "builtin:docs_search",
+      "builtin:docs_read"
     ],
     "doc_roots": [],
     "created_at": "2026-02-03T09:25:09.039698",
@@ -31,8 +32,9 @@
     "provider": "deepseek",
     "model": "deepseek-reasoner",
     "enabled_tools": [
-      "builtin:docs_search_markdown_dir",
-      "builtin:docs_read_markdown_dir"
+      "builtin:docs_list",
+      "builtin:docs_search",
+      "builtin:docs_read"
     ],
     "doc_roots": [],
     "created_at": "2026-02-05T23:33:33.340791",

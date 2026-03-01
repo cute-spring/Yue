@@ -1,7 +1,7 @@
 import { createSignal, For, Show, onCleanup, createEffect, createMemo } from 'solid-js';
 import { Message } from '../types';
 import { renderMarkdown } from '../utils/markdown';
-import { parseThoughtAndContent, getAdaptedThought } from "../utils/thoughtParser";
+import { getAdaptedThought } from "../utils/thoughtParser";
 
 interface MessageItemProps {
   msg: Message;

@@ -72,7 +72,21 @@ export function useAgentsState() {
   const loadTools = async () => {
     try {
       const res = await fetch('/api/mcp/tools');
-      setAvailableTools(await res.json());
+      const data = await res.json();
+      const tools = Array.isArray(data) ? data : [];
+      const hasDocsList = tools.some(t => t && t.id === 'builtin:docs_list');
+      const next = hasDocsList
+        ? tools
+        : [
+            ...tools,
+            {
+              id: 'builtin:docs_list',
+              name: 'docs_list',
+              description: 'List files and directories under Yue/docs (or root_dir). Returns a tree-like listing with paths relative to the docs root.',
+              server: 'builtin'
+            }
+          ];
+      setAvailableTools(next);
     } catch (e) {
       console.error("Failed to load tools", e);
     }

@@ -138,6 +138,7 @@ class AgentStore:
             provider="openai",
             model="gpt-4o",
             enabled_tools=[
+                "builtin:docs_list",
                 "builtin:docs_search",
                 "builtin:docs_read",
             ],
@@ -164,6 +165,7 @@ class AgentStore:
             provider="openai",
             model="gpt-4o",
             enabled_tools=[
+                "builtin:docs_list",
                 "builtin:docs_search",
                 "builtin:docs_read",
             ],

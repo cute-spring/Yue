@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart, ImageUrl
 from app.mcp.manager import mcp_manager
+from app.mcp.registry import tool_registry
 from app.services.agent_store import agent_store
 from app.services.model_factory import get_model, fetch_ollama_models
 from app.services.chat_service import chat_service, ChatSession
@@ -164,9 +165,6 @@ async def chat_stream(request: ChatRequest):
             if request.agent_id:
                 agent_config = agent_store.get_agent(request.agent_id)
             
-            # Initialize MCP Manager and get tools for this agent (or all if no agent)
-            tools = await mcp_manager.get_tools_for_agent(request.agent_id)
-            
             # Determine model and system prompt
             provider = request.provider
             model_name = request.model
@@ -198,6 +196,8 @@ async def chat_stream(request: ChatRequest):
                     else:
                         yield f"data: {json.dumps({'error': f'Ollama 未找到模型 {model_name}，请先执行 `ollama pull {model_name}`'})}\n\n"
                         return
+
+            tools = await tool_registry.get_pydantic_ai_tools_for_agent(request.agent_id, provider)
 
             tool_names = []
             for tool in tools:

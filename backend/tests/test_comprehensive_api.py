@@ -1,4 +1,5 @@
 import pytest
+import unittest
 import requests
 import json
 import os
@@ -8,6 +9,16 @@ from app.services.llm.base import SimpleProvider
 from pydantic_ai.models.test import TestModel
 
 BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://127.0.0.1:8003")
+
+def _backend_available() -> bool:
+    try:
+        r = requests.get(f"{BASE_URL}/api/mcp/status", timeout=1)
+        return r.status_code >= 200
+    except Exception:
+        return False
+
+if not _backend_available():
+    raise unittest.SkipTest("Backend not running")
 
 # --- Mock Provider for Deterministic Testing ---
 

@@ -90,6 +90,12 @@ class ConfigService:
 
         # 4. 列表字段兼容性补全
         config["custom_models" ] = llm_section.get("custom_models", [])
+        for k, v in llm_section.items():
+            if not isinstance(k, str):
+                continue
+            if k.endswith("_enabled_models") or k.endswith("_enabled_models_mode"):
+                if k not in config:
+                    config[k] = v
 
         # 默认配置增强
         if not config.get('llm_request_timeout'):

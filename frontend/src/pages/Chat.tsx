@@ -158,6 +158,7 @@ export default function Chat() {
   };
 
   const handleContinue = (msg: Message) => {
+    void msg;
     setInput("继续");
     setTimeout(() => {
       handleSubmit(new Event('submit'));

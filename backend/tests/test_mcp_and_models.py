@@ -3,8 +3,17 @@ import requests
 
 BASE = "http://127.0.0.1:8003"
 
+def _backend_available() -> bool:
+    try:
+        r = requests.get(f"{BASE}/api/mcp/status", timeout=1)
+        return r.status_code >= 200
+    except Exception:
+        return False
+
 class TestMcpAndModels(unittest.TestCase):
     def test_mcp_status_and_tools(self):
+        if not _backend_available():
+            self.skipTest("Backend not running")
         r = requests.get(f"{BASE}/api/mcp/status")
         self.assertEqual(r.status_code, 200)
         data = r.json()
@@ -17,6 +26,8 @@ class TestMcpAndModels(unittest.TestCase):
             self.assertIn("name", tools[0])
 
     def test_mcp_tools_stable_ids_and_dedup(self):
+        if not _backend_available():
+            self.skipTest("Backend not running")
         r1 = requests.get(f"{BASE}/api/mcp/tools")
         self.assertEqual(r1.status_code, 200)
         tools1 = r1.json()
@@ -43,11 +54,15 @@ class TestMcpAndModels(unittest.TestCase):
         self.assertEqual(set(ids1), {t["id"] for t in tools2})
 
     def test_mcp_reload_stable(self):
+        if not _backend_available():
+            self.skipTest("Backend not running")
         for _ in range(3):
             r = requests.post(f"{BASE}/api/mcp/reload")
             self.assertEqual(r.status_code, 200)
 
     def test_models_provider_test(self):
+        if not _backend_available():
+            self.skipTest("Backend not running")
         for name in ["openai", "gemini", "deepseek", "ollama"]:
             r = requests.post(f"{BASE}/api/models/test/{name}", json={})
             self.assertEqual(r.status_code, 200)

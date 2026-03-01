@@ -18,6 +18,7 @@ from app.services.config_service import config_service
 
 import shutil
 from .models import ServerConfig
+from .base import McpTool, BuiltinTool
 
 logger = logging.getLogger(__name__)
 
@@ -272,47 +273,6 @@ class McpManager:
             tools.extend(self._get_builtin_tools_metadata())
             return sorted(tools, key=lambda t: (t.get("server", ""), t.get("name", "")))
 
-    async def get_tools_for_agent(self, agent_id: Optional[str]) -> List[Any]:
-        """
-        Dynamically connects to MCP servers authorized for the agent
-        and returns tools compatible with Pydantic AI.
-        """
-        async with self._lock:
-            tools = []
-
-            from app.services.agent_store import agent_store
-            agent = agent_store.get_agent(agent_id) if agent_id else None
-
-            # CRITICAL: Default Policy - No tools allowed unless explicitly authorized for an agent
-            if not agent:
-                logger.info("No agent context provided. Returning zero tools for safety.")
-                return []
-
-            allowed_tools = set(agent.enabled_tools)
-
-            # Filter MCP server tools based on agent authorization
-            for name, session in self.sessions.items():
-                try:
-                    if getattr(session, "is_closed", False):
-                        continue
-                    result = await session.list_tools()
-                    for tool in result.tools:
-                        composite_id = f"{name}:{tool.name}"
-                        # Strict matching: tool must be explicitly in the allowed list
-                        # We check both the composite ID (preferred) and the raw tool name (legacy support)
-                        if composite_id in allowed_tools or tool.name in allowed_tools:
-                            tools.append(self._convert_tool(name, session, tool))
-                except Exception as e:
-                    logger.exception("Error listing tools for %s", name)
-
-            # Filter Built-in tools based on agent authorization
-            for tool_name, tool_func in self._get_builtin_tools():
-                composite_id = f"builtin:{tool_name}"
-                if composite_id in allowed_tools or tool_name in allowed_tools:
-                    tools.append(tool_func)
-
-            return tools
-
     def get_status(self) -> List[Dict[str, Any]]:
         """
         Returns per-server status derived from config and active sessions.
@@ -335,70 +295,6 @@ class McpManager:
             })
         return status_list
 
-    def _convert_tool(self, server_name: str, session: ClientSession, tool_def: Any) -> Tool:
-        
-        # Create Pydantic model for arguments
-        input_schema = tool_def.inputSchema
-        
-        fields = {}
-        if "properties" in input_schema:
-            for prop_name, prop_def in input_schema["properties"].items():
-                prop_type = self._map_json_type(prop_def.get("type", "string"))
-                description = prop_def.get("description", None)
-                
-                is_required = prop_name in input_schema.get("required", [])
-                if is_required:
-                    default = ...
-                else:
-                    default = None
-                
-                fields[prop_name] = (prop_type, Field(default=default, description=description))
-        
-        # If no properties, make an empty model
-        if not fields:
-             ArgsModel = create_model(f"{tool_def.name}Args")
-        else:
-             ArgsModel = create_model(f"{tool_def.name}Args", **fields)
-
-        async def wrapper(ctx: RunContext, args: ArgsModel) -> str:
-            # Send tool_call update to frontend if we have a way to reach the generator
-            # For now, we rely on the backend yielding this before the tool execution completes
-            
-            # call_tool expects arguments as dict
-            result = await session.call_tool(tool_def.name, arguments=args.model_dump())
-            # Result content is a list of TextContent or ImageContent or EmbeddedResource
-            # We assume text for now and join them
-            output = []
-            for content in result.content:
-                if content.type == "text":
-                    output.append(content.text)
-                else:
-                    output.append(f"[{content.type}]")
-            return "\n".join(output)
-        
-        # Pydantic AI Tool
-        # Sanitize tool name for LLM compatibility (regex: ^[a-zA-Z0-9_-]+$)
-        # We also prefix with server name to avoid collisions
-        sanitized_server = re.sub(r'[^a-zA-Z0-9_-]', '_', server_name)
-        sanitized_tool = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_def.name)
-        llm_tool_name = f"mcp__{sanitized_server}__{sanitized_tool}"
-        
-        return Tool(wrapper, name=llm_tool_name, description=tool_def.description)
-
-    def _map_json_type(self, json_type: str) -> Type:
-        if json_type == "string":
-            return str
-        elif json_type == "integer":
-            return int
-        elif json_type == "number":
-            return float
-        elif json_type == "boolean":
-            return bool
-        elif json_type == "array":
-            return list
-        elif json_type == "object":
-            return dict
-        return Any
 
     # Demo tool
     def get_current_time(self, ctx: RunContext[Any]) -> str:
@@ -470,6 +366,7 @@ class McpManager:
 
     def _get_builtin_tools(self) -> List[tuple[str, Any]]:
         return [
+            ("docs_list", self.docs_list),
             ("docs_search", self.docs_search),
             ("docs_read", self.docs_read),
             ("docs_inspect", self.docs_inspect),
@@ -481,6 +378,21 @@ class McpManager:
 
     def _get_builtin_tools_metadata(self) -> List[Dict[str, Any]]:
         return [
+            {
+                "id": "builtin:docs_list",
+                "name": "docs_list",
+                "description": "List files and directories under Yue/docs (or root_dir). Returns a tree-like listing with paths relative to the docs root.",
+                "server": "builtin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "root_dir": {"type": "string"},
+                        "max_items": {"type": "integer"},
+                        "max_depth": {"type": "integer"},
+                        "include_dirs": {"type": "boolean"},
+                    },
+                },
+            },
             {
                 "id": "builtin:docs_search",
                 "name": "docs_search",
@@ -592,8 +504,12 @@ class McpManager:
         root_dir: Optional[str] = None,
         limit: int = 5,
         max_files: int = 5000,
-        timeout_s: float = 2.0,
+        timeout_s: Optional[float] = 2.0,
     ) -> str:
+        # Robustly handle possible None from Pydantic wrappers
+        if timeout_s is None:
+            timeout_s = 2.0
+        
         normalized_mode = (mode or "text").strip().lower()
         if normalized_mode == "markdown":
             allowed_extensions = [".md"]
@@ -653,6 +569,40 @@ class McpManager:
             payload.append(item)
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
+    async def docs_list(
+        self,
+        ctx: RunContext[Any],
+        root_dir: Optional[str] = None,
+        max_items: int = 2000,
+        max_depth: int = 6,
+        include_dirs: bool = True,
+    ) -> str:
+        allow_roots, deny_roots = self._get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        roots = doc_retrieval.resolve_docs_roots_for_search(
+            root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        remaining = max(0, max_items)
+        payload = []
+        for docs_root in roots:
+            if remaining <= 0:
+                break
+            items = doc_retrieval.list_docs_tree(
+                docs_root=docs_root,
+                file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+                max_items=remaining,
+                max_depth=max_depth,
+                include_dirs=include_dirs,
+            )
+            payload.append({"root": docs_root, "items": items})
+            remaining -= len(items)
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
     async def docs_search_pdf(
         self,
         ctx: RunContext[Any],
@@ -660,9 +610,13 @@ class McpManager:
         root_dir: Optional[str] = None,
         limit: int = 5,
         max_files: int = 2000,
-        timeout_s: float = 6.0,
+        timeout_s: Optional[float] = 6.0,
         max_pages_per_file: int = 6,
     ) -> str:
+        # Robustly handle possible None from Pydantic wrappers
+        if timeout_s is None:
+            timeout_s = 6.0
+            
         allow_roots, deny_roots = self._get_doc_access()
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
@@ -721,10 +675,14 @@ class McpManager:
         ctx: RunContext[Any],
         path: str,
         root_dir: Optional[str] = None,
-        start_page: int = 1,
-        max_pages: int = 3,
-        timeout_s: float = 3.0,
+        start_page: Optional[int] = None,
+        max_pages: int = 6,
+        timeout_s: Optional[float] = 3.0,
     ) -> str:
+        # Robustly handle possible None from Pydantic wrappers
+        if timeout_s is None:
+            timeout_s = 3.0
+            
         allow_roots, deny_roots = self._get_doc_access()
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None

@@ -311,6 +311,50 @@ def iter_files(
                 return
 
 
+def list_docs_tree(
+    *,
+    docs_root: Optional[str] = None,
+    file_patterns: Optional[List[str]] = None,
+    max_items: int = 2000,
+    max_depth: int = 6,
+    include_dirs: bool = True,
+) -> List[Dict[str, str]]:
+    docs_root = docs_root or get_docs_root()
+    if not os.path.isdir(docs_root):
+        raise DocAccessError("Docs root does not exist")
+    docs_root_real = _realpath(docs_root)
+    items: List[Dict[str, str]] = []
+    count = 0
+    for root, dirs, files in os.walk(docs_root_real):
+        rel_root = os.path.relpath(root, docs_root_real)
+        depth = 0 if rel_root == "." else rel_root.count(os.sep) + 1
+        if depth >= max_depth:
+            dirs[:] = []
+        else:
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d.lower() not in NOISE_DIRS]
+        if include_dirs:
+            for d in dirs:
+                rel_path = os.path.relpath(os.path.join(root, d), docs_root_real)
+                items.append({"path": rel_path.replace(os.sep, "/"), "type": "dir"})
+                count += 1
+                if count >= max_items:
+                    return items
+        for name in files:
+            if name.startswith("."):
+                continue
+            abs_path = _realpath(os.path.join(root, name))
+            if not _is_under(docs_root_real, abs_path):
+                continue
+            if file_patterns and not _matches_file_patterns(docs_root_real, abs_path, file_patterns):
+                continue
+            rel_path = os.path.relpath(abs_path, docs_root_real)
+            items.append({"path": rel_path.replace(os.sep, "/"), "type": "file"})
+            count += 1
+            if count >= max_items:
+                return items
+    return items
+
+
 def iter_markdown_files(
     *,
     docs_root: Optional[str] = None,
@@ -769,6 +813,8 @@ def search_text(
     if not os.path.isdir(docs_root):
         raise DocAccessError(f"Directory not found: {docs_root}")
     
+    deadline = time.time() + timeout_s
+
     # Try Ripgrep first if available and no complex file_patterns are provided
     if _is_ripgrep_available() and not file_patterns:
         # Strategy: 
@@ -779,24 +825,33 @@ def search_text(
         if len(q) < 2:
             return []
 
+        if time.time() > deadline:
+            return []
+
+        rg_max_file_bytes = max_file_bytes
+        if max_total_bytes_scanned > 0:
+            rg_max_file_bytes = min(max_file_bytes, max_total_bytes_scanned)
+
         rg_hits = _search_with_ripgrep(
             query=q,
             docs_root=docs_root,
             allowed_extensions=allowed_extensions,
             limit=limit * 2,
-            max_file_bytes=max_file_bytes
+            max_file_bytes=rg_max_file_bytes
         )
         
         if not rg_hits and len(tokens) > 1:
             # Try the longest token which is likely the most specific
             longest_token = max(tokens, key=len)
             if len(longest_token) >= 3: # Only if it's substantial
+                if time.time() > deadline:
+                    return []
                 rg_hits = _search_with_ripgrep(
                     query=longest_token,
                     docs_root=docs_root,
                     allowed_extensions=allowed_extensions,
                     limit=limit * 2,
-                    max_file_bytes=max_file_bytes
+                    max_file_bytes=rg_max_file_bytes
                 )
 
         if rg_hits:
@@ -804,6 +859,8 @@ def search_text(
             refined_hits = []
             
             def _refine_hit(hit: DocSnippet) -> List[DocSnippet]:
+                if time.time() > deadline:
+                    return []
                 try:
                     text = _read_text_file(hit.path, max_bytes=max_file_bytes)
                     # Extract up to 3 snippets to allow for multi-sampling within the same file
@@ -821,7 +878,7 @@ def search_text(
                         ]
                     return [hit]
                 except Exception:
-                    return [hit]
+                    return []
 
             # Use ThreadPoolExecutor for I/O bound file reading
             # Group by path to avoid redundant reading
@@ -839,7 +896,6 @@ def search_text(
                 return sorted(refined_hits, key=lambda x: x.score, reverse=True)[:limit]
 
     # Fallback to existing Python implementation
-    deadline = time.time() + timeout_s
     hits: List[DocSnippet] = []
     scanned_bytes = 0
 

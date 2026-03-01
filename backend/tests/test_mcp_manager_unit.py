@@ -5,6 +5,8 @@ import json
 import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock, mock_open
 from app.mcp.manager import McpManager
+from app.mcp.base import McpTool, BuiltinTool
+from app.mcp.registry import ToolRegistry
 
 @pytest.fixture
 def mcp_manager():
@@ -186,45 +188,46 @@ async def test_get_tools_for_agent(mcp_manager):
     mock_session.is_closed = False
     mcp_manager.sessions["server1"] = mock_session
     
+    # Initialize registry
+    registry = ToolRegistry(mcp_manager)
+    
     # Mock agent_store
-    with patch("app.services.agent_store.agent_store") as mock_agent_store:
+    with patch("app.mcp.registry.agent_store") as mock_agent_store:
         mock_agent = MagicMock()
         mock_agent.enabled_tools = ["server1:test_tool"]
         mock_agent_store.get_agent.return_value = mock_agent
         
-        tools = await mcp_manager.get_tools_for_agent("agent-id")
+        tools = await registry.get_pydantic_ai_tools_for_agent("agent-id")
         
         assert len(tools) > 0
         # Check if the generated tool has the right name (mcp__server__tool)
         assert any(t.name == "mcp__server1__test_tool" for t in tools)
 
-def test_map_json_type(mcp_manager):
-    assert mcp_manager._map_json_type("string") == str
-    assert mcp_manager._map_json_type("integer") == int
-    assert mcp_manager._map_json_type("number") == float
-    assert mcp_manager._map_json_type("boolean") == bool
-    assert mcp_manager._map_json_type("object") == dict
-    assert mcp_manager._map_json_type("array") == list
-    assert mcp_manager._map_json_type("unknown") == Any
+def test_map_json_type():
+    # Test through McpTool/BuiltinTool indirectly or just test the logic in McpTool
+    tool = McpTool("srv", AsyncMock(), "name", "desc", {})
+    assert tool._map_json_type("string") == str
+    assert tool._map_json_type("integer") == int
+    assert tool._map_json_type("number") == float
+    assert tool._map_json_type("boolean") == bool
+    assert tool._map_json_type("object") == dict
+    assert tool._map_json_type("array") == list
+    assert tool._map_json_type("unknown") == Any
 
 @pytest.mark.asyncio
 async def test_convert_tool_no_properties(mcp_manager):
     mock_session = AsyncMock()
-    class MockTool:
-        def __init__(self, name, description, inputSchema):
-            self.name = name
-            self.description = description
-            self.inputSchema = inputSchema
-    
     # Tool with no properties
-    mock_tool = MockTool(
+    mcp_tool = McpTool(
+        server_name="srv",
+        session=mock_session,
         name="simple_tool",
         description="no args",
-        inputSchema={"type": "object"}
+        parameters={"type": "object"}
     )
     
-    tool = mcp_manager._convert_tool("srv", mock_session, mock_tool)
-    assert tool.name == "mcp__srv__simple_tool"
+    tool = mcp_tool.to_pydantic_ai_tool()
+    assert tool.name == "simple_tool"
     assert tool.description == "no args"
 
 @pytest.mark.asyncio
@@ -390,28 +393,25 @@ async def test_get_tools_for_agent_builtin(mcp_manager):
     mock_agent = MagicMock()
     mock_agent.enabled_tools = ["builtin:docs_search"]
     
-    with patch("app.services.agent_store.agent_store") as mock_store:
+    registry = ToolRegistry(mcp_manager)
+    with patch("app.mcp.registry.agent_store") as mock_store:
         mock_store.get_agent.return_value = mock_agent
-        tools = await mcp_manager.get_tools_for_agent("agent-123")
+        tools = await registry.get_pydantic_ai_tools_for_agent("agent-123")
         assert len(tools) == 1
-        assert tools[0].__name__ == "docs_search"
+        assert tools[0].name == "docs_search"
 
 @pytest.mark.asyncio
 async def test_convert_tool_image_content(mcp_manager):
     mock_session = AsyncMock()
-    class MockTool:
-        def __init__(self, name, description, inputSchema):
-            self.name = name
-            self.description = description
-            self.inputSchema = inputSchema
-            
-    mock_tool_def = MockTool(
+    mcp_tool = McpTool(
+        server_name="srv",
+        session=mock_session,
         name="img_tool",
         description="desc",
-        inputSchema={"type": "object"}
+        parameters={"type": "object"}
     )
     
-    tool = mcp_manager._convert_tool("srv", mock_session, mock_tool_def)
+    tool = mcp_tool.to_pydantic_ai_tool()
     
     # Mock result with image content
     mock_content = MagicMock()
@@ -421,7 +421,9 @@ async def test_convert_tool_image_content(mcp_manager):
     mock_session.call_tool.return_value = mock_result
     
     ctx = MagicMock()
-    ArgsModel = tool.function.__annotations__['args']
+    import inspect
+    sig = inspect.signature(tool.function)
+    ArgsModel = sig.parameters['args'].annotation
     args = ArgsModel()
     
     result = await tool.function(ctx, args)
@@ -479,19 +481,15 @@ async def test_connect_to_server_existing_closed_session(mcp_manager):
 @pytest.mark.asyncio
 async def test_convert_tool_wrapper_execution(mcp_manager):
     mock_session = AsyncMock()
-    class MockTool:
-        def __init__(self, name, description, inputSchema):
-            self.name = name
-            self.description = description
-            self.inputSchema = inputSchema
-            
-    mock_tool_def = MockTool(
+    mcp_tool = McpTool(
+        server_name="srv",
+        session=mock_session,
         name="exec_tool",
         description="desc",
-        inputSchema={"type": "object", "properties": {"cmd": {"type": "string"}}}
+        parameters={"type": "object", "properties": {"cmd": {"type": "string"}}}
     )
     
-    tool = mcp_manager._convert_tool("srv", mock_session, mock_tool_def)
+    tool = mcp_tool.to_pydantic_ai_tool()
     
     # Mock result from call_tool
     mock_content = MagicMock()
@@ -503,9 +501,9 @@ async def test_convert_tool_wrapper_execution(mcp_manager):
     
     # Execute the tool
     ctx = MagicMock()
-    # We need the ArgsModel which is dynamically created
-    # The ArgsModel is the second argument to the wrapper
-    ArgsModel = tool.function.__annotations__['args']
+    import inspect
+    sig = inspect.signature(tool.function)
+    ArgsModel = sig.parameters['args'].annotation
     args = ArgsModel(cmd="ls")
     
     result = await tool.function(ctx, args)

@@ -26,13 +26,13 @@ async def test_chat_stream_metrics_presence(client, mock_chat_service):
     - tps (Tokens Per Second)
     """
     with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls:
         
         mock_chat_service.create_chat.return_value = MagicMock(id="test-chat-metrics")
         mock_chat_service.get_chat.return_value = None
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent

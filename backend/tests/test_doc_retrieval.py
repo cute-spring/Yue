@@ -487,6 +487,19 @@ class TestDocRetrieval(unittest.TestCase):
             files = list(iter_markdown_files(docs_root=root))
             self.assertEqual(len(files), 1)
 
+    def test_list_docs_tree(self):
+        from app.services.doc_retrieval import list_docs_tree
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.realpath(tmp)
+            os.makedirs(os.path.join(root, "sub", "inner"), exist_ok=True)
+            with open(os.path.join(root, "a.md"), "w") as f: f.write("a")
+            with open(os.path.join(root, "sub", "b.txt"), "w") as f: f.write("b")
+            items = list_docs_tree(docs_root=root, max_items=10, max_depth=3, include_dirs=True)
+            paths = {i["path"] for i in items}
+            self.assertIn("a.md", paths)
+            self.assertIn("sub", paths)
+            self.assertIn("sub/b.txt", paths)
+
     def test_make_snippet_negative_idx(self):
         from app.services.doc_retrieval import _make_snippet
         self.assertEqual(_make_snippet("hello world", 5, window=2), "lo w")

@@ -58,13 +58,13 @@ def test_truncate_chat(client, mock_chat_service):
 async def test_chat_stream_basic(client, mock_chat_service):
     # This is a complex test because of StreamingResponse and many dependencies
     with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model") as mock_get_model, \
          patch("app.api.chat.Agent") as mock_agent_cls:
         
         mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
         mock_chat_service.get_chat.return_value = None
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
@@ -107,7 +107,7 @@ def test_estimate_tokens():
 @pytest.mark.asyncio
 async def test_chat_stream_ollama_502(client, mock_chat_service):
     with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.fetch_ollama_models") as mock_fetch, \
          patch("app.api.chat.Agent") as mock_agent_cls:
@@ -117,7 +117,7 @@ async def test_chat_stream_ollama_502(client, mock_chat_service):
         mock_chat_service.get_chat.return_value = None
         
         # Ensure tools are mockable/serializable
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
@@ -136,8 +136,8 @@ async def test_chat_stream_ollama_502(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_no_tools_fallback(client, mock_chat_service):
     with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
-         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model") as mock_get_model, \
          patch("app.api.chat.Agent") as mock_agent_cls:
         
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
@@ -146,7 +146,7 @@ async def test_chat_stream_no_tools_fallback(client, mock_chat_service):
         # Mock tool with a name attribute
         mock_tool = MagicMock()
         mock_tool.name = "test_tool"
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[mock_tool])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[mock_tool])
         
         # First agent (with tools) fails with "does not support tools"
         mock_agent_with_tools = MagicMock()
@@ -216,13 +216,13 @@ def test_chat_history_global_limit(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_with_images(client, mock_chat_service):
     with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.save_base64_image") as mock_save, \
          patch("app.api.chat.load_image_to_base64") as mock_load, \
          patch("app.api.chat.Agent") as mock_agent_cls:
         
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_save.return_value = "/path/to/img.png"
         mock_load.return_value = "base64data"
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
@@ -252,11 +252,11 @@ async def test_chat_stream_with_images(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_with_agent_config(client, mock_chat_service):
     with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls:
         
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_agent_config = MagicMock()
         mock_agent_config.provider = "anthropic"
         mock_agent_config.model = "claude-3-opus"
@@ -284,11 +284,11 @@ async def test_chat_stream_with_agent_config(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_with_thought_tags(client, mock_chat_service):
     with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls:
         
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
@@ -313,11 +313,11 @@ async def test_chat_stream_with_thought_tags(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_with_citations(client, mock_chat_service):
     with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls:
         
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_agent_config = MagicMock()
         mock_agent_config.require_citations = True
         mock_agent_config.provider = "openai"

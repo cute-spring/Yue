@@ -36,11 +36,28 @@ class DummyProvider(SimpleProvider):
 
 class TestModelFactoryRegistry(unittest.TestCase):
     def setUp(self):
+        llm = config_service._config.get("llm", {})
+        self._prev_enabled_providers = llm.get("enabled_providers", None)
+        llm.pop("enabled_providers", None)
+        config_service._config["llm"] = llm
+        self._prev_env_enabled_providers = os.environ.get("ENABLED_PROVIDERS")
+        if "ENABLED_PROVIDERS" in os.environ:
+            os.environ.pop("ENABLED_PROVIDERS")
         unregister_provider("dummy")
         register_provider(DummyProvider())
 
     def tearDown(self):
         unregister_provider("dummy")
+        llm = config_service._config.get("llm", {})
+        if self._prev_enabled_providers is None:
+            llm.pop("enabled_providers", None)
+        else:
+            llm["enabled_providers"] = self._prev_enabled_providers
+        config_service._config["llm"] = llm
+        if self._prev_env_enabled_providers is None:
+            os.environ.pop("ENABLED_PROVIDERS", None)
+        else:
+            os.environ["ENABLED_PROVIDERS"] = self._prev_env_enabled_providers
 
     def test_dynamic_provider_listed(self):
         providers = asyncio.run(list_providers(refresh=True))

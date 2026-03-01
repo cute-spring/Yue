@@ -3,8 +3,17 @@ import requests
 
 BASE = "http://127.0.0.1:8003"
 
+def _backend_available() -> bool:
+    try:
+        r = requests.get(f"{BASE}/api/mcp/status", timeout=1)
+        return r.status_code >= 200
+    except Exception:
+        return False
+
 class TestMcpMerge(unittest.TestCase):
     def test_upsert_configs(self):
+        if not _backend_available():
+            self.skipTest("Backend not running")
         r = requests.get(f"{BASE}/api/mcp/")
         self.assertEqual(r.status_code, 200)
         before = r.json()

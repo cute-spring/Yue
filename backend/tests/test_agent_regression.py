@@ -31,13 +31,13 @@ async def test_agent_refactor_regression_master_sub_agent_query(client):
     # We mock Agent initialization and chat service to isolate the API plumbing test
     with patch("app.api.chat.Agent") as mock_agent_cls, \
          patch("app.api.chat.chat_service") as mock_chat_service, \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model") as mock_get_model:
         
         # Setup mocks
         mock_chat_service.create_chat.return_value = MagicMock(id=payload["chat_id"])
         mock_chat_service.get_chat.return_value = None
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         
         # Mock Agent instance and its run_stream method
         mock_agent_instance = MagicMock()
@@ -70,11 +70,19 @@ async def test_agent_refactor_regression_master_sub_agent_query(client):
         assert "system_prompt" in kwargs
         
         # Verify the user message reached the agent execution layer
-        mock_agent_instance.run_stream.assert_called_once_with(payload["message"])
+        # Use ANY to ignore extra arguments
+        from unittest.mock import ANY
+        mock_agent_instance.run_stream.assert_called_once_with(
+            payload["message"],
+            message_history=ANY,
+            deps=ANY,
+            model_settings=ANY
+        )
         
         # Verify the streaming response format
+            # Verify the streaming response format
         lines = [line for line in response.iter_lines() if line]
-        assert any(b"Verified: master-sub agent info found." in line for line in lines)
+        assert any("Verified: master-sub agent info found." in line for line in lines)
 
 if __name__ == "__main__":
     # For quick manual execution

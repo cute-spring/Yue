@@ -9,5 +9,16 @@
     "enabled": false,
     "transport": "stdio",
     "env": null
+  },
+  {
+    "name": "example-server",
+    "transport": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "mcp-server-example"
+    ],
+    "enabled": true,
+    "env": null
   }
 ]

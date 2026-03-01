@@ -12,7 +12,7 @@ def client():
 async def test_reasoning_protocol_injection_non_reasoning_model(client):
     """Test that non-reasoning models get the reasoning protocol injected."""
     with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model") as mock_get_model, \
          patch("app.api.chat.Agent") as mock_agent_cls, \
          patch("app.api.chat.chat_service") as mock_chat_service:
@@ -20,7 +20,7 @@ async def test_reasoning_protocol_injection_non_reasoning_model(client):
         # Setup mocks
         mock_chat_service.create_chat.return_value = MagicMock(id="test-chat-id")
         mock_chat_service.get_chat.return_value = None
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
@@ -57,14 +57,14 @@ async def test_reasoning_protocol_injection_non_reasoning_model(client):
 async def test_reasoning_protocol_no_injection_for_reasoning_model(client):
     """Test that reasoning models do NOT get the reasoning protocol injected."""
     with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.mcp_manager") as mock_mcp, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model") as mock_get_model, \
          patch("app.api.chat.Agent") as mock_agent_cls, \
          patch("app.api.chat.chat_service") as mock_chat_service:
         
         mock_chat_service.create_chat.return_value = MagicMock(id="test-chat-id")
         mock_chat_service.get_chat.return_value = None
-        mock_mcp.get_tools_for_agent = AsyncMock(return_value=[])
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent

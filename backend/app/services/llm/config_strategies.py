@@ -77,11 +77,20 @@ class AzureStrategy(ProviderConfigStrategy):
             "tenant_id": "AZURE_TENANT_ID"
         })
 
+class LiteLLMStrategy(ProviderConfigStrategy):
+    def __init__(self):
+        super().__init__("litellm", {
+            "base_url": "LITELLM_BASE_URL",
+            "api_key": "LITELLM_API_KEY",
+            "model": "LITELLM_MODEL"
+        })
+
 # 策略注册表
 STRATEGIES: Dict[str, ProviderConfigStrategy] = {
     "openai": OpenAIStrategy(),
     "zhipu": ZhipuStrategy(),
     "deepseek": DeepseekStrategy(),
     "ollama": OllamaStrategy(),
-    "azure_openai": AzureStrategy()
+    "azure_openai": AzureStrategy(),
+    "litellm": LiteLLMStrategy()
 }
