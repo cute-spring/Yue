@@ -70,8 +70,12 @@ class ConfigService:
         config = {}
         
         # 1. 基础字段
-        config["provider"] = os.getenv("LLM_PROVIDER") or llm_section.get("provider")
-        config["enabled_providers"] = os.getenv("ENABLED_PROVIDERS") or llm_section.get("enabled_providers")
+        provider_env = os.getenv("LLM_PROVIDER")
+        enabled_env = os.getenv("ENABLED_PROVIDERS")
+        config_provider = llm_section.get("provider")
+        config_enabled = llm_section.get("enabled_providers")
+        config["provider"] = config_provider if config_provider is not None else provider_env
+        config["enabled_providers"] = config_enabled if config_enabled is not None else enabled_env
         
         # 2. 通用设置 (settings 子树)
         settings = llm_section.get("settings", {})
@@ -334,6 +338,12 @@ class ConfigService:
         allow = [r for r in allow_roots if isinstance(r, str) and r.strip()] if isinstance(allow_roots, list) else []
         deny = [r for r in deny_roots if isinstance(r, str) and r.strip()] if isinstance(deny_roots, list) else []
         return {"allow_roots": allow, "deny_roots": deny}
+
+    def get_exec_tool_config(self) -> Dict[str, Any]:
+        exec_cfg = self._config.get("exec_tool", {})
+        if not isinstance(exec_cfg, dict):
+            return {}
+        return exec_cfg
 
     def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:
         incoming_allow = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []

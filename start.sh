@@ -26,8 +26,8 @@ echo "📡 Starting backend service on http://127.0.0.1:8000..."
 cd "$ROOT_DIR/backend"
 if command -v uv &> /dev/null; then
     uv run python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
-elif [ -f "venv/bin/activate" ]; then
-    source "venv/bin/activate"
+elif [ -f ".venv/bin/activate" ]; then
+    source ".venv/bin/activate"
     python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
 else
     echo "⚠️  Warning: backend environment not found. Attempting to run with system python..."

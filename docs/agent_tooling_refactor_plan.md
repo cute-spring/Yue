@@ -33,20 +33,21 @@
 
 ## 4.1 当前进度概览 (Status Snapshot)
 **更新时间**：2026-03-01  
-**总体结论**：阶段一与阶段二核心路径已落地；阶段三的 Provider Schema 翻译器已实现并接入链路；阶段四为“待开始”；影子模式稳定；Step 2.1~2.6 回归已完成。
+**总体结论**：阶段一至阶段三核心路径已全面落地；阶段四（错误自愈）框架已在注册表层建立；`ExecTool` 已完成 7.1~7.5 的开发与单元测试验证，支持本地模式配置收敛；系统基线测试全绿。
 
 ### 已完成
-- **阶段一核心**：`BaseTool`、Schema→Pydantic 模型转换、参数预处理与错误包装已实现；单测覆盖。
-- **阶段二核心**：`ToolRegistry` 已引入；`chat.py` 已通过注册表获取工具；Registry 与 BaseTool 相关测试已补充。
-- **阶段二影子模式**：新增 `MCP_TOOL_SHADOW_MODE` 开关；新旧路径工具清单与 Schema 对比日志已加入；对比单测已补充。
-- **阶段三核心**：参数校验 `validate_params`、Provider Schema 翻译器（`schema_translator.py`）已落地并接入 `BaseTool/Registry/Chat` 链路。
-- **阶段三/四错误分流与 Hint 规范化**：已在 `ToolRegistry` 中实现 `_handle_tool_error` 和 `_classify_tool_error`，支持结构化错误响应（`error_code/message/hint`），并完成了安全性（不泄露敏感路径）与功能性（提供 LLM 自愈 Hint）的测试。
-- **内置工具扩展**：新增 `builtin:docs_list` 工具用于目录结构遍历，并已同步至 `Local Docs` 等默认 Agent 配置。
+- **阶段一核心**：`BaseTool`、Schema 转换、参数预处理已实现。
+- **阶段二核心**：`ToolRegistry` 统一管理工具发现与分发，`chat.py` 已全面接入。
+- **阶段三核心**：Provider Schema 翻译器支持 OpenAI/Claude/DeepSeek 差异化适配；`validate_params` 防御式校验生效。
+- **阶段三/四错误协议**：注册表层统一捕获错误并返回 `{error_code, message, hint}`，支持敏感路径脱敏。
+- **ExecTool 全量落地**：实现 `builtin:exec` 工具，包含安全拦截（Deny/Allow/Workspace）、异步执行、超时控制、本地模式策略收敛及注册表接入。
+- **内置工具扩展**：`builtin:docs_list` 与 `builtin:exec` 已同步至 Agent 工具清单。
 
 ### 待处理 / 待补齐
 - **工具元数据接口归一化**：目前 `/api/mcp/tools` 仍直接调用 `McpManager`。计划将其迁移至 `ToolRegistry`，实现 UI 展示与执行逻辑的完全同源。
 - **Provider 差异化深度适配**：当前 Schema 翻译器已支持多 Provider，但仍可针对不同模型的 Long Context 或特定约束做进一步微调。
 - **影子模式下线**：待生产环境验证稳定后，移除 `MCP_TOOL_SHADOW_MODE` 相关兼容逻辑，彻底停用 `McpManager` 中的旧工具包装代码。
+- **ExecTool 回归验证**：完成 Step 7.6（Agent 回归与安全边界验证）。
 
 ### 当前测试状态（基线）
 - `PYTHONPATH=backend pytest backend/tests/test_agent_regression.py` ✅  
@@ -255,6 +256,141 @@
 2. 若无异常，移除 `MCP_TOOL_SHADOW_MODE` 开关及其对比代码。
 3. 清理 `McpManager` 中不再需要的工具包装函数（如旧的 `_wrap_mcp_tool` 等）。
 **完成标准**：代码库无冗余逻辑，注册表成为唯一的工具管理入口。
+
+---
+
+## 4.3 ExecTool 功能分析与落地计划（参考 docs/shell.py）
+**目标**：引入通用且安全的命令执行工具（ExecTool），覆盖构建/测试/脚本运行等场景，并与 ToolRegistry 的错误分流与 Hint 规范无缝对齐。
+
+### 功能分析（基于参考实现）
+1. **统一入口与 Schema 约束**  
+   - 工具名固定为 `exec`，参数仅包含 `command` 与可选 `working_dir`，便于注册表自动生成 Schema，并确保 LLM 调用一致性。  
+   - 参考实现路径：`docs/shell.py` 中 `ExecTool.parameters` 与 `ExecTool.name`。  
+2. **安全防护主线**  
+   - 默认 denylist 拦截高危命令（删除/格式化/电源操作/写盘/ fork bomb）。  
+   - 支持可选 allowlist，适用于强管控环境（仅允许特定命令）。  
+   - 支持 restrict_to_workspace，限制命令中的路径在工作目录内，阻断路径穿越与越权访问。  
+3. **执行与资源控制**  
+   - 异步执行子进程，支持超时回收，避免僵尸进程与资源泄露。  
+   - 输出统一拼接 stdout/stderr/exit code，并进行长度截断，保证上游稳定性。  
+4. **错误返回语义**  
+   - 参考实现采用 `"Error: ..."` 文本作为错误输出，便于注册表上层统一归一化为 `{error_code, message, hint}` 结构。
+
+### 风险评估与边界
+- **命令注入与误操作**：LLM 生成命令存在高风险，必须使用 deny/allow + workspace 限制作为硬边界。  
+- **路径越权**：需要跨平台路径识别（Windows/Posix），并避免误判相对路径。  
+- **长时间执行与输出膨胀**：必须有超时与输出截断。  
+- **错误协议一致性**：ExecTool 自身只返回文本错误，错误结构化应由注册表层完成，避免双重封装。  
+
+### 实现计划（小步快走 + 每步测试门槛）
+#### Step 7.1：定义 ExecTool 接口与参数 Schema ✅
+**目标**：在 `backend/app/mcp/` 侧新增 ExecTool，实现 `name/description/parameters` 的标准化入口。  
+**变更点**：仅新增工具类与注册表注册入口，不接入执行逻辑。  
+**测试**：  
+- 新增 `test_exec_tool_schema`（验证 required/optional 字段、description）。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+**完成标准**：Schema 与参考实现一致，且不影响现有工具列表。
+
+#### Step 7.2：接入基础安全防护（denylist + allowlist） ✅
+**目标**：实现命令拦截策略，覆盖高危命令与可选 allowlist。  
+**变更点**：新增 guard 逻辑与对应错误文本。  
+**测试**：  
+- 单测覆盖：`rm -rf`、`format`、`shutdown` 等被拒；allowlist 模式下仅允许命中命令。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+**完成标准**：危险命令被拒，允许命令通过，返回一致的错误文本。
+
+#### Step 7.3：工作目录约束与路径越权防护 ✅
+**目标**：实现 restrict_to_workspace 逻辑与路径解析，兼容 Windows/Posix。  
+**变更点**：解析命令中的绝对路径并校验必须位于 cwd 下。  
+**测试**：  
+- 单测覆盖：`../`、绝对路径越界、相对路径误判保护。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+**完成标准**：越权路径被拒，合法路径放行，无误杀相对路径。
+
+#### Step 7.4：执行链路（异步执行 + 超时 + 输出截断） ✅
+**目标**：完成真实执行能力与资源控制策略。  
+**变更点**：引入异步子进程执行、超时回收、stdout/stderr/exit code 拼装、输出截断。  
+**测试**：  
+- 单测覆盖：`echo` 成功输出、超时命令返回超时错误、非零退出码包含 exit code。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+**完成标准**：输出一致、超时可控、无僵尸进程泄露。
+
+#### Step 7.5：接入 ToolRegistry 与错误结构化 ✅
+**目标**：注册 ExecTool 并确保错误走注册表层 `{error_code, message, hint}`。  
+**变更点**：注册表新增 ExecTool 注册与错误分流映射，不修改 ExecTool 自身错误文本约定。  
+**测试**：  
+- 集成测试覆盖：ExecTool 正常路径无 Hint；错误路径返回结构化 Hint。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_tool_registry_integration.py`  
+**完成标准**：工具可用，错误结构化正确，正常路径无 Hint。
+
+#### Step 7.6：Agent 回归与安全边界验证
+**目标**：验证主子 Agent 与本地文档流不受影响，并确保 ExecTool 不越权。  
+**变更点**：仅回归验证，不引入额外功能。  
+**测试**：  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_agent_regression.py`  
+- 可选全量：`PYTHONPATH=backend python3 -m unittest discover backend/tests -v`  
+**完成标准**：回归全绿；ExecTool 行为符合安全边界与错误协议。
+
+### 额外补充建议（可选增强）
+#### Step 7.7：并发与队列隔离
+**目标**：限制并发执行数量，避免资源竞争与系统抖动。  
+**变更点**：为 ExecTool 添加可配置的并发上限或队列化策略。  
+**测试**：  
+- 单测覆盖：并发超限时返回结构化错误或排队提示。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_tool_registry_integration.py`  
+**完成标准**：并发限制生效，未影响正常工具链路。
+
+#### Step 7.8：命令模板化与参数白名单
+**目标**：降低命令注入风险，提升可控性。  
+**变更点**：支持“命令模板 + 参数白名单”模式，限制可变参数范围。  
+**测试**：  
+- 单测覆盖：非法参数被拒、合法参数通过、模板命令渲染正确。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+**完成标准**：仅允许白名单参数，模板替换无旁路。
+
+#### Step 7.9：敏感信息脱敏与审计日志
+**目标**：避免输出泄露路径/密钥，并为安全审计保留依据。  
+**变更点**：对输出进行模式脱敏（如 token/路径），记录受限命令与拒绝原因。  
+**测试**：  
+- 单测覆盖：脱敏规则生效且不破坏正常输出。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+**完成标准**：敏感信息不可见，审计日志可追溯。
+
+#### Step 7.10：跨平台执行一致性验证
+**目标**：验证 Windows/Posix 路径与 shell 差异下行为一致。  
+**变更点**：补充平台差异用例与路径解析回归。  
+**测试**：  
+- 单测覆盖：Windows 盘符路径/Posix 绝对路径/相对路径。  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+**完成标准**：跨平台路径策略一致，误判率可控。
+
+### 本地模式可选配置块（个人使用）✅
+**适用**：仅在个人本地开发机运行、强调效率与可用性、接受适度风险。  
+**目标**：在不破坏安全底线前提下，降低阻拦频率与维护成本。  
+**建议配置**（已在 `ExecToolConfig.from_settings` 中实现逻辑收敛）：  
+1. **策略收敛**：保持 denylist，默认关闭 allowlist，减少误拦截。  
+2. **超时放宽**：默认 timeout 提升至 180–300s，适配构建/依赖安装耗时。  
+3. **并发放宽**：不开启队列或设置较高并发上限，避免等待。  
+4. **跨平台降级**：若仅 macOS/Linux，Windows 路径兼容策略与测试降为可选。  
+5. **日志降噪**：保留拒绝原因与关键错误，减少高频审计细节。  
+6. **保留底线**：继续启用 restrict_to_workspace，避免误操作影响全盘。  
+**验证建议**：  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_base_tool_unit.py`  
+- 运行：`PYTHONPATH=backend pytest backend/tests/test_tool_registry_integration.py`  
+**完成标准**：本地模式下功能可用、无明显误拦截，且未突破目录边界。
+
+### ExecTool UI 手测用例（推荐）
+**前置**：在 UI 的 Agent 设置页启用 `builtin:exec`，保存后生效。  
+1. **基础执行**：输入“列出当前目录文件”。  
+   - 预期：返回 `ls`/`dir` 输出；无 Hint 字段。  
+2. **危险命令拦截**：输入“执行 rm -rf test_file”。  
+   - 预期：返回结构化错误（`error_code/message/hint`）；提示包含安全拦截原因。  
+3. **路径越权拦截**：输入“读取 /etc/passwd”（或 Windows 的 `C:\Windows\win.ini`）。  
+   - 预期：返回结构化错误；Hint 提示仅允许工作目录内路径。  
+4. **本地模式超时放宽**：将 `exec_tool.local_mode=true` 且 `timeout_s=5`，重启后端；输入“sleep 10 && echo Done”。  
+   - 预期：仍能成功返回 Done（超时自动放宽到 180s+）。  
+5. **错误自愈提示**：输入“在 non_existent_dir 下执行 ls”。  
+   - 预期：返回结构化错误与 Hint；建议检查路径或列出父目录。
 
 ---
 

@@ -2,6 +2,8 @@ import time
 import logging
 import httpx
 import re
+import sys
+import types
 from typing import Optional, List, Any, Dict
 from urllib.parse import urlparse
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -19,6 +21,26 @@ AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 AZURE_TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 TOKEN_CACHE_KEY = "azure_openai_token"
 DEFAULT_TOKEN_TTL = 3600
+
+if "azure.identity" not in sys.modules:
+    try:
+        import azure.identity
+    except Exception:
+        azure_pkg = types.ModuleType("azure")
+        identity_mod = types.ModuleType("azure.identity")
+
+        class ClientSecretCredential:
+            def __init__(self, *args, **kwargs):
+                raise ImportError("azure.identity not installed")
+
+        def get_bearer_token_provider(*args, **kwargs):
+            raise ImportError("azure.identity not installed")
+
+        identity_mod.ClientSecretCredential = ClientSecretCredential
+        identity_mod.get_bearer_token_provider = get_bearer_token_provider
+        azure_pkg.identity = identity_mod
+        sys.modules.setdefault("azure", azure_pkg)
+        sys.modules.setdefault("azure.identity", identity_mod)
 
 async def fetch_azure_deployments(refresh: bool = False) -> List[str]:
     """

@@ -145,3 +145,42 @@ def test_provider_schema_preserves_shapes(provider):
     assert schema["properties"]["mode"]["enum"] == ["fast", "slow"]
     assert schema["properties"]["tags"]["items"]["type"] == "string"
     assert schema["properties"]["payload"]["type"] == "object"
+
+
+def test_exec_tool_local_mode_overrides():
+    from app.mcp.builtin.exec import ExecToolConfig
+    import os
+
+    config = ExecToolConfig.from_settings({"local_mode": True})
+    assert config.allow_patterns == []
+    assert config.timeout_s >= 180
+    assert config.restrict_to_workspace is True
+    if os.name != "nt":
+        assert config.enable_windows_path_checks is False
+
+
+def test_exec_tool_default_denylist():
+    from app.mcp.builtin.exec import ExecToolConfig
+
+    config = ExecToolConfig.from_settings({})
+    assert config.deny_patterns
+
+
+def test_exec_tool_allowlist_enforced():
+    from app.mcp.builtin.exec import ExecToolConfig, ExecTool
+    from unittest.mock import MagicMock
+
+    config = ExecToolConfig.from_settings({
+        "allow_patterns": ["^echo\\b"]
+    })
+    tool = ExecTool(config)
+    ctx = MagicMock()
+
+    result = None
+    try:
+        import asyncio
+        result = asyncio.run(tool.execute(ctx, {"command": "ls", "working_dir": "."}))
+    except PermissionError as e:
+        result = str(e)
+
+    assert result and "allowlist" in result

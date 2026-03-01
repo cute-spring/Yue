@@ -36,9 +36,9 @@ if command -v uv &> /dev/null; then
     uv sync
     echo "Backend dependencies synced successfully with uv."
     cd "$PROJECT_ROOT"
-elif [ -d "backend/venv" ]; then
+elif [ -d "backend/.venv" ]; then
     echo "Backend virtual environment already exists. Updating dependencies..."
-    source backend/venv/bin/activate
+    source backend/.venv/bin/activate
     pip install --upgrade pip
     if [ -f "backend/requirements.txt" ]; then
         pip install -r backend/requirements.txt
@@ -50,8 +50,8 @@ else
     if [ -d "backend" ]; then
         cd backend
         if command -v python3 &> /dev/null; then
-            python3 -m venv venv
-            source venv/bin/activate
+            python3 -m venv .venv
+            source .venv/bin/activate
             pip install --upgrade pip
             if [ -f "requirements.txt" ]; then
                 pip install -r requirements.txt

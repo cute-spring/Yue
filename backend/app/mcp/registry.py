@@ -9,6 +9,7 @@ from pydantic_ai import Tool, RunContext
 from .base import BaseTool, McpTool, BuiltinTool
 from .schema_translator import to_provider_schema
 from .manager import mcp_manager, McpManager
+from .builtin import builtin_tool_registry
 from app.services.agent_store import agent_store
 
 logger = logging.getLogger(__name__)
@@ -143,15 +144,7 @@ class ToolRegistry:
         tools_meta = []
         
         # 1. Built-in tools
-        builtin_meta = self.mcp_manager._get_builtin_tools_metadata()
-        for meta in builtin_meta:
-            tools_meta.append({
-                "id": meta["id"],
-                "name": meta["name"],
-                "description": meta["description"],
-                "server": "builtin",
-                "input_schema": meta["input_schema"]
-            })
+        tools_meta.extend(builtin_tool_registry.get_all_metadata())
             
         # 2. MCP tools
         for name, session in self.mcp_manager.sessions.items():
@@ -196,19 +189,12 @@ class ToolRegistry:
 
     async def _get_builtin_tools(self, allowed_tools: Set[str]) -> List[BuiltinTool]:
         builtin_tools = []
-        builtin_meta = {t["name"]: t for t in self.mcp_manager._get_builtin_tools_metadata()}
-        for tool_name, tool_func in self.mcp_manager._get_builtin_tools():
-            composite_id = f"builtin:{tool_name}"
-            if composite_id in allowed_tools or tool_name in allowed_tools:
-                meta = builtin_meta.get(tool_name)
-                if meta:
-                    builtin_tool = BuiltinTool(
-                        name=tool_name,
-                        description=meta["description"],
-                        parameters=meta["input_schema"],
-                        handler=tool_func
-                    )
-                    builtin_tools.append(builtin_tool)
+        for tool in builtin_tool_registry.get_all_tools():
+            composite_id = f"builtin:{tool.name}"
+            if composite_id in allowed_tools or tool.name in allowed_tools:
+                # BuiltinTool is a BaseTool subclass in mcp/base.py
+                # but we need to ensure it's compatible with registry expectation
+                builtin_tools.append(tool)
         return builtin_tools
 
     def _shadow_mode_enabled(self) -> bool:

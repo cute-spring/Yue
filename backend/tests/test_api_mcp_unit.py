@@ -24,10 +24,11 @@ def test_list_configs(client, mock_mcp_manager):
 
 @pytest.mark.asyncio
 async def test_list_tools(client, mock_mcp_manager):
-    mock_mcp_manager.get_available_tools = AsyncMock(return_value=[{"name": "tool1"}])
-    response = client.get("/api/mcp/tools")
-    assert response.status_code == 200
-    assert response.json() == [{"name": "tool1"}]
+    with patch("app.api.mcp.tool_registry") as mock_registry:
+        mock_registry.get_all_available_tools_metadata = AsyncMock(return_value=[{"name": "tool1"}])
+        response = client.get("/api/mcp/tools")
+        assert response.status_code == 200
+        assert response.json() == [{"name": "tool1"}]
 
 def test_get_status(client, mock_mcp_manager):
     mock_mcp_manager.get_status.return_value = {"server1": "connected"}

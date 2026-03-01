@@ -63,13 +63,13 @@
 用于控制 Agent 扫描和读取本地文件的权限范围，是系统的安全防线。
 
 - **`allow_roots`**: 允许读取的根路径列表。建议仅包含项目目录或特定的文档存放目录。
-- **`deny_roots`**: 即使在 `allow_roots` 范围内，也明确禁止访问的路径（如 `.git`, `node_modules`, `venv` 等）。
+- **`deny_roots`**: 即使在 `allow_roots` 范围内，也明确禁止访问的路径（如 `.git`, `node_modules`, `.venv` 等）。
 
 **配置示例:**
 ```json
 "doc_access": {
   "allow_roots": ["/Users/work/Yue", "/Users/work/docs"],
-  "deny_roots": ["/Users/work/Yue/backend/venv"]
+  "deny_roots": ["/Users/work/Yue/backend/.venv"]
 }
 ```
 

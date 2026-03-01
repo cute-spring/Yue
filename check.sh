@@ -14,8 +14,8 @@ echo -e "${GREEN}🔍 Starting Full Stack Quality Check...${NC}"
 # 1. Backend Checks
 echo -e "\n${YELLOW}--- [1/3] Backend: Pytest (Unit Tests) ---${NC}"
 cd "$PROJECT_ROOT/backend"
-if [ -d "venv" ]; then
-    source venv/bin/activate
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
     export PYTHONPATH=$PYTHONPATH:$(pwd)
     # 仅运行单元测试，跳过需要运行中服务的集成测试
     if python3 -m pytest -m "not integration"; then
@@ -26,7 +26,7 @@ if [ -d "venv" ]; then
     fi
     deactivate
 else
-    echo -e "${RED}⚠️  Backend venv not found. Skipping backend tests.${NC}"
+    echo -e "${RED}⚠️  Backend .venv not found. Skipping backend tests.${NC}"
     FAILED=1
 fi
 

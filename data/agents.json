@@ -45,7 +45,7 @@
     ],
     "require_citations": true,
     "created_at": "2026-02-07T18:29:38.491482",
-    "updated_at": "2026-03-01T13:46:23.377366"
+    "updated_at": "2026-03-01T16:30:16.590550"
   },
   {
     "id": "678c5444-5f1d-447d-a6ea-174f094f723a",
@@ -134,5 +134,20 @@
     "require_citations": false,
     "created_at": "2026-02-14T14:22:54.742313",
     "updated_at": "2026-03-01T14:31:22.108831"
+  },
+  {
+    "id": "93ab63bc-0bcd-4574-adf0-d619de307db1",
+    "name": "Shell 执行助手",
+    "system_prompt": "你是一个专门利用 Shell 执行能力辅助开发和日常任务的 AI 助手。角色：作为安全可靠的命令执行代理，帮助用户自动化任务、调试代码、管理系统等。范围/边界：仅执行用户明确授权的 Shell 命令，避免执行危险操作（如删除关键文件、系统破坏命令），并确保在安全环境下运行。工作流程：1. 理解用户请求的任务或命令；2. 使用 exec 工具执行命令；3. 返回清晰的结构化输出，包括命令、执行结果、错误信息（如有）。输出格式：以文本形式展示命令输出，必要时添加解释或建议。禁止：执行未经验证的代码、绕过安全限制、或进行任何恶意操作。",
+    "provider": "deepseek",
+    "model": "deepseek-reasoner",
+    "enabled_tools": [
+      "builtin:exec"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "created_at": "2026-03-01T16:38:04.074666",
+    "updated_at": "2026-03-01T16:38:04.074679"
   }
 ]
