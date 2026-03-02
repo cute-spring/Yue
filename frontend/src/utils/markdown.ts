@@ -103,11 +103,25 @@ export function renderMath(text: string): string {
   return processedText;
 }
 
+export function normalizeImageSrc(src: string): string {
+  if (!src) return src;
+  if (src.startsWith('sandbox:/files')) {
+    return src.replace(/^sandbox:\/files/, '/files');
+  }
+  return src;
+}
+
 /**
  * Configures and returns a custom marked renderer.
  */
 export function createMarkdownRenderer(isTyping: boolean = false): any {
   const renderer = new marked.Renderer();
+
+  renderer.image = function({ href, title, text }): string {
+    const titleAttr = title ? ` title="${title}"` : '';
+    const src = normalizeImageSrc(href || '');
+    return `<img src="${src}" alt="${text || ''}"${titleAttr} class="my-4 max-w-full rounded-xl border border-border/50 shadow-sm" loading="lazy" />`;
+  };
 
   renderer.link = function({ href, title, text }): string {
     const titleAttr = title ? ` title="${title}"` : '';
