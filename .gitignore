@@ -63,11 +63,17 @@ test-results/
 .trae/skills/
 
 # SQLite & Temp files
+*.db
 *.db-shm
 *.db-wal
 *.bak
+backend/data/yue.db
+backend/data/chats.json
+backend/data/chats.json.bak
+backend/data/test_yue.db
 
 # Data
+backend/data/uploads/
 docs/ar_2024_en.pdf
 backend/data/*.db
 backend/data/*.json
