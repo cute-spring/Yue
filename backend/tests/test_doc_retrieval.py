@@ -9,9 +9,16 @@ from app.services.doc_retrieval import (
     DocAccessError,
     TEXT_LIKE_EXTENSIONS,
     PDF_EXTENSIONS,
+    get_project_root,
     read_markdown_lines,
     read_text_lines,
     read_pdf_pages,
+    pdf_outline_extract,
+    pdf_keyword_page_search,
+    pdf_page_text_read,
+    pdf_page_range_filter,
+    pdf_page_table_extract,
+    pdf_page_render_image,
     resolve_docs_path,
     search_markdown,
     search_text,
@@ -205,6 +212,135 @@ class TestDocRetrieval(unittest.TestCase):
                 writer.write(f)
             hits = search_pdf("mcp", docs_root=docs_root, limit=5, timeout_s=5.0)
             self.assertIsInstance(hits, list)
+
+    def test_pdf_outline_extract_basic(self):
+        from unittest.mock import MagicMock, patch
+        with tempfile.TemporaryDirectory() as tmp:
+            docs_root = os.path.join(tmp, "docs")
+            os.makedirs(docs_root, exist_ok=True)
+            p = os.path.join(docs_root, "a.pdf")
+            with open(p, "wb") as f:
+                f.write(b"%PDF-1.4\n%")
+            dest1 = MagicMock()
+            dest1.title = "Chapter 1"
+            dest2 = MagicMock()
+            dest2.title = "Section 1.1"
+            reader = MagicMock()
+            reader.outline = [dest1, [dest2]]
+            reader.get_destination_page_number.side_effect = lambda d: 0 if d is dest1 else 1
+            with patch("pypdf.PdfReader", return_value=reader):
+                abs_path, outline = pdf_outline_extract("a.pdf", docs_root=docs_root)
+            self.assertTrue(abs_path.endswith("a.pdf"))
+            self.assertEqual(outline[0]["title"], "Chapter 1")
+            self.assertEqual(outline[0]["page"], 1)
+            self.assertEqual(outline[0]["children"][0]["title"], "Section 1.1")
+            self.assertEqual(outline[0]["children"][0]["page"], 2)
+
+    def test_pdf_keyword_page_search(self):
+        from unittest.mock import MagicMock, patch
+        with tempfile.TemporaryDirectory() as tmp:
+            docs_root = os.path.join(tmp, "docs")
+            os.makedirs(docs_root, exist_ok=True)
+            p = os.path.join(docs_root, "a.pdf")
+            with open(p, "wb") as f:
+                f.write(b"%PDF-1.4\n%")
+            page1 = MagicMock()
+            page1.extract_text.return_value = "hello world"
+            page2 = MagicMock()
+            page2.extract_text.return_value = "nothing here"
+            reader = MagicMock()
+            reader.pages = [page1, page2]
+            with patch("pypdf.PdfReader", return_value=reader):
+                abs_path, pages = pdf_keyword_page_search(
+                    "a.pdf",
+                    keywords=["world"],
+                    start_page=1,
+                    end_page=2,
+                    docs_root=docs_root,
+                )
+            self.assertTrue(abs_path.endswith("a.pdf"))
+            self.assertEqual(pages, [1])
+
+    def test_pdf_page_text_read(self):
+        from unittest.mock import MagicMock, patch
+        with tempfile.TemporaryDirectory() as tmp:
+            docs_root = os.path.join(tmp, "docs")
+            os.makedirs(docs_root, exist_ok=True)
+            p = os.path.join(docs_root, "a.pdf")
+            with open(p, "wb") as f:
+                f.write(b"%PDF-1.4\n%")
+            page1 = MagicMock()
+            page1.extract_text.return_value = "page text"
+            reader = MagicMock()
+            reader.pages = [page1]
+            with patch("pypdf.PdfReader", return_value=reader):
+                abs_path, page_num, text = pdf_page_text_read("a.pdf", page=1, docs_root=docs_root)
+            self.assertTrue(abs_path.endswith("a.pdf"))
+            self.assertEqual(page_num, 1)
+            self.assertEqual(text, "page text")
+
+    def test_pdf_page_range_filter(self):
+        pages = pdf_page_range_filter(2, 4, [1, 2, 3, 4, 5, 3])
+        self.assertEqual(pages, [2, 3, 4])
+
+    def test_pdf_page_table_extract(self):
+        from unittest.mock import MagicMock, patch
+        with tempfile.TemporaryDirectory() as tmp:
+            docs_root = os.path.join(tmp, "docs")
+            os.makedirs(docs_root, exist_ok=True)
+            p = os.path.join(docs_root, "a.pdf")
+            with open(p, "wb") as f:
+                f.write(b"%PDF-1.4\n%")
+            page = MagicMock()
+            page.extract_tables.return_value = [[["A", "B"], ["1", "2"]]]
+            pdf = MagicMock()
+            pdf.pages = [page]
+            mock_open = MagicMock()
+            mock_open.__enter__.return_value = pdf
+            mock_open.__exit__.return_value = None
+            with patch("pdfplumber.open", return_value=mock_open):
+                abs_path, page_num, table = pdf_page_table_extract(
+                    "a.pdf",
+                    page=1,
+                    table_index=0,
+                    docs_root=docs_root,
+                )
+            self.assertTrue(abs_path.endswith("a.pdf"))
+            self.assertEqual(page_num, 1)
+            self.assertEqual(table, [["A", "B"], ["1", "2"]])
+
+    def test_pdf_page_render_image(self):
+        from unittest.mock import MagicMock, patch
+        with tempfile.TemporaryDirectory() as tmp:
+            docs_root = os.path.join(tmp, "docs")
+            os.makedirs(docs_root, exist_ok=True)
+            p = os.path.join(docs_root, "a.pdf")
+            with open(p, "wb") as f:
+                f.write(b"%PDF-1.4\n%")
+            pix = MagicMock()
+            def _save(path):
+                with open(path, "wb") as f:
+                    f.write(b"img")
+            pix.save.side_effect = _save
+            page_obj = MagicMock()
+            page_obj.get_pixmap.return_value = pix
+            doc = MagicMock()
+            doc.__len__.return_value = 1
+            doc.load_page.return_value = page_obj
+            with patch("fitz.open", return_value=doc):
+                abs_path, page_num, image_path = pdf_page_render_image(
+                    "a.pdf",
+                    page=1,
+                    dpi=72,
+                    docs_root=docs_root,
+                )
+            self.assertTrue(abs_path.endswith("a.pdf"))
+            self.assertEqual(page_num, 1)
+            self.assertTrue(image_path.startswith("/files/"))
+            filename = image_path.replace("/files/", "")
+            file_path = os.path.join(get_project_root(), "backend", "data", "uploads", filename)
+            self.assertTrue(os.path.exists(file_path))
+            os.remove(file_path)
 
     def test_resolve_docs_root_allows_under_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
