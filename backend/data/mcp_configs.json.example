@@ -1,0 +1,13 @@
+[
+  {
+    "name": "example-server",
+    "transport": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "mcp-server-example"
+    ],
+    "enabled": false,
+    "env": null
+  }
+]

@@ -1,0 +1,57 @@
+{
+  "llm": {
+    "provider": "deepseek",
+    "enabled_providers": "openai,azure_openai,deepseek,ollama,zhipu",
+    "settings": {
+      "request_timeout": 300
+    },
+    "providers": {
+      "openai": {
+        "default_model": "gpt-4o",
+        "max_output_tokens": 8192,
+        "api_key": "YOUR_OPENAI_API_KEY"
+      },
+      "zhipu": {
+        "default_model": "glm-4.6v",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+        "max_output_tokens": 4096,
+        "api_key": "YOUR_ZHIPU_API_KEY"
+      },
+      "deepseek": {
+        "default_model": "deepseek-chat",
+        "max_output_tokens": 8192,
+        "api_key": "YOUR_DEEPSEEK_API_KEY"
+      },
+      "ollama": {
+        "default_model": "deepseek-r1:1.5b",
+        "base_url": "http://localhost:11434",
+        "max_output_tokens": 8192
+      },
+      "azure_openai": {
+        "default_model": "gpt4o",
+        "endpoint": "https://your-resource.openai.azure.com",
+        "api_version": "2024-06-01",
+        "max_output_tokens": 8192,
+        "api_key": "YOUR_AZURE_API_KEY"
+      }
+    },
+    "models": {
+      "deepseek/deepseek-chat": {
+        "display_name": "DeepSeek Chat",
+        "context_window": 128000,
+        "max_output_tokens": 8192,
+        "capabilities": [
+          "text",
+          "function_calling"
+        ],
+        "enabled": true
+      }
+    },
+    "custom_models": []
+  },
+  "doc_access": {
+    "allow_roots": [
+      "."
+    ]
+  }
+}
