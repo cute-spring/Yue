@@ -201,7 +201,9 @@
       "builtin:exec",
       "builtin:docs_list"
     ],
-    "doc_roots": [],
+    "doc_roots": [
+      "docs"
+    ],
     "doc_file_patterns": [
       "**/*.xlsx",
       "**/*.xlsm",
@@ -209,6 +211,6 @@
     ],
     "require_citations": true,
     "created_at": "2026-03-03T22:50:46.272912",
-    "updated_at": "2026-03-03T22:53:30.428718"
+    "updated_at": "2026-03-04T07:11:28.538270"
   }
 ]

@@ -616,11 +616,60 @@ This section evaluates the external proposal against the current Yue architectur
 
 ## Delivery Phases
 
-### Milestone A: Foundation
-- Define event schema and backend emitter.
-- Persist tool call records.
-- Stream basic tool start/finish updates.
-- Add `usage_limits` policy and `UsageLimitExceeded` handling.
+### Phase 0: Baseline & Gates (COMPLETED)
+- [x] Lock baseline: run existing tests (`pytest`, `npm run build`) to ensure a clean state.
+- [x] Identify core files for instrumentation: `chat.py`, `registry.py`, `base.py`.
+- [x] Review Architecture Impact Assessment and Protocol Compatibility.
+
+### Phase 1: Emit-only (COMPLETED)
+- [x] Implement `ToolEventCallback` in `ToolRegistry` to wrap tool calls with `started` and `finished` events.
+- [x] Refactor `chat_stream` in `backend/app/api/chat.py` to use `asyncio.Queue` for non-blocking tool event multiplexing.
+- [x] Inject `tool.call.started` and `tool.call.finished` events into the SSE stream.
+- [x] Ensure backward compatibility (unknown SSE kinds are ignored by current frontend).
+- [x] Verify events appear in SSE stream via integration tests.
+
+### Phase 2: Persistence (COMPLETED)
+- [x] Modify DB Schema: add `tool_calls` table and relevant indexes.
+- [x] Update `ChatService`: add `add_tool_call`, `update_tool_call`, and `get_tool_calls` methods.
+- [x] Integrate Persistence: update `chat_stream` to save tool events to SQLite asynchronously.
+- [x] Enhance `ToolRegistry`: capture and emit `duration_ms` for finished tool calls.
+- [x] Verify persistence via unit tests.
+
+### Phase 2.5: Usage Limits (COMPLETED)
+- [x] Policy Matrix: Define `default`, `strict`, and `premium` usage policies in `ConfigService`.
+- [x] Anti-Runaway: Inject `UsageLimits` (tool calls and request counts) into Pydantic AI Agent.
+- [x] Graceful Stop: Catch `UsageLimitExceeded` and emit `run.limited` event.
+- [x] User Transparency: Return friendly system messages explaining the limit.
+- [x] Verify via unit tests.
+
+### Phase 3: UI Transparency (COMPLETED)
+- [x] Frontend Types: Add `ToolCall` and update `Message` to include execution events.
+- [x] Stream Integration: Update `useChatState.ts` to parse and store `tool.call.started` and `tool.call.finished` events.
+- [x] Visual Components: Create `ToolCallItem` with real-time status badges, spin animations, and expandable argument/result viewers.
+- [x] Chat Integration: Display tool execution progress directly inside assistant messages in `MessageItem`.
+- [x] Historical Hydration: Update `ChatService.get_chat` to include tool execution history when loading existing chats.
+
+### Milestone A: Foundation (COMPLETED)
+- [x] Define event schema and backend emitter.
+- [x] Implement Persistence: add `tool_calls` and `run_traces` tables to SQLite.
+- [x] Inject `UsageLimits` policy and catch `UsageLimitExceeded` for anti-runaway.
+- [x] Complete UI Transparency (Phase 3) for real-time tool execution visibility.
+
+## Change Logs (2026-03-04)
+
+### Backend & Database
+- **Tool Instrumentation**: Enhanced `ToolRegistry` in `registry.py` to support `ToolEventCallback`. Added unique `call_id` generation and duration tracking for every tool call.
+- **SSE Stream Refactoring**: Redesigned `chat_stream` in `chat.py` to multiplex between LLM text chunks and tool events using `asyncio.Queue` and `asyncio.wait`.
+- **Persistence Layer**: Added `tool_calls` table to SQLite via `ChatService`. Implemented `add_tool_call`, `update_tool_call`, and `get_tool_calls` for session-based history.
+- **Safety Guardrails**: Implemented `UsageLimits` policy (tier-based) in `ConfigService` and integrated it into the Agent execution flow. Added friendly system messages when limits are hit.
+
+### Frontend
+- **Type Safety**: Updated `types.ts` to include `ToolCall` model and updated `Message` interface.
+- **Stream Processing**: Enhanced `useChatState.ts` to parse `tool.call.started`, `tool.call.finished`, and `run.limited` events from the SSE stream.
+- **UI Components**:
+    - Created `ToolCallItem.tsx`: A reactive component showing tool status (spinning/success/error), duration, and expandable arguments/results.
+    - Integrated `ToolCallItem` into `MessageItem.tsx` for inline execution visibility.
+- **History Support**: Enabled hydration of tool execution history when loading old chat sessions.
 
 ### Milestone B: Trace
 - Persist and stream trace node lifecycle.

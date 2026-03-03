@@ -48,10 +48,21 @@ export type Message = {
   provider?: string;
   model?: string;
   tools?: string[];
+  tool_calls?: ToolCall[];
   citations?: any[];
   context_id?: string;
   error?: string;
   finish_reason?: string;
+};
+
+export type ToolCall = {
+  call_id: string;
+  tool_name: string;
+  args?: any;
+  result?: any;
+  error?: string;
+  status: 'running' | 'success' | 'error';
+  duration_ms?: number;
 };
 
 export interface Provider {

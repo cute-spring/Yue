@@ -1,8 +1,10 @@
-from typing import Dict, List, Optional, Any, Set, Tuple
+from typing import Dict, List, Optional, Any, Set, Tuple, Callable, Awaitable
 import logging
 import re
 import os
 import json
+import asyncio
+from uuid import uuid4
 from dataclasses import replace
 from pydantic import ValidationError
 from pydantic_ai import Tool, RunContext
@@ -13,6 +15,9 @@ from .builtin import builtin_tool_registry
 from app.services.agent_store import agent_store
 
 logger = logging.getLogger(__name__)
+
+# Callback type for tool events
+ToolEventCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 class ToolRegistry:
     def __init__(self, mcp_manager: McpManager):
@@ -44,9 +49,19 @@ class ToolRegistry:
 
         return tools
 
-    async def get_pydantic_ai_tools_for_agent(self, agent_id: Optional[str], provider: Optional[str] = None) -> List[Any]:
+    async def get_pydantic_ai_tools_for_agent(
+        self, 
+        agent_id: Optional[str], 
+        provider: Optional[str] = None,
+        on_event: Optional[ToolEventCallback] = None
+    ) -> List[Any]:
         """
         Get all authorized tools for an agent, converted to Pydantic AI Tool objects.
+        
+        Args:
+            agent_id: The ID of the agent.
+            provider: The LLM provider (e.g., "openai", "deepseek").
+            on_event: Optional callback for tool events (started, finished).
         """
         base_tools = await self.get_tools_for_agent(agent_id)
         pydantic_tools = []
@@ -56,21 +71,75 @@ class ToolRegistry:
                 sanitized_server = re.sub(r'[^a-zA-Z0-9_-]', '_', tool.server_name)
                 sanitized_tool = re.sub(r'[^a-zA-Z0-9_-]', '_', tool.name)
                 llm_tool_name = f"mcp__{sanitized_server}__{sanitized_tool}"
-                pydantic_tools.append(self._to_pydantic_ai_tool(tool, llm_name=llm_tool_name, provider=provider))
+                pydantic_tools.append(self._to_pydantic_ai_tool(tool, llm_name=llm_tool_name, provider=provider, on_event=on_event))
             else:
-                pydantic_tools.append(self._to_pydantic_ai_tool(tool, provider=provider))
+                pydantic_tools.append(self._to_pydantic_ai_tool(tool, provider=provider, on_event=on_event))
         return pydantic_tools
 
-    def _to_pydantic_ai_tool(self, tool: BaseTool, llm_name: Optional[str] = None, provider: Optional[str] = None) -> Tool:
+    def _to_pydantic_ai_tool(
+        self, 
+        tool: BaseTool, 
+        llm_name: Optional[str] = None, 
+        provider: Optional[str] = None,
+        on_event: Optional[ToolEventCallback] = None
+    ) -> Tool:
         tool_name = llm_name or tool.name
         ArgsModel = tool.build_args_model()
 
         async def wrapper(ctx: RunContext, args: ArgsModel) -> str:
+            call_id = f"call_{uuid4().hex[:8]}"
+            start_time = asyncio.get_event_loop().time()
+            
+            # Emit tool.call.started event
+            if on_event:
+                try:
+                    await on_event({
+                        "event": "tool.call.started",
+                        "call_id": call_id,
+                        "tool_name": tool_name,
+                        "args": tool.validate_params(args)
+                    })
+                except Exception:
+                    logger.exception("Error emitting tool.call.started event")
+
             try:
                 validated_args = tool.validate_params(args)
-                return await tool.execute(ctx, validated_args)
+                result = await tool.execute(ctx, validated_args)
+                duration_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+                
+                # Emit tool.call.finished event
+                if on_event:
+                    try:
+                        await on_event({
+                            "event": "tool.call.finished",
+                            "call_id": call_id,
+                            "tool_name": tool_name,
+                            "result": result,
+                            "duration_ms": duration_ms
+                        })
+                    except Exception:
+                        logger.exception("Error emitting tool.call.finished event")
+                
+                return result
             except Exception as e:
-                return self._handle_tool_error(tool, e)
+                error_res = self._handle_tool_error(tool, e)
+                duration_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+                
+                # Emit tool.call.finished event with error
+                if on_event:
+                    try:
+                        await on_event({
+                            "event": "tool.call.finished",
+                            "call_id": call_id,
+                            "tool_name": tool_name,
+                            "error": str(e),
+                            "result": error_res,
+                            "duration_ms": duration_ms
+                        })
+                    except Exception:
+                        logger.exception("Error emitting tool.call.finished event on error")
+                
+                return error_res
 
         prepare = None
         if provider:

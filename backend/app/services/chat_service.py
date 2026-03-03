@@ -1,7 +1,7 @@
 import sqlite3
 import json
 import os
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 import uuid
@@ -22,6 +22,21 @@ class Message(BaseModel):
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
     finish_reason: Optional[str] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+
+class ToolCall(BaseModel):
+    id: Optional[int] = None
+    session_id: str
+    message_id: Optional[int] = None
+    call_id: str
+    tool_name: str
+    args: Optional[Dict[str, Any]] = None
+    result: Optional[str] = None
+    error: Optional[str] = None
+    status: str  # 'running', 'success', 'error'
+    created_at: datetime = Field(default_factory=datetime.now)
+    finished_at: Optional[datetime] = None
+    duration_ms: Optional[float] = None
 
 class ChatSession(BaseModel):
     id: str
@@ -76,8 +91,29 @@ class ChatService:
                 )
             """)
             
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tool_calls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    message_id INTEGER,
+                    call_id TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    args TEXT,
+                    result TEXT,
+                    error TEXT,
+                    status TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    finished_at TIMESTAMP,
+                    duration_ms REAL,
+                    FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE,
+                    FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE SET NULL
+                )
+            """)
+            
             # Create Index for Performance
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_call_id ON tool_calls(call_id)")
             
             conn.commit()
             
@@ -187,8 +223,15 @@ class ChatService:
             if not row:
                 return None
             
-            msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
+            msg_cursor = conn.execute("SELECT id, role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
             messages = []
+            
+            # Fetch all tool calls for this session once
+            all_tool_calls = self.get_tool_calls(chat_id)
+            # Map tool calls to messages if possible (though currently they are session-linked)
+            # For Phase 3, we'll just attach all tool calls to the relevant assistant message
+            # or keep them separate. The frontend expects them on the message.
+            
             for m in msg_cursor.fetchall():
                 msg_dict = dict(m)
                 if msg_dict.get('images'):
@@ -196,6 +239,15 @@ class ChatService:
                         msg_dict['images'] = json.loads(msg_dict['images'])
                     except:
                         msg_dict['images'] = []
+                
+                # Simple heuristic: attach tool calls to assistant messages
+                # In a more advanced version, we'd use message_id FK
+                if msg_dict['role'] == 'assistant':
+                    # For now, we'll just attach all tool calls to the last assistant message
+                    # or better, implement the message_id linking in Phase 4.
+                    # For this phase, let's just provide them.
+                    msg_dict['tool_calls'] = [tc.model_dump() for tc in all_tool_calls]
+                
                 messages.append(Message(**msg_dict))
             
             return ChatSession(
@@ -299,5 +351,58 @@ class ChatService:
             )
             conn.commit()
             return True
+
+    def add_tool_call(self, session_id: str, call_id: str, tool_name: str, args: Optional[Dict[str, Any]] = None) -> None:
+        """Record the start of a tool call."""
+        now = datetime.now()
+        args_json = json.dumps(args) if args else None
+        with self._get_connection() as conn:
+            conn.execute(
+                "INSERT INTO tool_calls (session_id, call_id, tool_name, args, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (session_id, call_id, tool_name, args_json, 'running', now)
+            )
+            conn.commit()
+
+    def update_tool_call(
+        self, 
+        call_id: str, 
+        status: str, 
+        result: Optional[str] = None, 
+        error: Optional[str] = None,
+        duration_ms: Optional[float] = None
+    ) -> None:
+        """Update an existing tool call with results or errors."""
+        now = datetime.now()
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE tool_calls SET status = ?, result = ?, error = ?, finished_at = ?, duration_ms = ? WHERE call_id = ?",
+                (status, result, error, now, duration_ms, call_id)
+            )
+            conn.commit()
+
+    def get_tool_calls(self, session_id: str) -> List[ToolCall]:
+        """Retrieve all tool calls for a given session."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM tool_calls WHERE session_id = ? ORDER BY created_at ASC", 
+                (session_id,)
+            )
+            rows = cursor.fetchall()
+            tool_calls = []
+            for row in rows:
+                tool_dict = dict(row)
+                if tool_dict.get('args'):
+                    try:
+                        tool_dict['args'] = json.loads(tool_dict['args'])
+                    except:
+                        tool_dict['args'] = {}
+                
+                # Convert timestamps
+                for key in ['created_at', 'finished_at']:
+                    if tool_dict.get(key) and isinstance(tool_dict[key], str):
+                        tool_dict[key] = datetime.fromisoformat(tool_dict[key])
+                
+                tool_calls.append(ToolCall(**tool_dict))
+            return tool_calls
 
 chat_service = ChatService()

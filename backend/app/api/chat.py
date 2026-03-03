@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart, ImageUrl
 from app.mcp.manager import mcp_manager
 from app.mcp.registry import tool_registry
@@ -151,6 +152,35 @@ async def chat_stream(request: ChatRequest):
         # Yield the chat ID first so frontend knows where we are
         yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
         
+        # Tool event queue to capture events from tool callbacks
+        tool_event_queue = asyncio.Queue()
+
+        # Tool event callback for tool.call.started and tool.call.finished
+        async def on_tool_event(event: Dict[str, Any]):
+            try:
+                # 1. Emit to SSE stream
+                await tool_event_queue.put(event)
+                
+                # 2. Persistence (Phase 2)
+                event_type = event.get("event")
+                if event_type == "tool.call.started":
+                    chat_service.add_tool_call(
+                        session_id=chat_id,
+                        call_id=event.get("call_id"),
+                        tool_name=event.get("tool_name"),
+                        args=event.get("args")
+                    )
+                elif event_type == "tool.call.finished":
+                    chat_service.update_tool_call(
+                        call_id=event.get("call_id"),
+                        status="error" if "error" in event else "success",
+                        result=event.get("result"),
+                        error=event.get("error"),
+                        duration_ms=event.get("duration_ms")
+                    )
+            except Exception:
+                logger.exception("Error in on_tool_event (streaming + persistence)")
+
         full_response = ""
         thought_duration = None
         ttft = None
@@ -198,7 +228,11 @@ async def chat_stream(request: ChatRequest):
                         yield f"data: {json.dumps({'error': f'Ollama 未找到模型 {model_name}，请先执行 `ollama pull {model_name}`'})}\n\n"
                         return
 
-            tools = await tool_registry.get_pydantic_ai_tools_for_agent(request.agent_id, provider)
+            tools = await tool_registry.get_pydantic_ai_tools_for_agent(
+                request.agent_id, 
+                provider,
+                on_event=on_tool_event
+            )
 
             tool_names = []
             for tool in tools:
@@ -242,6 +276,16 @@ async def chat_stream(request: ChatRequest):
             # Retrieve model settings (max_tokens etc)
             model_settings = config_service.get_model_settings(provider, model_name)
             
+            # Retrieve usage limits policy
+            tier = "default"
+            if agent_config and getattr(agent_config, "tier", None):
+                tier = agent_config.tier
+            usage_policy = config_service.get_usage_limits(tier)
+            usage_limits = UsageLimits(
+                request_limit=usage_policy.get("request_limit"),
+                tool_calls_limit=usage_policy.get("tool_calls_limit")
+            )
+
             # DeepSeek/Ollama compatibility: ensure max_tokens is also in extra_body
             # because some providers (like DeepSeek) might not support max_completion_tokens
             # which is what pydantic-ai uses by default for OpenAI-compatible models now.
@@ -267,22 +311,101 @@ async def chat_stream(request: ChatRequest):
                         user_input.append(ImageUrl(url=img))
 
                 # Run with history and model settings
-                async with agent.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings) as result:
+                async with agent.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings, usage_limits=usage_limits) as result:
                     stream_iter = result.stream_text()
                     if asyncio.iscoroutine(stream_iter):
                         stream_iter = await stream_iter
-                    async for message in stream_iter:
-                        # Track TTFT
-                        if not first_token_time:
-                            first_token_time = time.time()
+                    
+                    # Manual iteration to handle both text and tool events
+                    stream_task = asyncio.create_task(stream_iter.__anext__())
+                    queue_task = asyncio.create_task(tool_event_queue.get())
+                    
+                    while True:
+                        # Wait for either next text chunk or a tool event
+                        done, _ = await asyncio.wait(
+                            [stream_task, queue_task],
+                            return_when=asyncio.FIRST_COMPLETED
+                        )
+                        
+                        if stream_task in done:
+                            try:
+                                res = await stream_task
+                                # Track TTFT
+                                if not first_token_time:
+                                    first_token_time = time.time()
 
-                        # Use Parser to process chunk (Adapter Pattern)
-                        results = parser.parse_chunk(message)
-                        for item in results:
-                            if "content" in item:
-                                full_response += item["content"]
-                            # Ensure data is followed by exactly two newlines for SSE spec
-                            yield f"data: {json.dumps(item)}\n\n"
+                                # Use Parser to process chunk (Adapter Pattern)
+                                results = parser.parse_chunk(res)
+                                for item in results:
+                                    if "content" in item:
+                                        full_response += item["content"]
+                                    # Ensure data is followed by exactly two newlines for SSE spec
+                                    yield f"data: {json.dumps(item)}\n\n"
+                                
+                                # Prepare next stream chunk task
+                                stream_task = asyncio.create_task(stream_iter.__anext__())
+                            except StopAsyncIteration:
+                                # Stream finished. Check if queue_task has a pending result.
+                                if queue_task.done() and not queue_task.cancelled():
+                                    try:
+                                        ev = queue_task.result()
+                                        yield f"data: {json.dumps(ev)}\n\n"
+                                        tool_event_queue.task_done()
+                                    except Exception:
+                                        pass
+                                break
+                            except Exception:
+                                logger.exception("Error in stream_iter")
+                                break
+                        
+                        if queue_task in done:
+                            try:
+                                ev = await queue_task
+                                yield f"data: {json.dumps(ev)}\n\n"
+                                tool_event_queue.task_done()
+                                # Prepare next queue event task
+                                queue_task = asyncio.create_task(tool_event_queue.get())
+                            except Exception:
+                                logger.exception("Error getting from tool_event_queue")
+                                # Try again?
+                                queue_task = asyncio.create_task(tool_event_queue.get())
+                    
+                    # Cleanup tasks
+                    if not stream_task.done():
+                        stream_task.cancel()
+                    if not queue_task.done():
+                        queue_task.cancel()
+                    
+                    # Final tool events drain (just in case)
+                    while not tool_event_queue.empty():
+                        ev = tool_event_queue.get_nowait()
+                        yield f"data: {json.dumps(ev)}\n\n"
+                        tool_event_queue.task_done()
+
+            except UsageLimitExceeded as limit_err:
+                logger.warning(f"Usage limit exceeded for run {chat_id}: {limit_err}")
+                # Emit run.limited event
+                limit_info = {
+                    "event": "run.limited",
+                    "reason": str(limit_err),
+                    "snapshot": {}
+                }
+                # Try to get usage snapshot from the result if it was already partially through
+                try:
+                    if 'result' in locals() and hasattr(result, "usage"):
+                        raw_usage = result.usage()
+                        if asyncio.iscoroutine(raw_usage):
+                            raw_usage = await raw_usage
+                        limit_info["snapshot"] = raw_usage.model_dump() if hasattr(raw_usage, "model_dump") else str(raw_usage)
+                except:
+                    pass
+                
+                yield f"data: {json.dumps(limit_info)}\n\n"
+                
+                # Provide a friendly user message
+                friendly_msg = f"\n\n> ⚠️ **[系统提示]** 已触达策略上限（{limit_err}）。为了您的账户安全和成本控制，本轮执行已自动停止。您可以根据已有信息继续，或尝试缩小问题范围。"
+                full_response += friendly_msg
+                yield f"data: {json.dumps({'content': friendly_msg})}\n\n"
 
             except Exception as stream_err:
                 err_str = str(stream_err)
@@ -316,18 +439,60 @@ async def chat_stream(request: ChatRequest):
                         stream_iter = result.stream_text()
                         if asyncio.iscoroutine(stream_iter):
                             stream_iter = await stream_iter
-                        async for message in stream_iter:
-                            # Track TTFT
-                            if not first_token_time:
-                                first_token_time = time.time()
-
-                            # Use Parser to process chunk (Adapter Pattern)
-                            results = parser.parse_chunk(message)
-                            for item in results:
-                                if "content" in item:
-                                    full_response += item["content"]
-                                # Ensure data is followed by exactly two newlines for SSE spec
-                                yield f"data: {json.dumps(item)}\n\n"
+                        
+                        # Manual iteration for fallback
+                        stream_task = asyncio.create_task(stream_iter.__anext__())
+                        queue_task = asyncio.create_task(tool_event_queue.get())
+                        
+                        while True:
+                            done, _ = await asyncio.wait(
+                                [stream_task, queue_task],
+                                return_when=asyncio.FIRST_COMPLETED
+                            )
+                            
+                            if stream_task in done:
+                                try:
+                                    res = await stream_task
+                                    if not first_token_time:
+                                        first_token_time = time.time()
+                                    results = parser.parse_chunk(res)
+                                    for item in results:
+                                        if "content" in item:
+                                            full_response += item["content"]
+                                        yield f"data: {json.dumps(item)}\n\n"
+                                    stream_task = asyncio.create_task(stream_iter.__anext__())
+                                except StopAsyncIteration:
+                                    if queue_task.done() and not queue_task.cancelled():
+                                        try:
+                                            ev = queue_task.result()
+                                            yield f"data: {json.dumps(ev)}\n\n"
+                                            tool_event_queue.task_done()
+                                        except Exception:
+                                            pass
+                                    break
+                                except Exception:
+                                    logger.exception("Error in stream_iter (fallback)")
+                                    break
+                            
+                            if queue_task in done:
+                                try:
+                                    ev = await queue_task
+                                    yield f"data: {json.dumps(ev)}\n\n"
+                                    tool_event_queue.task_done()
+                                    queue_task = asyncio.create_task(tool_event_queue.get())
+                                except Exception:
+                                    logger.exception("Error in tool_event_queue (fallback)")
+                                    queue_task = asyncio.create_task(tool_event_queue.get())
+                        
+                        if not stream_task.done():
+                            stream_task.cancel()
+                        if not queue_task.done():
+                            queue_task.cancel()
+                        
+                        while not tool_event_queue.empty():
+                            ev = tool_event_queue.get_nowait()
+                            yield f"data: {json.dumps(ev)}\n\n"
+                            tool_event_queue.task_done()
                 else:
                     raise stream_err
             

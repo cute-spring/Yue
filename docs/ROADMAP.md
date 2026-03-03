@@ -272,6 +272,7 @@ This document serves as a structured task list for AI development. Each phase is
   - [ ] Enable users to define/extend agent capabilities via Markdown files (Schema, Description, Prompting).
   - [ ] Implement a skill loader and validator for dynamic capability injection.
 - [ ] **6.3 Observability & Transparency (执行透明化)**
+  - [ ] Detailed implementation plan: [observability_transparency_plan.md](./plans/observability_transparency_plan.md)
   - [ ] Detailed tool call panel: display real-time MCP/tool inputs, outputs, and execution latency.
   - [ ] Visual trace of agent "thought process" and sub-task status.
 - [ ] **6.4 Multi-Agent Orchestration (多智能体编排)**
