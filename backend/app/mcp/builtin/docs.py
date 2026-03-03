@@ -410,6 +410,281 @@ class DocsReadPdfTool(BaseTool):
                 )
         return f"{abs_path}#P{start}-P{end}\n{snippet}"
 
+class PdfOutlineExtractTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="pdf_outline_extract",
+            description="Extract PDF outline/bookmarks with title, page, and hierarchy.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "root_dir": {"type": "string"},
+                    "max_bytes": {"type": "integer"},
+                },
+                "required": ["path"],
+            }
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        path = args.get("path")
+        root_dir = args.get("root_dir")
+        max_bytes = args.get("max_bytes", 10 * 1024 * 1024)
+        allow_roots, deny_roots = _get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
+            require_md=False,
+        )
+        abs_path, outline = doc_retrieval.pdf_outline_extract(
+            path,
+            docs_root=docs_root,
+            file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+            max_bytes=max_bytes,
+        )
+        return json.dumps({"path": abs_path, "outline": outline}, ensure_ascii=False, indent=2)
+
+
+class PdfKeywordPageSearchTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="pdf_keyword_page_search",
+            description="Search keywords within a PDF page range and return matching pages.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "root_dir": {"type": "string"},
+                    "keywords": {"type": "array", "items": {"type": "string"}},
+                    "start_page": {"type": "integer"},
+                    "end_page": {"type": "integer"},
+                    "max_bytes": {"type": "integer"},
+                    "timeout_s": {"type": "number"},
+                },
+                "required": ["path", "keywords"],
+            }
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        path = args.get("path")
+        root_dir = args.get("root_dir")
+        keywords = args.get("keywords") or []
+        start_page = args.get("start_page", 1)
+        end_page = args.get("end_page")
+        max_bytes = args.get("max_bytes", 10 * 1024 * 1024)
+        timeout_s = args.get("timeout_s", 4.0)
+        allow_roots, deny_roots = _get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
+            require_md=False,
+        )
+        abs_path, pages = doc_retrieval.pdf_keyword_page_search(
+            path,
+            keywords=keywords,
+            start_page=start_page,
+            end_page=end_page,
+            docs_root=docs_root,
+            file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+            max_bytes=max_bytes,
+            timeout_s=timeout_s,
+        )
+        return json.dumps({"path": abs_path, "pages": pages}, ensure_ascii=False, indent=2)
+
+
+class PdfPageTextReadTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="pdf_page_text_read",
+            description="Read plain text from a specific PDF page.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "root_dir": {"type": "string"},
+                    "page": {"type": "integer"},
+                    "max_bytes": {"type": "integer"},
+                    "timeout_s": {"type": "number"},
+                },
+                "required": ["path", "page"],
+            }
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        path = args.get("path")
+        root_dir = args.get("root_dir")
+        page = args.get("page")
+        max_bytes = args.get("max_bytes", 10 * 1024 * 1024)
+        timeout_s = args.get("timeout_s", 3.0)
+        allow_roots, deny_roots = _get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
+            require_md=False,
+        )
+        abs_path, resolved_page, text = doc_retrieval.pdf_page_text_read(
+            path,
+            page=page,
+            docs_root=docs_root,
+            file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+            max_bytes=max_bytes,
+            timeout_s=timeout_s,
+        )
+        return json.dumps(
+            {"path": abs_path, "page": resolved_page, "text": text},
+            ensure_ascii=False,
+            indent=2,
+        )
+
+
+class PdfPageRangeFilterTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="pdf_page_range_filter",
+            description="Filter candidate pages by start/end page range.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "start_page": {"type": "integer"},
+                    "end_page": {"type": "integer"},
+                    "pages": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["start_page", "pages"],
+            }
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        start_page = args.get("start_page")
+        end_page = args.get("end_page")
+        pages = args.get("pages") or []
+        filtered = doc_retrieval.pdf_page_range_filter(start_page, end_page, pages)
+        return json.dumps({"pages": filtered}, ensure_ascii=False, indent=2)
+
+
+class PdfPageTableExtractTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="pdf_page_table_extract",
+            description="Extract a table from a PDF page using pdfplumber.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "root_dir": {"type": "string"},
+                    "page": {"type": "integer"},
+                    "table_index": {"type": "integer"},
+                    "max_bytes": {"type": "integer"},
+                },
+                "required": ["path", "page"],
+            }
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        path = args.get("path")
+        root_dir = args.get("root_dir")
+        page = args.get("page")
+        table_index = args.get("table_index", 0)
+        max_bytes = args.get("max_bytes", 10 * 1024 * 1024)
+        allow_roots, deny_roots = _get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
+            require_md=False,
+        )
+        abs_path, resolved_page, table = doc_retrieval.pdf_page_table_extract(
+            path,
+            page=page,
+            table_index=table_index,
+            docs_root=docs_root,
+            file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+            max_bytes=max_bytes,
+        )
+        return json.dumps(
+            {"path": abs_path, "page": resolved_page, "table": table},
+            ensure_ascii=False,
+            indent=2,
+        )
+
+
+class PdfPageRenderImageTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="pdf_page_render_image",
+            description="Render a PDF page to an image and return file URL.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "root_dir": {"type": "string"},
+                    "page": {"type": "integer"},
+                    "dpi": {"type": "integer"},
+                    "max_bytes": {"type": "integer"},
+                },
+                "required": ["path", "page"],
+            }
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        path = args.get("path")
+        root_dir = args.get("root_dir")
+        page = args.get("page")
+        dpi = args.get("dpi", 150)
+        max_bytes = args.get("max_bytes", 20 * 1024 * 1024)
+        allow_roots, deny_roots = _get_doc_access()
+        deps = getattr(ctx, "deps", None)
+        doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
+        file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
+            require_md=False,
+        )
+        abs_path, resolved_page, image_path = doc_retrieval.pdf_page_render_image(
+            path,
+            page=page,
+            dpi=dpi,
+            docs_root=docs_root,
+            file_patterns=file_patterns if isinstance(file_patterns, list) else None,
+            max_bytes=max_bytes,
+        )
+        return json.dumps(
+            {"path": abs_path, "page": resolved_page, "image_path": image_path},
+            ensure_ascii=False,
+            indent=2,
+        )
+
 # Register all docs tools
 builtin_tool_registry.register(DocsListTool())
 builtin_tool_registry.register(DocsSearchTool())
@@ -417,3 +692,9 @@ builtin_tool_registry.register(DocsReadTool())
 builtin_tool_registry.register(DocsInspectTool())
 builtin_tool_registry.register(DocsSearchPdfTool())
 builtin_tool_registry.register(DocsReadPdfTool())
+builtin_tool_registry.register(PdfOutlineExtractTool())
+builtin_tool_registry.register(PdfKeywordPageSearchTool())
+builtin_tool_registry.register(PdfPageTextReadTool())
+builtin_tool_registry.register(PdfPageRangeFilterTool())
+builtin_tool_registry.register(PdfPageTableExtractTool())
+builtin_tool_registry.register(PdfPageRenderImageTool())

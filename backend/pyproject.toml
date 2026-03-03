@@ -18,6 +18,9 @@ dependencies = [
     "logfire",
     "fastmcp",
     "pypdf",
+    "pymupdf",
+    "pdfminer.six",
+    "pdfplumber",
     "python-pptx",
     "psutil",
 ]

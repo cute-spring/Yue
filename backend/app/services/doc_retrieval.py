@@ -5,6 +5,7 @@ import sys
 import subprocess
 import json
 import shutil
+import uuid
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Iterable, List, Optional, Dict, Any, Tuple, Set
@@ -531,6 +532,264 @@ def read_pdf_pages(
     )
     return abs_path, start, end, snippet
 
+
+def _normalize_pdf_outline(outlines: Any, reader: Any, level: int = 0) -> List[Dict[str, Any]]:
+    if outlines is None:
+        return []
+    if not isinstance(outlines, list):
+        outlines = [outlines]
+    results: List[Dict[str, Any]] = []
+    for item in outlines:
+        if isinstance(item, list):
+            if results:
+                children = _normalize_pdf_outline(item, reader, level + 1)
+                if children:
+                    results[-1]["children"] = children
+            else:
+                results.extend(_normalize_pdf_outline(item, reader, level))
+            continue
+        title = None
+        try:
+            title = item.title
+        except Exception:
+            title = None
+        if title is None:
+            try:
+                title = str(item)
+            except Exception:
+                title = ""
+        page_num = None
+        try:
+            page_num = reader.get_destination_page_number(item) + 1
+        except Exception:
+            try:
+                page = getattr(item, "page", None)
+                if isinstance(page, int):
+                    page_num = page + 1
+                else:
+                    getter = getattr(reader, "get_page_number", None)
+                    if getter and page is not None:
+                        page_num = getter(page) + 1
+            except Exception:
+                page_num = None
+        entry = {"title": title, "page": page_num, "level": level}
+        results.append(entry)
+    return results
+
+
+def pdf_outline_extract(
+    requested_path: str,
+    *,
+    docs_root: Optional[str] = None,
+    file_patterns: Optional[List[str]] = None,
+    max_bytes: int = 10 * 1024 * 1024,
+) -> tuple[str, List[Dict[str, Any]]]:
+    docs_root = docs_root or get_docs_root()
+    abs_path = resolve_docs_path(
+        requested_path,
+        docs_root=docs_root,
+        require_md=False,
+        allowed_extensions=PDF_EXTENSIONS,
+        file_patterns=file_patterns,
+    )
+    st = os.stat(abs_path)
+    if st.st_size > max_bytes:
+        raise DocAccessError("File too large")
+    from pypdf import PdfReader
+    reader = PdfReader(abs_path)
+    outlines = None
+    try:
+        outlines = reader.outline
+    except Exception:
+        try:
+            outlines = reader.outlines
+        except Exception:
+            outlines = None
+    return abs_path, _normalize_pdf_outline(outlines, reader)
+
+
+def pdf_keyword_page_search(
+    requested_path: str,
+    *,
+    keywords: List[str],
+    start_page: int = 1,
+    end_page: Optional[int] = None,
+    docs_root: Optional[str] = None,
+    file_patterns: Optional[List[str]] = None,
+    max_bytes: int = 10 * 1024 * 1024,
+    timeout_s: float = 4.0,
+) -> tuple[str, List[int]]:
+    if start_page < 1:
+        raise DocAccessError("start_page must be >= 1")
+    docs_root = docs_root or get_docs_root()
+    abs_path = resolve_docs_path(
+        requested_path,
+        docs_root=docs_root,
+        require_md=False,
+        allowed_extensions=PDF_EXTENSIONS,
+        file_patterns=file_patterns,
+    )
+    st = os.stat(abs_path)
+    if st.st_size > max_bytes:
+        raise DocAccessError("File too large")
+    normalized = [k.strip().lower() for k in (keywords or []) if isinstance(k, str) and k.strip()]
+    if not normalized:
+        return abs_path, []
+    from pypdf import PdfReader
+    reader = PdfReader(abs_path)
+    total_pages = len(reader.pages)
+    start_idx = min(max(0, start_page - 1), max(0, total_pages - 1)) if total_pages else 0
+    final_end = total_pages if end_page is None else max(0, min(end_page, total_pages))
+    if final_end <= 0 or start_idx >= final_end:
+        return abs_path, []
+    deadline = time.time() + timeout_s
+    hits: List[int] = []
+    for i in range(start_idx, final_end):
+        if time.time() > deadline:
+            break
+        page = reader.pages[i]
+        text = (page.extract_text() or "").lower()
+        if not text:
+            continue
+        if any(k in text for k in normalized):
+            hits.append(i + 1)
+    return abs_path, hits
+
+
+def pdf_page_text_read(
+    requested_path: str,
+    *,
+    page: int,
+    docs_root: Optional[str] = None,
+    file_patterns: Optional[List[str]] = None,
+    max_bytes: int = 10 * 1024 * 1024,
+    timeout_s: float = 3.0,
+) -> tuple[str, int, str]:
+    if page < 1:
+        raise DocAccessError("page must be >= 1")
+    docs_root = docs_root or get_docs_root()
+    abs_path = resolve_docs_path(
+        requested_path,
+        docs_root=docs_root,
+        require_md=False,
+        allowed_extensions=PDF_EXTENSIONS,
+        file_patterns=file_patterns,
+    )
+    st = os.stat(abs_path)
+    if st.st_size > max_bytes:
+        raise DocAccessError("File too large")
+    from pypdf import PdfReader
+    deadline = time.time() + timeout_s
+    reader = PdfReader(abs_path)
+    total_pages = len(reader.pages)
+    if total_pages == 0:
+        return abs_path, 1, ""
+    idx = min(max(0, page - 1), total_pages - 1)
+    if time.time() > deadline:
+        return abs_path, idx + 1, ""
+    text = reader.pages[idx].extract_text() or ""
+    return abs_path, idx + 1, text
+
+
+def pdf_page_range_filter(
+    start_page: int,
+    end_page: Optional[int],
+    candidate_pages: List[int],
+) -> List[int]:
+    if start_page < 1:
+        raise DocAccessError("start_page must be >= 1")
+    if end_page is not None and end_page < start_page:
+        return []
+    normalized = []
+    for p in candidate_pages or []:
+        if not isinstance(p, int):
+            continue
+        if p < start_page:
+            continue
+        if end_page is not None and p > end_page:
+            continue
+        normalized.append(p)
+    return sorted(set(normalized))
+
+
+def pdf_page_table_extract(
+    requested_path: str,
+    *,
+    page: int,
+    table_index: int = 0,
+    docs_root: Optional[str] = None,
+    file_patterns: Optional[List[str]] = None,
+    max_bytes: int = 10 * 1024 * 1024,
+) -> tuple[str, int, List[List[Optional[str]]]]:
+    if page < 1:
+        raise DocAccessError("page must be >= 1")
+    if table_index < 0:
+        raise DocAccessError("table_index must be >= 0")
+    docs_root = docs_root or get_docs_root()
+    abs_path = resolve_docs_path(
+        requested_path,
+        docs_root=docs_root,
+        require_md=False,
+        allowed_extensions=PDF_EXTENSIONS,
+        file_patterns=file_patterns,
+    )
+    st = os.stat(abs_path)
+    if st.st_size > max_bytes:
+        raise DocAccessError("File too large")
+    import pdfplumber
+    with pdfplumber.open(abs_path) as pdf:
+        total_pages = len(pdf.pages)
+        if total_pages == 0:
+            return abs_path, 1, []
+        idx = min(max(0, page - 1), total_pages - 1)
+        tables = pdf.pages[idx].extract_tables() or []
+        if table_index >= len(tables):
+            return abs_path, idx + 1, []
+        return abs_path, idx + 1, tables[table_index]
+
+
+def pdf_page_render_image(
+    requested_path: str,
+    *,
+    page: int,
+    dpi: int = 150,
+    docs_root: Optional[str] = None,
+    file_patterns: Optional[List[str]] = None,
+    max_bytes: int = 20 * 1024 * 1024,
+) -> tuple[str, int, str]:
+    if page < 1:
+        raise DocAccessError("page must be >= 1")
+    if dpi <= 0:
+        raise DocAccessError("dpi must be >= 1")
+    docs_root = docs_root or get_docs_root()
+    abs_path = resolve_docs_path(
+        requested_path,
+        docs_root=docs_root,
+        require_md=False,
+        allowed_extensions=PDF_EXTENSIONS,
+        file_patterns=file_patterns,
+    )
+    st = os.stat(abs_path)
+    if st.st_size > max_bytes:
+        raise DocAccessError("File too large")
+    import fitz
+    doc = fitz.open(abs_path)
+    total_pages = len(doc)
+    if total_pages == 0:
+        doc.close()
+        return abs_path, 1, ""
+    idx = min(max(0, page - 1), total_pages - 1)
+    zoom = dpi / 72.0
+    matrix = fitz.Matrix(zoom, zoom)
+    page_obj = doc.load_page(idx)
+    pix = page_obj.get_pixmap(matrix=matrix)
+    upload_dir = os.path.join(get_project_root(), "backend", "data", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = f"{uuid.uuid4()}.png"
+    file_path = os.path.join(upload_dir, filename)
+    pix.save(file_path)
+    doc.close()
+    return abs_path, idx + 1, f"/files/{filename}"
 
 def _make_snippet(text: str, idx: int, *, window: int = 160) -> str:
     if idx < 0:

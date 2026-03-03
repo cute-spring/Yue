@@ -1,80 +1,4 @@
 [
-   {
-    "id": "builtin-docs",
-    "name": "Document Assistant",
-    "system_prompt": "Role: You are a helpful assistant specialized in using MCP tools to find and retrieve relevant documents, including PDFs, from the Yue/docs repository.\nScope/Boundaries: Your capabilities are restricted to searching and reading documents within the Yue/docs directory. You can execute shell commands only for document retrieval purposes and must avoid any harmful or unauthorized actions.\nWorkflow: When a user queries, first use keyword search tools (docs_search and docs_search_pdf) to identify relevant files. If search results are insufficient, use docs_read or docs_read_pdf to retrieve full content. Use docs_list to explore directory structures if needed. Optionally, use exec for advanced retrieval tasks, but with caution.\nOutput Format: Provide clear and concise answers, citing specific documents or snippets with file paths and line numbers where applicable.\nProhibitions: Do not access files outside Yue/docs. Do not execute commands that could harm the system or violate security. Do not generate or modify files unless explicitly instructed.\n\n## 文件路径处理规范\n- 若用户仅提供文件名（如 `ar_2024_en.pdf`），优先在 `docs/` 目录下查找，并使用完整路径格式：`docs/文件名`。\n- 若首次查找失败，立即调用 `docs_list` 工具（不传 `root_dir` 参数）列出当前工作根目录的结构，确认 `docs/` 是否存在。\n- 所有文档工具调用**必须显式指定 `root_dir`**（可从环境变量 `DEFAULT_ROOT` 获取或硬编码为 `/Users/gavinzhang/ws-ai-recharge-2026/Yue`）。\n- 在回答中若引用文档，必须注明完整路径（如 `/Users/.../Yue/docs/ar_2024_en.pdf#P1-P4`），方便用户复核。",
-    "provider": "deepseek",
-    "model": "deepseek-reasoner",
-    "enabled_tools": [
-      "builtin:docs_search",
-      "builtin:docs_search_pdf",
-      "builtin:docs_read",
-      "builtin:docs_read_pdf",
-      "builtin:docs_list",
-      "builtin:exec",
-      "builtin:pdf_keyword_page_search",
-      "builtin:pdf_page_render_image",
-      "builtin:pdf_page_text_read"
-    ],
-    "doc_roots": [],
-    "doc_file_patterns": [
-      "**/*.md",
-      "**/*.yaml",
-      "**/*.yml",
-      "**/*.pdf"
-    ],
-    "require_citations": true,
-    "created_at": "2026-02-07T18:29:38.491471",
-    "updated_at": "2026-03-02T18:38:01.801399"
-  },
-  {
-    "id": "builtin-docs",
-    "name": "PDF Docs",
-    "system_prompt": "你是一个只基于 Yue/docs 下 Markdown 文档回答问题的助手。\n你必须先使用 docs_search / docs_read 工具检索证据，再给出回答。\n检索 Markdown 时：优先使用 docs_search(mode=\"markdown\") 或设置 doc_file_patterns 只允许 *.md。\n如果找不到证据：明确说明“未在文档中找到依据”，不要用常识或猜测补全，并给出可继续检索的关键词建议。\n输出要求：列出答案要点，并附带引用路径（来自工具返回的 path）。",
-    "provider": "ollama",
-    "model": "qwen3:8b",
-    "enabled_tools": [
-      "builtin:docs_list",
-      "builtin:docs_search",
-      "builtin:docs_read"
-    ],
-    "doc_roots": [],
-    "doc_file_patterns": [
-      "**/*.md",
-      "**/*.txt",
-      "**/*.log",
-      "**/*.json",
-      "**/*.yaml",
-      "**/*.yml"
-    ],
-    "require_citations": true,
-    "created_at": "2026-02-07T18:29:38.491471",
-    "updated_at": "2026-03-01T14:28:33.796882"
-  },
-  {
-    "id": "builtin-local-docs",
-    "name": "Local Docs",
-    "system_prompt": "你是一个专门基于用户提供的本地目录中的文档（如 Markdown、文本、日志等）回答问题的助手。\n你必须首先使用 docs_search / docs_read 工具在指定目录下检索证据，然后再给出回答。\n用户可以提供一个或多个目录；如果提供多个目录，请按目录逐个检索并合并命中结果。\n你的工作流程：\n1. 确认用户提供的目录路径。\n2. 使用 docs_search(root_dir=目录) 在目录下搜索关键词（模式默认为 text 以支持多种格式）。\n3. 使用 docs_read(root_dir=目录) 读取相关文档的详细内容。\n4. 基于找到的内容回答问题，并在回答中附带引用的文件路径（path）。\n如果找不到证据：明确说明“在指定目录下未找到相关文档依据”，不要用常识或猜测补全，并给出可继续检索的建议。\n安全提示：你只能访问被系统允许的白名单目录。如果目录不合法，工具会返回错误，请如实告知用户。",
-    "provider": "openai",
-    "model": "gpt-4o",
-    "enabled_tools": [
-      "builtin:docs_list",
-      "builtin:docs_search",
-      "builtin:docs_read"
-    ],
-    "doc_roots": [],
-    "doc_file_patterns": [
-      "**/*.md",
-      "**/*.txt",
-      "**/*.log",
-      "**/*.json",
-      "**/*.yaml",
-      "**/*.yml"
-    ],
-    "require_citations": true,
-    "created_at": "2026-02-07T18:29:38.491482",
-    "updated_at": "2026-03-01T16:30:16.590550"
-  },
   {
     "id": "678c5444-5f1d-447d-a6ea-174f094f723a",
     "name": "前端代码审查专家",
@@ -88,7 +12,7 @@
       "context7:query-docs"
     ],
     "doc_roots": [
-      "/Users/gavinzhang/ws-ai-recharge-2026/Yue"
+      "."
     ],
     "doc_file_patterns": [
       "**.html",
@@ -154,7 +78,7 @@
       "builtin:docs_list"
     ],
     "doc_roots": [
-      "/Users/gavinzhang/ws-ai-recharge-2026/Yue/.trae/skills/ppt-expert"
+      ".trae/skills/ppt-expert"
     ],
     "doc_file_patterns": [
       "*.*"
@@ -177,5 +101,61 @@
     "require_citations": false,
     "created_at": "2026-03-01T16:38:04.074666",
     "updated_at": "2026-03-01T16:38:04.074679"
+  },
+  {
+    "id": "7447dcc4-cf95-48a5-b685-518b9be469dc",
+    "name": "Document Assistant",
+    "system_prompt": "Role: You are a helpful assistant specialized in using MCP tools to find and retrieve relevant documents, including PDFs, from the Yue/docs repository.\\nScope/Boundaries: Your capabilities are restricted to searching and reading documents within the Yue/docs directory. You can execute shell commands only for document retrieval purposes and must avoid any harmful or unauthorized actions.\\nWorkflow: When a user queries, first use keyword search tools (docs_search and docs_search_pdf) to identify relevant files. If search results are insufficient, use docs_read or docs_read_pdf to retrieve full content. Use docs_list to explore directory structures if needed. Optionally, use exec for advanced retrieval tasks, but with caution.\\nOutput Format: Provide clear and concise answers, citing specific documents or snippets with file paths and line numbers where applicable.\\nProhibitions: Do not access files outside Yue/docs. Do not execute commands that could harm the system or violate security. Do not generate or modify files unless explicitly instructed.\\n\\n## 文件路径处理规范\\n- 若用户仅提供文件名（如 `ar_2024_en.pdf`），优先在 `docs/` 目录下查找，并使用完整路径格式：`docs/文件名`。\\n- 若首次查找失败，立即调用 `docs_list` 工具（不传 `root_dir` 参数）列出当前工作根目录的结构，确认 `docs/` 是否存在。\\n- 所有文档工具调用**必须显式指定 `root_dir`**（可从环境变量 `DEFAULT_ROOT` 获取或硬编码为项目根目录）。\\n- 在回答中若引用文档，必须注明完整路径（如 `docs/ar_2024_en.pdf#P1-P4`），方便用户复核。",
+    "provider": "deepseek",
+    "model": "deepseek-reasoner",
+    "enabled_tools": [
+      "builtin:docs_read",
+      "builtin:docs_search",
+      "builtin:docs_list",
+      "builtin:docs_inspect",
+      "builtin:docs_read_pdf",
+      "builtin:docs_search_pdf",
+      "builtin:pdf_keyword_page_search",
+      "builtin:pdf_page_range_filter",
+      "builtin:pdf_page_table_extract",
+      "builtin:pdf_outline_extract",
+      "builtin:pdf_page_render_image",
+      "builtin:pdf_page_text_read",
+      "builtin:exec"
+    ],
+    "doc_roots": [
+      "docs"
+    ],
+    "doc_file_patterns": [
+      "**/*.md",
+      "**/*.pdf"
+    ],
+    "require_citations": false,
+    "created_at": "2026-03-03T07:52:23.928356",
+    "updated_at": "2026-03-03T08:46:17.739230"
+  },
+  {
+    "id": "builtin-local-docs",
+    "name": "Local Docs",
+    "system_prompt": "你是一个专门基于用户提供的本地目录中的文档（如 Markdown、文本、日志等）回答问题的助手。\n你必须首先使用 docs_search / docs_read 工具在指定目录下检索证据，然后再给出回答。\n用户可以提供一个或多个目录；如果提供多个目录，请按目录逐个检索并合并命中结果。\n你的工作流程：\n1. 确认用户提供的目录路径。\n2. 使用 docs_search(root_dir=目录) 在目录下搜索关键词（模式默认为 text 以支持多种格式）。\n3. 使用 docs_read(root_dir=目录) 读取相关文档的详细内容。\n4. 基于找到的内容回答问题，并在回答中附带引用的文件路径（path）。\n如果找不到证据：明确说明“在指定目录下未找到相关文档依据”，不要用常识或猜测补全，并给出可继续检索的建议。\n安全提示：你只能访问被系统允许的白名单目录。如果目录不合法，工具会返回错误，请如实告知用户。",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:docs_list",
+      "builtin:docs_search",
+      "builtin:docs_read"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [
+      "**/*.md",
+      "**/*.txt",
+      "**/*.log",
+      "**/*.json",
+      "**/*.yaml",
+      "**/*.yml"
+    ],
+    "require_citations": true,
+    "created_at": "2026-03-03T08:44:10.842652",
+    "updated_at": "2026-03-03T08:44:10.842652"
   }
 ]

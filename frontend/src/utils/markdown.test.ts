@@ -48,5 +48,11 @@ describe('Markdown Utils', () => {
       expect(output).toContain('hljs');
       expect(output).toContain('language-javascript');
     });
+
+    it('should normalize sandbox file image src', () => {
+      const input = '![page 11](sandbox:/files/baaf.png)';
+      const output = renderMarkdown(input);
+      expect(output).toContain('src="/files/baaf.png"');
+    });
   });
 });
