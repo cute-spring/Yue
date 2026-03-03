@@ -333,7 +333,7 @@ export function AgentForm(props: AgentFormProps) {
                     props.addDocRoot();
                   }
                 }}
-                placeholder="Absolute or project-relative path, e.g. docs or /Users/.../docs"
+                placeholder="Absolute or project-relative path, e.g. docs or /path/to/project/docs"
               />
               <button
                 type="button"
