@@ -33,14 +33,16 @@ def test_ensure_data_file_from_legacy(temp_dirs):
     
     store = AgentStore(data_dir=data_dir, legacy_data_dir=legacy_dir)
     agents = store.list_agents()
-    # Should contain legacy agent + 2 builtin agents
+    # Should contain legacy agent + builtin agents
     assert any(a.id == "legacy-1" for a in agents)
     assert any(a.id == "builtin-docs" for a in agents)
+    assert any(a.id == "builtin-excel-analyst" for a in agents)
 
 def test_list_agents(agent_store):
     agents = agent_store.list_agents()
-    assert len(agents) >= 2
+    assert len(agents) >= 4
     assert agents[0].id == "builtin-docs"
+    assert any(a.id == "builtin-excel-analyst" for a in agents)
 
 def test_create_agent(agent_store):
     new_agent = AgentConfig(name="New Agent", system_prompt="You are a helper")
@@ -101,8 +103,9 @@ def test_recover_corrupt_file(temp_dirs):
     store = AgentStore(data_dir=data_dir, legacy_data_dir=legacy_dir)
     # list_agents should trigger recovery
     agents = store.list_agents()
-    assert len(agents) >= 2
+    assert len(agents) >= 4
     assert any(a.id == "builtin-docs" for a in agents)
+    assert any(a.id == "builtin-excel-analyst" for a in agents)
     # Should have created a corrupt file
     files = os.listdir(data_dir)
     assert any(f.startswith("agents.json.corrupt") for f in files)

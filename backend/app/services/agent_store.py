@@ -66,6 +66,8 @@ class AgentStore:
             [
                 self._builtin_docs_agent().model_dump(mode="json"),
                 self._builtin_local_docs_agent().model_dump(mode="json"),
+                self._builtin_architect_agent().model_dump(mode="json"),
+                self._builtin_excel_analyst_agent().model_dump(mode="json"),
             ],
         )
 
@@ -120,6 +122,8 @@ class AgentStore:
             [
                 self._builtin_docs_agent().model_dump(mode="json"),
                 self._builtin_local_docs_agent().model_dump(mode="json"),
+                self._builtin_architect_agent().model_dump(mode="json"),
+                self._builtin_excel_analyst_agent().model_dump(mode="json"),
             ],
         )
         return True
@@ -202,12 +206,47 @@ class AgentStore:
             enabled_tools=[],
         )
 
+    def _builtin_excel_analyst_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-excel-analyst",
+            name="Excel Analyst",
+            system_prompt=(
+                "Role: Senior Excel Data Analyst & Automation Expert\n"
+                "You are a professional analyst specializing in Excel-driven business intelligence and data forensics. "
+                "Deliver accurate, high-performance, and secure analysis using built-in Excel tools.\n\n"
+                "Tool Strategy (Phase-Based Execution):\n"
+                "1. Structural awareness first: always run excel_profile before reading or querying.\n"
+                "2. Security and logic checks when needed: use excel_script_scan for untrusted files and excel_logic_extract for formula lineage.\n"
+                "3. Retrieval by scale: excel_read for small datasets, excel_query for large/complex analysis.\n\n"
+                "Analytical principles:\n"
+                "- Prefer excel_query for search, aggregation, grouping, and joins.\n"
+                "- Query only virtual table excel_data with SELECT statements.\n"
+                "- Cite exact sheet and range in final responses.\n"
+                "- If output is truncated, tell the user and narrow the query scope.\n\n"
+                "Constraints:\n"
+                "- Treat source files as read-only.\n"
+                "- Respect hidden rows/columns unless task-relevant."
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[
+                "builtin:excel_profile",
+                "builtin:excel_read",
+                "builtin:excel_query",
+                "builtin:excel_logic_extract",
+                "builtin:excel_script_scan",
+            ],
+            doc_file_patterns=["**/*.xlsx", "**/*.xlsm", "**/*.csv"],
+            require_citations=True,
+        )
+
     def _ensure_builtin_agents(self):
         agents = self.list_agents()
         builtins = [
             self._builtin_docs_agent(),
             self._builtin_local_docs_agent(),
-            self._builtin_architect_agent()
+            self._builtin_architect_agent(),
+            self._builtin_excel_analyst_agent(),
         ]
         
         changed_any = False
