@@ -202,6 +202,39 @@ class ConfigService:
         models_config = llm_section.get("models", {})
         return models_config.get(model_id)
 
+    def get_usage_limits(self, tier: str = "default") -> Dict[str, Any]:
+        """
+        获取使用限制策略 (Policy Matrix)
+        """
+        policies = {
+            "default": {
+                "tool_calls_limit": 8,
+                "request_limit": 12,
+                "total_tokens_limit": 120000
+            },
+            "strict": {
+                "tool_calls_limit": 4,
+                "request_limit": 8,
+                "total_tokens_limit": 60000
+            },
+            "premium": {
+                "tool_calls_limit": 16,
+                "request_limit": 20,
+                "total_tokens_limit": 240000
+            }
+        }
+        
+        # Allow override from global_config.json
+        config_policies = self._config.get("usage_policies", {})
+        if config_policies:
+            for t, p in config_policies.items():
+                if t in policies:
+                    policies[t].update(p)
+                else:
+                    policies[t] = p
+                    
+        return policies.get(tier, policies["default"])
+
     def get_provider_default_model(self, provider: str) -> Optional[str]:
         """
         获取指定 Provider 的默认模型

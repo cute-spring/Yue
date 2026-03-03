@@ -2,6 +2,7 @@ import { createSignal, For, Show, onCleanup, createEffect, createMemo } from 'so
 import { Message } from '../types';
 import { renderMarkdown } from '../utils/markdown';
 import { getAdaptedThought } from "../utils/thoughtParser";
+import ToolCallItem from './ToolCallItem';
 
 interface MessageItemProps {
   msg: Message;
@@ -534,7 +535,19 @@ export default function MessageItem(props: MessageItemProps) {
                     </div>
                   </div>
                 </Show>
-                
+
+                <Show when={props.msg.tool_calls && props.msg.tool_calls.length > 0}>
+                  <div class="mb-4 space-y-2">
+                    <div class="flex items-center gap-2 px-1 mb-1">
+                      <div class="w-1 h-3 bg-primary/40 rounded-full"></div>
+                      <span class="text-[10px] font-bold uppercase tracking-wider text-text-secondary/40">Tools Execution</span>
+                    </div>
+                    <For each={props.msg.tool_calls}>
+                      {(toolCall) => <ToolCallItem toolCall={toolCall} />}
+                    </For>
+                  </div>
+                </Show>
+
                 <Show when={content || (props.isTyping && !thought)}>
                   <div 
                     innerHTML={renderMarkdown(content, props.isTyping)} 

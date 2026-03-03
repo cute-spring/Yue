@@ -142,7 +142,17 @@ export function useChatState(
     let firstTokenTime: number | null = null;
 
     timerInterval = setInterval(() => setElapsedTime(t => t + 0.1), 100);
-    setMessages(prev => [...prev, { role: 'assistant', content: "", timestamp: nowIso, provider: selectedProvider(), model: selectedModel(), context_id: contextId, tools: [], citations: [] }]);
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: "", 
+      timestamp: nowIso, 
+      provider: selectedProvider(), 
+      model: selectedModel(), 
+      context_id: contextId, 
+      tools: [], 
+      tool_calls: [],
+      citations: [] 
+    }]);
 
     abortController = new AbortController();
 
@@ -300,6 +310,40 @@ export function useChatState(
               }
               return newMsgs;
             });
+          } else if (data.event === "tool.call.started") {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                const tool_calls = [...(newMsgs[lastIndex].tool_calls || [])];
+                tool_calls.push({
+                  call_id: data.call_id,
+                  tool_name: data.tool_name,
+                  args: data.args,
+                  status: 'running' as const
+                });
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], tool_calls };
+              }
+              return newMsgs;
+            });
+          } else if (data.event === "tool.call.finished") {
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                const tool_calls = (newMsgs[lastIndex].tool_calls || []).map(tc => 
+                  tc.call_id === data.call_id 
+                    ? { ...tc, status: (data.error ? 'error' : 'success') as 'error' | 'success', result: data.result, error: data.error, duration_ms: data.duration_ms }
+                    : tc
+                );
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], tool_calls };
+              }
+              return newMsgs;
+            });
+          } else if (data.event === "run.limited") {
+            // Handled via the content update from the backend friendly message, 
+            // but we could also set a flag here if needed.
+            console.warn("Run limited:", data.reason);
           } else if (data.error) {
             setMessages(prev => {
               const newMsgs = [...prev];
