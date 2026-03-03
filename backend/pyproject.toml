@@ -23,6 +23,9 @@ dependencies = [
     "pdfplumber",
     "python-pptx",
     "psutil",
+    "openpyxl",
+    "duckdb",
+    "pandas",
 ]
 
 [dependency-groups]

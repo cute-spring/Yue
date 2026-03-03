@@ -24,6 +24,7 @@ class TestAgentStorePersistence(unittest.TestCase):
             self.assertIn(custom.id, ids)
             self.assertIn("builtin-docs", ids)
             self.assertIn("builtin-local-docs", ids)
+            self.assertIn("builtin-excel-analyst", ids)
 
             self.assertTrue(os.path.exists(os.path.join(new_dir, "agents.json")))
 
@@ -46,11 +47,11 @@ class TestAgentStorePersistence(unittest.TestCase):
                 f.write("{")
 
             agents = store.list_agents()
-            self.assertGreaterEqual(len(agents), 2)
+            self.assertGreaterEqual(len(agents), 4)
             with open(agents_path, "r") as f:
                 restored = json.load(f)
             self.assertTrue(isinstance(restored, list))
-            self.assertGreaterEqual(len(restored), 2)
+            self.assertGreaterEqual(len(restored), 4)
 
     def test_preserve_corrupt_file_when_no_backup(self):
         from app.services.agent_store import AgentStore
@@ -66,7 +67,7 @@ class TestAgentStorePersistence(unittest.TestCase):
                 f.write("{")
 
             agents = store.list_agents()
-            self.assertGreaterEqual(len(agents), 2)
+            self.assertGreaterEqual(len(agents), 4)
 
             corrupt_files = [p for p in os.listdir(td) if p.startswith("agents.json.corrupt.")]
             self.assertTrue(len(corrupt_files) >= 1)
@@ -78,4 +79,3 @@ class TestAgentStorePersistence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

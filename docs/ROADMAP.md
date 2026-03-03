@@ -143,6 +143,7 @@ This document serves as a structured task list for AI development. Each phase is
   - [x] Verify state persistence (settings, agent creation) through end-to-end flows.
 - [ ] **3.3 Performance & Security Audit**
   - [ ] Conduct performance profiling for agent generation and chat streaming.
+  - [ ] Performance tuning based on profiling results (latency, memory, throughput).
   - [ ] Implement rate limiting and request validation middleware.
   - [ ] Finalize production-ready Docker configuration with security hardening.
 
@@ -150,7 +151,11 @@ This document serves as a structured task list for AI development. Each phase is
     - [ ] **Built-in Connectors**:
       - [ ] Web Search Connector (Tavily/DuckDuckGo integration).
       - [ ] Advanced Code Analysis (AST-aware navigation/search).
-      - [ ] Structured Data Handler (CSV/Excel/JSON analysis).
+      - [ ] **MS Excel & Structured Data Handler**:
+        - [ ] `builtin:excel_read(path, sheet_name?, range?)`: Read specific sheets or ranges as JSON/Markdown.
+        - [ ] `builtin:excel_query(path, query)`: Natural language query over Excel data (powered by DuckDB or Pandas).
+        - [ ] `builtin:excel_inspect(path)`: List sheets, headers, and basic stats (rows/cols).
+        - [ ] Support for `.xlsx`, `.xls`, `.csv`, `.json` analysis with integrated RAG support.
       - [ ] Secure File Writer (with HITL audit for controlled editing).
     - [ ] **External Ecosystem Integration**:
       - [ ] Project Management: **JIRA** & **Confluence** integration.
@@ -170,6 +175,7 @@ This document serves as a structured task list for AI development. Each phase is
        - [ ] Comprehensive audit trail and latency metrics for all tool calls.
    - **UX/DX Enhancements**:
      - [ ] Visual Tool Preview: Test-run tools in the Settings/Management UI.
+    - [ ] Tool call detail panel: show MCP/tool inputs, outputs, and latency in chat.
      - [ ] MCP Server Templates: Rapid development scaffolds for custom connectors.
      - [ ] **Impact Preview (Dry Run)**: Visual "Diff View" for write operations before final approval (写操作副作用预览与二次确认).
   - [x] **Safety & Compliance (安全与合规)**:
@@ -182,8 +188,10 @@ This document serves as a structured task list for AI development. Each phase is
     - [ ] Tool Schema Versioning: Versioned tool input/output with backward-compatible adapters to prevent MCP updates breaking clients (工具协议锁定与版本化).
     - [ ] Developer Sandbox Mode: Local sandbox in Settings; write operations become Dry Run with planned API request output (开发者沙箱).
     - [ ] Expanded Test Matrix: Add backend coverage for unauthorized tool calls, missing citations, large scan timeout/limit (自动化测试矩阵扩展).
+    - [ ] Skill system compatibility: reference Claude Code skill format for loader/schema parity.
   - [x] **Intelligent Orchestration & UX (智能编排与体验)**:
     - [ ] Semantic Tool Retrieval: Vector index over tool name/description/schema, attach Top-K tools by intent (语义化工具检索).
+    - [ ] Main agent ↔ sub-agent orchestration with live progress visibility.
     - [x] Minimal Citation Cards: Show concise source cards (path/snippet/locator) with copy/jump and auto-collapse long excerpts (引用卡片最小化设计).
   - [ ] **Security Config & Observability (安全配置与凭证管理)**:
     - [ ] Credential Rotation & Health Checks: Token expiry alerts and one-click checks for JIRA/GitHub/Teams; MCP init preflight (凭证轮换与健康检查).
@@ -214,6 +222,9 @@ This document serves as a structured task list for AI development. Each phase is
 - [x] **3.4 "Chat to Note" Workflow**
   - [x] Add an action button to messages to "Save as Note" (implemented via `/note`).
   - [x] Auto-generate a concise summary and title for saved notes using LLM.
+- [ ] **3.5 Memory System**
+  - [ ] Short-term memory buffer for session-level context.
+  - [ ] Long-term memory store with retrieval and decay policies.
 
 ## Phase 4: Intelligence & Polish (智能化提升与极致体验)
 *Goal: Refine micro-interactions and add advanced AI features.*
@@ -249,5 +260,26 @@ This document serves as a structured task list for AI development. Each phase is
   - [ ] **Smart Summary**: Implement "Rolling Summary" to compress old history instead of hard truncation.
   - [ ] **Precise Token Counting**: Integrate `tiktoken` for accurate token estimation (replacing `len/3` heuristic).
 
+## Phase 6: Advanced Autonomy & Memory (高级自主性与记忆) - [PLANNED]
+*Goal: Elevate agent intelligence through persistent memory, modular skills, and hierarchical orchestration.*
+
+- [ ] **6.1 Memory Evolution (记忆系统演进)**
+  - [ ] Implement hierarchical memory structure: Short-term (session-level) + Long-term (persistent cross-session).
+  - [ ] Reference implementations: **OpenClaw** memory patterns or **Mem0** integration for entity-based retrieval.
+  - [ ] Define memory decay and importance-based retrieval policies.
+- [ ] **6.2 Markdown-Defined Skills (Markdown 技能系统)**
+  - [ ] Support "Skills" as first-class citizens, referencing **Claude Code** and **OpenClaw** skill formats.
+  - [ ] Enable users to define/extend agent capabilities via Markdown files (Schema, Description, Prompting).
+  - [ ] Implement a skill loader and validator for dynamic capability injection.
+- [ ] **6.3 Observability & Transparency (执行透明化)**
+  - [ ] Detailed tool call panel: display real-time MCP/tool inputs, outputs, and execution latency.
+  - [ ] Visual trace of agent "thought process" and sub-task status.
+- [ ] **6.4 Multi-Agent Orchestration (多智能体编排)**
+  - [ ] Implement Main-agent ↔ Sub-agent hierarchy for complex workflow decomposition.
+  - [ ] Standardize agent-to-agent communication protocols and state sharing.
+- [ ] **6.5 Performance Tuning (性能深度优化)**
+  - [ ] System-wide profiling for latency, memory footprint, and concurrent throughput.
+  - [ ] Implement optimization strategies based on profiling data (caching, batching, stream handling).
+
 ---
-*Last Updated: 2026-02-07*
+*Last Updated: 2026-03-03*
