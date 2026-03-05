@@ -28,6 +28,7 @@ import { useMermaid } from '../hooks/useMermaid';
 
 export default function Chat() {
   const toast = useToast();
+  const [requestedSkill, setRequestedSkill] = createSignal<string | null>(null);
   
   // History & Knowledge State
   const [showHistory, setShowHistory] = createSignal(true); // Default to true on desktop
@@ -77,6 +78,7 @@ export default function Chat() {
     selectedProvider,
     selectedModel,
     selectedAgent,
+    requestedSkill,
     setShowLLMSelector
   );
 
@@ -96,6 +98,8 @@ export default function Chat() {
     imageAttachments,
     setImageAttachments,
     copiedMessageIndex,
+    activeSkill,
+    setActiveSkill,
     loadChat,
     startNewChat,
     deleteChat,
@@ -105,6 +109,12 @@ export default function Chat() {
     handleRegenerate,
     handleSubmit: originalHandleSubmit,
   } = chatState;
+
+  createEffect(() => {
+    selectedAgent();
+    setRequestedSkill(null);
+    setActiveSkill(null);
+  });
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
@@ -290,6 +300,10 @@ export default function Chat() {
   };
 
   const currentAgent = () => agents().find(a => a.id === selectedAgent());
+  const visibleSkillOptions = () => {
+    const skills = currentAgent()?.visible_skills || [];
+    return skills;
+  };
 
   const handleMentionSelect = (agent: any) => {
     selectAgent(agent, input(), setInput);
@@ -396,6 +410,30 @@ export default function Chat() {
                 </p>
               </div>
             </div>
+            <Show when={currentAgent()?.skill_mode && currentAgent()?.skill_mode !== 'off'}>
+              <div class="hidden md:flex items-center gap-2 ml-4">
+                <span class="text-[10px] uppercase tracking-wider font-bold text-violet-700 bg-violet-100 border border-violet-200 rounded-full px-2 py-1">
+                  {currentAgent()?.skill_mode}
+                </span>
+                <Show when={currentAgent()?.skill_mode === 'manual'}>
+                  <select
+                    class="text-xs border border-violet-200 bg-white rounded-lg px-2 py-1.5 text-violet-700 font-medium focus:outline-none focus:ring-2 focus:ring-violet-400"
+                    value={requestedSkill() || ''}
+                    onChange={e => setRequestedSkill(e.currentTarget.value || null)}
+                  >
+                    <option value="">No skill selected</option>
+                    {visibleSkillOptions().map(skill => (
+                      <option value={skill}>{skill}</option>
+                    ))}
+                  </select>
+                </Show>
+                <Show when={activeSkill()}>
+                  <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2 py-1">
+                    Active: {activeSkill()!.name}@{activeSkill()!.version}
+                  </span>
+                </Show>
+              </div>
+            </Show>
           </div>
           
           <div class="flex items-center gap-2">

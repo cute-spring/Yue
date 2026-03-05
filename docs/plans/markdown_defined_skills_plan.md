@@ -71,6 +71,54 @@ Each skill is a Markdown document with frontmatter plus structured sections.
 
 ---
 
+## Current Implementation Status (March 2026)
+
+### Overall Status
+- Implemented: ✅ Phases 0/A/B/C/D core scope.
+- Auto-verified: ✅ Backend integration/API tests and frontend unit/E2E tests are green.
+- Manual sign-off pending: ⚠️ Product/QA visual confirmation for Gate D manual UI checkpoints.
+
+### Phase 0: Baseline and Gates (Completed)
+- [x] Freeze current legacy agent behavior as baseline reference.
+- [x] Establish mandatory regression suite for `skill_mode=off` agents.
+- [x] Verified zero regression for legacy agents via `test_phase_0_baseline.py`.
+
+### Phase A: Foundation (Completed)
+- [x] Define `SkillSpec` and parser for frontmatter + sections.
+- [x] Add baseline validator and registry with startup loading.
+- [x] Add `skill_mode` / `visible_skills` to `AgentConfig` model in `agent_store.py`.
+- [x] Implemented `SkillLoader`, `SkillValidator`, and `SkillRegistry` in `skill_service.py`.
+
+### Phase B: Runtime Wiring (Completed)
+- [x] Inject registered skills into planner capability selection via `SkillRouter`.
+- [x] Add reload endpoint `POST /api/skills/reload`.
+- [x] Add `SkillRouter` with agent-scoped visibility and fallback to legacy path.
+- [x] Implemented `MarkdownSkillAdapter` and `LegacyAgentAdapter` for unified runtime contract.
+- [x] Integrated skill selection into `chat.py` stream flow with prompt layering.
+- [x] Enforced tool intersection policy via `SkillPolicyGate`.
+
+### Phase C: Hardening (Completed)
+- [x] Add policy enforcement and audit events.
+- [x] Implemented `SkillPolicyGate` for tool intersection.
+- [x] Added `skill_selected` event emission in chat stream for observability.
+
+### Phase D: UX and Tooling (Completed)
+- [x] Add operational endpoints: `GET /api/skills`, `GET /api/skills/{name}`, `POST /api/skills/select`.
+- [x] Add feature flags: `skill_runtime_enabled`, `skill_selector_tool_enabled`, `skill_auto_mode_enabled` in `config_service.py`.
+- [x] UI for Agent-level controls (`skill_mode`, `visible_skills`).
+- [x] UI for skill selection and fallback visibility.
+- [x] Add runtime selector tool endpoint: `POST /api/skills/tool/select_runtime_skill`.
+
+### Gate D Evidence Snapshot
+- ✅ E2E: agent form updates `skill_mode` and `visible_skills` payload correctly.
+- ✅ E2E: chat sends `requested_skill` and renders active-skill indicator from SSE.
+- ✅ E2E: invalid requested skill path preserves chat success (fallback-safe behavior).
+- ✅ E2E: allowlist agent shows skill selector while non-allowlist agent does not.
+- ✅ Backend: runtime selector tool endpoint covered for disabled and success paths.
+- ⚠️ Pending manual sign-off: visual UX confirmation across `off | manual | auto` under product-like data.
+
+---
+
 ## Architecture Plan
 
 ### 0) Enablement Strategy (Agent-Scoped Hybrid Mode)

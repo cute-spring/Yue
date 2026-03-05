@@ -53,6 +53,15 @@ class ConfigService:
         """获取完整配置字典"""
         return self._config
 
+    def get_feature_flags(self) -> Dict[str, bool]:
+        """获取功能开关配置"""
+        flags = self._config.get("feature_flags", {})
+        return {
+            "skill_runtime_enabled": flags.get("skill_runtime_enabled", True),
+            "skill_selector_tool_enabled": flags.get("skill_selector_tool_enabled", True),
+            "skill_auto_mode_enabled": flags.get("skill_auto_mode_enabled", True),
+        }
+
     def update_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """更新完整配置并持久化到磁盘"""
         self._config.update(new_config)

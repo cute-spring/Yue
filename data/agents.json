@@ -208,5 +208,18 @@
     "require_citations": true,
     "created_at": "2026-03-03T22:50:46.272912",
     "updated_at": "2026-03-04T07:11:28.538270"
+  },
+  {
+    "id": "441cfb9b-764b-48c6-815e-3606e499ad89",
+    "name": "E2E Test Agent",
+    "system_prompt": "You are an E2E test agent.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "created_at": "2026-03-05T10:01:46.756173",
+    "updated_at": "2026-03-05T10:01:46.756178"
   }
 ]

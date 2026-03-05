@@ -72,6 +72,19 @@ export function AgentCard(props: AgentCardProps) {
           </Show>
         </div>
       </div>
+      <Show when={props.agent.skill_mode && props.agent.skill_mode !== 'off'}>
+        <div class="flex items-center gap-2 mt-2 overflow-hidden">
+          <span class="text-xs font-semibold text-gray-400 shrink-0">SKILLS</span>
+          <div class="flex flex-wrap gap-1">
+            <span class="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded border border-violet-100 uppercase font-bold tracking-wide">
+              {props.agent.skill_mode}
+            </span>
+            <span class="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded border border-violet-100">
+              {(props.agent.visible_skills || []).length} visible
+            </span>
+          </div>
+        </div>
+      </Show>
       <Show when={props.agent.doc_roots && props.agent.doc_roots.length > 0}>
         <div class="flex items-center gap-2 mt-2 overflow-hidden">
           <span class="text-xs font-semibold text-gray-400 shrink-0">SCOPE</span>

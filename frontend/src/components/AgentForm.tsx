@@ -1,5 +1,5 @@
 import { For, Show } from 'solid-js';
-import { McpTool } from '../types';
+import { McpTool, SkillSpec } from '../types';
 
 interface AgentFormProps {
   editingId: () => string | null;
@@ -13,6 +13,11 @@ interface AgentFormProps {
   setFormPrompt: (prompt: string) => void;
   formTools: () => string[];
   setFormTools: (tools: string[]) => void;
+  formSkillMode: () => 'off' | 'manual' | 'auto';
+  setFormSkillMode: (mode: 'off' | 'manual' | 'auto') => void;
+  formVisibleSkills: () => string[];
+  setFormVisibleSkills: (skills: string[]) => void;
+  skills: () => SkillSpec[];
   availableTools: () => McpTool[];
   groupedTools: () => Record<string, McpTool[]>;
   expandedGroups: () => Record<string, boolean>;
@@ -45,6 +50,15 @@ interface AgentFormProps {
 }
 
 export function AgentForm(props: AgentFormProps) {
+  const toggleVisibleSkill = (name: string, version: string) => {
+    const id = `${name}:${version}`;
+    if (props.formVisibleSkills().includes(id)) {
+      props.setFormVisibleSkills(props.formVisibleSkills().filter(s => s !== id));
+      return;
+    }
+    props.setFormVisibleSkills([...props.formVisibleSkills(), id]);
+  };
+
   return (
     <div class="mb-8 bg-white border rounded-2xl shadow-lg overflow-hidden max-w-4xl mx-auto">
       <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
@@ -188,6 +202,105 @@ export function AgentForm(props: AgentFormProps) {
             placeholder="You are a helpful assistant..."
             required
           />
+        </div>
+
+        <div class="rounded-2xl border border-violet-100 bg-violet-50/60 p-4 space-y-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-[10px] font-black text-violet-700 uppercase tracking-[0.2em]">Skill Runtime</div>
+              <div class="text-xs text-violet-700/80 mt-1">Control markdown skill activation per agent</div>
+            </div>
+            <div class="text-[10px] font-bold text-violet-700 bg-white/80 px-2 py-1 rounded-full border border-violet-100">Phase 6.2</div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => props.setFormSkillMode('off')}
+              class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+                props.formSkillMode() === 'off'
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                  : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
+              }`}
+            >
+              Off
+            </button>
+            <button
+              type="button"
+              onClick={() => props.setFormSkillMode('manual')}
+              class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+                props.formSkillMode() === 'manual'
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                  : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
+              }`}
+            >
+              Manual
+            </button>
+            <button
+              type="button"
+              onClick={() => props.setFormSkillMode('auto')}
+              class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+                props.formSkillMode() === 'auto'
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                  : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
+              }`}
+            >
+              Auto
+            </button>
+          </div>
+          <Show when={props.formSkillMode() !== 'off'}>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <label class="block text-xs font-bold text-violet-700 uppercase tracking-wider">Visible Skills</label>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => props.setFormVisibleSkills(props.skills().map(s => `${s.name}:${s.version}`))}
+                    class="text-[10px] uppercase tracking-wider font-bold text-violet-600 hover:text-violet-700 bg-violet-100 px-2 py-1 rounded"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => props.setFormVisibleSkills([])}
+                    class="text-[10px] uppercase tracking-wider font-bold text-gray-500 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <For each={props.skills()}>
+                  {skill => {
+                    const skillId = `${skill.name}:${skill.version}`;
+                    return (
+                      <label class={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                        props.formVisibleSkills().includes(skillId)
+                          ? 'bg-violet-100 border-violet-400 ring-1 ring-violet-400'
+                          : 'bg-white border-violet-100 hover:bg-violet-50'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={props.formVisibleSkills().includes(skillId)}
+                          onChange={() => toggleVisibleSkill(skill.name, skill.version)}
+                          class="mt-1 text-violet-600 focus:ring-violet-500 rounded border-gray-300"
+                        />
+                        <div class="min-w-0">
+                          <div class="text-sm font-semibold text-gray-900 truncate">{skill.name}</div>
+                          <div class="text-[10px] uppercase tracking-wider font-bold text-violet-700">{skill.version}</div>
+                          <div class="text-xs text-gray-500 mt-1 line-clamp-2">{skill.description}</div>
+                        </div>
+                      </label>
+                    );
+                  }}
+                </For>
+              </div>
+              <Show when={props.skills().length === 0}>
+                <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                  No loaded skills found. Use /api/skills/reload after adding markdown skill files.
+                </div>
+              </Show>
+            </div>
+          </Show>
         </div>
 
         <div>

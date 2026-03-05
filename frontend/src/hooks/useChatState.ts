@@ -6,6 +6,7 @@ export function useChatState(
   selectedProvider: () => string,
   selectedModel: () => string,
   selectedAgent: () => string | null,
+  requestedSkill: () => string | null,
   setShowLLMSelector: (v: boolean) => void
 ) {
   const toast = useToast();
@@ -19,6 +20,7 @@ export function useChatState(
   const [expandedThoughts, setExpandedThoughts] = createSignal<Record<number, boolean>>({});
   const [imageAttachments, setImageAttachments] = createSignal<File[]>([]);
   const [copiedMessageIndex, setCopiedMessageIndex] = createSignal<number | null>(null);
+  const [activeSkill, setActiveSkill] = createSignal<{ name: string; version: string } | null>(null);
   
   let abortController: AbortController | null = null;
   let timerInterval: any = null;
@@ -137,6 +139,7 @@ export function useChatState(
     setInput("");
     setImageAttachments([]);
     setIsTyping(true);
+    setActiveSkill(null);
     setElapsedTime(0);
     const startTime = Date.now();
     let firstTokenTime: number | null = null;
@@ -164,6 +167,7 @@ export function useChatState(
           message: text,
           images: base64Images.length > 0 ? base64Images : undefined,
           agent_id: agentId,
+          requested_skill: requestedSkill() || undefined,
           chat_id: currentChatId(),
           provider: selectedProvider(),
           model: selectedModel(),
@@ -344,6 +348,20 @@ export function useChatState(
             // Handled via the content update from the backend friendly message, 
             // but we could also set a flag here if needed.
             console.warn("Run limited:", data.reason);
+          } else if (data.event === "skill_selected") {
+            setActiveSkill({ name: data.name, version: data.version });
+            setMessages(prev => {
+              const newMsgs = [...prev];
+              const lastIndex = newMsgs.length - 1;
+              if (lastIndex >= 0) {
+                newMsgs[lastIndex] = {
+                  ...newMsgs[lastIndex],
+                  active_skill_name: data.name,
+                  active_skill_version: data.version
+                };
+              }
+              return newMsgs;
+            });
           } else if (data.error) {
             setMessages(prev => {
               const newMsgs = [...prev];
@@ -452,6 +470,8 @@ export function useChatState(
     setImageAttachments,
     copiedMessageIndex,
     setCopiedMessageIndex,
+    activeSkill,
+    setActiveSkill,
     loadHistory,
     loadChat,
     startNewChat,

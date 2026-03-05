@@ -8,8 +8,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health
+from app.api import chat, agents, mcp, models, config, notebook, health, skills
 from app.mcp.manager import mcp_manager
+from app.services.skill_service import skill_registry
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
 # Load .env from backend directory
@@ -23,6 +24,13 @@ from app.services.health_monitor import health_monitor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize Skill Registry
+    skills_dir = Path(__file__).parent.parent / "data" / "skills"
+    if not skills_dir.exists():
+        skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_registry.skill_dirs = [str(skills_dir)]
+    skill_registry.load_all()
+    
     # Initialize MCP Manager first
     await mcp_manager.initialize()
     # Start Health Monitor
@@ -58,6 +66,7 @@ app.add_middleware(
 # Include Routers
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
+app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])

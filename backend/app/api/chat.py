@@ -14,6 +14,7 @@ from app.services.prompt_service import build_system_prompt
 from app.services.response_parser_service import get_parser
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
+from app.services.skill_service import skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
 import asyncio
@@ -43,6 +44,7 @@ class ChatRequest(BaseModel):
     message: str
     images: list[str] | None = None
     agent_id: str | None = None
+    requested_skill: str | None = None
     chat_id: str | None = None
     system_prompt: str | None = None
     provider: str | None = None
@@ -200,8 +202,54 @@ async def chat_stream(request: ChatRequest):
             provider = request.provider
             model_name = request.model
             system_prompt = request.system_prompt
-
-            if agent_config:
+            
+            # --- Markdown-Defined Skills (Phase 6.2) ---
+            selected_skill_spec = None
+            feature_flags = config_service.get_feature_flags()
+            
+            if feature_flags.get("skill_runtime_enabled") and agent_config and agent_config.skill_mode != "off":
+                if agent_config.skill_mode == "manual":
+                    if request.requested_skill:
+                        selected_skill_spec = skill_router.route(
+                            agent_config,
+                            request.message,
+                            requested_skill=request.requested_skill
+                        )
+                elif agent_config.skill_mode == "auto":
+                    if feature_flags.get("skill_auto_mode_enabled", True):
+                        selected_skill_spec = skill_router.route(
+                            agent_config,
+                            request.message,
+                            requested_skill=None
+                        )
+                
+            if selected_skill_spec:
+                # Skill path
+                descriptor = MarkdownSkillAdapter.to_descriptor(selected_skill_spec)
+                provider = provider or agent_config.provider
+                model_name = model_name or agent_config.model
+                
+                # Prompt layering: Agent Persona + Skill Instructions + Runtime Constraints
+                # We use the agent's base system prompt as 'Persona'
+                persona = agent_config.system_prompt
+                skill_prompt = descriptor.prompt_blocks.get("system_prompt", "")
+                instructions = descriptor.prompt_blocks.get("instructions", "")
+                
+                system_prompt = f"{persona}\n\n[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+                if instructions:
+                    system_prompt += f"\n\n### Additional Instructions\n{instructions}"
+                    
+                # Tool intersection
+                enabled_tools = agent_config.enabled_tools
+                allowed_tools = descriptor.tool_policy.get("allowed_tools")
+                final_tools_list = SkillPolicyGate.check_tool_intersection(enabled_tools, allowed_tools)
+                
+                # Overwrite enabled_tools for tool_registry call later
+                # We'll need a way to pass these to tool_registry
+                logger.info(f"Skill {selected_skill_spec.name} selected. Tool intersection: {final_tools_list}")
+                yield f"data: {json.dumps({'event': 'skill_selected', 'name': selected_skill_spec.name, 'version': selected_skill_spec.version})}\n\n"
+            elif agent_config:
+                # Legacy path
                 provider = provider or agent_config.provider
                 model_name = model_name or agent_config.model
                 system_prompt = system_prompt or agent_config.system_prompt
@@ -209,6 +257,9 @@ async def chat_stream(request: ChatRequest):
                     if "可检索目录" not in system_prompt:
                         roots = "\n".join(f"- {r}" for r in agent_config.doc_roots)
                         system_prompt += f"\n\n可检索目录（优先使用）：\n{roots}"
+                final_tools_list = agent_config.enabled_tools
+            else:
+                final_tools_list = [] # Default for no agent
             
             # Final fallbacks if still None
             provider = provider or "openai"
@@ -231,7 +282,8 @@ async def chat_stream(request: ChatRequest):
             tools = await tool_registry.get_pydantic_ai_tools_for_agent(
                 request.agent_id, 
                 provider,
-                on_event=on_tool_event
+                on_event=on_tool_event,
+                enabled_tools=final_tools_list
             )
 
             tool_names = []

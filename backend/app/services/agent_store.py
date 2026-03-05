@@ -28,6 +28,8 @@ class AgentConfig(BaseModel):
     doc_roots: List[str] = []
     doc_file_patterns: List[str] = []
     require_citations: bool = False
+    skill_mode: str = "off"  # off | manual | auto
+    visible_skills: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
