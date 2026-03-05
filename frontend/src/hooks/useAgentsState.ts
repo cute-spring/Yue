@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
-import { Agent, McpTool, SmartDraft } from '../types';
+import { Agent, McpTool, SkillSpec, SmartDraft } from '../types';
 
 export function useAgentsState() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
@@ -34,6 +34,7 @@ export function useAgentsState() {
   const [smartApplyPrompt, setSmartApplyPrompt] = createSignal(true);
   const [smartApplyTools, setSmartApplyTools] = createSignal(true);
   const [isRefreshingTools, setIsRefreshingTools] = createSignal(false);
+  const [skills, setSkills] = createSignal<SkillSpec[]>([]);
   
   // Form state
   const [formName, setFormName] = createSignal("");
@@ -41,6 +42,8 @@ export function useAgentsState() {
   const [formProvider, setFormProvider] = createSignal("openai");
   const [formModel, setFormModel] = createSignal("gpt-4o");
   const [formTools, setFormTools] = createSignal<string[]>([]);
+  const [formSkillMode, setFormSkillMode] = createSignal<'off' | 'manual' | 'auto'>('off');
+  const [formVisibleSkills, setFormVisibleSkills] = createSignal<string[]>([]);
   const [formDocRoots, setFormDocRoots] = createSignal<string[]>([]);
   const [formDocRootInput, setFormDocRootInput] = createSignal("");
   const [formDocFilePatternsText, setFormDocFilePatternsText] = createSignal("");
@@ -107,11 +110,23 @@ export function useAgentsState() {
     }
   };
 
+  const loadSkills = async () => {
+    try {
+      const res = await fetch('/api/skills');
+      const data = await res.json();
+      setSkills(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("Failed to load skills", e);
+      setSkills([]);
+    }
+  };
+
   onMount(async () => {
     loadAgents();
     loadTools();
     loadProviders();
     loadDocAccess();
+    loadSkills();
 
     const handleClickOutside = () => {
       if (showLLMSelector()) {
@@ -124,11 +139,14 @@ export function useAgentsState() {
 
   const openCreate = () => {
     loadTools(); // Auto refresh tools when opening form
+    loadSkills();
     setFormName("");
     setFormPrompt("");
     setFormProvider("openai");
     setFormModel("gpt-4o");
     setFormTools([]);
+    setFormSkillMode("off");
+    setFormVisibleSkills([]);
     setFormDocRoots([]);
     setFormDocRootInput("");
     setFormDocFilePatternsText("");
@@ -138,11 +156,14 @@ export function useAgentsState() {
 
   const openEdit = (agent: Agent) => {
     loadTools(); // Auto refresh tools when opening form
+    loadSkills();
     setFormName(agent.name);
     setFormPrompt(agent.system_prompt);
     setFormProvider(agent.provider);
     setFormModel(agent.model);
     setFormTools(agent.enabled_tools);
+    setFormSkillMode((agent.skill_mode as 'off' | 'manual' | 'auto') || "off");
+    setFormVisibleSkills(agent.visible_skills || []);
     setFormDocRoots(agent.doc_roots || []);
     setFormDocRootInput("");
     setFormDocFilePatternsText((agent.doc_file_patterns || []).join("\n"));
@@ -252,6 +273,8 @@ export function useAgentsState() {
       provider: formProvider(),
       model: formModel(),
       enabled_tools: formTools(),
+      skill_mode: formSkillMode(),
+      visible_skills: formVisibleSkills(),
       doc_roots: formDocRoots(),
       doc_file_patterns: parsedPatterns
     };
@@ -321,19 +344,21 @@ export function useAgentsState() {
 
   return {
     agents, availableTools, groupedTools, isEditing, editingId, providers,
+    skills,
     showLLMSelector, isRefreshingModels, isRefreshingTools, showAllModels, showSmartGenerate,
     smartDescription, smartUpdateTools, smartIsGenerating, smartError, smartDraft,
     smartApplyName, smartApplyPrompt, smartApplyTools, formName, formPrompt,
-    formProvider, formModel, formTools, formDocRoots, formDocRootInput,
+    formProvider, formModel, formTools, formSkillMode, formVisibleSkills, formDocRoots, formDocRootInput,
     formDocFilePatternsText, expandedGroups, allowDocRoots, denyDocRoots,
     setAgents, setAvailableTools, setIsEditing, setEditingId, setProviders,
+    setSkills,
     setShowLLMSelector, setIsRefreshingModels, setIsRefreshingTools, setShowAllModels, setShowSmartGenerate,
     setSmartDescription, setSmartUpdateTools, setSmartIsGenerating, setSmartError,
     setSmartDraft, setSmartApplyName, setSmartApplyPrompt, setSmartApplyTools,
-    setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools,
+    setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools, setFormSkillMode, setFormVisibleSkills,
     setFormDocRoots, setFormDocRootInput, setFormDocFilePatternsText,
     setExpandedGroups, setAllowDocRoots, setDenyDocRoots,
-    toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess,
+    toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess, loadSkills,
     openCreate, openEdit, openSmartGenerate, applySmartDraft, smartPromptLint,
     smartRiskSummary, runSmartGenerate, handleSubmit, handleDelete, toggleTool,
     supportsDocScope, addDocRoot, addDocRootValue, removeDocRoot

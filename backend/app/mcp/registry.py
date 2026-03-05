@@ -23,17 +23,17 @@ class ToolRegistry:
     def __init__(self, mcp_manager: McpManager):
         self.mcp_manager = mcp_manager
         
-    async def get_tools_for_agent(self, agent_id: Optional[str]) -> List[BaseTool]:
+    async def get_tools_for_agent(self, agent_id: Optional[str], enabled_tools: Optional[List[str]] = None) -> List[BaseTool]:
         """
         Get all authorized tools for an agent, returned as BaseTool objects.
         """
         agent = agent_store.get_agent(agent_id) if agent_id else None
 
-        if not agent:
-            logger.info("No agent context provided. Returning zero tools for safety.")
+        if not agent and not enabled_tools:
+            logger.info("No agent context or enabled tools provided. Returning zero tools for safety.")
             return []
 
-        allowed_tools = set(agent.enabled_tools)
+        allowed_tools = set(enabled_tools if enabled_tools is not None else (agent.enabled_tools if agent else []))
         tools: List[BaseTool] = []
 
         # 1. Get MCP tools
@@ -53,7 +53,8 @@ class ToolRegistry:
         self, 
         agent_id: Optional[str], 
         provider: Optional[str] = None,
-        on_event: Optional[ToolEventCallback] = None
+        on_event: Optional[ToolEventCallback] = None,
+        enabled_tools: Optional[List[str]] = None
     ) -> List[Any]:
         """
         Get all authorized tools for an agent, converted to Pydantic AI Tool objects.
@@ -62,8 +63,9 @@ class ToolRegistry:
             agent_id: The ID of the agent.
             provider: The LLM provider (e.g., "openai", "deepseek").
             on_event: Optional callback for tool events (started, finished).
+            enabled_tools: Optional explicit list of tool names (overrides agent's list).
         """
-        base_tools = await self.get_tools_for_agent(agent_id)
+        base_tools = await self.get_tools_for_agent(agent_id, enabled_tools=enabled_tools)
         pydantic_tools = []
         for tool in base_tools:
             if isinstance(tool, McpTool):

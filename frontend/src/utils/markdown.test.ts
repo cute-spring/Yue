@@ -54,5 +54,17 @@ describe('Markdown Utils', () => {
       const output = renderMarkdown(input);
       expect(output).toContain('src="/files/baaf.png"');
     });
+
+    it('should normalize sandbox download links', () => {
+      const input = '[file](sandbox:/mnt/data/report.pptx)';
+      const output = renderMarkdown(input);
+      expect(output).toContain('href="/exports/report.pptx"');
+    });
+
+    it('should normalize sandbox exports links', () => {
+      const input = '[file](sandbox:/exports/report.pptx)';
+      const output = renderMarkdown(input);
+      expect(output).toContain('href="/exports/report.pptx"');
+    });
   });
 });

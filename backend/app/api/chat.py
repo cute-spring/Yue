@@ -14,6 +14,7 @@ from app.services.prompt_service import build_system_prompt
 from app.services.response_parser_service import get_parser
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
+from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
 import asyncio
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 EST_CHARS_PER_TOKEN = 3
 MAX_CONTEXT_TOKENS = 100000
 MAX_SINGLE_MSG_TOKENS = 20000  # Cap single messages to avoid one massive file read blocking everything
+SKILL_BIND_MIN_SCORE = 2
+SKILL_SWITCH_DELTA = 2
 
 def estimate_tokens(text: str) -> int:
     if not text:
@@ -43,6 +46,7 @@ class ChatRequest(BaseModel):
     message: str
     images: list[str] | None = None
     agent_id: str | None = None
+    requested_skill: str | None = None
     chat_id: str | None = None
     system_prompt: str | None = None
     provider: str | None = None
@@ -200,8 +204,92 @@ async def chat_stream(request: ChatRequest):
             provider = request.provider
             model_name = request.model
             system_prompt = request.system_prompt
-
-            if agent_config:
+            
+            # --- Markdown-Defined Skills (Phase 6.2) ---
+            selected_skill_spec = None
+            feature_flags = config_service.get_feature_flags()
+            
+            if feature_flags.get("skill_runtime_enabled") and agent_config and agent_config.skill_mode != "off":
+                bound_name, bound_version = chat_service.get_session_skill(chat_id)
+                bound_skill = None
+                if bound_name:
+                    bound_skill = skill_registry.get_skill(bound_name, bound_version)
+                visible_skills = skill_router.get_visible_skills(agent_config)
+                if bound_skill and bound_skill not in visible_skills:
+                    bound_skill = None
+                if agent_config.skill_mode == "manual":
+                    if request.requested_skill:
+                        selected_skill_spec, _ = skill_router.route_with_score(
+                            agent_config,
+                            request.message,
+                            requested_skill=request.requested_skill
+                        )
+                    elif bound_skill:
+                        bound_score = skill_router.score_skill(bound_skill, request.message)
+                        if bound_score >= SKILL_BIND_MIN_SCORE:
+                            selected_skill_spec = bound_skill
+                elif agent_config.skill_mode == "auto":
+                    if feature_flags.get("skill_auto_mode_enabled", True):
+                        best_skill, best_score = skill_router.route_with_score(
+                            agent_config,
+                            request.message,
+                            requested_skill=None
+                        )
+                        if bound_skill:
+                            bound_score = skill_router.score_skill(bound_skill, request.message)
+                            if not best_skill:
+                                if bound_score >= SKILL_BIND_MIN_SCORE:
+                                    selected_skill_spec = bound_skill
+                            else:
+                                if bound_skill.name == best_skill.name and bound_skill.version == best_skill.version:
+                                    if best_score >= SKILL_BIND_MIN_SCORE:
+                                        selected_skill_spec = bound_skill
+                                else:
+                                    if best_score >= max(bound_score + SKILL_SWITCH_DELTA, SKILL_BIND_MIN_SCORE):
+                                        selected_skill_spec = best_skill
+                                    elif bound_score >= SKILL_BIND_MIN_SCORE:
+                                        selected_skill_spec = bound_skill
+                        else:
+                            if best_skill and best_score >= SKILL_BIND_MIN_SCORE:
+                                selected_skill_spec = best_skill
+                if selected_skill_spec:
+                    chat_service.set_session_skill(chat_id, selected_skill_spec.name, selected_skill_spec.version)
+                else:
+                    chat_service.clear_session_skill(chat_id)
+            elif agent_config:
+                chat_service.clear_session_skill(chat_id)
+                
+            if selected_skill_spec:
+                # Skill path
+                descriptor = MarkdownSkillAdapter.to_descriptor(selected_skill_spec)
+                provider = provider or agent_config.provider
+                model_name = model_name or agent_config.model
+                
+                persona = agent_config.system_prompt or ""
+                skill_prompt = descriptor.prompt_blocks.get("system_prompt", "")
+                instructions = descriptor.prompt_blocks.get("instructions", "")
+                
+                use_persona = True
+                if agent_config.name == "Expert Mgr" or "Skill Expert Manager" in persona:
+                    use_persona = False
+                if use_persona and persona:
+                    system_prompt = f"{persona}\n\n[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+                else:
+                    system_prompt = f"[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+                if instructions:
+                    system_prompt += f"\n\n### Additional Instructions\n{instructions}"
+                    
+                # Tool intersection
+                enabled_tools = agent_config.enabled_tools
+                allowed_tools = descriptor.tool_policy.get("allowed_tools")
+                final_tools_list = SkillPolicyGate.check_tool_intersection(enabled_tools, allowed_tools)
+                
+                # Overwrite enabled_tools for tool_registry call later
+                # We'll need a way to pass these to tool_registry
+                logger.info(f"Skill {selected_skill_spec.name} selected. Tool intersection: {final_tools_list}")
+                yield f"data: {json.dumps({'event': 'skill_selected', 'name': selected_skill_spec.name, 'version': selected_skill_spec.version})}\n\n"
+            elif agent_config:
+                # Legacy path
                 provider = provider or agent_config.provider
                 model_name = model_name or agent_config.model
                 system_prompt = system_prompt or agent_config.system_prompt
@@ -209,6 +297,9 @@ async def chat_stream(request: ChatRequest):
                     if "可检索目录" not in system_prompt:
                         roots = "\n".join(f"- {r}" for r in agent_config.doc_roots)
                         system_prompt += f"\n\n可检索目录（优先使用）：\n{roots}"
+                final_tools_list = agent_config.enabled_tools
+            else:
+                final_tools_list = [] # Default for no agent
             
             # Final fallbacks if still None
             provider = provider or "openai"
@@ -231,7 +322,8 @@ async def chat_stream(request: ChatRequest):
             tools = await tool_registry.get_pydantic_ai_tools_for_agent(
                 request.agent_id, 
                 provider,
-                on_event=on_tool_event
+                on_event=on_tool_event,
+                enabled_tools=final_tools_list
             )
 
             tool_names = []

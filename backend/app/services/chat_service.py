@@ -42,6 +42,8 @@ class ChatSession(BaseModel):
     id: str
     title: str
     agent_id: Optional[str] = None
+    active_skill_name: Optional[str] = None
+    active_skill_version: Optional[str] = None
     messages: List[Message] = []
     created_at: datetime
     updated_at: datetime
@@ -69,6 +71,8 @@ class ChatService:
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     agent_id TEXT,
+                    active_skill_name TEXT,
+                    active_skill_version TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -118,6 +122,14 @@ class ChatService:
             conn.commit()
             
             # Ensure columns exist (for existing dbs)
+            session_cursor = conn.execute("PRAGMA table_info(sessions)")
+            session_columns = [info[1] for info in session_cursor.fetchall()]
+            if "active_skill_name" not in session_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN active_skill_name TEXT")
+                conn.commit()
+            if "active_skill_version" not in session_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN active_skill_version TEXT")
+                conn.commit()
             cursor = conn.execute("PRAGMA table_info(messages)")
             columns = [info[1] for info in cursor.fetchall()]
             if "thought_duration" not in columns:
@@ -210,6 +222,8 @@ class ChatService:
                     id=row['id'],
                     title=row['title'],
                     agent_id=row['agent_id'],
+                    active_skill_name=row['active_skill_name'],
+                    active_skill_version=row['active_skill_version'],
                     messages=messages,
                     created_at=datetime.fromisoformat(row['created_at']) if isinstance(row['created_at'], str) else row['created_at'],
                     updated_at=datetime.fromisoformat(row['updated_at']) if isinstance(row['updated_at'], str) else row['updated_at']
@@ -254,6 +268,8 @@ class ChatService:
                 id=row['id'],
                 title=row['title'],
                 agent_id=row['agent_id'],
+                active_skill_name=row['active_skill_name'],
+                active_skill_version=row['active_skill_version'],
                 messages=messages,
                 created_at=datetime.fromisoformat(row['created_at']) if isinstance(row['created_at'], str) else row['created_at'],
                 updated_at=datetime.fromisoformat(row['updated_at']) if isinstance(row['updated_at'], str) else row['updated_at']
@@ -264,8 +280,8 @@ class ChatService:
         now = datetime.now()
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (chat_id, title, agent_id, now, now)
+                "INSERT INTO sessions (id, title, agent_id, active_skill_name, active_skill_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (chat_id, title, agent_id, None, None, now, now)
             )
             conn.commit()
         
@@ -273,10 +289,41 @@ class ChatService:
             id=chat_id,
             title=title,
             agent_id=agent_id,
+            active_skill_name=None,
+            active_skill_version=None,
             messages=[],
             created_at=now,
             updated_at=now
         )
+
+    def get_session_skill(self, chat_id: str) -> tuple[Optional[str], Optional[str]]:
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT active_skill_name, active_skill_version FROM sessions WHERE id = ?",
+                (chat_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None, None
+            return row["active_skill_name"], row["active_skill_version"]
+
+    def set_session_skill(self, chat_id: str, name: str, version: str) -> None:
+        now = datetime.now()
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE sessions SET active_skill_name = ?, active_skill_version = ?, updated_at = ? WHERE id = ?",
+                (name, version, now, chat_id)
+            )
+            conn.commit()
+
+    def clear_session_skill(self, chat_id: str) -> None:
+        now = datetime.now()
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE sessions SET active_skill_name = NULL, active_skill_version = NULL, updated_at = ? WHERE id = ?",
+                (now, chat_id)
+            )
+            conn.commit()
 
     def add_message(
         self, 

@@ -5,9 +5,17 @@ export type Agent = {
   provider: string;
   model: string;
   enabled_tools: string[];
+  skill_mode?: 'off' | 'manual' | 'auto';
+  visible_skills?: string[];
   doc_roots?: string[];
   doc_file_patterns?: string[];
   avatar?: string;
+};
+
+export type SkillSpec = {
+  name: string;
+  version: string;
+  description: string;
 };
 
 export type McpTool = {
@@ -30,6 +38,8 @@ export type ChatSession = {
   id: string;
   title: string;
   updated_at: string;
+  active_skill_name?: string | null;
+  active_skill_version?: string | null;
 };
 
 export type Message = {
@@ -53,6 +63,8 @@ export type Message = {
   context_id?: string;
   error?: string;
   finish_reason?: string;
+  active_skill_name?: string;
+  active_skill_version?: string;
 };
 
 export type ToolCall = {
