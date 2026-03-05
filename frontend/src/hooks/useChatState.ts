@@ -44,6 +44,11 @@ export function useChatState(
       setCurrentChatId(data.id);
       setMessages(data.messages);
       setSelectedAgent(data.agent_id);
+      if (data.active_skill_name && data.active_skill_version) {
+        setActiveSkill({ name: data.active_skill_name, version: data.active_skill_version });
+      } else {
+        setActiveSkill(null);
+      }
       if (isMobile) {
         setShowHistory(false);
       }

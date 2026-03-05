@@ -181,9 +181,16 @@ Each skill is a Markdown document with frontmatter plus structured sections.
 
 ### 7) Session Consistency and Fallback Semantics
 - Pin selected skill version at chat-session scope once resolved (`session_skill_binding`).
-- Do not switch skill version mid-session unless explicit user/system reset.
+- Reuse the bound skill for subsequent turns unless topic drift triggers re-selection.
 - If skill execution path fails at runtime, fallback to legacy agent path in the same turn when safe.
 - Persist fallback reason for each fallback event (`validation_failed`, `policy_denied`, `runtime_error`, `not_found`).
+
+#### Session Binding Thresholds
+- `SKILL_BIND_MIN_SCORE`: Minimum score to keep or apply a session-bound skill.
+- `SKILL_SWITCH_DELTA`: Minimum score gap required to switch to a different skill.
+- Behavior:
+  - If the new message scores below `SKILL_BIND_MIN_SCORE`, clear the binding and fall back.
+  - If a new skill scores at least `bound_score + SKILL_SWITCH_DELTA`, switch binding to the new skill.
 
 ### 8) Rollout and Kill Switch
 - Gate skill runtime by feature flags:

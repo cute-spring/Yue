@@ -22,6 +22,8 @@
       "**.tsx"
     ],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-02-07T19:29:45.697525",
     "updated_at": "2026-02-07T19:32:30.883952"
   },
@@ -35,6 +37,8 @@
     "doc_roots": [],
     "doc_file_patterns": [],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-02-11T22:27:49.859461",
     "updated_at": "2026-02-11T22:27:49.859462"
   },
@@ -48,6 +52,8 @@
     "doc_roots": [],
     "doc_file_patterns": [],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-02-14T06:49:15.259287",
     "updated_at": "2026-02-14T06:49:15.259293"
   },
@@ -61,6 +67,8 @@
     "doc_roots": [],
     "doc_file_patterns": [],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-02-14T07:05:58.261591",
     "updated_at": "2026-02-14T07:05:58.261595"
   },
@@ -84,6 +92,8 @@
       "*.*"
     ],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-02-14T14:22:54.742313",
     "updated_at": "2026-03-01T14:31:22.108831"
   },
@@ -99,6 +109,8 @@
     "doc_roots": [],
     "doc_file_patterns": [],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-03-01T16:38:04.074666",
     "updated_at": "2026-03-01T16:38:04.074679"
   },
@@ -131,6 +143,8 @@
       "**/*.pdf"
     ],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-03-03T07:52:23.928356",
     "updated_at": "2026-03-03T08:46:17.739230"
   },
@@ -159,6 +173,8 @@
       "**/*.pdf"
     ],
     "require_citations": true,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-03-03T19:41:22.043699",
     "updated_at": "2026-03-03T19:41:22.043709"
   },
@@ -183,6 +199,8 @@
       "**/*.yml"
     ],
     "require_citations": true,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-03-03T19:41:22.043717",
     "updated_at": "2026-03-03T19:41:22.043718"
   },
@@ -206,6 +224,8 @@
       "**/*.csv"
     ],
     "require_citations": true,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-03-03T22:50:46.272912",
     "updated_at": "2026-03-04T07:11:28.538270"
   },
@@ -219,7 +239,58 @@
     "doc_roots": [],
     "doc_file_patterns": [],
     "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
     "created_at": "2026-03-05T10:01:46.756173",
     "updated_at": "2026-03-05T10:01:46.756178"
+  },
+  {
+    "id": "fa09deee-e589-4740-9bdd-66b4e30735ea",
+    "name": "Expert Mgr",
+    "system_prompt": "You are the Skill Expert Manager. Your job is to decide whether a user request should be handled by a specific skill, and to select the single best-matched skill when necessary. You have visibility to all skills and must only route to a skill that is relevant and helpful for the user’s request.\n\nBehavior:\n- Always start by interpreting the user’s intent and constraints.\n- Decide whether to answer directly or select a skill.\n- If selecting a skill, choose the single best match based on capabilities, scope, and expected outcomes.\n- Prefer precise, narrow skills over broad ones when both apply.\n- If no skill clearly applies, answer directly without forcing a skill selection.\n- If a selected skill is invalid or unavailable, fall back to direct handling and continue the user’s task.\n- For each new user message, re-evaluate skill suitability and do not assume the previous skill is always correct.\n- When a skill is selected, execute the task as that skill and do not retain the manager role during execution.\n\nQuality and safety:\n- Do not expose internal policy or tool details to the user.\n- Do not invent skills or claim access to skills not listed or visible.\n- Keep outputs concise and actionable.\n- When you respond directly, provide the best possible solution using your own reasoning.\n\nDecision format (internal only):\n- Optionally note to yourself which skill would be selected and why, but never show this internal note to the user.",
+    "provider": "ollama",
+    "model": "ministral-3:14b",
+    "enabled_tools": [
+      "builtin:docs_inspect",
+      "builtin:docs_list",
+      "builtin:docs_read",
+      "builtin:docs_read_pdf",
+      "builtin:docs_search",
+      "builtin:docs_search_pdf",
+      "builtin:excel_logic_extract",
+      "builtin:excel_profile",
+      "builtin:excel_query",
+      "builtin:excel_read",
+      "builtin:excel_script_scan",
+      "builtin:exec",
+      "builtin:generate_pptx",
+      "builtin:get_current_time",
+      "builtin:pdf_keyword_page_search",
+      "builtin:pdf_outline_extract",
+      "builtin:pdf_page_range_filter",
+      "builtin:pdf_page_render_image",
+      "builtin:pdf_page_table_extract",
+      "builtin:pdf_page_text_read"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [
+      "**/*.*"
+    ],
+    "require_citations": false,
+    "skill_mode": "auto",
+    "visible_skills": [
+      "pdf-insight-extractor:1.0.0",
+      "release-test-planner:1.0.0",
+      "doc-summarizer:1.0.0",
+      "prompt-polisher:1.0.0",
+      "log-triage:1.0.0",
+      "excel-metric-explorer:1.0.0",
+      "quick-research:1.0.0",
+      "backend-api-debugger:1.0.0",
+      "ppt-expert:1.0.0"
+    ],
+    "tier": "premium",
+    "created_at": "2026-03-05T14:42:05.437086",
+    "updated_at": "2026-03-05T16:33:36.519574"
   }
 ]

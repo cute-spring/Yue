@@ -265,6 +265,70 @@ class SkillRouter:
                 visible.append(skill)
         return visible
 
+    def _tokenize_ascii(self, text: str) -> List[str]:
+        return re.findall(r"[a-z0-9]+", text.lower())
+
+    def _tokenize_cjk(self, text: str) -> List[str]:
+        return re.findall(r"[\u4e00-\u9fff]{2,}", text)
+
+    def _score_skill(self, skill: SkillSpec, task_text: str, task_tokens: set, task_cjk: set) -> int:
+        score = 0
+        name = skill.name or ""
+        description = skill.description or ""
+        capabilities = skill.capabilities or []
+
+        name_lower = name.lower()
+        if name_lower and name_lower in task_text:
+            score += 6
+
+        name_tokens = set(self._tokenize_ascii(name))
+        score += 3 * len(name_tokens.intersection(task_tokens))
+
+        desc_tokens = set(self._tokenize_ascii(description))
+        score += 1 * len(desc_tokens.intersection(task_tokens))
+
+        desc_cjk = set(self._tokenize_cjk(description))
+        score += 1 * len(desc_cjk.intersection(task_cjk))
+
+        for cap in capabilities:
+            cap_text = cap or ""
+            cap_lower = cap_text.lower()
+            if cap_lower and cap_lower in task_text:
+                score += 5
+            cap_tokens = set(self._tokenize_ascii(cap_text))
+            score += 2 * len(cap_tokens.intersection(task_tokens))
+            cap_cjk = set(self._tokenize_cjk(cap_text))
+            score += 2 * len(cap_cjk.intersection(task_cjk))
+
+        return score
+
+    def score_skill(self, skill: SkillSpec, task: str) -> int:
+        task_text = (task or "").lower()
+        task_tokens = set(self._tokenize_ascii(task or ""))
+        task_cjk = set(self._tokenize_cjk(task or ""))
+        return self._score_skill(skill, task_text, task_tokens, task_cjk)
+
+    def route_with_score(self, agent: Any, task: str, requested_skill: str = None) -> tuple[Optional[SkillSpec], int]:
+        visible_skills = self.get_visible_skills(agent)
+        if not visible_skills:
+            return None, 0
+        if requested_skill:
+            if ":" in requested_skill:
+                req_name, req_version = requested_skill.split(":", 1)
+            else:
+                req_name, req_version = requested_skill, None
+            for s in visible_skills:
+                if s.name == req_name and (not req_version or s.version == req_version):
+                    return s, 1000
+        task_text = (task or "").lower()
+        task_tokens = set(self._tokenize_ascii(task or ""))
+        task_cjk = set(self._tokenize_cjk(task or ""))
+        scored = [(self._score_skill(skill, task_text, task_tokens, task_cjk), skill) for skill in visible_skills]
+        scored.sort(key=lambda item: (-item[0], item[1].name))
+        if scored and scored[0][0] > 0:
+            return scored[0][1], scored[0][0]
+        return None, 0
+
     def route(self, agent: Any, task: str, requested_skill: str = None) -> Optional[SkillSpec]:
         """
         Resolve the best skill for an agent and task.
@@ -273,28 +337,8 @@ class SkillRouter:
         2. higher capability match score (placeholder)
         3. lexical order of skill name as final deterministic tie-breaker
         """
-        visible_skills = self.get_visible_skills(agent)
-        if not visible_skills:
-            return None
-            
-        # 1. Check explicitly requested skill
-        if requested_skill:
-            if ":" in requested_skill:
-                req_name, req_version = requested_skill.split(":", 1)
-            else:
-                req_name, req_version = requested_skill, None
-                
-            for s in visible_skills:
-                if s.name == req_name and (not req_version or s.version == req_version):
-                    return s
-        
-        # 2. Ranking logic (Phase B simple version: just use lexical order for now)
-        # In a real scenario, we'd use LLM or keyword matching against 'capabilities'
-        sorted_skills = sorted(visible_skills, key=lambda s: s.name)
-        if sorted_skills:
-            return sorted_skills[0]
-            
-        return None
+        skill, _score = self.route_with_score(agent, task, requested_skill=requested_skill)
+        return skill
 
 class SkillPolicyGate:
     """

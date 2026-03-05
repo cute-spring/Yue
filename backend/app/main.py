@@ -1,8 +1,10 @@
 import os
 import logging
 import asyncio
+import shutil
+import re
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -81,7 +83,38 @@ for d in [uploads_dir, exports_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
 app.mount("/files", StaticFiles(directory=str(uploads_dir)), name="uploads")
-app.mount("/exports", StaticFiles(directory=str(exports_dir)), name="exports")
+
+@app.get("/exports/{file_path:path}")
+async def get_export_file(file_path: str):
+    if not file_path or file_path.startswith(("/", "\\")) or ".." in file_path:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    exports_root = exports_dir.resolve()
+    candidate = (exports_root / file_path).resolve()
+    if str(candidate).startswith(str(exports_root)) and candidate.is_file():
+        return FileResponse(str(candidate))
+    requested_name = Path(file_path).name
+    if requested_name:
+        def normalize_name(name: str) -> str:
+            base = Path(name).stem
+            return re.sub(r"[^a-zA-Z0-9]+", "", base).lower()
+        requested_norm = normalize_name(requested_name)
+        if requested_norm:
+            for child in exports_root.iterdir():
+                if child.is_file() and normalize_name(child.name) == requested_norm:
+                    return FileResponse(str(child))
+    fallback_root = Path("/mnt/data")
+    fallback_name = Path(file_path).name
+    fallback = (fallback_root / fallback_name).resolve()
+    if fallback_root.exists() and fallback.is_file():
+        exports_root.mkdir(parents=True, exist_ok=True)
+        dest = exports_root / fallback_name
+        try:
+            shutil.copy2(str(fallback), str(dest))
+        except Exception:
+            logger.exception("Failed to copy export fallback file")
+            raise HTTPException(status_code=500, detail="export_copy_failed")
+        return FileResponse(str(dest))
+    raise HTTPException(status_code=404, detail="export_not_found")
 
 # Mount Static Files (Frontend)
 # In production, we expect the frontend build to be in 'static' folder

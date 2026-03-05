@@ -14,7 +14,7 @@ from app.services.prompt_service import build_system_prompt
 from app.services.response_parser_service import get_parser
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
-from app.services.skill_service import skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
+from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
 import asyncio
@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 EST_CHARS_PER_TOKEN = 3
 MAX_CONTEXT_TOKENS = 100000
 MAX_SINGLE_MSG_TOKENS = 20000  # Cap single messages to avoid one massive file read blocking everything
+SKILL_BIND_MIN_SCORE = 2
+SKILL_SWITCH_DELTA = 2
 
 def estimate_tokens(text: str) -> int:
     if not text:
@@ -208,20 +210,54 @@ async def chat_stream(request: ChatRequest):
             feature_flags = config_service.get_feature_flags()
             
             if feature_flags.get("skill_runtime_enabled") and agent_config and agent_config.skill_mode != "off":
+                bound_name, bound_version = chat_service.get_session_skill(chat_id)
+                bound_skill = None
+                if bound_name:
+                    bound_skill = skill_registry.get_skill(bound_name, bound_version)
+                visible_skills = skill_router.get_visible_skills(agent_config)
+                if bound_skill and bound_skill not in visible_skills:
+                    bound_skill = None
                 if agent_config.skill_mode == "manual":
                     if request.requested_skill:
-                        selected_skill_spec = skill_router.route(
+                        selected_skill_spec, _ = skill_router.route_with_score(
                             agent_config,
                             request.message,
                             requested_skill=request.requested_skill
                         )
+                    elif bound_skill:
+                        bound_score = skill_router.score_skill(bound_skill, request.message)
+                        if bound_score >= SKILL_BIND_MIN_SCORE:
+                            selected_skill_spec = bound_skill
                 elif agent_config.skill_mode == "auto":
                     if feature_flags.get("skill_auto_mode_enabled", True):
-                        selected_skill_spec = skill_router.route(
+                        best_skill, best_score = skill_router.route_with_score(
                             agent_config,
                             request.message,
                             requested_skill=None
                         )
+                        if bound_skill:
+                            bound_score = skill_router.score_skill(bound_skill, request.message)
+                            if not best_skill:
+                                if bound_score >= SKILL_BIND_MIN_SCORE:
+                                    selected_skill_spec = bound_skill
+                            else:
+                                if bound_skill.name == best_skill.name and bound_skill.version == best_skill.version:
+                                    if best_score >= SKILL_BIND_MIN_SCORE:
+                                        selected_skill_spec = bound_skill
+                                else:
+                                    if best_score >= max(bound_score + SKILL_SWITCH_DELTA, SKILL_BIND_MIN_SCORE):
+                                        selected_skill_spec = best_skill
+                                    elif bound_score >= SKILL_BIND_MIN_SCORE:
+                                        selected_skill_spec = bound_skill
+                        else:
+                            if best_skill and best_score >= SKILL_BIND_MIN_SCORE:
+                                selected_skill_spec = best_skill
+                if selected_skill_spec:
+                    chat_service.set_session_skill(chat_id, selected_skill_spec.name, selected_skill_spec.version)
+                else:
+                    chat_service.clear_session_skill(chat_id)
+            elif agent_config:
+                chat_service.clear_session_skill(chat_id)
                 
             if selected_skill_spec:
                 # Skill path
@@ -229,13 +265,17 @@ async def chat_stream(request: ChatRequest):
                 provider = provider or agent_config.provider
                 model_name = model_name or agent_config.model
                 
-                # Prompt layering: Agent Persona + Skill Instructions + Runtime Constraints
-                # We use the agent's base system prompt as 'Persona'
-                persona = agent_config.system_prompt
+                persona = agent_config.system_prompt or ""
                 skill_prompt = descriptor.prompt_blocks.get("system_prompt", "")
                 instructions = descriptor.prompt_blocks.get("instructions", "")
                 
-                system_prompt = f"{persona}\n\n[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+                use_persona = True
+                if agent_config.name == "Expert Mgr" or "Skill Expert Manager" in persona:
+                    use_persona = False
+                if use_persona and persona:
+                    system_prompt = f"{persona}\n\n[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+                else:
+                    system_prompt = f"[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
                 if instructions:
                     system_prompt += f"\n\n### Additional Instructions\n{instructions}"
                     

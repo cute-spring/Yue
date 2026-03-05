@@ -47,6 +47,7 @@ interface AgentFormProps {
   openSmartGenerate: () => void;
   isRefreshingTools: () => boolean;
   loadTools: () => Promise<void>;
+  loadSkills: () => Promise<void>;
 }
 
 export function AgentForm(props: AgentFormProps) {
@@ -60,8 +61,8 @@ export function AgentForm(props: AgentFormProps) {
   };
 
   return (
-    <div class="mb-8 bg-white border rounded-2xl shadow-lg overflow-hidden max-w-4xl mx-auto">
-      <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
+    <div class="mb-8 bg-white border rounded-2xl shadow-lg overflow-hidden max-w-4xl mx-auto max-h-[calc(100vh-2rem)] flex flex-col">
+      <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
         <div class="flex items-center gap-3">
           <h3 class="font-bold text-lg text-gray-800">{props.editingId() ? 'Edit Agent' : 'New Agent'}</h3>
           <button
@@ -78,7 +79,7 @@ export function AgentForm(props: AgentFormProps) {
           </svg>
         </button>
       </div>
-      <form onSubmit={props.handleSubmit} class="p-6 space-y-6">
+      <form id="agent-editor-form" onSubmit={props.handleSubmit} class="p-6 space-y-6 overflow-y-auto flex-1 min-h-0">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
           <div>
             <label class="block text-sm font-semibold text-gray-700 mb-2">Name</label>
@@ -252,6 +253,13 @@ export function AgentForm(props: AgentFormProps) {
               <div class="flex items-center justify-between">
                 <label class="block text-xs font-bold text-violet-700 uppercase tracking-wider">Visible Skills</label>
                 <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => props.loadSkills()}
+                    class="text-[10px] uppercase tracking-wider font-bold text-sky-600 hover:text-sky-700 bg-sky-100 px-2 py-1 rounded"
+                  >
+                    Reload Skills
+                  </button>
                   <button
                     type="button"
                     onClick={() => props.setFormVisibleSkills(props.skills().map(s => `${s.name}:${s.version}`))}
@@ -543,22 +551,23 @@ export function AgentForm(props: AgentFormProps) {
           </div>
         </Show>
 
-        <div class="flex justify-end gap-3 pt-4">
-          <button 
-            type="button"
-            onClick={() => props.setIsEditing(false)}
-            class="px-6 py-2.5 rounded-xl font-medium text-gray-600 hover:bg-gray-100 transition-colors"
-          >
-            Cancel
-          </button>
-          <button 
-            type="submit"
-            class="px-8 py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-100 transition-all active:scale-95"
-          >
-            {props.editingId() ? 'Save Changes' : 'Create Agent'}
-          </button>
-        </div>
       </form>
+      <div class="flex justify-end gap-3 px-6 py-4 border-t bg-white/95 backdrop-blur shrink-0">
+        <button 
+          type="button"
+          onClick={() => props.setIsEditing(false)}
+          class="px-6 py-2.5 rounded-xl font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+        >
+          Cancel
+        </button>
+        <button 
+          type="submit"
+          form="agent-editor-form"
+          class="px-8 py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-100 transition-all active:scale-95"
+        >
+          {props.editingId() ? 'Save Changes' : 'Create Agent'}
+        </button>
+      </div>
     </div>
   );
 }

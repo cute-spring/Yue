@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 import json
 import logging
+import os
 from pydantic_ai import RunContext
 
 from app.services import doc_retrieval
@@ -679,8 +680,16 @@ class PdfPageRenderImageTool(BaseTool):
             file_patterns=file_patterns if isinstance(file_patterns, list) else None,
             max_bytes=max_bytes,
         )
+        filename = os.path.basename(image_path) if isinstance(image_path, str) else ""
         return json.dumps(
-            {"path": abs_path, "page": resolved_page, "image_path": image_path},
+            {
+                "path": abs_path,
+                "page": resolved_page,
+                "image_path": image_path,
+                "download_url": image_path,
+                "download_markdown": f"[{filename}]({image_path})" if filename else "",
+                "filename": filename,
+            },
             ensure_ascii=False,
             indent=2,
         )

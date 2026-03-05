@@ -139,6 +139,7 @@ export function useAgentsState() {
 
   const openCreate = () => {
     loadTools(); // Auto refresh tools when opening form
+    loadSkills();
     setFormName("");
     setFormPrompt("");
     setFormProvider("openai");
@@ -155,6 +156,7 @@ export function useAgentsState() {
 
   const openEdit = (agent: Agent) => {
     loadTools(); // Auto refresh tools when opening form
+    loadSkills();
     setFormName(agent.name);
     setFormPrompt(agent.system_prompt);
     setFormProvider(agent.provider);
@@ -356,7 +358,7 @@ export function useAgentsState() {
     setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools, setFormSkillMode, setFormVisibleSkills,
     setFormDocRoots, setFormDocRootInput, setFormDocFilePatternsText,
     setExpandedGroups, setAllowDocRoots, setDenyDocRoots,
-    toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess,
+    toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess, loadSkills,
     openCreate, openEdit, openSmartGenerate, applySmartDraft, smartPromptLint,
     smartRiskSummary, runSmartGenerate, handleSubmit, handleDelete, toggleTool,
     supportsDocScope, addDocRoot, addDocRootValue, removeDocRoot

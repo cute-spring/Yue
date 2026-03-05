@@ -151,7 +151,7 @@ const App: Component<{children?: any}> = (props) => {
             </div>
           </header>
           
-          <div class="flex-1 relative overflow-hidden">
+          <div id="main-content" class="flex-1 relative overflow-y-auto">
             {props.children}
           </div>
        </main>

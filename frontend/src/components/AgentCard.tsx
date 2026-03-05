@@ -8,6 +8,15 @@ interface AgentCardProps {
 }
 
 export function AgentCard(props: AgentCardProps) {
+  const selectedSkillsSummary = () => {
+    const selected = props.agent.visible_skills || [];
+    if (selected.length === 0) return null;
+    const names = selected.map(s => s.split(':')[0]).filter(Boolean);
+    const preview = names.slice(0, 2).join(', ');
+    if (names.length <= 2) return preview;
+    return `${preview} +${names.length - 2}`;
+  };
+
   return (
     <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
       <div class="flex justify-between items-start mb-4">
@@ -82,6 +91,11 @@ export function AgentCard(props: AgentCardProps) {
             <span class="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded border border-violet-100">
               {(props.agent.visible_skills || []).length} visible
             </span>
+            <Show when={selectedSkillsSummary()}>
+              <span class="text-[10px] bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded border border-violet-200 font-semibold">
+                {selectedSkillsSummary()}
+              </span>
+            </Show>
           </div>
         </div>
       </Show>
