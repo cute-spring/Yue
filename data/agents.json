@@ -197,13 +197,9 @@
       "builtin:excel_read",
       "builtin:excel_query",
       "builtin:excel_logic_extract",
-      "builtin:excel_script_scan",
-      "builtin:exec",
-      "builtin:docs_list"
+      "builtin:excel_script_scan"
     ],
-    "doc_roots": [
-      "docs"
-    ],
+    "doc_roots": [],
     "doc_file_patterns": [
       "**/*.xlsx",
       "**/*.xlsm",
