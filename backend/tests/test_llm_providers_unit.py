@@ -63,6 +63,42 @@ async def test_fetch_openai_models_success(mock_config):
         assert "text-davinci" not in models # Filtered by prefix
 
 @pytest.mark.asyncio
+async def test_fetch_openai_models_openrouter_keeps_stepfun_model(mock_config):
+    with patch("app.services.llm.providers.openai.config_service") as mock_cfg:
+        mock_cfg.get_llm_config.return_value = {
+            "openai_api_key": "test",
+            "openai_base_url": "https://openrouter.ai/api/v1"
+        }
+        with patch("app.services.llm.providers.openai.build_async_client") as mock_client:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {
+                "data": [
+                    {"id": "stepfun/step-3.5-flash"},
+                    {"id": "openai/gpt-4o-mini"}
+                ]
+            }
+
+            async_client = AsyncMock()
+            async_client.get.return_value = mock_resp
+            mock_client.return_value.__aenter__.return_value = async_client
+
+            models = await fetch_openai_models(refresh=True)
+            assert "stepfun/step-3.5-flash" in models
+            assert "openai/gpt-4o-mini" in models
+
+@pytest.mark.asyncio
+async def test_fetch_openai_models_openrouter_fallback(mock_config):
+    with patch("app.services.llm.providers.openai.config_service") as mock_cfg:
+        mock_cfg.get_llm_config.return_value = {
+            "openai_api_key": "test",
+            "openai_base_url": "https://openrouter.ai/api/v1"
+        }
+        with patch("app.services.llm.providers.openai.build_async_client", side_effect=Exception("network")):
+            models = await fetch_openai_models(refresh=True)
+            assert "stepfun/step-3.5-flash" in models
+
+@pytest.mark.asyncio
 async def test_azure_provider_nicknames(mock_config):
     provider = AzureOpenAIProviderImpl()
     

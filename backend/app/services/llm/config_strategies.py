@@ -43,6 +43,7 @@ class OpenAIStrategy(ProviderConfigStrategy):
     def __init__(self):
         super().__init__("openai", {
             "api_key": "OPENAI_API_KEY",
+            "base_url": "OPENAI_BASE_URL",
             "model": "OPENAI_MODEL"
         })
 

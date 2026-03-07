@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderMath, normalizeMermaidCode, renderMarkdown } from './markdown';
+import { renderMath, normalizeMermaidCode, promoteExportPathsToLinks, renderMarkdown } from './markdown';
 
 describe('Markdown Utils', () => {
   describe('normalizeMermaidCode', () => {
@@ -65,6 +65,26 @@ describe('Markdown Utils', () => {
       const input = '[file](sandbox:/exports/report.pptx)';
       const output = renderMarkdown(input);
       expect(output).toContain('href="/exports/report.pptx"');
+    });
+
+    it('should promote backticked export path to clickable link', () => {
+      const input = '下载地址：`/exports/presentation_20260307_161954.pptx`';
+      const output = renderMarkdown(input);
+      expect(output).toContain('href="/exports/presentation_20260307_161954.pptx"');
+      expect(output).toContain('presentation_20260307_161954.pptx');
+    });
+
+    it('should promote sandbox mnt data path to exports clickable link', () => {
+      const input = '下载地址：`sandbox:/mnt/data/report.pptx`';
+      const output = renderMarkdown(input);
+      expect(output).toContain('href="/exports/report.pptx"');
+    });
+  });
+
+  describe('promoteExportPathsToLinks', () => {
+    it('should not rewrite fenced code blocks', () => {
+      const input = '```text\n`/exports/demo.pptx`\n```';
+      expect(promoteExportPathsToLinks(input)).toBe(input);
     });
   });
 });
