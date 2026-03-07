@@ -125,6 +125,29 @@ export function normalizeLinkHref(href: string): string {
   return href;
 }
 
+function downloadLinkLabel(path: string): string {
+  const normalized = normalizeLinkHref(path);
+  const filename = normalized.split('/').pop();
+  return filename || normalized;
+}
+
+export function promoteExportPathsToLinks(content: string): string {
+  const fencedBlocks: string[] = [];
+  const protectedContent = content.replace(/```[\s\S]*?```/g, (block) => {
+    fencedBlocks.push(block);
+    return `__FENCED_BLOCK_${fencedBlocks.length - 1}__`;
+  });
+
+  const promoted = protectedContent.replace(
+    /`((?:sandbox:\/(?:exports|mnt\/data)|\/exports)\/[^`\s]+)`/g,
+    (_, path: string) => `[${downloadLinkLabel(path)}](${normalizeLinkHref(path)})`,
+  );
+
+  return promoted.replace(/__FENCED_BLOCK_(\d+)__/g, (_, index: string) => {
+    return fencedBlocks[parseInt(index, 10)];
+  });
+}
+
 /**
  * Configures and returns a custom marked renderer.
  */
@@ -345,11 +368,12 @@ export function createMarkdownRenderer(isTyping: boolean = false): any {
  * Main function to render markdown content with math and custom code blocks.
  */
 export function renderMarkdown(content: string, isTyping: boolean = false): string {
-  const mathProcessed = renderMath(content);
+  const linkPromoted = promoteExportPathsToLinks(content);
+  const mathProcessed = renderMath(linkPromoted);
   const renderer = createMarkdownRenderer(isTyping);
   
   // Attach state for mermaid block tracking
-  (renderer as any)._currentContent = content;
+  (renderer as any)._currentContent = linkPromoted;
   (renderer as any)._mermaidCount = 0;
   
   return marked(mathProcessed, { renderer }) as string;

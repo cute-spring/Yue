@@ -1071,6 +1071,10 @@ type LLMProvider = {
                           <input class="w-full border rounded-lg p-2" type="password" value={llmForm().openai_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), openai_api_key: e.currentTarget.value })}/>
                         </div>
                         <div>
+                          <div class="text-xs font-bold text-gray-600 mb-1">OPENAI_BASE_URL (Optional)</div>
+                          <input class="w-full border rounded-lg p-2" placeholder="https://openrouter.ai/api/v1" value={llmForm().openai_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), openai_base_url: e.currentTarget.value })}/>
+                        </div>
+                        <div>
                           <div class="text-xs font-bold text-gray-600 mb-1">openai_model</div>
                           <input class="w-full border rounded-lg p-2" value={llmForm().openai_model || ''} onInput={e => setLlmForm({ ...llmForm(), openai_model: e.currentTarget.value })}/>
                         </div>
