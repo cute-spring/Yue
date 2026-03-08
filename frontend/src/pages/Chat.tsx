@@ -1,5 +1,5 @@
 import { createSignal, onMount, Show, createEffect } from 'solid-js';
-import { Message } from '../types';
+import { Message, SkillSpec } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
@@ -29,6 +29,7 @@ import { useMermaid } from '../hooks/useMermaid';
 export default function Chat() {
   const toast = useToast();
   const [requestedSkill, setRequestedSkill] = createSignal<string | null>(null);
+  const [skills, setSkills] = createSignal<SkillSpec[]>([]);
   
   // History & Knowledge State
   const [showHistory, setShowHistory] = createSignal(true); // Default to true on desktop
@@ -109,6 +110,17 @@ export default function Chat() {
     handleRegenerate,
     handleSubmit: originalHandleSubmit,
   } = chatState;
+
+  const loadSkills = async () => {
+    try {
+      const res = await fetch('/api/skills');
+      const data = await res.json();
+      setSkills(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("Failed to load skills", e);
+      setSkills([]);
+    }
+  };
 
   createEffect(() => {
     selectedAgent();
@@ -239,6 +251,7 @@ export default function Chat() {
     if (storedModel) setSelectedModel(storedModel);
 
     loadProviders();
+    loadSkills();
 
     (window as any).openArtifact = (lang: string, encodedContent: string) => {
       try {
@@ -300,9 +313,54 @@ export default function Chat() {
   };
 
   const currentAgent = () => agents().find(a => a.id === selectedAgent());
+  const versionKey = (value: string) => value.split(/(\d+)/).map(token => (token.match(/^\d+$/) ? Number(token) : token));
+  const compareVersion = (a: string, b: string) => {
+    const ka = versionKey(a);
+    const kb = versionKey(b);
+    const len = Math.max(ka.length, kb.length);
+    for (let i = 0; i < len; i += 1) {
+      const va = ka[i];
+      const vb = kb[i];
+      if (va === undefined) return -1;
+      if (vb === undefined) return 1;
+      if (typeof va === 'number' && typeof vb === 'number') {
+        if (va !== vb) return va > vb ? 1 : -1;
+      } else if (String(va) !== String(vb)) {
+        return String(va) > String(vb) ? 1 : -1;
+      }
+    }
+    return 0;
+  };
+
+  const resolveSkillSpec = (nameVersion: string) => {
+    if (nameVersion.includes(':')) {
+      const [name, version] = nameVersion.split(':', 2);
+      return skills().find(s => s.name === name && s.version === version);
+    }
+    const matches = skills().filter(s => s.name === nameVersion);
+    if (matches.length === 0) return undefined;
+    return [...matches].sort((a, b) => compareVersion(a.version, b.version)).pop();
+  };
+
+  const missingSummary = (missing?: Record<string, string[]>) => {
+    if (!missing) return "";
+    const parts: string[] = [];
+    if (missing.bins?.length) parts.push("bins");
+    if (missing.env?.length) parts.push("env");
+    if (missing.os?.length) parts.push("os");
+    if (!parts.length) return "";
+    return ` (missing ${parts.join(", ")})`;
+  };
+
   const visibleSkillOptions = () => {
     const skills = currentAgent()?.visible_skills || [];
-    return skills;
+    return skills.map(skillId => {
+      const spec = resolveSkillSpec(skillId);
+      const labelBase = spec ? `${spec.name}:${spec.version}` : skillId;
+      const unavailable = spec?.availability === false;
+      const label = unavailable ? `${labelBase} unavailable${missingSummary(spec?.missing_requirements)}` : labelBase;
+      return { value: skillId, label, disabled: unavailable };
+    });
   };
 
   const handleMentionSelect = (agent: any) => {
@@ -423,7 +481,7 @@ export default function Chat() {
                   >
                     <option value="">No skill selected</option>
                     {visibleSkillOptions().map(skill => (
-                      <option value={skill}>{skill}</option>
+                      <option value={skill.value} disabled={skill.disabled}>{skill.label}</option>
                     ))}
                   </select>
                 </Show>

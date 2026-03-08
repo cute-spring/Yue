@@ -272,25 +272,26 @@
       "builtin:pdf_page_table_extract",
       "builtin:pdf_page_text_read"
     ],
-    "doc_roots": [],
+    "doc_roots": [
+      "docs"
+    ],
     "doc_file_patterns": [
       "**/*.*"
     ],
     "require_citations": false,
     "skill_mode": "auto",
     "visible_skills": [
-      "pdf-insight-extractor:1.0.0",
       "release-test-planner:1.0.0",
       "doc-summarizer:1.0.0",
       "prompt-polisher:1.0.0",
       "log-triage:1.0.0",
-      "excel-metric-explorer:1.0.0",
       "quick-research:1.0.0",
       "backend-api-debugger:1.0.0",
+      "excel-metric-explorer:1.0.0",
+      "pdf-insight-extractor:1.0.0",
       "ppt-expert:1.0.0"
     ],
-    "tier": "premium",
     "created_at": "2026-03-05T14:42:05.437086",
-    "updated_at": "2026-03-05T16:33:36.519574"
+    "updated_at": "2026-03-08T17:29:37.714696"
   }
 ]

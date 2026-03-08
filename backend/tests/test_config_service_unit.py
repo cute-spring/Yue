@@ -63,7 +63,8 @@ def test_get_llm_config_merges_env(temp_config_file, monkeypatch):
     # 环境变量优先级更高
     assert llm_config["llm_request_timeout"] == 30
 
-def test_update_llm_config_protects_secrets(temp_config_file):
+def test_update_llm_config_protects_secrets(temp_config_file, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # 使用新的结构化配置格式
     data = {
         "llm": {
@@ -105,7 +106,9 @@ def test_custom_models_crud(temp_config_file):
     service.delete_custom_model("test-model")
     assert len(service.list_custom_models()) == 0
 
-def test_doc_access_validation(temp_config_file):
+def test_doc_access_validation(temp_config_file, monkeypatch):
+    monkeypatch.delenv("DOC_ACCESS_ALLOW_ROOTS", raising=False)
+    monkeypatch.delenv("DOC_ACCESS_DENY_ROOTS", raising=False)
     service = ConfigService(str(temp_config_file))
     
     doc_access = {
@@ -117,3 +120,17 @@ def test_doc_access_validation(temp_config_file):
     result = service.get_doc_access()
     assert result["allow_roots"] == ["/path/a"]
     assert result["deny_roots"] == ["/path/b"]
+
+def test_doc_access_env_override(temp_config_file, monkeypatch):
+    service = ConfigService(str(temp_config_file))
+    service.update_doc_access({
+        "allow_roots": ["/json/a"],
+        "deny_roots": ["/json/b"]
+    })
+
+    monkeypatch.setenv("DOC_ACCESS_ALLOW_ROOTS", "/env/a,/env/b")
+    monkeypatch.setenv("DOC_ACCESS_DENY_ROOTS", '["/env/x","/env/y"]')
+
+    result = service.get_doc_access()
+    assert result["allow_roots"] == ["/env/a", "/env/b"]
+    assert result["deny_roots"] == ["/env/x", "/env/y"]

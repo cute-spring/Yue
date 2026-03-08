@@ -1,18 +1,38 @@
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import patch
-from app.main import app
+from app.api import skills as skills_module
 from app.services.skill_service import SkillSpec, SkillConstraints
 from app.services.agent_store import AgentConfig
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    app = FastAPI()
+    app.include_router(skills_module.router, prefix="/api/skills")
+    try:
+        return TestClient(app)
+    except TypeError:
+        pytest.skip("TestClient incompatible with installed httpx/starlette")
 
 def test_api_list_skills(client):
     response = client.get("/api/skills")
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    data = response.json()
+    assert isinstance(data, list)
+    if data:
+        assert "availability" in data[0]
+        assert "missing_requirements" in data[0]
+
+def test_api_list_skill_summaries(client):
+    response = client.get("/api/skills/summary")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    if data:
+        assert "name" in data[0]
+        assert "description" in data[0]
+        assert "availability" in data[0]
 
 def test_api_reload_skills(client):
     response = client.post("/api/skills/reload")

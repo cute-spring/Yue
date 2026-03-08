@@ -38,6 +38,24 @@ class ToolCall(BaseModel):
     finished_at: Optional[datetime] = None
     duration_ms: Optional[float] = None
 
+class SkillEffectivenessEvent(BaseModel):
+    id: Optional[int] = None
+    session_id: str
+    reason_code: str
+    selection_source: str
+    fallback_used: bool
+    selected_skill_name: Optional[str] = None
+    selected_skill_version: Optional[str] = None
+    visible_skill_count: Optional[int] = None
+    available_skill_count: Optional[int] = None
+    always_injected_count: Optional[int] = None
+    summary_injected: Optional[bool] = None
+    summary_prompt_enabled: Optional[bool] = None
+    lazy_full_load_enabled: Optional[bool] = None
+    system_prompt_tokens_estimate: Optional[int] = None
+    user_message_tokens_estimate: Optional[int] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
 class ChatSession(BaseModel):
     id: str
     title: str
@@ -113,11 +131,34 @@ class ChatService:
                     FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE SET NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS skill_effectiveness_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    reason_code TEXT NOT NULL,
+                    selection_source TEXT NOT NULL,
+                    fallback_used INTEGER NOT NULL,
+                    selected_skill_name TEXT,
+                    selected_skill_version TEXT,
+                    visible_skill_count INTEGER,
+                    available_skill_count INTEGER,
+                    always_injected_count INTEGER,
+                    summary_injected INTEGER,
+                    summary_prompt_enabled INTEGER,
+                    lazy_full_load_enabled INTEGER,
+                    system_prompt_tokens_estimate INTEGER,
+                    user_message_tokens_estimate INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
+                )
+            """)
             
             # Create Index for Performance
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_call_id ON tool_calls(call_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_effectiveness_session_id ON skill_effectiveness_events(session_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_effectiveness_created_at ON skill_effectiveness_events(created_at)")
             
             conn.commit()
             
@@ -451,5 +492,102 @@ class ChatService:
                 
                 tool_calls.append(ToolCall(**tool_dict))
             return tool_calls
+
+    def add_skill_effectiveness_event(self, session_id: str, event: Dict[str, Any]) -> None:
+        now = datetime.now()
+        selected = event.get("selected_skill") or {}
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO skill_effectiveness_events (
+                    session_id,
+                    reason_code,
+                    selection_source,
+                    fallback_used,
+                    selected_skill_name,
+                    selected_skill_version,
+                    visible_skill_count,
+                    available_skill_count,
+                    always_injected_count,
+                    summary_injected,
+                    summary_prompt_enabled,
+                    lazy_full_load_enabled,
+                    system_prompt_tokens_estimate,
+                    user_message_tokens_estimate,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    str(event.get("reason_code") or "unknown"),
+                    str(event.get("selection_source") or "none"),
+                    1 if bool(event.get("fallback_used")) else 0,
+                    selected.get("name"),
+                    selected.get("version"),
+                    event.get("visible_skill_count"),
+                    event.get("available_skill_count"),
+                    event.get("always_injected_count"),
+                    1 if bool(event.get("summary_injected")) else 0,
+                    1 if bool(event.get("summary_prompt_enabled")) else 0,
+                    1 if bool(event.get("lazy_full_load_enabled")) else 0,
+                    event.get("system_prompt_tokens_estimate"),
+                    event.get("user_message_tokens_estimate"),
+                    now,
+                )
+            )
+            conn.commit()
+
+    def get_skill_effectiveness_report(self, hours: int = 24) -> Dict[str, Any]:
+        hours = max(1, int(hours))
+        since_expr = f"-{hours} hours"
+        with self._get_connection() as conn:
+            agg = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_runs,
+                    SUM(CASE WHEN fallback_used = 1 THEN 1 ELSE 0 END) AS fallback_runs,
+                    AVG(system_prompt_tokens_estimate) AS avg_system_prompt_tokens,
+                    AVG(user_message_tokens_estimate) AS avg_user_message_tokens
+                FROM skill_effectiveness_events
+                WHERE created_at >= datetime('now', ?)
+                """,
+                (since_expr,)
+            ).fetchone()
+            reason_rows = conn.execute(
+                """
+                SELECT reason_code, COUNT(*) AS cnt
+                FROM skill_effectiveness_events
+                WHERE created_at >= datetime('now', ?)
+                GROUP BY reason_code
+                ORDER BY cnt DESC
+                """,
+                (since_expr,)
+            ).fetchall()
+            skill_rows = conn.execute(
+                """
+                SELECT selected_skill_name, COUNT(*) AS cnt
+                FROM skill_effectiveness_events
+                WHERE created_at >= datetime('now', ?)
+                  AND selected_skill_name IS NOT NULL
+                GROUP BY selected_skill_name
+                ORDER BY cnt DESC
+                LIMIT 10
+                """,
+                (since_expr,)
+            ).fetchall()
+        total_runs = int((agg["total_runs"] or 0) if agg else 0)
+        fallback_runs = int((agg["fallback_runs"] or 0) if agg else 0)
+        hit_rate = 0.0 if total_runs == 0 else (total_runs - fallback_runs) / total_runs
+        fallback_rate = 0.0 if total_runs == 0 else fallback_runs / total_runs
+        return {
+            "window_hours": hours,
+            "total_runs": total_runs,
+            "skill_hit_rate": hit_rate,
+            "fallback_rate": fallback_rate,
+            "avg_system_prompt_tokens": float(agg["avg_system_prompt_tokens"] or 0.0) if agg else 0.0,
+            "avg_user_message_tokens": float(agg["avg_user_message_tokens"] or 0.0) if agg else 0.0,
+            "reason_distribution": [{ "reason_code": row["reason_code"], "count": int(row["cnt"]) } for row in reason_rows],
+            "top_selected_skills": [{ "name": row["selected_skill_name"], "count": int(row["cnt"]) } for row in skill_rows],
+        }
 
 chat_service = ChatService()

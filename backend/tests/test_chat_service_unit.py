@@ -28,6 +28,7 @@ def test_ensure_db_creates_tables(temp_db):
         tables = [row[0] for row in cursor.fetchall()]
         assert "sessions" in tables
         assert "messages" in tables
+        assert "skill_effectiveness_events" in tables
 
 def test_create_chat(temp_db):
     service, _ = temp_db
@@ -71,6 +72,44 @@ def test_delete_chat(temp_db):
     assert service.delete_chat(chat.id) is True
     assert service.get_chat(chat.id) is None
     assert service.delete_chat(chat.id) is False
+
+def test_skill_effectiveness_report(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_skill_effectiveness_event(chat.id, {
+        "reason_code": "skill_selected",
+        "selection_source": "inferred",
+        "fallback_used": False,
+        "selected_skill": {"name": "pdf-insight-extractor", "version": "1.0.0"},
+        "visible_skill_count": 4,
+        "available_skill_count": 3,
+        "always_injected_count": 1,
+        "summary_injected": True,
+        "summary_prompt_enabled": True,
+        "lazy_full_load_enabled": True,
+        "system_prompt_tokens_estimate": 120,
+        "user_message_tokens_estimate": 30,
+    })
+    service.add_skill_effectiveness_event(chat.id, {
+        "reason_code": "no_matching_skill",
+        "selection_source": "none",
+        "fallback_used": True,
+        "selected_skill": None,
+        "visible_skill_count": 4,
+        "available_skill_count": 3,
+        "always_injected_count": 0,
+        "summary_injected": True,
+        "summary_prompt_enabled": True,
+        "lazy_full_load_enabled": True,
+        "system_prompt_tokens_estimate": 80,
+        "user_message_tokens_estimate": 20,
+    })
+    report = service.get_skill_effectiveness_report(hours=24)
+    assert report["total_runs"] >= 2
+    assert report["fallback_rate"] > 0
+    assert report["skill_hit_rate"] >= 0
+    assert "reason_distribution" in report
+    assert "top_selected_skills" in report
 
 def test_truncate_chat(temp_db):
     service, _ = temp_db
