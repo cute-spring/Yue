@@ -920,17 +920,32 @@ async def chat_stream(request: ChatRequest):
                     mismatch_resolved = False
                     mismatch_config = config_service.get_tool_call_mismatch_config()
                     if mismatch_config.get("auto_retry_enabled", True):
-                        retry_model_name = (mismatch_config.get("fallback_model", "") or "").strip()
-                        if retry_model_name and retry_model_name != model_name:
+                        retry_candidates_raw = mismatch_config.get("fallback_models") or [mismatch_config.get("fallback_model", "")]
+                        retry_candidates = [str(item).strip() for item in retry_candidates_raw if str(item).strip()]
+                        seen_retry_targets = set()
+                        current_target = f"{provider}/{model_name}".strip().lower()
+                        for retry_target in retry_candidates:
+                            retry_provider = provider
+                            retry_model_name = retry_target
+                            if "/" in retry_target:
+                                maybe_provider, maybe_model = retry_target.split("/", 1)
+                                if maybe_provider.strip() and maybe_model.strip():
+                                    retry_provider = maybe_provider.strip()
+                                    retry_model_name = maybe_model.strip()
+                            normalized_target = f"{retry_provider}/{retry_model_name}".strip().lower()
+                            if not retry_model_name or normalized_target == current_target or normalized_target in seen_retry_targets:
+                                continue
+                            seen_retry_targets.add(normalized_target)
                             try:
-                                yield f"data: {json.dumps({'event': 'tool_call_retry', 'from_model': model_name, 'to_model': retry_model_name})}\n\n"
-                                retry_model = get_model(provider, retry_model_name)
-                                retry_model_settings = config_service.get_model_settings(provider, retry_model_name)
+                                yield f"data: {json.dumps({'event': 'tool_call_retry', 'from_provider': provider, 'from_model': model_name, 'to_provider': retry_provider, 'to_model': retry_model_name})}\n\n"
+                                retry_model = get_model(retry_provider, retry_model_name)
+                                retry_model_settings = config_service.get_model_settings(retry_provider, retry_model_name)
                                 if "max_tokens" in retry_model_settings:
                                     if "extra_body" not in retry_model_settings:
                                         retry_model_settings["extra_body"] = {}
                                     retry_model_settings["extra_body"]["max_tokens"] = retry_model_settings["max_tokens"]
-                                retry_parser = get_parser(provider, retry_model_name, capabilities)
+                                retry_capabilities = config_service.get_model_capabilities(retry_provider, retry_model_name)
+                                retry_parser = get_parser(retry_provider, retry_model_name, retry_capabilities)
                                 retry_agent = Agent(
                                     retry_model,
                                     system_prompt=system_prompt,
@@ -996,10 +1011,11 @@ async def chat_stream(request: ChatRequest):
                                     if tool_call_started_count > 0 or retry_finish_reason != "tool_call":
                                         mismatch_resolved = True
                                 if mismatch_resolved:
-                                    yield f"data: {json.dumps({'event': 'tool_call_retry_success', 'model': retry_model_name, 'started': tool_call_started_count, 'finished': tool_call_finished_count})}\n\n"
+                                    yield f"data: {json.dumps({'event': 'tool_call_retry_success', 'provider': retry_provider, 'model': retry_model_name, 'started': tool_call_started_count, 'finished': tool_call_finished_count})}\n\n"
+                                    break
                             except Exception as retry_err:
                                 logger.exception("Auto retry after tool_call mismatch failed")
-                                yield f"data: {json.dumps({'event': 'tool_call_retry_failed', 'error': str(retry_err)})}\n\n"
+                                yield f"data: {json.dumps({'event': 'tool_call_retry_failed', 'provider': retry_provider, 'model': retry_model_name, 'error': str(retry_err)})}\n\n"
                     if not mismatch_resolved:
                         tool_msg = (
                             "\n\n> ⚠️ **[系统提示]** 模型返回了 `tool_call` 结束信号，但未产生可执行工具调用。"

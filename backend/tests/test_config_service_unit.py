@@ -138,19 +138,23 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
 def test_tool_call_mismatch_config_defaults(temp_config_file, monkeypatch):
     monkeypatch.delenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", raising=False)
     monkeypatch.delenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", raising=False)
+    monkeypatch.delenv("TOOL_CALL_MISMATCH_FALLBACK_MODELS", raising=False)
     service = ConfigService(str(temp_config_file))
 
     result = service.get_tool_call_mismatch_config()
     assert result["auto_retry_enabled"] is True
     assert result["fallback_model"] == "gpt-4o-mini"
+    assert result["fallback_models"] == ["gpt-4o-mini"]
 
 def test_tool_call_mismatch_config_merged_with_env_override(temp_config_file, monkeypatch):
     monkeypatch.delenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", raising=False)
     monkeypatch.delenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", raising=False)
+    monkeypatch.delenv("TOOL_CALL_MISMATCH_FALLBACK_MODELS", raising=False)
     data = {
         "tool_call_mismatch": {
             "auto_retry_enabled": False,
-            "fallback_model": "gpt-4o"
+            "fallback_model": "gpt-4o",
+            "fallback_models": ["gpt-4o", "deepseek/deepseek-chat"]
         }
     }
     temp_config_file.write_text(json.dumps(data))
@@ -159,9 +163,11 @@ def test_tool_call_mismatch_config_merged_with_env_override(temp_config_file, mo
     result = service.get_tool_call_mismatch_config()
     assert result["auto_retry_enabled"] is False
     assert result["fallback_model"] == "gpt-4o"
+    assert result["fallback_models"] == ["gpt-4o", "deepseek/deepseek-chat"]
 
     monkeypatch.setenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", "true")
-    monkeypatch.setenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("TOOL_CALL_MISMATCH_FALLBACK_MODELS", "minimax/minimax-m2.5, gpt-4o-mini")
     result = service.get_tool_call_mismatch_config()
     assert result["auto_retry_enabled"] is True
-    assert result["fallback_model"] == "gpt-4o-mini"
+    assert result["fallback_model"] == "minimax/minimax-m2.5"
+    assert result["fallback_models"] == ["minimax/minimax-m2.5", "gpt-4o-mini"]

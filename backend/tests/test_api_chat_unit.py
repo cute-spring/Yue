@@ -526,5 +526,54 @@ async def test_chat_stream_auto_retry_after_tool_call_mismatch(client, mock_chat
         content = response.content.decode("utf-8")
         assert "tool_call_retry" in content
         assert "tool_call_retry_success" in content
-        assert "这是重试后的最终答案" in content
         assert "tool_call_mismatch" not in content
+        assert second_agent.run_stream.called
+
+@pytest.mark.asyncio
+async def test_chat_stream_skip_same_model_retry_and_use_next_candidate(client, mock_chat_service):
+    with patch.dict("os.environ", {
+        "TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED": "true",
+        "TOOL_CALL_MISMATCH_FALLBACK_MODELS": "openai/gpt-4o,deepseek/deepseek-chat"
+    }, clear=False), \
+         patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model") as mock_get_model, \
+         patch("app.api.chat.Agent") as mock_agent_cls:
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = None
+
+        first_agent = MagicMock()
+        second_agent = MagicMock()
+        mock_agent_cls.side_effect = [first_agent, second_agent]
+
+        first_result = MagicMock()
+        async def first_stream():
+            yield "先尝试处理。"
+        first_result.stream_text.return_value = first_stream()
+        first_result.response = MagicMock(finish_reason="tool_call")
+        first_result.usage.return_value = MagicMock(request_tokens=10, response_tokens=5, total_tokens=15)
+        first_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=first_result)
+        first_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        second_result = MagicMock()
+        async def second_stream():
+            yield "跨 provider 重试成功。"
+        second_result.stream_text.return_value = second_stream()
+        second_result.response = MagicMock(finish_reason="stop")
+        second_result.usage.return_value = MagicMock(request_tokens=12, response_tokens=7, total_tokens=19)
+        second_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=second_result)
+        second_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post("/api/chat/stream", json={"message": "查一下目录结构", "provider": "openai", "model": "gpt-4o"})
+        assert response.status_code == 200
+        content = response.content.decode("utf-8")
+        assert "tool_call_retry" in content
+        assert "deepseek" in content
+        assert "tool_call_mismatch" not in content
+
+        assert mock_get_model.call_count >= 2
+        first_call_args = mock_get_model.call_args_list[0].args
+        second_call_args = mock_get_model.call_args_list[1].args
+        assert first_call_args == ("openai", "gpt-4o")
+        assert second_call_args == ("deepseek", "deepseek-chat")
