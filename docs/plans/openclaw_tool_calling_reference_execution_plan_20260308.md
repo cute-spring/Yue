@@ -237,6 +237,99 @@
 
 ---
 
-*文档版本：v1.1*  
+## 10. 线上问题复盘（Incident Record: Tool-Call Mismatch）
+
+### 10.1 问题现象（Symptoms）
+
+在 Excel/PDF 等强工具依赖场景中，用户多次遇到以下可见现象：
+
+1. 模型先输出“将调用工具”的自然语言承诺。
+2. 同轮结束时 `finish_reason = "tool_call"`，但没有任何 `tool.call.started` 事件。
+3. 返回统一提示：`模型返回了 tool_call 结束信号，但未产生可执行工具调用`。
+4. 配置了 `TOOL_CALL_MISMATCH_FALLBACK_MODEL` 后，仍可能直接进入 mismatch 提示。
+
+对应链路证据：
+- `backend/app/api/chat.py`：`finish_reason == "tool_call"` 且 `tool_call_started_count == 0` 时进入 mismatch 处理分支。
+- `backend/app/api/chat.py`：`tool_call_retry`/`tool_call_retry_success`/`tool_call_retry_failed` 事件发射逻辑。
+
+### 10.2 产生原因（Root Causes）
+
+1. **协议兼容性问题（Protocol Compatibility Gap）**  
+   部分模型会返回“工具调用结束信号”，但未返回可执行工具调用体，导致服务端观测到“声明调用工具”与“实际未调用工具”不一致。
+
+2. **单一回退模型策略过脆（Single Fallback Fragility）**  
+   旧策略仅支持一个 `fallback_model`，当其与当前模型相同或不可用时，自动恢复能力不足。
+
+3. **回退目标缺少 Provider 维度（Provider Blind Retry）**  
+   旧策略默认沿用当前 provider 构建回退模型，无法表达“跨 provider 回退”，导致回退链路可用性受限。
+
+### 10.3 已实施解决方案（Implemented Fixes）
+
+已完成以下修复并落地：
+
+1. **多候选回退链（Fallback Chain）**  
+   新增 `fallback_models` 概念，支持按顺序配置多个候选模型（逗号分隔）。
+
+2. **跨 Provider 回退（Cross-Provider Retry）**  
+   候选支持 `provider/model` 格式（如 `deepseek/deepseek-chat`），重试时按目标 provider 构建模型。
+
+3. **同模型跳过与去重（Skip Same Target + Dedup）**  
+   自动跳过与当前 `provider/model` 相同的候选，并对候选目标去重，避免无效重试。
+
+4. **事件可观测增强（Observability Upgrade）**  
+   `tool_call_retry` 事件新增 `from_provider/from_model/to_provider/to_model`，失败事件也包含 provider/model，便于运营归因。
+
+关键代码变更：
+- `backend/app/services/config_service.py`：`get_tool_call_mismatch_config()` 新增 `fallback_models` 解析与环境变量覆盖逻辑。
+- `backend/app/api/chat.py`：mismatch 分支改为“候选链遍历重试”，支持 `provider/model` 解析。
+
+### 10.4 配置规范（Configuration Standard）
+
+建议统一使用：
+
+```env
+TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED=true
+TOOL_CALL_MISMATCH_FALLBACK_MODELS=minimax/minimax-m2.5,openai/gpt-4o-mini,deepseek/deepseek-chat
+```
+
+兼容说明：
+- `TOOL_CALL_MISMATCH_FALLBACK_MODEL` 仍可保留用于向后兼容。
+- 当 `TOOL_CALL_MISMATCH_FALLBACK_MODELS` 存在时，以其为准。
+
+### 10.5 维护人员排障手册（Runbook）
+
+1. 检查 SSE 是否出现 `tool_call_mismatch` 事件。  
+2. 若存在，检查是否出现 `tool_call_retry` 与后续 `tool_call_retry_success`。  
+3. 若无 retry 事件，重点核查：
+   - `TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED` 是否为 `true`
+   - `TOOL_CALL_MISMATCH_FALLBACK_MODELS` 是否为空
+4. 若只有 `tool_call_retry_failed`，按失败事件中的 `provider/model/error` 做逐一剔除或降级。
+5. 若连续出现 mismatch，优先将问题模型下沉到候选链后位，或从链路中暂时移除。
+
+### 10.6 验证记录（Validation Evidence）
+
+已补充并通过与本问题直接相关的定向测试：
+
+- `backend/tests/test_config_service_unit.py::test_tool_call_mismatch_config_defaults`
+- `backend/tests/test_config_service_unit.py::test_tool_call_mismatch_config_merged_with_env_override`
+- `backend/tests/test_api_chat_unit.py::test_chat_stream_auto_retry_after_tool_call_mismatch`
+- `backend/tests/test_api_chat_unit.py::test_chat_stream_skip_same_model_retry_and_use_next_candidate`
+
+测试目标覆盖：
+- 新配置解析正确性；
+- 同模型跳过；
+- 跨 provider 回退；
+- 回退成功后不落入 mismatch 提示。
+
+### 10.7 后续建议（Next Hardening）
+
+1. 引入模型能力矩阵（`supports_tools` / `supports_tool_choice`）作为工具下发前置 gate。  
+2. 建立按模型聚合的 `tool_call_mismatch_rate` 与 `auto_retry_success_rate` 指标看板。  
+3. 对高失败模型执行自动降级策略（SLO Gate）。  
+
+---
+
+*文档版本：v1.2*  
 *创建时间：2026-03-08*  
+*最近更新时间：2026-03-08*  
 *适用范围：Yue Backend Tool Calling Pipeline*

@@ -422,6 +422,15 @@ class ConfigService:
         cfg = self._config.get("tool_call_mismatch", {})
         if not isinstance(cfg, dict):
             cfg = {}
+        def _parse_model_candidates(value: Any) -> list[str]:
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return [str(v).strip() for v in value if str(v).strip()]
+            text = str(value).strip()
+            if not text:
+                return []
+            return [part.strip() for part in text.replace(";", ",").split(",") if part.strip()]
 
         auto_retry_enabled = cfg.get("auto_retry_enabled", True)
         if isinstance(auto_retry_enabled, str):
@@ -436,6 +445,9 @@ class ConfigService:
             fallback_model = fallback_model.strip()
         else:
             fallback_model = str(fallback_model).strip()
+        fallback_models = _parse_model_candidates(cfg.get("fallback_models"))
+        if not fallback_models and fallback_model:
+            fallback_models = [fallback_model]
 
         env_auto_retry = os.getenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED")
         if env_auto_retry is not None:
@@ -444,10 +456,18 @@ class ConfigService:
         env_fallback_model = os.getenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL")
         if env_fallback_model is not None:
             fallback_model = env_fallback_model.strip()
+            fallback_models = [fallback_model] if fallback_model else []
+        env_fallback_models = os.getenv("TOOL_CALL_MISMATCH_FALLBACK_MODELS")
+        if env_fallback_models is not None:
+            fallback_models = _parse_model_candidates(env_fallback_models)
+            fallback_model = fallback_models[0] if fallback_models else ""
+        elif fallback_models:
+            fallback_model = fallback_models[0]
 
         return {
             "auto_retry_enabled": auto_retry_enabled,
-            "fallback_model": fallback_model
+            "fallback_model": fallback_model,
+            "fallback_models": fallback_models
         }
 
     def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:
