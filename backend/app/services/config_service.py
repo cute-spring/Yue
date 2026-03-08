@@ -60,6 +60,8 @@ class ConfigService:
             "skill_runtime_enabled": flags.get("skill_runtime_enabled", True),
             "skill_selector_tool_enabled": flags.get("skill_selector_tool_enabled", True),
             "skill_auto_mode_enabled": flags.get("skill_auto_mode_enabled", True),
+            "skill_summary_prompt_enabled": flags.get("skill_summary_prompt_enabled", True),
+            "skill_lazy_full_load_enabled": flags.get("skill_lazy_full_load_enabled", True),
         }
 
     def update_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -374,11 +376,40 @@ class ConfigService:
         })
 
     def get_doc_access(self) -> Dict[str, Any]:
+        def _normalize_roots(values: Any) -> List[str]:
+            if not isinstance(values, list):
+                return []
+            return [r for r in values if isinstance(r, str) and r.strip()]
+
+        def _parse_roots_env(var_name: str) -> Optional[List[str]]:
+            raw = os.getenv(var_name)
+            if raw is None:
+                return None
+            text = raw.strip()
+            if not text:
+                return []
+            if text.startswith("["):
+                try:
+                    parsed = json.loads(text)
+                    return _normalize_roots(parsed)
+                except Exception:
+                    pass
+            normalized = text.replace("\n", ",").replace(";", ",").replace(os.pathsep, ",")
+            parts = [p.strip() for p in normalized.split(",")]
+            return [p for p in parts if p]
+
         doc_access = self._config.get("doc_access", {})
         allow_roots = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
         deny_roots = doc_access.get("deny_roots") if isinstance(doc_access, dict) else []
-        allow = [r for r in allow_roots if isinstance(r, str) and r.strip()] if isinstance(allow_roots, list) else []
-        deny = [r for r in deny_roots if isinstance(r, str) and r.strip()] if isinstance(deny_roots, list) else []
+        allow = _normalize_roots(allow_roots)
+        deny = _normalize_roots(deny_roots)
+
+        env_allow = _parse_roots_env("DOC_ACCESS_ALLOW_ROOTS")
+        env_deny = _parse_roots_env("DOC_ACCESS_DENY_ROOTS")
+        if env_allow is not None:
+            allow = env_allow
+        if env_deny is not None:
+            deny = env_deny
         return {"allow_roots": allow, "deny_roots": deny}
 
     def get_exec_tool_config(self) -> Dict[str, Any]:
@@ -386,6 +417,38 @@ class ConfigService:
         if not isinstance(exec_cfg, dict):
             return {}
         return exec_cfg
+
+    def get_tool_call_mismatch_config(self) -> Dict[str, Any]:
+        cfg = self._config.get("tool_call_mismatch", {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        auto_retry_enabled = cfg.get("auto_retry_enabled", True)
+        if isinstance(auto_retry_enabled, str):
+            auto_retry_enabled = auto_retry_enabled.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            auto_retry_enabled = bool(auto_retry_enabled)
+
+        fallback_model = cfg.get("fallback_model", "gpt-4o-mini")
+        if fallback_model is None:
+            fallback_model = ""
+        elif isinstance(fallback_model, str):
+            fallback_model = fallback_model.strip()
+        else:
+            fallback_model = str(fallback_model).strip()
+
+        env_auto_retry = os.getenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED")
+        if env_auto_retry is not None:
+            auto_retry_enabled = env_auto_retry.strip().lower() in {"1", "true", "yes", "on"}
+
+        env_fallback_model = os.getenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL")
+        if env_fallback_model is not None:
+            fallback_model = env_fallback_model.strip()
+
+        return {
+            "auto_retry_enabled": auto_retry_enabled,
+            "fallback_model": fallback_model
+        }
 
     def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:
         incoming_allow = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []

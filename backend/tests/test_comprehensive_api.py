@@ -111,6 +111,108 @@ def test_mcp_integration():
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
+def test_skills_availability_api():
+    if os.environ.get("RUN_HTTP_INTEGRATION_TESTS") != "1":
+        pytest.skip("Set RUN_HTTP_INTEGRATION_TESTS=1 to enable HTTP integration tests.")
+    r = requests.get(f"{BASE_URL}/api/skills")
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data, list)
+    if data:
+        assert "availability" in data[0]
+        assert "missing_requirements" in data[0]
+
+    r = requests.get(f"{BASE_URL}/api/skills/summary")
+    assert r.status_code == 200
+    summary = r.json()
+    assert isinstance(summary, list)
+    if summary:
+        assert "name" in summary[0]
+        assert "description" in summary[0]
+        assert "availability" in summary[0]
+        assert "source_path" in summary[0]
+
+def test_skills_select_infers_requested_skill_from_message():
+    if os.environ.get("RUN_HTTP_INTEGRATION_TESTS") != "1":
+        pytest.skip("Set RUN_HTTP_INTEGRATION_TESTS=1 to enable HTTP integration tests.")
+    create_payload = {
+        "name": "Skill Select Integration Agent",
+        "system_prompt": "integration agent",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "enabled_tools": [],
+        "skill_mode": "auto",
+        "visible_skills": ["backend-api-debugger:1.0.0", "release-test-planner:1.0.0"],
+    }
+    r = requests.post(f"{BASE_URL}/api/agents", json=create_payload, timeout=30)
+    assert r.status_code == 200, r.text
+    agent = r.json()
+    agent_id = agent["id"]
+    try:
+        select_payload = {
+            "agent_id": agent_id,
+            "task": "请使用 backend-api-debugger 来排查这个 500 错误",
+            "mode": "auto",
+        }
+        sr = requests.post(f"{BASE_URL}/api/skills/select", json=select_payload, timeout=30)
+        assert sr.status_code == 200, sr.text
+        selected = sr.json()
+        assert selected["reason_code"] == "skill_selected"
+        assert selected["selected_skill"]["name"] == "backend-api-debugger"
+    finally:
+        requests.delete(f"{BASE_URL}/api/agents/{agent_id}", timeout=30)
+
+def test_chat_stream_emits_skill_effectiveness_event_http():
+    if os.environ.get("RUN_HTTP_INTEGRATION_TESTS") != "1":
+        pytest.skip("Set RUN_HTTP_INTEGRATION_TESTS=1 to enable HTTP integration tests.")
+    create_payload = {
+        "name": "Skill Stream Integration Agent",
+        "system_prompt": "integration agent",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "enabled_tools": [],
+        "skill_mode": "auto",
+        "visible_skills": ["pdf-insight-extractor:1.0.0", "release-test-planner:1.0.0"],
+    }
+    r = requests.post(f"{BASE_URL}/api/agents", json=create_payload, timeout=30)
+    assert r.status_code == 200, r.text
+    agent = r.json()
+    agent_id = agent["id"]
+    try:
+        payload = {
+            "agent_id": agent_id,
+            "message": "请使用 pdf-insight-extractor 提取 PDF 要点",
+        }
+        with requests.post(f"{BASE_URL}/api/chat/stream", json=payload, stream=True, timeout=60) as sr:
+            assert sr.status_code == 200, sr.text
+            effect_event = None
+            for line in sr.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data: "):
+                    continue
+                try:
+                    body = json.loads(line[6:])
+                except Exception:
+                    continue
+                if body.get("event") == "skill_effectiveness":
+                    effect_event = body
+                    break
+            assert effect_event is not None
+            assert effect_event["reason_code"] in {"skill_selected", "no_matching_skill"}
+            assert "system_prompt_tokens_estimate" in effect_event
+    finally:
+        requests.delete(f"{BASE_URL}/api/agents/{agent_id}", timeout=30)
+
+def test_chat_skill_effectiveness_report_api():
+    if os.environ.get("RUN_HTTP_INTEGRATION_TESTS") != "1":
+        pytest.skip("Set RUN_HTTP_INTEGRATION_TESTS=1 to enable HTTP integration tests.")
+    r = requests.get(f"{BASE_URL}/api/chat/skill-effectiveness/report", params={"hours": 24}, timeout=30)
+    assert r.status_code == 200
+    data = r.json()
+    assert "total_runs" in data
+    assert "skill_hit_rate" in data
+    assert "fallback_rate" in data
+    assert "avg_system_prompt_tokens" in data
+
 def test_chat_history_and_deletion():
     """Verify chat session creation, history retrieval, and deletion."""
     # Use a dummy chat_id or create one via the service if possible, 

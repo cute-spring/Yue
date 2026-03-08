@@ -2,6 +2,8 @@ import os
 import yaml
 import logging
 import re
+import platform
+import shutil
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ValidationError
 
@@ -22,6 +24,15 @@ class SkillSpec(BaseModel):
     outputs_schema: Optional[Dict[str, Any]] = None
     constraints: Optional[SkillConstraints] = None
     compatibility: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    requires: Optional[Dict[str, List[str]]] = None
+    os: Optional[List[str]] = None
+    install: Optional[Dict[str, Any]] = None
+    homepage: Optional[str] = None
+    emoji: Optional[str] = None
+    always: Optional[bool] = None
+    availability: Optional[bool] = True
+    missing_requirements: Optional[Dict[str, List[str]]] = None
     
     # Sections parsed from Markdown
     system_prompt: Optional[str] = None
@@ -30,6 +41,12 @@ class SkillSpec(BaseModel):
     failure_handling: Optional[str] = None
     
     # Metadata
+    source_path: Optional[str] = None
+
+class SkillSummary(BaseModel):
+    name: str
+    description: str
+    availability: Optional[bool] = True
     source_path: Optional[str] = None
 
 class RuntimeCapabilityDescriptor(BaseModel):
@@ -74,6 +91,32 @@ class SkillLoader:
                 logger.error(f"Invalid frontmatter in {source_path}")
                 return None
             
+            def normalize_list(value: Any) -> List[str]:
+                if value is None:
+                    return []
+                if isinstance(value, list):
+                    return [str(v).strip() for v in value if v is not None and str(v).strip()]
+                if isinstance(value, str):
+                    val = value.strip()
+                    return [val] if val else []
+                return []
+
+            raw_requires = frontmatter.get("requires")
+            requires = None
+            if isinstance(raw_requires, dict):
+                bins = normalize_list(raw_requires.get("bins") or raw_requires.get("bin"))
+                env = normalize_list(raw_requires.get("env"))
+                requires = {"bins": bins, "env": env}
+            elif isinstance(raw_requires, list) or isinstance(raw_requires, str):
+                requires = {"bins": normalize_list(raw_requires), "env": []}
+
+            raw_os = frontmatter.get("os")
+            os_list = normalize_list(raw_os)
+            os_list = [o.lower() for o in os_list] if os_list else None
+
+            metadata = frontmatter.get("metadata") if isinstance(frontmatter.get("metadata"), dict) else None
+            install = frontmatter.get("install") if isinstance(frontmatter.get("install"), dict) else None
+
             # 3. Parse sections
             sections = {}
             current_section = None
@@ -99,6 +142,10 @@ class SkillLoader:
             skill_data["examples"] = sections.get("examples")
             skill_data["failure_handling"] = sections.get("failure_handling")
             skill_data["source_path"] = source_path
+            skill_data["requires"] = requires
+            skill_data["os"] = os_list
+            skill_data["metadata"] = metadata
+            skill_data["install"] = install
             
             return SkillSpec(**skill_data)
         except Exception as e:
@@ -146,9 +193,16 @@ class SkillRegistry:
                 logger.warning(f"Skill directory not found: {skill_dir}")
                 continue
             
+            package_roots = set()
+            for root, _, files in os.walk(skill_dir):
+                if "SKILL.md" in files:
+                    package_roots.add(root)
+
             for root, _, files in os.walk(skill_dir):
                 for file in files:
                     if file.endswith(".md"):
+                        if self._should_skip_file(root, file, package_roots):
+                            continue
                         path = os.path.join(root, file)
                         with open(path, "r") as f:
                             content = f.read()
@@ -164,7 +218,9 @@ class SkillRegistry:
     def register(self, skill: SkillSpec):
         if skill.name not in self._skills:
             self._skills[skill.name] = {}
-        
+        availability, missing = self._compute_availability(skill)
+        skill.availability = availability
+        skill.missing_requirements = missing
         self._skills[skill.name][skill.version] = skill
         
         # Update latest version using semantic comparison
@@ -178,6 +234,76 @@ class SkillRegistry:
             
             if version_key(skill.version) > version_key(current_latest):
                 self._latest_versions[skill.name] = skill.version
+
+    def _should_skip_file(self, root: str, file: str, package_roots: set) -> bool:
+        if not package_roots:
+            return False
+        for package_root in package_roots:
+            try:
+                if os.path.commonpath([root, package_root]) != package_root:
+                    continue
+            except ValueError:
+                continue
+            if root == package_root:
+                return file != "SKILL.md"
+            return True
+        return False
+
+    def _normalize_os_name(self, value: str) -> str:
+        val = (value or "").lower()
+        if val in {"mac", "macos", "osx", "darwin"}:
+            return "darwin"
+        if val in {"win", "windows"}:
+            return "windows"
+        if val in {"linux"}:
+            return "linux"
+        return val
+
+    def _compute_availability(self, skill: SkillSpec) -> tuple[bool, Dict[str, List[str]]]:
+        missing: Dict[str, List[str]] = {}
+        os_allowed = [self._normalize_os_name(o) for o in (skill.os or []) if o]
+        current_os = self._normalize_os_name(platform.system())
+        if os_allowed and current_os not in os_allowed:
+            missing["os"] = [current_os]
+
+        requires = skill.requires or {}
+        bins = requires.get("bins") or []
+        env = requires.get("env") or []
+        missing_bins = [b for b in bins if b and shutil.which(b) is None]
+        missing_env = [e for e in env if e and not os.getenv(e)]
+        if missing_bins:
+            missing["bins"] = missing_bins
+        if missing_env:
+            missing["env"] = missing_env
+        return len(missing) == 0, missing
+
+    def list_summaries(self) -> List[SkillSummary]:
+        summaries = []
+        for name in self._skills:
+            for version in self._skills[name]:
+                skill = self._skills[name][version]
+                summaries.append(SkillSummary(
+                    name=skill.name,
+                    description=skill.description,
+                    availability=skill.availability,
+                    source_path=skill.source_path
+                ))
+        return summaries
+
+    def get_full_skill(self, name: str, version: str = None) -> Optional[SkillSpec]:
+        base = self.get_skill(name, version)
+        if not base:
+            return None
+        if not base.source_path or not os.path.exists(base.source_path):
+            return base
+        with open(base.source_path, "r") as f:
+            content = f.read()
+        full = SkillLoader.parse_markdown(content, source_path=base.source_path)
+        if not full:
+            return base
+        full.availability = base.availability
+        full.missing_requirements = base.missing_requirements
+        return full
 
     def get_skill(self, name: str, version: str = None) -> Optional[SkillSpec]:
         if name not in self._skills:
@@ -308,22 +434,47 @@ class SkillRouter:
         task_cjk = set(self._tokenize_cjk(task or ""))
         return self._score_skill(skill, task_text, task_tokens, task_cjk)
 
+    def infer_requested_skill(self, agent: Any, task: str) -> Optional[str]:
+        task_text = (task or "").strip().lower()
+        if not task_text:
+            return None
+        visible_skills = self.get_visible_skills(agent)
+        available_skills = [s for s in visible_skills if s.availability is not False]
+        candidates: List[tuple[int, str]] = []
+        for skill in available_skills:
+            name = (skill.name or "").lower()
+            if not name:
+                continue
+            name_version = f"{skill.name}:{skill.version}"
+            if name_version.lower() in task_text:
+                candidates.append((len(name_version), name_version))
+                continue
+            if name in task_text:
+                candidates.append((len(name), name_version))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        return candidates[0][1]
+
     def route_with_score(self, agent: Any, task: str, requested_skill: str = None) -> tuple[Optional[SkillSpec], int]:
         visible_skills = self.get_visible_skills(agent)
+        available_skills = [s for s in visible_skills if s.availability is not False]
         if not visible_skills:
             return None, 0
-        if requested_skill:
-            if ":" in requested_skill:
-                req_name, req_version = requested_skill.split(":", 1)
+        effective_requested_skill = requested_skill or self.infer_requested_skill(agent, task)
+        if effective_requested_skill:
+            if ":" in effective_requested_skill:
+                req_name, req_version = effective_requested_skill.split(":", 1)
             else:
-                req_name, req_version = requested_skill, None
-            for s in visible_skills:
+                req_name, req_version = effective_requested_skill, None
+            for s in available_skills:
                 if s.name == req_name and (not req_version or s.version == req_version):
                     return s, 1000
+            return None, 0
         task_text = (task or "").lower()
         task_tokens = set(self._tokenize_ascii(task or ""))
         task_cjk = set(self._tokenize_cjk(task or ""))
-        scored = [(self._score_skill(skill, task_text, task_tokens, task_cjk), skill) for skill in visible_skills]
+        scored = [(self._score_skill(skill, task_text, task_tokens, task_cjk), skill) for skill in available_skills]
         scored.sort(key=lambda item: (-item[0], item[1].name))
         if scored and scored[0][0] > 0:
             return scored[0][1], scored[0][0]

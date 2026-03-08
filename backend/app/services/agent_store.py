@@ -142,8 +142,8 @@ class AgentStore:
                 "Prohibitions: Do not access files outside Yue/docs. Do not execute commands that could harm the system or violate security. Do not generate or modify files unless explicitly instructed.\n\n"
                 "## 文件路径处理规范\n"
                 "- 若用户仅提供文件名（如 `ar_2024_en.pdf`），优先在 `docs/` 目录下查找，并使用完整路径格式：`docs/文件名`。\n"
-                "- 若首次查找失败，立即调用 `docs_list` 工具（不传 `root_dir` 参数）列出当前工作根目录的结构，确认 `docs/` 是否存在。\n"
-                "- 所有文档工具调用**必须显式指定 `root_dir`**（可从环境变量 `DEFAULT_ROOT` 获取或硬编码为项目根目录）。\n"
+                "- 若用户未明确提供路径（例如“root folder 下有什么文件”），第一步必须调用 `docs_list` 且不传 `root_dir`；这里的 root folder 指有效 docs 根目录。\n"
+                "- 仅在用户明确指定目录时才传 `root_dir`；若 `root_dir` 报错，立即省略 `root_dir` 重试一次。\n"
                 "- 在回答中若引用文档，必须注明完整路径（如 `docs/ar_2024_en.pdf#P1-P4`），方便用户复核。"
             ),
             provider="deepseek",

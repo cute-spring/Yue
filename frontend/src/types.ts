@@ -16,6 +16,9 @@ export type SkillSpec = {
   name: string;
   version: string;
   description: string;
+  availability?: boolean;
+  missing_requirements?: Record<string, string[]>;
+  source_path?: string;
 };
 
 export type McpTool = {

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import json
 import logging
 import os
@@ -17,6 +17,154 @@ def _get_doc_access() -> tuple[List[str], List[str]]:
     deny_roots = cfg.get("deny_roots") if isinstance(cfg, dict) else None
     return allow_roots or [], deny_roots or []
 
+
+def _root_dir_param_schema() -> Dict[str, Any]:
+    return {
+        "type": "string",
+        "description": "Optional docs root. Examples: 'docs', '.', '/abs/path'. Omit this field to use effective default roots.",
+    }
+
+
+def _resolve_default_root(
+    *,
+    doc_roots: Optional[List[str]],
+    allow_roots: List[str],
+    deny_roots: List[str],
+) -> Optional[str]:
+    try:
+        roots = doc_retrieval.resolve_docs_roots_for_search(
+            None,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        return roots[0] if roots else None
+    except Exception:
+        return None
+
+
+def _build_root_error_response(
+    *,
+    tool: str,
+    root_dir: Optional[str],
+    error_message: str,
+    suggested_root: Optional[str],
+) -> str:
+    hint = "Use root_dir='docs' or omit root_dir to use the effective default root."
+    if suggested_root:
+        hint = f"Use root_dir='{suggested_root}' or omit root_dir to use the effective default root."
+    payload = {
+        "ok": False,
+        "error_code": "invalid_root_dir",
+        "tool": tool,
+        "message": error_message,
+        "hint": hint,
+    }
+    if root_dir is not None:
+        payload["requested_root_dir"] = root_dir
+    if suggested_root:
+        payload["suggested_root_dir"] = suggested_root
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _resolve_search_roots_with_fallback(
+    *,
+    tool: str,
+    root_dir: Optional[str],
+    doc_roots: Optional[List[str]],
+    allow_roots: List[str],
+    deny_roots: List[str],
+) -> Tuple[Optional[List[str]], Optional[str]]:
+    try:
+        roots = doc_retrieval.resolve_docs_roots_for_search(
+            root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        return roots, None
+    except doc_retrieval.DocAccessError as exc:
+        if root_dir:
+            try:
+                roots = doc_retrieval.resolve_docs_roots_for_search(
+                    None,
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                )
+                logger.warning(
+                    "docs tool root_dir fallback applied",
+                    extra={"tool": tool, "requested_root_dir": root_dir, "error": str(exc)},
+                )
+                return roots, None
+            except doc_retrieval.DocAccessError:
+                pass
+        suggested_root = _resolve_default_root(
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        return None, _build_root_error_response(
+            tool=tool,
+            root_dir=root_dir,
+            error_message=str(exc),
+            suggested_root=suggested_root,
+        )
+
+
+def _resolve_read_root_with_fallback(
+    *,
+    tool: str,
+    path: str,
+    root_dir: Optional[str],
+    doc_roots: Optional[List[str]],
+    allow_roots: List[str],
+    deny_roots: List[str],
+    allowed_extensions: Optional[List[str]],
+    require_md: bool = False,
+) -> Tuple[Optional[str], Optional[str]]:
+    try:
+        docs_root = doc_retrieval.resolve_docs_root_for_read(
+            path,
+            requested_root=root_dir,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+            allowed_extensions=allowed_extensions,
+            require_md=require_md,
+        )
+        return docs_root, None
+    except doc_retrieval.DocAccessError as exc:
+        if root_dir:
+            try:
+                docs_root = doc_retrieval.resolve_docs_root_for_read(
+                    path,
+                    requested_root=None,
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                    allowed_extensions=allowed_extensions,
+                    require_md=require_md,
+                )
+                logger.warning(
+                    "docs tool root_dir fallback applied",
+                    extra={"tool": tool, "requested_root_dir": root_dir, "error": str(exc)},
+                )
+                return docs_root, None
+            except doc_retrieval.DocAccessError:
+                pass
+        suggested_root = _resolve_default_root(
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        return None, _build_root_error_response(
+            tool=tool,
+            root_dir=root_dir,
+            error_message=str(exc),
+            suggested_root=suggested_root,
+        )
+
 class DocsListTool(BaseTool):
     def __init__(self):
         super().__init__(
@@ -25,7 +173,7 @@ class DocsListTool(BaseTool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "max_items": {"type": "integer"},
                     "max_depth": {"type": "integer"},
                     "include_dirs": {"type": "boolean"},
@@ -43,12 +191,17 @@ class DocsListTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        roots = doc_retrieval.resolve_docs_roots_for_search(
-            root_dir,
+        roots, root_error = _resolve_search_roots_with_fallback(
+            tool=self.name,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
         )
+        if root_error:
+            return root_error
+        if not roots:
+            return json.dumps([], ensure_ascii=False, indent=2)
         remaining = max(0, max_items)
         payload = []
         for docs_root in roots:
@@ -75,7 +228,7 @@ class DocsSearchTool(BaseTool):
                 "properties": {
                     "query": {"type": "string"},
                     "mode": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "limit": {"type": "integer", "description": "Maximum number of files to return."},
                     "max_files": {"type": "integer"},
                     "timeout_s": {"type": "number"},
@@ -105,12 +258,17 @@ class DocsSearchTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        roots = doc_retrieval.resolve_docs_roots_for_search(
-            root_dir,
+        roots, root_error = _resolve_search_roots_with_fallback(
+            tool=self.name,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
         )
+        if root_error:
+            return root_error
+        if not roots:
+            return json.dumps([], ensure_ascii=False, indent=2)
 
         merged = {}
         for docs_root in roots:
@@ -164,7 +322,7 @@ class DocsReadTool(BaseTool):
                 "properties": {
                     "path": {"type": "string"},
                     "mode": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "start_line": {"type": "integer"},
                     "max_lines": {"type": "integer"},
                     "target_line": {"type": "integer"},
@@ -195,15 +353,29 @@ class DocsReadTool(BaseTool):
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
 
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=allowed_extensions,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         abs_path, start, end, snippet = doc_retrieval.read_text_lines(
             path,
             docs_root=docs_root,
@@ -235,7 +407,7 @@ class DocsInspectTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                 },
                 "required": ["path"],
             }
@@ -249,15 +421,29 @@ class DocsInspectTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=doc_retrieval.TEXT_LIKE_EXTENSIONS,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         
         info = doc_retrieval.inspect_doc(
             path,
@@ -275,7 +461,7 @@ class DocsSearchPdfTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "limit": {"type": "integer"},
                     "max_files": {"type": "integer"},
                     "timeout_s": {"type": "number"},
@@ -300,12 +486,17 @@ class DocsSearchPdfTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        roots = doc_retrieval.resolve_docs_roots_for_search(
-            root_dir,
+        roots, root_error = _resolve_search_roots_with_fallback(
+            tool=self.name,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
         )
+        if root_error:
+            return root_error
+        if not roots:
+            return json.dumps([], ensure_ascii=False, indent=2)
 
         merged = {}
         for docs_root in roots:
@@ -358,7 +549,7 @@ class DocsReadPdfTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "start_page": {"type": "integer"},
                     "max_pages": {"type": "integer"},
                     "timeout_s": {"type": "number"},
@@ -381,15 +572,29 @@ class DocsReadPdfTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         abs_path, start, end, snippet = doc_retrieval.read_pdf_pages(
             path,
             docs_root=docs_root,
@@ -420,7 +625,7 @@ class PdfOutlineExtractTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "max_bytes": {"type": "integer"},
                 },
                 "required": ["path"],
@@ -435,15 +640,29 @@ class PdfOutlineExtractTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         abs_path, outline = doc_retrieval.pdf_outline_extract(
             path,
             docs_root=docs_root,
@@ -462,7 +681,7 @@ class PdfKeywordPageSearchTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "keywords": {"type": "array", "items": {"type": "string"}},
                     "start_page": {"type": "integer"},
                     "end_page": {"type": "integer"},
@@ -485,15 +704,29 @@ class PdfKeywordPageSearchTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         abs_path, pages = doc_retrieval.pdf_keyword_page_search(
             path,
             keywords=keywords,
@@ -516,7 +749,7 @@ class PdfPageTextReadTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "page": {"type": "integer"},
                     "max_bytes": {"type": "integer"},
                     "timeout_s": {"type": "number"},
@@ -535,15 +768,29 @@ class PdfPageTextReadTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         abs_path, resolved_page, text = doc_retrieval.pdf_page_text_read(
             path,
             page=page,
@@ -592,7 +839,7 @@ class PdfPageTableExtractTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "page": {"type": "integer"},
                     "table_index": {"type": "integer"},
                     "max_bytes": {"type": "integer"},
@@ -611,15 +858,29 @@ class PdfPageTableExtractTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         abs_path, resolved_page, table = doc_retrieval.pdf_page_table_extract(
             path,
             page=page,
@@ -644,7 +905,7 @@ class PdfPageRenderImageTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "root_dir": {"type": "string"},
+                    "root_dir": _root_dir_param_schema(),
                     "page": {"type": "integer"},
                     "dpi": {"type": "integer"},
                     "max_bytes": {"type": "integer"},
@@ -663,15 +924,29 @@ class PdfPageRenderImageTool(BaseTool):
         deps = getattr(ctx, "deps", None)
         doc_roots = deps.get("doc_roots") if isinstance(deps, dict) else None
         file_patterns = deps.get("doc_file_patterns") if isinstance(deps, dict) else None
-        docs_root = doc_retrieval.resolve_docs_root_for_read(
-            path,
-            requested_root=root_dir,
+        docs_root, root_error = _resolve_read_root_with_fallback(
+            tool=self.name,
+            path=path,
+            root_dir=root_dir,
             doc_roots=doc_roots,
             allow_roots=allow_roots,
             deny_roots=deny_roots,
             allowed_extensions=doc_retrieval.PDF_EXTENSIONS,
             require_md=False,
         )
+        if root_error:
+            return root_error
+        if not docs_root:
+            return _build_root_error_response(
+                tool=self.name,
+                root_dir=root_dir,
+                error_message="No valid docs root found",
+                suggested_root=_resolve_default_root(
+                    doc_roots=doc_roots,
+                    allow_roots=allow_roots,
+                    deny_roots=deny_roots,
+                ),
+            )
         abs_path, resolved_page, image_path = doc_retrieval.pdf_page_render_image(
             path,
             page=page,

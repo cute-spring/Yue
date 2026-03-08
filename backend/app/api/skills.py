@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Body
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, SkillSpec
+from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, SkillSpec, SkillSummary
 from app.services.agent_store import agent_store
 from app.services.config_service import config_service
 import logging
@@ -26,6 +26,10 @@ class SkillSelectionResponse(BaseModel):
 async def list_skills():
     """List all loaded skills."""
     return skill_registry.list_skills()
+
+@router.get("/summary", response_model=List[SkillSummary])
+async def list_skill_summaries():
+    return skill_registry.list_summaries()
 
 @router.get("/{name}", response_model=SkillSpec)
 async def get_skill(name: str, version: Optional[str] = None):

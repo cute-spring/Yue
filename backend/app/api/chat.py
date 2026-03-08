@@ -15,6 +15,7 @@ from app.services.response_parser_service import get_parser
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
+from app.services import doc_retrieval
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
 import asyncio
@@ -22,7 +23,7 @@ import uuid
 import json
 import logging
 import os
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,165 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
     return len(text) // EST_CHARS_PER_TOKEN
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+def _safe_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except Exception:
+        return default
+    return value if value > 0 else default
+
+def _env_flag_with_fallback(primary: str, legacy: str, default: bool) -> bool:
+    raw_primary = os.getenv(primary)
+    if raw_primary is not None:
+        value = raw_primary.strip().lower()
+        return value in {"1", "true", "yes", "on"}
+    return _env_flag(legacy, default)
+
+def _safe_int_env_with_fallback(primary: str, legacy: str, default: int) -> int:
+    raw_primary = os.getenv(primary)
+    if raw_primary is not None:
+        try:
+            value = int(raw_primary)
+        except Exception:
+            return default
+        return value if value > 0 else default
+    return _safe_int_env(legacy, default)
+
+def _truncate_for_log(text: str, max_chars: int) -> Dict[str, Any]:
+    if max_chars <= 0:
+        return {"text": "", "truncated": bool(text), "original_chars": len(text or "")}
+    text = text or ""
+    if len(text) <= max_chars:
+        return {"text": text, "truncated": False, "original_chars": len(text)}
+    return {"text": text[:max_chars], "truncated": True, "original_chars": len(text)}
+
+def _build_chat_request_log_payload(chat_id: str, request: "ChatRequest") -> Dict[str, Any]:
+    include_images_raw = _env_flag_with_fallback("LLM_LOG_INCLUDE_IMAGE_DATA", "BACKLOG_LOG_INCLUDE_IMAGE_DATA", False)
+    max_chars = _safe_int_env_with_fallback("LLM_LOG_MAX_CHARS", "BACKLOG_LOG_MAX_CHARS", 120000)
+    request_dump = request.model_dump()
+    images = request_dump.get("images") or []
+    if isinstance(images, list):
+        if include_images_raw:
+            request_dump["images_count"] = len(images)
+        else:
+            request_dump["images"] = [{"index": idx, "chars": len(img) if isinstance(img, str) else 0} for idx, img in enumerate(images)]
+    request_dump["message"] = _truncate_for_log(request_dump.get("message") or "", max_chars)
+    prompt_value = request_dump.get("system_prompt")
+    if isinstance(prompt_value, str):
+        request_dump["system_prompt"] = _truncate_for_log(prompt_value, max_chars)
+    request_dump["chat_id"] = chat_id
+    return request_dump
+
+def _build_chat_response_log_payload(
+    chat_id: str,
+    provider: Optional[str],
+    model_name: Optional[str],
+    finish_reason: Optional[str],
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+    ttft: Optional[float],
+    total_duration: Optional[float],
+    tool_call_started_count: int,
+    tool_call_finished_count: int,
+    full_response: str,
+    error: Optional[str],
+) -> Dict[str, Any]:
+    max_chars = _safe_int_env_with_fallback("LLM_LOG_MAX_CHARS", "BACKLOG_LOG_MAX_CHARS", 120000)
+    payload: Dict[str, Any] = {
+        "chat_id": chat_id,
+        "provider": provider,
+        "model": model_name,
+        "finish_reason": finish_reason,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "ttft": ttft,
+        "total_duration": total_duration,
+        "tool_call_started_count": tool_call_started_count,
+        "tool_call_finished_count": tool_call_finished_count,
+        "response": _truncate_for_log(full_response or "", max_chars),
+    }
+    if error:
+        payload["error"] = _truncate_for_log(error, max_chars)
+    return payload
+
+def _safe_json_log(payload: Dict[str, Any]) -> str:
+    try:
+        return json.dumps(payload, ensure_ascii=False, default=str)
+    except Exception as err:
+        fallback = {"log_payload_error": str(err), "payload_repr": repr(payload)}
+        return json.dumps(fallback, ensure_ascii=False, default=str)
+
+def _has_docs_capability(agent_config: Any) -> bool:
+    tools = getattr(agent_config, "enabled_tools", []) or []
+    for tool in tools:
+        if not isinstance(tool, str):
+            continue
+        if "docs_" in tool:
+            return True
+    return False
+
+def _mask_scope_root(path: str) -> str:
+    if not path:
+        return path
+    project_root = doc_retrieval.get_project_root()
+    path_real = os.path.realpath(path)
+    project_real = os.path.realpath(project_root)
+    try:
+        if os.path.commonpath([project_real, path_real]) == project_real:
+            rel = os.path.relpath(path_real, project_real).replace(os.sep, "/")
+            return rel if rel != "." else "."
+    except Exception:
+        pass
+    parts = [p for p in path_real.replace("\\", "/").split("/") if p]
+    tail = "/".join(parts[-2:]) if len(parts) >= 2 else (parts[0] if parts else path_real)
+    return f".../{tail}" if tail else path_real
+
+def _build_scope_summary_block(agent_config: Any) -> Tuple[Optional[str], int]:
+    if not agent_config or not _has_docs_capability(agent_config):
+        return None, 0
+    if not _env_flag("PROMPT_SCOPE_SUMMARY_ENABLED", True):
+        return None, 0
+    reveal_paths = _env_flag("PROMPT_SCOPE_SUMMARY_REVEAL_PATHS", False)
+    max_roots = _safe_int_env("PROMPT_SCOPE_SUMMARY_MAX_ROOTS", 3)
+    doc_roots = getattr(agent_config, "doc_roots", None) or []
+    doc_access = config_service.get_doc_access()
+    allow_roots = doc_access.get("allow_roots") or []
+    deny_roots = doc_access.get("deny_roots") or []
+    try:
+        effective_roots = doc_retrieval.resolve_docs_roots_for_search(
+            None,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+    except Exception:
+        effective_roots = []
+    if not effective_roots:
+        return None, 0
+    shown = effective_roots[:max_roots]
+    if reveal_paths:
+        display_roots = shown
+    else:
+        display_roots = [_mask_scope_root(p) for p in shown]
+    lines = ["### Scope Summary", f"- Effective roots: {len(effective_roots)}"]
+    lines.extend(f"- {root}" for root in display_roots)
+    if len(effective_roots) > len(shown):
+        lines.append(f"- ... and {len(effective_roots) - len(shown)} more")
+    lines.append("- If uncertain, call docs_list first to inspect paths.")
+    return "\n".join(lines), len(effective_roots)
 
 router = APIRouter()
 
@@ -150,6 +310,12 @@ async def chat_stream(request: ChatRequest):
                 # Fallback? Or skip?
                 pass
 
+    if _env_flag_with_fallback("LLM_VERBOSE_LOG_ENABLED", "BACKLOG_VERBOSE_LOG_ENABLED", True):
+        logger.info(
+            "BACKLOG_CHAT_REQUEST %s",
+            _safe_json_log(_build_chat_request_log_payload(chat_id, request)),
+        )
+
     chat_service.add_message(chat_id, "user", request.message, images=stored_images if stored_images else None)
     
     async def event_generator():
@@ -158,9 +324,12 @@ async def chat_stream(request: ChatRequest):
         
         # Tool event queue to capture events from tool callbacks
         tool_event_queue = asyncio.Queue()
+        tool_call_started_count = 0
+        tool_call_finished_count = 0
 
         # Tool event callback for tool.call.started and tool.call.finished
         async def on_tool_event(event: Dict[str, Any]):
+            nonlocal tool_call_started_count, tool_call_finished_count
             try:
                 # 1. Emit to SSE stream
                 await tool_event_queue.put(event)
@@ -168,6 +337,7 @@ async def chat_stream(request: ChatRequest):
                 # 2. Persistence (Phase 2)
                 event_type = event.get("event")
                 if event_type == "tool.call.started":
+                    tool_call_started_count += 1
                     chat_service.add_tool_call(
                         session_id=chat_id,
                         call_id=event.get("call_id"),
@@ -175,6 +345,7 @@ async def chat_stream(request: ChatRequest):
                         args=event.get("args")
                     )
                 elif event_type == "tool.call.finished":
+                    tool_call_finished_count += 1
                     chat_service.update_tool_call(
                         call_id=event.get("call_id"),
                         status="error" if "error" in event else "success",
@@ -193,6 +364,9 @@ async def chat_stream(request: ChatRequest):
         total_tokens = 0
         finish_reason = None
         total_duration = None
+        stream_error_message = None
+        provider = request.provider
+        model_name = request.model
 
         try:
             # Get agent config if provided
@@ -207,22 +381,44 @@ async def chat_stream(request: ChatRequest):
             
             # --- Markdown-Defined Skills (Phase 6.2) ---
             selected_skill_spec = None
+            always_skill_specs = []
+            selection_reason_code = "legacy_path"
+            selection_source = "none"
+            visible_skill_count = 0
+            available_skill_count = 0
+            always_injected_count = 0
             feature_flags = config_service.get_feature_flags()
             
+            summary_block = None
+            if feature_flags.get("skill_summary_prompt_enabled", False) and agent_config and agent_config.skill_mode != "off":
+                visible_skills = skill_router.get_visible_skills(agent_config)
+                summary_lines = []
+                for skill in visible_skills:
+                    status = "available" if skill.availability is not False else "unavailable"
+                    summary_lines.append(f"- {skill.name}: {skill.description} ({status})")
+                if summary_lines:
+                    summary_block = "### Skill Summaries\n" + "\n".join(summary_lines)
+
             if feature_flags.get("skill_runtime_enabled") and agent_config and agent_config.skill_mode != "off":
                 bound_name, bound_version = chat_service.get_session_skill(chat_id)
                 bound_skill = None
                 if bound_name:
                     bound_skill = skill_registry.get_skill(bound_name, bound_version)
                 visible_skills = skill_router.get_visible_skills(agent_config)
+                visible_skill_count = len(visible_skills)
+                available_skill_count = len([s for s in visible_skills if s.availability is not False])
+                always_skill_specs = [s for s in visible_skills if s.always and s.availability is not False]
                 if bound_skill and bound_skill not in visible_skills:
                     bound_skill = None
+                inferred_requested_skill = skill_router.infer_requested_skill(agent_config, request.message)
                 if agent_config.skill_mode == "manual":
-                    if request.requested_skill:
+                    explicit_requested_skill = request.requested_skill or inferred_requested_skill
+                    if explicit_requested_skill:
+                        selection_source = "explicit" if request.requested_skill else "inferred"
                         selected_skill_spec, _ = skill_router.route_with_score(
                             agent_config,
                             request.message,
-                            requested_skill=request.requested_skill
+                            requested_skill=explicit_requested_skill
                         )
                     elif bound_skill:
                         bound_score = skill_router.score_skill(bound_skill, request.message)
@@ -230,10 +426,12 @@ async def chat_stream(request: ChatRequest):
                             selected_skill_spec = bound_skill
                 elif agent_config.skill_mode == "auto":
                     if feature_flags.get("skill_auto_mode_enabled", True):
+                        if inferred_requested_skill:
+                            selection_source = "inferred"
                         best_skill, best_score = skill_router.route_with_score(
                             agent_config,
                             request.message,
-                            requested_skill=None
+                            requested_skill=inferred_requested_skill
                         )
                         if bound_skill:
                             bound_score = skill_router.score_skill(bound_skill, request.message)
@@ -253,13 +451,18 @@ async def chat_stream(request: ChatRequest):
                             if best_skill and best_score >= SKILL_BIND_MIN_SCORE:
                                 selected_skill_spec = best_skill
                 if selected_skill_spec:
+                    selection_reason_code = "skill_selected"
                     chat_service.set_session_skill(chat_id, selected_skill_spec.name, selected_skill_spec.version)
                 else:
+                    selection_reason_code = "no_matching_skill"
                     chat_service.clear_session_skill(chat_id)
             elif agent_config:
+                selection_reason_code = "skill_mode_off"
                 chat_service.clear_session_skill(chat_id)
                 
             if selected_skill_spec:
+                if feature_flags.get("skill_lazy_full_load_enabled", True):
+                    selected_skill_spec = skill_registry.get_full_skill(selected_skill_spec.name, selected_skill_spec.version) or selected_skill_spec
                 # Skill path
                 descriptor = MarkdownSkillAdapter.to_descriptor(selected_skill_spec)
                 provider = provider or agent_config.provider
@@ -268,6 +471,21 @@ async def chat_stream(request: ChatRequest):
                 persona = agent_config.system_prompt or ""
                 skill_prompt = descriptor.prompt_blocks.get("system_prompt", "")
                 instructions = descriptor.prompt_blocks.get("instructions", "")
+                always_blocks = []
+                for always_skill in always_skill_specs:
+                    if always_skill.name == selected_skill_spec.name and always_skill.version == selected_skill_spec.version:
+                        continue
+                    resolved_always = always_skill
+                    if feature_flags.get("skill_lazy_full_load_enabled", True):
+                        resolved_always = skill_registry.get_full_skill(always_skill.name, always_skill.version) or always_skill
+                    always_descriptor = MarkdownSkillAdapter.to_descriptor(resolved_always)
+                    always_prompt = always_descriptor.prompt_blocks.get("system_prompt", "")
+                    always_instructions = always_descriptor.prompt_blocks.get("instructions", "")
+                    block = f"[Always Skill: {resolved_always.name}]\n{always_prompt}".strip()
+                    if always_instructions:
+                        block = f"{block}\n\n### Always Instructions\n{always_instructions}"
+                    always_blocks.append(block)
+                always_injected_count = len(always_blocks)
                 
                 use_persona = True
                 if agent_config.name == "Expert Mgr" or "Skill Expert Manager" in persona:
@@ -278,6 +496,8 @@ async def chat_stream(request: ChatRequest):
                     system_prompt = f"[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
                 if instructions:
                     system_prompt += f"\n\n### Additional Instructions\n{instructions}"
+                if always_blocks:
+                    system_prompt += "\n\n" + "\n\n".join(always_blocks)
                     
                 # Tool intersection
                 enabled_tools = agent_config.enabled_tools
@@ -297,14 +517,74 @@ async def chat_stream(request: ChatRequest):
                     if "可检索目录" not in system_prompt:
                         roots = "\n".join(f"- {r}" for r in agent_config.doc_roots)
                         system_prompt += f"\n\n可检索目录（优先使用）：\n{roots}"
+                if always_skill_specs:
+                    always_blocks = []
+                    for always_skill in always_skill_specs:
+                        resolved_always = always_skill
+                        if feature_flags.get("skill_lazy_full_load_enabled", True):
+                            resolved_always = skill_registry.get_full_skill(always_skill.name, always_skill.version) or always_skill
+                        always_descriptor = MarkdownSkillAdapter.to_descriptor(resolved_always)
+                        always_prompt = always_descriptor.prompt_blocks.get("system_prompt", "")
+                        always_instructions = always_descriptor.prompt_blocks.get("instructions", "")
+                        block = f"[Always Skill: {resolved_always.name}]\n{always_prompt}".strip()
+                        if always_instructions:
+                            block = f"{block}\n\n### Always Instructions\n{always_instructions}"
+                        always_blocks.append(block)
+                    if always_blocks:
+                        always_injected_count = len(always_blocks)
+                        system_prompt += "\n\n" + "\n\n".join(always_blocks)
                 final_tools_list = agent_config.enabled_tools
             else:
                 final_tools_list = [] # Default for no agent
+
+            scope_summary_block, effective_scope_count = _build_scope_summary_block(agent_config)
+            scope_summary_injected = False
+            if scope_summary_block and scope_summary_block not in (system_prompt or ""):
+                system_prompt = (system_prompt or "").strip()
+                if system_prompt:
+                    system_prompt += f"\n\n{scope_summary_block}"
+                else:
+                    system_prompt = scope_summary_block
+                scope_summary_injected = True
+
+            if summary_block and not selected_skill_spec:
+                system_prompt = system_prompt or ""
+                if system_prompt:
+                    system_prompt = f"{system_prompt}\n\n{summary_block}"
+                else:
+                    system_prompt = summary_block
+            summary_injected = bool(summary_block and not selected_skill_spec)
             
             # Final fallbacks if still None
             provider = provider or "openai"
             model_name = model_name or "gpt-4o"
             system_prompt = system_prompt or "You are a helpful assistant."
+
+            skill_effectiveness_payload = {
+                "event": "skill_effectiveness",
+                "reason_code": selection_reason_code,
+                "selection_source": selection_source,
+                "fallback_used": selected_skill_spec is None,
+                "selected_skill": (
+                    {"name": selected_skill_spec.name, "version": selected_skill_spec.version}
+                    if selected_skill_spec else None
+                ),
+                "visible_skill_count": visible_skill_count,
+                "available_skill_count": available_skill_count,
+                "always_injected_count": always_injected_count,
+                "summary_injected": summary_injected,
+                "scope_summary_injected": scope_summary_injected,
+                "effective_scope_count": effective_scope_count,
+                "summary_prompt_enabled": feature_flags.get("skill_summary_prompt_enabled", False),
+                "lazy_full_load_enabled": feature_flags.get("skill_lazy_full_load_enabled", True),
+                "system_prompt_tokens_estimate": estimate_tokens(system_prompt),
+                "user_message_tokens_estimate": estimate_tokens(request.message),
+            }
+            try:
+                chat_service.add_skill_effectiveness_event(chat_id, skill_effectiveness_payload)
+            except Exception:
+                logger.exception("Failed to persist skill_effectiveness event")
+            yield f"data: {json.dumps(skill_effectiveness_payload)}\n\n"
 
             if provider == "ollama":
                 models = await fetch_ollama_models()
@@ -636,6 +916,100 @@ async def chat_stream(request: ChatRequest):
                     continue_msg = "\n\n> ⚠️ **[系统提示]** 由于输出长度限制，内容可能未完全生成。您可以输入 **“继续”** 来获取剩余部分。"
                     full_response += continue_msg
                     yield f"data: {json.dumps({'content': continue_msg})}\n\n"
+                elif finish_reason == "tool_call" and tool_call_started_count == 0:
+                    mismatch_resolved = False
+                    mismatch_config = config_service.get_tool_call_mismatch_config()
+                    if mismatch_config.get("auto_retry_enabled", True):
+                        retry_model_name = (mismatch_config.get("fallback_model", "") or "").strip()
+                        if retry_model_name and retry_model_name != model_name:
+                            try:
+                                yield f"data: {json.dumps({'event': 'tool_call_retry', 'from_model': model_name, 'to_model': retry_model_name})}\n\n"
+                                retry_model = get_model(provider, retry_model_name)
+                                retry_model_settings = config_service.get_model_settings(provider, retry_model_name)
+                                if "max_tokens" in retry_model_settings:
+                                    if "extra_body" not in retry_model_settings:
+                                        retry_model_settings["extra_body"] = {}
+                                    retry_model_settings["extra_body"]["max_tokens"] = retry_model_settings["max_tokens"]
+                                retry_parser = get_parser(provider, retry_model_name, capabilities)
+                                retry_agent = Agent(
+                                    retry_model,
+                                    system_prompt=system_prompt,
+                                    tools=tools
+                                )
+                                retry_input = request.message
+                                if request.images:
+                                    retry_input = [request.message]
+                                    for img in request.images:
+                                        retry_input.append(ImageUrl(url=img))
+                                async with retry_agent.run_stream(
+                                    retry_input,
+                                    message_history=history,
+                                    deps=deps,
+                                    model_settings=retry_model_settings,
+                                    usage_limits=usage_limits
+                                ) as retry_result:
+                                    retry_stream_iter = retry_result.stream_text()
+                                    if asyncio.iscoroutine(retry_stream_iter):
+                                        retry_stream_iter = await retry_stream_iter
+                                    retry_stream_task = asyncio.create_task(retry_stream_iter.__anext__())
+                                    retry_queue_task = asyncio.create_task(tool_event_queue.get())
+                                    while True:
+                                        done, _ = await asyncio.wait(
+                                            [retry_stream_task, retry_queue_task],
+                                            return_when=asyncio.FIRST_COMPLETED
+                                        )
+                                        if retry_stream_task in done:
+                                            try:
+                                                retry_chunk = await retry_stream_task
+                                                retry_items = retry_parser.parse_chunk(retry_chunk)
+                                                for item in retry_items:
+                                                    if "content" in item:
+                                                        full_response += item["content"]
+                                                    yield f"data: {json.dumps(item)}\n\n"
+                                                retry_stream_task = asyncio.create_task(retry_stream_iter.__anext__())
+                                            except StopAsyncIteration:
+                                                if retry_queue_task.done() and not retry_queue_task.cancelled():
+                                                    try:
+                                                        ev = retry_queue_task.result()
+                                                        yield f"data: {json.dumps(ev)}\n\n"
+                                                        tool_event_queue.task_done()
+                                                    except Exception:
+                                                        pass
+                                                break
+                                            except Exception:
+                                                logger.exception("Error in retry stream_iter")
+                                                break
+                                        if retry_queue_task in done:
+                                            try:
+                                                ev = await retry_queue_task
+                                                yield f"data: {json.dumps(ev)}\n\n"
+                                                tool_event_queue.task_done()
+                                                retry_queue_task = asyncio.create_task(tool_event_queue.get())
+                                            except Exception:
+                                                logger.exception("Error getting retry tool_event_queue")
+                                                retry_queue_task = asyncio.create_task(tool_event_queue.get())
+                                    if not retry_stream_task.done():
+                                        retry_stream_task.cancel()
+                                    if not retry_queue_task.done():
+                                        retry_queue_task.cancel()
+                                    retry_finish_reason = getattr(getattr(retry_result, "response", None), "finish_reason", None)
+                                    if tool_call_started_count > 0 or retry_finish_reason != "tool_call":
+                                        mismatch_resolved = True
+                                if mismatch_resolved:
+                                    yield f"data: {json.dumps({'event': 'tool_call_retry_success', 'model': retry_model_name, 'started': tool_call_started_count, 'finished': tool_call_finished_count})}\n\n"
+                            except Exception as retry_err:
+                                logger.exception("Auto retry after tool_call mismatch failed")
+                                yield f"data: {json.dumps({'event': 'tool_call_retry_failed', 'error': str(retry_err)})}\n\n"
+                    if not mismatch_resolved:
+                        tool_msg = (
+                            "\n\n> ⚠️ **[系统提示]** 模型返回了 `tool_call` 结束信号，但未产生可执行工具调用。"
+                            "这通常是当前模型与工具调用协议兼容性问题。"
+                            "建议切换到已验证支持工具调用的模型（例如 `gpt-4o`/`gpt-4o-mini`），"
+                            "或重试并明确要求“立即调用工具后再回答”。"
+                        )
+                        full_response += tool_msg
+                        yield f"data: {json.dumps({'event': 'tool_call_mismatch', 'started': tool_call_started_count, 'finished': tool_call_finished_count})}\n\n"
+                        yield f"data: {json.dumps({'content': tool_msg})}\n\n"
             except Exception as usage_err:
                 logger.error(f"Failed to get usage via adapter: {usage_err}")
 
@@ -680,7 +1054,9 @@ async def chat_stream(request: ChatRequest):
         except (Exception, GeneratorExit, asyncio.CancelledError) as e:
             if isinstance(e, (GeneratorExit, asyncio.CancelledError)):
                 logger.info("Chat stream cancelled by client")
+                stream_error_message = e.__class__.__name__
             else:
+                stream_error_message = str(e)
                 logger.exception("Chat error")
                 yield f"data: {json.dumps({'error': handle_llm_exception(e)})}\n\n"
         finally:
@@ -698,5 +1074,32 @@ async def chat_stream(request: ChatRequest):
                     total_tokens=total_tokens,
                     finish_reason=finish_reason or (e.__class__.__name__ if 'e' in locals() and isinstance(e, (GeneratorExit, asyncio.CancelledError)) else None)
                 )
+            if _env_flag_with_fallback("LLM_VERBOSE_LOG_ENABLED", "BACKLOG_VERBOSE_LOG_ENABLED", True):
+                logger.info(
+                    "BACKLOG_CHAT_RESPONSE %s",
+                    _safe_json_log(
+                        _build_chat_response_log_payload(
+                            chat_id=chat_id,
+                            provider=provider,
+                            model_name=model_name,
+                            finish_reason=finish_reason or (e.__class__.__name__ if 'e' in locals() and isinstance(e, (GeneratorExit, asyncio.CancelledError)) else None),
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            total_tokens=total_tokens,
+                            ttft=ttft,
+                            total_duration=total_duration,
+                            tool_call_started_count=tool_call_started_count,
+                            tool_call_finished_count=tool_call_finished_count,
+                            full_response=full_response,
+                            error=stream_error_message,
+                        )
+                    ),
+                )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@router.get("/skill-effectiveness/report")
+async def get_skill_effectiveness_report(hours: int = 24):
+    if hours <= 0 or hours > 24 * 30:
+        raise HTTPException(status_code=400, detail="hours_out_of_range")
+    return chat_service.get_skill_effectiveness_report(hours=hours)

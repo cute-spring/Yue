@@ -3,12 +3,17 @@ import json
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock, AsyncMock
 from app.main import app
+from app.services.skill_service import SkillSpec
+from app.services.agent_store import AgentConfig
 
 from datetime import datetime
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    try:
+        return TestClient(app)
+    except TypeError:
+        pytest.skip("TestClient incompatible with installed httpx/starlette")
 
 @pytest.fixture
 def mock_chat_service():
@@ -48,6 +53,25 @@ def test_delete_chat_not_found(client, mock_chat_service):
     mock_chat_service.delete_chat.return_value = False
     response = client.delete("/api/chat/non_existent")
     assert response.status_code == 404
+
+def test_get_skill_effectiveness_report_endpoint(client, mock_chat_service):
+    mock_chat_service.get_skill_effectiveness_report.return_value = {
+        "window_hours": 24,
+        "total_runs": 10,
+        "skill_hit_rate": 0.8,
+        "fallback_rate": 0.2,
+        "avg_system_prompt_tokens": 120.0,
+        "avg_user_message_tokens": 22.0,
+        "reason_distribution": [{"reason_code": "skill_selected", "count": 8}],
+        "top_selected_skills": [{"name": "pdf-insight-extractor", "count": 5}],
+    }
+    response = client.get("/api/chat/skill-effectiveness/report?hours=24")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_runs"] == 10
+    assert "reason_distribution" in data
+    bad = client.get("/api/chat/skill-effectiveness/report?hours=0")
+    assert bad.status_code == 400
 
 def test_truncate_chat(client, mock_chat_service):
     response = client.post("/api/chat/1/truncate", json={"keep_count": 5})
@@ -168,6 +192,78 @@ async def test_chat_stream_no_tools_fallback(client, mock_chat_service):
         lines = [line for line in response.iter_lines()]
         assert any("Fallback response" in line for line in lines)
 
+@pytest.mark.asyncio
+async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_service):
+    with patch.dict("os.environ", {"PROMPT_SCOPE_SUMMARY_ENABLED": "true"}, clear=False), \
+         patch("app.api.chat.agent_store") as mock_agent_store, \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat.config_service.get_feature_flags", return_value={
+             "skill_runtime_enabled": True,
+             "skill_selector_tool_enabled": True,
+             "skill_auto_mode_enabled": True,
+             "skill_summary_prompt_enabled": True,
+             "skill_lazy_full_load_enabled": True,
+         }), \
+         patch("app.api.chat.skill_router.get_visible_skills") as mock_visible, \
+         patch("app.api.chat.skill_router.route_with_score") as mock_route_with_score, \
+         patch("app.api.chat.skill_registry.get_full_skill") as mock_get_full:
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = None
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+        fake_agent = AgentConfig(
+            id="skill-agent",
+            name="Skill Agent",
+            system_prompt="YOU ARE A LEGACY AGENT.",
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=["builtin:docs_read"],
+            skill_mode="auto",
+            visible_skills=["pdf-insight-extractor:1.0.0"]
+        )
+        fake_skill = SkillSpec(
+            name="pdf-insight-extractor",
+            version="1.0.0",
+            description="pdf",
+            capabilities=["pdf-analysis"],
+            entrypoint="system_prompt",
+            system_prompt="YOU ARE A PDF SKILL."
+        )
+        mock_agent_store.get_agent.return_value = fake_agent
+        mock_visible.return_value = [fake_skill]
+        mock_route_with_score.return_value = (fake_skill, 8)
+        mock_get_full.return_value = fake_skill
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+        async def mock_stream():
+            yield "done"
+        mock_result.stream_text.return_value = mock_stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post("/api/chat/stream", json={"message": "请分析这个 PDF", "agent_id": "skill-agent"})
+        assert response.status_code == 200
+        data_lines = [line[6:] for line in response.iter_lines() if line.startswith("data: ")]
+        payloads = []
+        for raw in data_lines:
+            try:
+                payloads.append(json.loads(raw))
+            except Exception:
+                pass
+        effects = [p for p in payloads if p.get("event") == "skill_effectiveness"]
+        assert effects
+        effect = effects[0]
+        assert effect["reason_code"] == "skill_selected"
+        assert effect["fallback_used"] is False
+        assert effect["selected_skill"]["name"] == "pdf-insight-extractor"
+        assert effect["scope_summary_injected"] is True
+        assert effect["effective_scope_count"] > 0
+        assert effect["system_prompt_tokens_estimate"] > 0
+
 def test_chat_history_truncation_logic(client, mock_chat_service):
     # Mock a chat with very long messages to test truncation
     from app.services.chat_service import Message
@@ -251,7 +347,8 @@ async def test_chat_stream_with_images(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_with_agent_config(client, mock_chat_service):
-    with patch("app.api.chat.agent_store") as mock_agent_store, \
+    with patch.dict("os.environ", {"PROMPT_SCOPE_SUMMARY_ENABLED": "true"}, clear=False), \
+         patch("app.api.chat.agent_store") as mock_agent_store, \
          patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls:
@@ -280,6 +377,8 @@ async def test_chat_stream_with_agent_config(client, mock_chat_service):
         args, kwargs = mock_agent_cls.call_args
         assert "scientist" in kwargs["system_prompt"]
         assert "可检索目录" in kwargs["system_prompt"]
+        assert "### Scope Summary" in kwargs["system_prompt"]
+        assert "docs" in kwargs["system_prompt"]
 
 @pytest.mark.asyncio
 async def test_chat_stream_with_thought_tags(client, mock_chat_service):
@@ -355,3 +454,77 @@ async def test_chat_stream_with_citations(client, mock_chat_service):
         assert "citations" in content
         assert "Sources:" in content
         assert "test.txt#L1-L5" in content
+
+@pytest.mark.asyncio
+async def test_chat_stream_emits_tool_call_mismatch_when_no_tool_events(client, mock_chat_service):
+    with patch.dict("os.environ", {"TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED": "false"}, clear=False), \
+         patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.Agent") as mock_agent_cls:
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = None
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+
+        async def mock_stream():
+            yield "我来帮您分析这个 PDF。"
+
+        mock_result.stream_text.return_value = mock_stream()
+        mock_result.response = MagicMock(finish_reason="tool_call")
+        mock_result.usage.return_value = MagicMock(request_tokens=10, response_tokens=5, total_tokens=15)
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post("/api/chat/stream", json={"message": "分析 ar_2024_en.pdf"})
+        assert response.status_code == 200
+        content = response.content.decode("utf-8")
+        assert "tool_call_mismatch" in content
+        assert "模型返回了 `tool_call` 结束信号" in content
+
+@pytest.mark.asyncio
+async def test_chat_stream_auto_retry_after_tool_call_mismatch(client, mock_chat_service):
+    with patch.dict("os.environ", {
+        "TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED": "true",
+        "TOOL_CALL_MISMATCH_FALLBACK_MODEL": "gpt-4o-mini"
+    }, clear=False), \
+         patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.Agent") as mock_agent_cls:
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = None
+
+        first_agent = MagicMock()
+        second_agent = MagicMock()
+        mock_agent_cls.side_effect = [first_agent, second_agent]
+
+        first_result = MagicMock()
+        async def first_stream():
+            yield "先尝试处理。"
+        first_result.stream_text.return_value = first_stream()
+        first_result.response = MagicMock(finish_reason="tool_call")
+        first_result.usage.return_value = MagicMock(request_tokens=10, response_tokens=5, total_tokens=15)
+        first_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=first_result)
+        first_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        second_result = MagicMock()
+        async def second_stream():
+            yield "这是重试后的最终答案。"
+        second_result.stream_text.return_value = second_stream()
+        second_result.response = MagicMock(finish_reason="stop")
+        second_result.usage.return_value = MagicMock(request_tokens=11, response_tokens=8, total_tokens=19)
+        second_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=second_result)
+        second_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post("/api/chat/stream", json={"message": "root folder下都有什么文件"})
+        assert response.status_code == 200
+        content = response.content.decode("utf-8")
+        assert "tool_call_retry" in content
+        assert "tool_call_retry_success" in content
+        assert "这是重试后的最终答案" in content
+        assert "tool_call_mismatch" not in content
