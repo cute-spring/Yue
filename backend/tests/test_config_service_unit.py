@@ -134,3 +134,34 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
     result = service.get_doc_access()
     assert result["allow_roots"] == ["/env/a", "/env/b"]
     assert result["deny_roots"] == ["/env/x", "/env/y"]
+
+def test_tool_call_mismatch_config_defaults(temp_config_file, monkeypatch):
+    monkeypatch.delenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", raising=False)
+    monkeypatch.delenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", raising=False)
+    service = ConfigService(str(temp_config_file))
+
+    result = service.get_tool_call_mismatch_config()
+    assert result["auto_retry_enabled"] is True
+    assert result["fallback_model"] == "gpt-4o-mini"
+
+def test_tool_call_mismatch_config_merged_with_env_override(temp_config_file, monkeypatch):
+    monkeypatch.delenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", raising=False)
+    monkeypatch.delenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", raising=False)
+    data = {
+        "tool_call_mismatch": {
+            "auto_retry_enabled": False,
+            "fallback_model": "gpt-4o"
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    service = ConfigService(str(temp_config_file))
+
+    result = service.get_tool_call_mismatch_config()
+    assert result["auto_retry_enabled"] is False
+    assert result["fallback_model"] == "gpt-4o"
+
+    monkeypatch.setenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", "true")
+    monkeypatch.setenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", "gpt-4o-mini")
+    result = service.get_tool_call_mismatch_config()
+    assert result["auto_retry_enabled"] is True
+    assert result["fallback_model"] == "gpt-4o-mini"

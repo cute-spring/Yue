@@ -109,3 +109,13 @@ def test_recover_corrupt_file(temp_dirs):
     # Should have created a corrupt file
     files = os.listdir(data_dir)
     assert any(f.startswith("agents.json.corrupt") for f in files)
+
+
+def test_builtin_docs_prompt_root_dir_rules(agent_store):
+    agent = agent_store.get_agent("builtin-docs")
+    assert agent is not None
+    prompt = agent.system_prompt
+    assert "root folder 指有效 docs 根目录" in prompt
+    assert "第一步必须调用 `docs_list` 且不传 `root_dir`" in prompt
+    assert "仅在用户明确指定目录时才传 `root_dir`" in prompt
+    assert "必须显式指定 `root_dir`" not in prompt

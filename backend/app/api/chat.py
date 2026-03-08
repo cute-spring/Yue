@@ -918,8 +918,9 @@ async def chat_stream(request: ChatRequest):
                     yield f"data: {json.dumps({'content': continue_msg})}\n\n"
                 elif finish_reason == "tool_call" and tool_call_started_count == 0:
                     mismatch_resolved = False
-                    if _env_flag("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", True):
-                        retry_model_name = (os.getenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", "gpt-4o-mini") or "").strip()
+                    mismatch_config = config_service.get_tool_call_mismatch_config()
+                    if mismatch_config.get("auto_retry_enabled", True):
+                        retry_model_name = (mismatch_config.get("fallback_model", "") or "").strip()
                         if retry_model_name and retry_model_name != model_name:
                             try:
                                 yield f"data: {json.dumps({'event': 'tool_call_retry', 'from_model': model_name, 'to_model': retry_model_name})}\n\n"

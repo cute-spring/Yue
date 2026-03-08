@@ -53,5 +53,9 @@
     "allow_roots": [
       "."
     ]
+  },
+  "tool_call_mismatch": {
+    "auto_retry_enabled": true,
+    "fallback_model": "gpt-4o-mini"
   }
 }

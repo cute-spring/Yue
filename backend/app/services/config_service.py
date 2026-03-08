@@ -418,6 +418,38 @@ class ConfigService:
             return {}
         return exec_cfg
 
+    def get_tool_call_mismatch_config(self) -> Dict[str, Any]:
+        cfg = self._config.get("tool_call_mismatch", {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        auto_retry_enabled = cfg.get("auto_retry_enabled", True)
+        if isinstance(auto_retry_enabled, str):
+            auto_retry_enabled = auto_retry_enabled.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            auto_retry_enabled = bool(auto_retry_enabled)
+
+        fallback_model = cfg.get("fallback_model", "gpt-4o-mini")
+        if fallback_model is None:
+            fallback_model = ""
+        elif isinstance(fallback_model, str):
+            fallback_model = fallback_model.strip()
+        else:
+            fallback_model = str(fallback_model).strip()
+
+        env_auto_retry = os.getenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED")
+        if env_auto_retry is not None:
+            auto_retry_enabled = env_auto_retry.strip().lower() in {"1", "true", "yes", "on"}
+
+        env_fallback_model = os.getenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL")
+        if env_fallback_model is not None:
+            fallback_model = env_fallback_model.strip()
+
+        return {
+            "auto_retry_enabled": auto_retry_enabled,
+            "fallback_model": fallback_model
+        }
+
     def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:
         incoming_allow = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
         incoming_deny = doc_access.get("deny_roots") if isinstance(doc_access, dict) else []
