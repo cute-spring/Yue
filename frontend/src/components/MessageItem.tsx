@@ -85,7 +85,7 @@ export default function MessageItem(props: MessageItemProps) {
 
   const responseStatus = (msg: Message) => {
     if (msg.error || (msg.content && msg.content.startsWith("Error:"))) return "Failed";
-    if (msg.role === "assistant" && props.isTyping && props.index === 0) return "Generating";
+    if (msg.role === "assistant" && props.isTyping) return "Generating";
     return "Completed";
   };
 
@@ -623,11 +623,11 @@ export default function MessageItem(props: MessageItemProps) {
           </div>
         </Show>
 
-        <Show when={props.isTyping && props.index === 0}>
+        <Show when={props.isTyping}>
           <span class="inline-block w-2.5 h-5 ml-1 bg-primary/30 animate-pulse align-middle rounded-sm shadow-[0_0_8px_rgba(16,185,129,0.3)]"></span>
         </Show>
 
-        <Show when={props.msg.role === 'assistant' && (!props.isTyping || props.index !== 0)}>
+        <Show when={props.msg.role === 'assistant' && !props.isTyping}>
           <div class="flex items-center gap-1 mt-3 -ml-2">
             <button 
               class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
