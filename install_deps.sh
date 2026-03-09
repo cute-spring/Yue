@@ -30,44 +30,51 @@ fi
 
 # Backend detection and installation
 echo "--- Backend ---"
+
 if command -v uv &> /dev/null; then
-    echo "Using uv for backend dependency management..."
+    echo "uv detected. Using uv for backend dependency management..."
     cd backend
     uv sync
     echo "Backend dependencies synced successfully with uv."
     cd "$PROJECT_ROOT"
-elif [ -d "backend/.venv" ]; then
-    echo "Backend virtual environment already exists. Updating dependencies..."
-    source backend/.venv/bin/activate
-    pip install --upgrade pip
-    if [ -f "backend/requirements.txt" ]; then
-        pip install -r backend/requirements.txt
-        echo "Backend dependencies updated successfully."
-    fi
-    deactivate
 else
-    echo "Backend virtual environment not found. Creating and installing dependencies..."
-    if [ -d "backend" ]; then
-        cd backend
-        if command -v python3 &> /dev/null; then
-            python3 -m venv .venv
-            source .venv/bin/activate
-            pip install --upgrade pip
-            if [ -f "requirements.txt" ]; then
-                pip install -r requirements.txt
-                echo "Backend dependencies installed successfully."
-            else
-                echo "Warning: requirements.txt not found in backend directory."
-            fi
-            deactivate
-        else
-            echo "Error: python3 is not installed. Please install Python 3."
-            exit 1
-        fi
-        cd "$PROJECT_ROOT"
-    else
-        echo "Warning: backend directory not found."
+    echo "uv not found. Falling back to pip..."
+    
+    if [ ! -d "backend" ]; then
+        echo "Error: backend directory not found."
+        exit 1
     fi
+
+    cd backend
+    
+    # Check for python3
+    if ! command -v python3 &> /dev/null; then
+        echo "Error: python3 is not installed. Please install Python 3."
+        exit 1
+    fi
+
+    # Create venv if not exists
+    if [ ! -d ".venv" ]; then
+        echo "Creating virtual environment..."
+        python3 -m venv .venv
+    fi
+
+    # Activate venv
+    source .venv/bin/activate
+    
+    echo "Upgrading pip..."
+    pip install --upgrade pip
+
+    if [ -f "requirements.txt" ]; then
+        echo "Installing dependencies from requirements.txt..."
+        pip install -r requirements.txt
+        echo "Backend dependencies installed successfully with pip."
+    else
+        echo "Warning: requirements.txt not found. Skipping dependency installation."
+    fi
+    
+    deactivate
+    cd "$PROJECT_ROOT"
 fi
 
 echo "--- Done ---"
