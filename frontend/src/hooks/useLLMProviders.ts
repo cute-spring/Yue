@@ -14,10 +14,18 @@ export function useLLMProviders() {
   const [showAllModels, setShowAllModels] = createSignal(false);
   const [isRefreshingModels, setIsRefreshingModels] = createSignal(false);
 
-  const loadProviders = async (refresh = false) => {
+  const loadProviders = async (refresh = false, retries = 3) => {
     try {
       const res = await fetch(`/api/models/providers${refresh ? '?refresh=1' : ''}`);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
       const data = await res.json();
+      
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid response format: expected array");
+      }
+      
       setProviders(data);
       if (refresh) {
         toast.success("Models refreshed");
@@ -49,6 +57,11 @@ export function useLLMProviders() {
         }
       }
     } catch (e) {
+      if (retries > 0) {
+        console.warn(`Failed to load providers, retrying... (${retries} attempts left)`, e);
+        await new Promise(r => setTimeout(r, 1000));
+        return loadProviders(refresh, retries - 1);
+      }
       console.error("Failed to load providers", e);
       toast.error("Failed to load AI providers");
     }
