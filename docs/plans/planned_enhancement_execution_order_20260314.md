@@ -130,7 +130,7 @@ Legend:
 |---|---|---|---|
 | 0. Cross-Cutting Priority-0 Foundations | ✅ Clear | Source: This document (P0-1 ~ P0-5) | Split remaining items into dedicated execution plans |
 | P0-1 Unified Contract Gate | ✅ Clear | `unified_contract_gate_execution_plan_20260314.md` | Complete Phase 2 (Replay/Reconnect) and Phase 3 (Backward Compatibility) |
-| P0-2 Release Readiness Gate | ❌ Missing | No dedicated plan file yet | Create release gate plan (quality checklist, risk scoring, rollback drill protocol) |
+| P0-2 Release Readiness Gate | ✅ Verified (Ph1) | `release_readiness_gate_execution_plan_20260314.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-001.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-002.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-003.md`; `docs/release_readiness_gate/phase1/rollback_drills/RBD-20260314-001.md`; `docs/release_readiness_gate/phase1/phase2_threshold_friction_notes.md` | Move to Phase 2 pipeline enforcement (CI policy checks + required evidence hard block) |
 | P0-3 Observability Baseline (SLO/Alerting) | 🟡 Partial | Related content exists in `observability_transparency_plan.md` and governance plan | Add explicit SLO catalog + alert ownership + oncall runbook plan |
 | P0-4 Data Lifecycle & Migration Safety | 🟡 Partial | Persistence/migration concerns are mentioned in transparency plan | Add dedicated DB lifecycle plan (retention, migration preflight, rollback strategy, budget checks) |
 | P0-5 Hierarchical Memory Foundation | ❌ Missing | Roadmap-level mention only (`ROADMAP 3.5 / 6.1`) | Create full memory evolution plan (STM/LTM schema, retrieval/decay, write/read governance) |
@@ -152,13 +152,29 @@ Legend:
 ## Immediate Next Actions
 
 1. Create and enforce P0 unified contract gate in CI for stream and replay compatibility.
-2. Land release readiness gate with mandatory rollback drill output for medium/high-risk changes.
-3. Define operational SLOs and alert ownership for chat/tool reliability and stream quality.
-4. Start Memory Foundation MVP: short-term rolling summary and long-term durable memory schema with retrieval/decay policy.
-5. Add memory write/read governance: confidence threshold, provenance, reversible update path.
-6. Start Phase 1.5 + Phase 2 from Reasoning/Tools enhancement to lock event and attribution consistency.
-7. Implement model capability matrix and provider/model tool scoping from OpenClaw governance plan.
-8. Continue observability rollout in staged mode (emit-only -> persistence -> internal UI -> gradual release).
+2. Complete P0-2 Phase 1 manual enforcement artifacts (Done: 3 gate reports, rollback drill evidence set, Phase 2 threshold/friction notes).
+3. Land Phase 2 readiness for P0-2 by drafting the initial CI policy check script (`check_gate_completeness.py`) as outlined in the friction notes.
+4. Define operational SLOs and alert ownership for chat/tool reliability and stream quality.
+5. Start Memory Foundation MVP: short-term rolling summary and long-term durable memory schema with retrieval/decay policy.
+6. Add memory write/read governance: confidence threshold, provenance, reversible update path.
+7. Start Phase 1.5 + Phase 2 from Reasoning/Tools enhancement to lock event and attribution consistency.
+8. Implement model capability matrix and provider/model tool scoping from OpenClaw governance plan.
+9. Continue observability rollout in staged mode (emit-only -> persistence -> internal UI -> gradual release).
+
+## P0-2 Memory-Safe Execution Note
+
+- Keep P0-2 verification runs memory-safe: prefer streaming assertions (`iter_lines`) with early exit, avoid full response buffering in chat stream tests, and avoid oversized synthetic test payloads unless required by a dedicated stress benchmark.
+
+## P0-2 Phase 1 Evidence Snapshot
+
+- gate_reports:
+  - `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-001.md`
+  - `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-002.md`
+  - `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-003.md`
+- rollback_drill:
+  - `docs/release_readiness_gate/phase1/rollback_drills/RBD-20260314-001.md`
+- phase2_input:
+  - `docs/release_readiness_gate/phase1/phase2_threshold_friction_notes.md`
 
 ## Notes
 
