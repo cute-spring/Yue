@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "chat_id": { "type": "string" },
+    "meta": { "type": "object" },
+    "content": { "type": "string" },
+    "error": { "type": "string" },
+    "event": { "type": "string" },
+    "ttft": { "type": "number" },
+    "total_duration": { "type": "number" },
+    "prompt_tokens": { "type": "integer" },
+    "completion_tokens": { "type": "integer" },
+    "total_tokens": { "type": "integer" }
+  }
+}

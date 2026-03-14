@@ -122,6 +122,73 @@ async def test_chat_stream_basic(client, mock_chat_service):
         assert "Hello" in data_lines[2]
         assert " world" in data_lines[3]
 
+
+@pytest.mark.asyncio
+async def test_chat_stream_validates_sse_contract(client, mock_chat_service):
+    with patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat.validate_sse_payload") as mock_validate:
+        mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+        mock_chat_service.get_chat.return_value = None
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+
+        mock_result = MagicMock()
+
+        async def mock_stream():
+            yield "Hello"
+            yield "Hello world"
+
+        mock_result.stream_text.return_value = mock_stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post("/api/chat/stream", json={"message": "hi"})
+        assert response.status_code == 200
+
+        payloads = [call.args[0] for call in mock_validate.call_args_list if call.args]
+        assert any(isinstance(item, dict) and "meta" in item for item in payloads)
+        assert any(isinstance(item, dict) and "content" in item for item in payloads)
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_contract_violation_fails_open(client, mock_chat_service):
+    with patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat.validate_sse_payload") as mock_validate:
+        mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+        mock_chat_service.get_chat.return_value = None
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+
+        async def mock_stream():
+            yield "Hello"
+
+        mock_result.stream_text.return_value = mock_stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        def side_effect(payload):
+            if isinstance(payload, dict) and "meta" in payload:
+                raise ValueError("broken_meta_contract")
+            return None
+
+        mock_validate.side_effect = side_effect
+        response = client.post("/api/chat/stream", json={"message": "hi"})
+        assert response.status_code == 200
+        stream = response.content.decode("utf-8")
+        assert "stream_contract_violation" in stream
+        assert "Hello" in stream
+
 def test_estimate_tokens():
     from app.api.chat import estimate_tokens
     assert estimate_tokens("abc") == 1

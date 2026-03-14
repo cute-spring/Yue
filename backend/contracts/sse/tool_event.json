@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["event"],
+  "properties": {
+    "event": { "type": "string" },
+    "call_id": { "type": "string" },
+    "tool_name": { "type": "string" },
+    "args": { "type": "object" },
+    "result": {},
+    "error": { "type": "string" },
+    "duration_ms": { "type": "number" }
+  }
+}

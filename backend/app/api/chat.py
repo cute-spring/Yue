@@ -12,6 +12,7 @@ from app.services.chat_service import chat_service, ChatSession
 from app.services.config_service import config_service
 from app.services.prompt_service import build_system_prompt
 from app.services.response_parser_service import get_parser
+from app.services.contract_gate import validate_sse_payload
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
@@ -140,6 +141,18 @@ def _safe_json_log(payload: Dict[str, Any]) -> str:
     except Exception as err:
         fallback = {"log_payload_error": str(err), "payload_repr": repr(payload)}
         return json.dumps(fallback, ensure_ascii=False, default=str)
+
+
+def _serialize_sse_payload(payload: Dict[str, Any]) -> str:
+    try:
+        validate_sse_payload(payload)
+        return f"data: {json.dumps(payload)}\n\n"
+    except Exception as err:
+        logger.exception("SSE contract validation failed")
+        safe_payload = {
+            "error": f"stream_contract_violation: {err.__class__.__name__}"
+        }
+        return f"data: {json.dumps(safe_payload)}\n\n"
 
 def _has_docs_capability(agent_config: Any) -> bool:
     tools = getattr(agent_config, "enabled_tools", []) or []
@@ -320,7 +333,7 @@ async def chat_stream(request: ChatRequest):
     
     async def event_generator():
         # Yield the chat ID first so frontend knows where we are
-        yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
+        yield _serialize_sse_payload({"chat_id": chat_id})
         
         # Tool event queue to capture events from tool callbacks
         tool_event_queue = asyncio.Queue()
@@ -507,7 +520,7 @@ async def chat_stream(request: ChatRequest):
                 # Overwrite enabled_tools for tool_registry call later
                 # We'll need a way to pass these to tool_registry
                 logger.info(f"Skill {selected_skill_spec.name} selected. Tool intersection: {final_tools_list}")
-                yield f"data: {json.dumps({'event': 'skill_selected', 'name': selected_skill_spec.name, 'version': selected_skill_spec.version})}\n\n"
+                yield _serialize_sse_payload({"event": "skill_selected", "name": selected_skill_spec.name, "version": selected_skill_spec.version})
             elif agent_config:
                 # Legacy path
                 provider = provider or agent_config.provider
@@ -584,19 +597,19 @@ async def chat_stream(request: ChatRequest):
                 chat_service.add_skill_effectiveness_event(chat_id, skill_effectiveness_payload)
             except Exception:
                 logger.exception("Failed to persist skill_effectiveness event")
-            yield f"data: {json.dumps(skill_effectiveness_payload)}\n\n"
+            yield _serialize_sse_payload(skill_effectiveness_payload)
 
             if provider == "ollama":
                 models = await fetch_ollama_models()
                 if not models:
-                    yield f"data: {json.dumps({'error': 'Ollama 未响应或没有可用模型，请确认服务已启动并可访问'})}\n\n"
+                    yield _serialize_sse_payload({"error": "Ollama 未响应或没有可用模型，请确认服务已启动并可访问"})
                     return
                 if model_name not in models:
                     latest_name = f"{model_name}:latest"
                     if latest_name in models:
                         model_name = latest_name
                     else:
-                        yield f"data: {json.dumps({'error': f'Ollama 未找到模型 {model_name}，请先执行 `ollama pull {model_name}`'})}\n\n"
+                        yield _serialize_sse_payload({"error": f"Ollama 未找到模型 {model_name}，请先执行 `ollama pull {model_name}`"})
                         return
 
             tools = await tool_registry.get_pydantic_ai_tools_for_agent(
@@ -615,7 +628,7 @@ async def chat_stream(request: ChatRequest):
                     name = tool.__class__.__name__
                 tool_names.append(name)
 
-            yield f"data: {json.dumps({'meta': {'provider': provider, 'model': model_name, 'tools': tool_names, 'context_id': chat_id, 'agent_id': request.agent_id}})}\n\n"
+            yield _serialize_sse_payload({"meta": {"provider": provider, "model": model_name, "tools": tool_names, "context_id": chat_id, "agent_id": request.agent_id}})
             
             # Use PromptBuilder to enhance system prompt (Builder Pattern)
             system_prompt = build_system_prompt(
@@ -712,7 +725,7 @@ async def chat_stream(request: ChatRequest):
                                     if "content" in item:
                                         full_response += item["content"]
                                     # Ensure data is followed by exactly two newlines for SSE spec
-                                    yield f"data: {json.dumps(item)}\n\n"
+                                    yield _serialize_sse_payload(item)
                                 
                                 # Prepare next stream chunk task
                                 stream_task = asyncio.create_task(stream_iter.__anext__())
@@ -721,7 +734,7 @@ async def chat_stream(request: ChatRequest):
                                 if queue_task.done() and not queue_task.cancelled():
                                     try:
                                         ev = queue_task.result()
-                                        yield f"data: {json.dumps(ev)}\n\n"
+                                        yield _serialize_sse_payload(ev)
                                         tool_event_queue.task_done()
                                     except Exception:
                                         pass
@@ -733,7 +746,7 @@ async def chat_stream(request: ChatRequest):
                         if queue_task in done:
                             try:
                                 ev = await queue_task
-                                yield f"data: {json.dumps(ev)}\n\n"
+                                yield _serialize_sse_payload(ev)
                                 tool_event_queue.task_done()
                                 # Prepare next queue event task
                                 queue_task = asyncio.create_task(tool_event_queue.get())
@@ -751,7 +764,7 @@ async def chat_stream(request: ChatRequest):
                     # Final tool events drain (just in case)
                     while not tool_event_queue.empty():
                         ev = tool_event_queue.get_nowait()
-                        yield f"data: {json.dumps(ev)}\n\n"
+                        yield _serialize_sse_payload(ev)
                         tool_event_queue.task_done()
 
             except UsageLimitExceeded as limit_err:
@@ -772,23 +785,23 @@ async def chat_stream(request: ChatRequest):
                 except:
                     pass
                 
-                yield f"data: {json.dumps(limit_info)}\n\n"
+                yield _serialize_sse_payload(limit_info)
                 
                 # Provide a friendly user message
                 friendly_msg = f"\n\n> ⚠️ **[系统提示]** 已触达策略上限（{limit_err}）。为了您的账户安全和成本控制，本轮执行已自动停止。您可以根据已有信息继续，或尝试缩小问题范围。"
                 full_response += friendly_msg
-                yield f"data: {json.dumps({'content': friendly_msg})}\n\n"
+                yield _serialize_sse_payload({"content": friendly_msg})
 
             except Exception as stream_err:
                 err_str = str(stream_err)
                 if "status_code: 502" in err_str and provider == "ollama":
-                    yield f"data: {json.dumps({'error': 'Ollama 返回 502，请检查模型是否已拉取且服务正常运行'})}\n\n"
+                    yield _serialize_sse_payload({"error": "Ollama 返回 502，请检查模型是否已拉取且服务正常运行"})
                     return
                 
                 # Check for TLS/SSL or Proxy errors
                 friendly_error = handle_llm_exception(stream_err)
                 if friendly_error != err_str:
-                    yield f"data: {json.dumps({'error': friendly_error})}\n\n"
+                    yield _serialize_sse_payload({"error": friendly_error})
                     return
 
                 if "does not support tools" in err_str or "Tool use is not supported" in err_str:
@@ -831,13 +844,13 @@ async def chat_stream(request: ChatRequest):
                                     for item in results:
                                         if "content" in item:
                                             full_response += item["content"]
-                                        yield f"data: {json.dumps(item)}\n\n"
+                                        yield _serialize_sse_payload(item)
                                     stream_task = asyncio.create_task(stream_iter.__anext__())
                                 except StopAsyncIteration:
                                     if queue_task.done() and not queue_task.cancelled():
                                         try:
                                             ev = queue_task.result()
-                                            yield f"data: {json.dumps(ev)}\n\n"
+                                            yield _serialize_sse_payload(ev)
                                             tool_event_queue.task_done()
                                         except Exception:
                                             pass
@@ -849,7 +862,7 @@ async def chat_stream(request: ChatRequest):
                             if queue_task in done:
                                 try:
                                     ev = await queue_task
-                                    yield f"data: {json.dumps(ev)}\n\n"
+                                    yield _serialize_sse_payload(ev)
                                     tool_event_queue.task_done()
                                     queue_task = asyncio.create_task(tool_event_queue.get())
                                 except Exception:
@@ -863,7 +876,7 @@ async def chat_stream(request: ChatRequest):
                         
                         while not tool_event_queue.empty():
                             ev = tool_event_queue.get_nowait()
-                            yield f"data: {json.dumps(ev)}\n\n"
+                            yield _serialize_sse_payload(ev)
                             tool_event_queue.task_done()
                 else:
                     raise stream_err
@@ -881,12 +894,12 @@ async def chat_stream(request: ChatRequest):
                     thought_duration = time.time() - parser.thought_start_time
 
             if thought_duration is not None:
-                yield f"data: {json.dumps({'thought_duration': thought_duration})}\n\n"
+                yield _serialize_sse_payload({"thought_duration": thought_duration})
 
             if ttft is not None:
-                yield f"data: {json.dumps({'ttft': ttft})}\n\n"
+                yield _serialize_sse_payload({"ttft": ttft})
             
-            yield f"data: {json.dumps({'total_duration': total_duration})}\n\n"
+            yield _serialize_sse_payload({"total_duration": total_duration})
 
             # Capture Usage and Finish Reason using UsageAdapter (Adapter Pattern)
             try:
@@ -909,13 +922,13 @@ async def chat_stream(request: ChatRequest):
                 total_tokens = usage_stats.total_tokens
                 finish_reason = usage_stats.finish_reason
                 
-                yield f"data: {json.dumps(usage_stats.model_dump())}\n\n"
+                yield _serialize_sse_payload(usage_stats.model_dump())
 
                 # Manual continuation guidance logic
                 if finish_reason == "length":
                     continue_msg = "\n\n> ⚠️ **[系统提示]** 由于输出长度限制，内容可能未完全生成。您可以输入 **“继续”** 来获取剩余部分。"
                     full_response += continue_msg
-                    yield f"data: {json.dumps({'content': continue_msg})}\n\n"
+                    yield _serialize_sse_payload({"content": continue_msg})
                 elif finish_reason == "tool_call" and tool_call_started_count == 0:
                     mismatch_resolved = False
                     mismatch_config = config_service.get_tool_call_mismatch_config()
@@ -937,7 +950,7 @@ async def chat_stream(request: ChatRequest):
                                 continue
                             seen_retry_targets.add(normalized_target)
                             try:
-                                yield f"data: {json.dumps({'event': 'tool_call_retry', 'from_provider': provider, 'from_model': model_name, 'to_provider': retry_provider, 'to_model': retry_model_name})}\n\n"
+                                yield _serialize_sse_payload({"event": "tool_call_retry", "from_provider": provider, "from_model": model_name, "to_provider": retry_provider, "to_model": retry_model_name})
                                 retry_model = get_model(retry_provider, retry_model_name)
                                 retry_model_settings = config_service.get_model_settings(retry_provider, retry_model_name)
                                 if "max_tokens" in retry_model_settings:
@@ -980,13 +993,13 @@ async def chat_stream(request: ChatRequest):
                                                 for item in retry_items:
                                                     if "content" in item:
                                                         full_response += item["content"]
-                                                    yield f"data: {json.dumps(item)}\n\n"
+                                                    yield _serialize_sse_payload(item)
                                                 retry_stream_task = asyncio.create_task(retry_stream_iter.__anext__())
                                             except StopAsyncIteration:
                                                 if retry_queue_task.done() and not retry_queue_task.cancelled():
                                                     try:
                                                         ev = retry_queue_task.result()
-                                                        yield f"data: {json.dumps(ev)}\n\n"
+                                                        yield _serialize_sse_payload(ev)
                                                         tool_event_queue.task_done()
                                                     except Exception:
                                                         pass
@@ -997,7 +1010,7 @@ async def chat_stream(request: ChatRequest):
                                         if retry_queue_task in done:
                                             try:
                                                 ev = await retry_queue_task
-                                                yield f"data: {json.dumps(ev)}\n\n"
+                                                yield _serialize_sse_payload(ev)
                                                 tool_event_queue.task_done()
                                                 retry_queue_task = asyncio.create_task(tool_event_queue.get())
                                             except Exception:
@@ -1011,11 +1024,11 @@ async def chat_stream(request: ChatRequest):
                                     if tool_call_started_count > 0 or retry_finish_reason != "tool_call":
                                         mismatch_resolved = True
                                 if mismatch_resolved:
-                                    yield f"data: {json.dumps({'event': 'tool_call_retry_success', 'provider': retry_provider, 'model': retry_model_name, 'started': tool_call_started_count, 'finished': tool_call_finished_count})}\n\n"
+                                    yield _serialize_sse_payload({"event": "tool_call_retry_success", "provider": retry_provider, "model": retry_model_name, "started": tool_call_started_count, "finished": tool_call_finished_count})
                                     break
                             except Exception as retry_err:
                                 logger.exception("Auto retry after tool_call mismatch failed")
-                                yield f"data: {json.dumps({'event': 'tool_call_retry_failed', 'provider': retry_provider, 'model': retry_model_name, 'error': str(retry_err)})}\n\n"
+                                yield _serialize_sse_payload({"event": "tool_call_retry_failed", "provider": retry_provider, "model": retry_model_name, "error": str(retry_err)})
                     if not mismatch_resolved:
                         tool_msg = (
                             "\n\n> ⚠️ **[系统提示]** 模型返回了 `tool_call` 结束信号，但未产生可执行工具调用。"
@@ -1024,14 +1037,14 @@ async def chat_stream(request: ChatRequest):
                             "或重试并明确要求“立即调用工具后再回答”。"
                         )
                         full_response += tool_msg
-                        yield f"data: {json.dumps({'event': 'tool_call_mismatch', 'started': tool_call_started_count, 'finished': tool_call_finished_count})}\n\n"
-                        yield f"data: {json.dumps({'content': tool_msg})}\n\n"
+                        yield _serialize_sse_payload({"event": "tool_call_mismatch", "started": tool_call_started_count, "finished": tool_call_finished_count})
+                        yield _serialize_sse_payload({"content": tool_msg})
             except Exception as usage_err:
                 logger.error(f"Failed to get usage via adapter: {usage_err}")
 
             citations = deps.get("citations") if isinstance(deps, dict) else None
             if isinstance(citations, list) and citations:
-                yield f"data: {json.dumps({'citations': citations})}\n\n"
+                yield _serialize_sse_payload({"citations": citations})
 
             require_citations = bool(getattr(agent_config, "require_citations", False)) if agent_config else False
             if require_citations:
@@ -1061,11 +1074,11 @@ async def chat_stream(request: ChatRequest):
                     if sources:
                         suffix = "\n\nSources:\n" + "\n".join(sources)
                         full_response += suffix
-                        yield f"data: {json.dumps({'content': suffix})}\n\n"
+                        yield _serialize_sse_payload({"content": suffix})
                 else:
                     suffix = "\n\n未检索到可引用的文档依据（citations 为空）。建议先使用文档检索/读取工具获取证据后再回答。"
                     full_response += suffix
-                    yield f"data: {json.dumps({'content': suffix})}\n\n"
+                    yield _serialize_sse_payload({"content": suffix})
 
         except (Exception, GeneratorExit, asyncio.CancelledError) as e:
             if isinstance(e, (GeneratorExit, asyncio.CancelledError)):
@@ -1074,7 +1087,7 @@ async def chat_stream(request: ChatRequest):
             else:
                 stream_error_message = str(e)
                 logger.exception("Chat error")
-                yield f"data: {json.dumps({'error': handle_llm_exception(e)})}\n\n"
+                yield _serialize_sse_payload({"error": handle_llm_exception(e)})
         finally:
             # Save Assistant Message after completion
             if full_response:
