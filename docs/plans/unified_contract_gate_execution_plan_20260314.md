@@ -177,27 +177,29 @@ PR 阻断规则：
 
 ## 6. 实施阶段（Phased Rollout）
 
-## Phase 0：盘点与建模（1-2 天）
+## Phase 0：盘点与建模 (✅ Completed)
 
 1. 盘点现有 SSE/API 输出面与消费者解析路径。
 2. 固化 schema 文件结构与版本字段规范。
 
 交付物：
 
-1. 合同目录骨架。
-2. 初始 schema 清单与责任人。
+1. 合同目录骨架 (`backend/contracts/`)。
+2. 初始 schema 清单 (`sse/*.json`, `api/*.json`)。
 
-## Phase 1：Golden + Diff Gate（2-3 天）
+## Phase 1：Golden + Diff Gate (✅ Completed)
 
 1. 建立 Golden Contract Tests。
 2. 在 CI 接入 contract-diff 阻断。
+3. 实现基础校验服务 `contract_gate.py` 并集成至 `chat.py`。
 
 交付物：
 
 1. Golden baseline。
-2. PR 级门禁报告模板。
+2. `backend/app/services/contract_gate.py`。
+3. 单元测试 `backend/tests/test_contract_gate_unit.py`。
 
-## Phase 2：Replay/Reconnect 确定性门禁（2-3 天）
+## Phase 2：Replay/Reconnect 确定性门禁 (🟡 In Progress)
 
 1. 实现 replay determinism 测试。
 2. 实现 reconnect continuity 测试。
@@ -207,7 +209,7 @@ PR 阻断规则：
 1. Gate B/C 自动化测试。
 2. 序列偏差定位日志。
 
-## Phase 3：老客户端兼容与发布治理（1-2 天）
+## Phase 3：老客户端兼容与发布治理 (pending)
 
 1. 增加 unknown event backward-compat 断言。
 2. 接入 RC 级 Contract Gate 报告归档。
