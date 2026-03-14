@@ -1,0 +1,17 @@
+versioning:
+  patch:
+    - add_optional_field
+    - relax_enum_value
+    - doc_text_fix
+  minor:
+    - add_new_event_kind_with_ignore_compat
+  major:
+    - remove_required_field
+    - rename_required_field
+    - change_required_field_type
+    - break_ordering_constraints
+
+backward_compatibility:
+  unknown_event_policy: ignore_and_log
+  unknown_field_policy: ignore
+  compat_notice_field: meta.compat_notice

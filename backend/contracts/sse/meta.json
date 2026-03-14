@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": ["meta"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["provider", "model"],
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "context_id": { "type": "string" },
+        "agent_id": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
