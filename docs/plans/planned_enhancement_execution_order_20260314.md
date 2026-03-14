@@ -128,8 +128,8 @@ Legend:
 
 | Item | Breakdown Status | Evidence | Gap to Close |
 |---|---|---|---|
-| 0. Cross-Cutting Priority-0 Foundations | 🟡 Partial | Defined in this file only (P0-1 ~ P0-5) | Split into dedicated execution plans with milestones/tests/owners |
-| P0-1 Unified Contract Gate | ❌ Missing | No dedicated plan file yet | Create standalone contract-governance plan (schema versioning, replay/reconnect test gate) |
+| 0. Cross-Cutting Priority-0 Foundations | ✅ Clear | Source: This document (P0-1 ~ P0-5) | Split remaining items into dedicated execution plans |
+| P0-1 Unified Contract Gate | ✅ Clear | `unified_contract_gate_execution_plan_20260314.md` | Complete Phase 2 (Replay/Reconnect) and Phase 3 (Backward Compatibility) |
 | P0-2 Release Readiness Gate | ❌ Missing | No dedicated plan file yet | Create release gate plan (quality checklist, risk scoring, rollback drill protocol) |
 | P0-3 Observability Baseline (SLO/Alerting) | 🟡 Partial | Related content exists in `observability_transparency_plan.md` and governance plan | Add explicit SLO catalog + alert ownership + oncall runbook plan |
 | P0-4 Data Lifecycle & Migration Safety | 🟡 Partial | Persistence/migration concerns are mentioned in transparency plan | Add dedicated DB lifecycle plan (retention, migration preflight, rollback strategy, budget checks) |
