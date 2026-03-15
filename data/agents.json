@@ -289,9 +289,10 @@
       "backend-api-debugger:1.0.0",
       "excel-metric-explorer:1.0.0",
       "pdf-insight-extractor:1.0.0",
-      "ppt-expert:1.0.0"
+      "ppt-expert:1.0.0",
+      "system-ops-expert:1.0.0"
     ],
     "created_at": "2026-03-05T14:42:05.437086",
-    "updated_at": "2026-03-08T19:51:43.601670"
+    "updated_at": "2026-03-15T23:27:30.659794"
   }
 ]

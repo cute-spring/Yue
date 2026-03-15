@@ -47,7 +47,7 @@ interface AgentFormProps {
   openSmartGenerate: () => void;
   isRefreshingTools: () => boolean;
   loadTools: () => Promise<void>;
-  loadSkills: () => Promise<void>;
+  loadSkills: (refresh?: boolean) => Promise<void>;
 }
 
 export function AgentForm(props: AgentFormProps) {
@@ -255,7 +255,7 @@ export function AgentForm(props: AgentFormProps) {
                 <div class="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => props.loadSkills()}
+                    onClick={() => props.loadSkills(true)}
                     class="text-[10px] uppercase tracking-wider font-bold text-sky-600 hover:text-sky-700 bg-sky-100 px-2 py-1 rounded"
                   >
                     Reload Skills
