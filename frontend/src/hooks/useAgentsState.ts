@@ -110,8 +110,11 @@ export function useAgentsState() {
     }
   };
 
-  const loadSkills = async () => {
+  const loadSkills = async (triggerReload = false) => {
     try {
+      if (triggerReload) {
+        await fetch('/api/skills/reload', { method: 'POST' });
+      }
       const res = await fetch('/api/skills');
       const data = await res.json();
       setSkills(Array.isArray(data) ? data : []);
