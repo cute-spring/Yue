@@ -11,17 +11,15 @@ class PromptBuilder:
         self._reasoning_injected = False
         self._viz_injected = False
 
-    def inject_reasoning_protocol(self, provider: str, model_name: str) -> "PromptBuilder":
+    def inject_reasoning_protocol(self, provider: str, model_name: str, deep_thinking_enabled: bool) -> "PromptBuilder":
         """
         为非推理模型注入思维链协议
         """
         capabilities = config_service.get_model_capabilities(provider, model_name)
-        # 显式检查配置中的 reasoning 能力，或者回退到名称匹配（作为安全网）
-        is_reasoning_model = "reasoning" in capabilities or any(
-            kw in model_name.lower() for kw in ["reasoner", "r1", "thought", "o1", "o3"]
-        )
-
-        if not is_reasoning_model and "<thought>" not in self._prompt:
+        supports_reasoning = "reasoning" in capabilities
+        if not deep_thinking_enabled or not supports_reasoning:
+            return self
+        if "<thought>" not in self._prompt:
             self._prompt += (
                 "\n\n### Reasoning Protocol\n"
                 "You must ALWAYS start your response by thinking step-by-step about the user's request. "
@@ -76,13 +74,19 @@ class PromptBuilder:
     def build(self) -> str:
         return self._prompt
 
-def build_system_prompt(base_prompt: str, provider: str, model_name: str, user_message: str) -> str:
+def build_system_prompt(
+    base_prompt: str,
+    provider: str,
+    model_name: str,
+    user_message: str,
+    deep_thinking_enabled: bool = False
+) -> str:
     """
     便捷函数：构建最终系统提示词
     """
     return (
         PromptBuilder(base_prompt)
-        .inject_reasoning_protocol(provider, model_name)
+        .inject_reasoning_protocol(provider, model_name, deep_thinking_enabled)
         .inject_visualization_guidelines(user_message)
         .inject_continuation_guidelines(user_message)
         .build()

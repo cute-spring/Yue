@@ -10,6 +10,7 @@ KNOWN_TRACE_EVENTS = {
     "tool_call_retry_failed",
     "tool_call_mismatch",
     "run.limited",
+    "reasoning_toggle_ignored",
 }
 
 

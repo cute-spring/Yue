@@ -79,7 +79,8 @@ async def test_agent_refactor_regression_master_sub_agent_query(client):
             payload["message"],
             message_history=ANY,
             deps=ANY,
-            model_settings=ANY
+            model_settings=ANY,
+            usage_limits=ANY
         )
         
         # Verify the streaming response format

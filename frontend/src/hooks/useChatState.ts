@@ -1,6 +1,71 @@
 import { createSignal, onMount } from 'solid-js';
-import { ChatSession, Message } from '../types';
+import { ChatSession, Message, ChatEventEnvelope, ToolCall } from '../types';
 import { useToast } from '../context/ToastContext';
+
+export const normalizeStreamEvent = (raw: any): ChatEventEnvelope => {
+  if (raw && raw.version === 'v2') {
+    const payload = typeof raw.payload === 'object' && raw.payload ? raw.payload : {};
+    return { ...payload, ...raw };
+  }
+  return raw || {};
+};
+
+export const eventSortKey = (event: ChatEventEnvelope) => {
+  const seq = typeof event.sequence === 'number' ? event.sequence : Number.MAX_SAFE_INTEGER;
+  const ts = typeof event.ts === 'string' ? event.ts : '';
+  return { seq, ts };
+};
+
+export const buildToolCallsFromEvents = (events: ChatEventEnvelope[]): ToolCall[] => {
+  const sorted = [...events].sort((a, b) => {
+    const ka = eventSortKey(a);
+    const kb = eventSortKey(b);
+    if (ka.seq !== kb.seq) return ka.seq - kb.seq;
+    return ka.ts.localeCompare(kb.ts);
+  });
+  const calls = new Map<string, ToolCall>();
+  for (const ev of sorted) {
+    const eventName = ev.event;
+    if (eventName !== 'tool.call.started' && eventName !== 'tool.call.finished') continue;
+    const callId = ev.call_id as string | undefined;
+    if (!callId) continue;
+    const existing = calls.get(callId) || {
+      call_id: callId,
+      tool_name: (ev.tool_name as string) || 'unknown_tool',
+      status: 'running' as const
+    };
+    if (eventName === 'tool.call.started') {
+      calls.set(callId, {
+        ...existing,
+        tool_name: (ev.tool_name as string) || existing.tool_name,
+        args: ev.args ?? existing.args,
+        status: 'running',
+        sequence: typeof ev.sequence === 'number' ? ev.sequence : existing.sequence,
+        ts: typeof ev.ts === 'string' ? ev.ts : existing.ts
+      });
+    } else {
+      calls.set(callId, {
+        ...existing,
+        tool_name: (ev.tool_name as string) || existing.tool_name,
+        result: ev.result,
+        error: ev.error as string | undefined,
+        duration_ms: typeof ev.duration_ms === 'number' ? ev.duration_ms : existing.duration_ms,
+        status: (ev.error ? 'error' : 'success') as 'error' | 'success',
+        sequence: typeof ev.sequence === 'number' ? ev.sequence : existing.sequence,
+        ts: typeof ev.ts === 'string' ? ev.ts : existing.ts
+      });
+    }
+  }
+  return [...calls.values()].sort((a, b) => (a.sequence || Number.MAX_SAFE_INTEGER) - (b.sequence || Number.MAX_SAFE_INTEGER));
+};
+
+export const shouldAcceptEvent = (seenEventIds: Set<string>, event: ChatEventEnvelope): boolean => {
+  const id = typeof event.event_id === 'string' ? event.event_id : '';
+  if (!id) return true;
+  if (seenEventIds.has(id)) return false;
+  seenEventIds.add(id);
+  return true;
+};
 
 export function useChatState(
   selectedProvider: () => string,
@@ -41,8 +106,40 @@ export function useChatState(
     try {
       const res = await fetch(`/api/chat/${id}`);
       const data = await res.json();
+      let mergedMessages: Message[] = data.messages || [];
+      try {
+        const eventsResp = await fetch(`/api/chat/${id}/events`);
+        if (eventsResp.ok) {
+          const replayEventsRaw = await eventsResp.json();
+          if (Array.isArray(replayEventsRaw) && replayEventsRaw.length > 0) {
+            const replayEvents = replayEventsRaw.map(normalizeStreamEvent);
+            const eventsByTurn = new Map<string, ChatEventEnvelope[]>();
+            const metaByTurn = new Map<string, Record<string, any>>();
+            for (const ev of replayEvents) {
+              const turnId = typeof ev.assistant_turn_id === 'string' ? ev.assistant_turn_id : '';
+              if (!turnId) continue;
+              const bucket = eventsByTurn.get(turnId) || [];
+              bucket.push(ev);
+              eventsByTurn.set(turnId, bucket);
+              if (ev.meta && typeof ev.meta === 'object') {
+                metaByTurn.set(turnId, ev.meta as Record<string, any>);
+              }
+            }
+            mergedMessages = mergedMessages.map(msg => {
+              if (msg.role !== 'assistant') return msg;
+              const turnId = msg.assistant_turn_id;
+              if (!turnId) return msg;
+              const toolCalls = buildToolCallsFromEvents(eventsByTurn.get(turnId) || []);
+              const meta = metaByTurn.get(turnId) || {};
+              return { ...msg, ...meta, tool_calls: toolCalls };
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Replay events API unavailable, fallback to message history", e);
+      }
       setCurrentChatId(data.id);
-      setMessages(data.messages);
+      setMessages(mergedMessages);
       setSelectedAgent(data.agent_id);
       if (data.active_skill_name && data.active_skill_version) {
         setActiveSkill({ name: data.active_skill_name, version: data.active_skill_version });
@@ -176,6 +273,7 @@ export function useChatState(
           chat_id: currentChatId(),
           provider: selectedProvider(),
           model: selectedModel(),
+          deep_thinking_enabled: isDeepThinking(),
         }),
         signal: abortController.signal
       });
@@ -187,6 +285,8 @@ export function useChatState(
       let lastUpdateTime = 0;
       let lineRemainder = ""; // Buffer for partial lines
       const UPDATE_INTERVAL = 40; // ~25fps for smoothness
+      const seenEventIds = new Set<string>();
+      const toolEventsByTurn = new Map<string, ChatEventEnvelope[]>();
 
       const flushBuffer = () => {
         if (buffer) {
@@ -236,17 +336,20 @@ export function useChatState(
         
         const jsonStr = trimmed.slice(6);
         try {
-          const data = JSON.parse(jsonStr);
+          const rawData = JSON.parse(jsonStr);
+          const data = normalizeStreamEvent(rawData);
+          if (!shouldAcceptEvent(seenEventIds, data)) return;
           if (data.chat_id) {
             setCurrentChatId(data.chat_id);
             setMessages(prev => prev.map(m => m.context_id ? m : { ...m, context_id: data.chat_id }));
             loadHistory();
           } else if (data.meta) {
+            const metaObj = data.meta as Record<string, any>;
             setMessages(prev => {
               const newMsgs = [...prev];
               const lastIndex = newMsgs.length - 1;
               if (lastIndex >= 0) {
-                newMsgs[lastIndex] = { ...newMsgs[lastIndex], ...data.meta };
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], ...metaObj, run_id: (data.run_id as string | undefined) || metaObj.run_id, assistant_turn_id: (data.assistant_turn_id as string | undefined) || metaObj.assistant_turn_id };
               }
               return newMsgs;
             });
@@ -320,32 +423,30 @@ export function useChatState(
               return newMsgs;
             });
           } else if (data.event === "tool.call.started") {
+            const turnId = (data.assistant_turn_id as string) || "__current__";
+            const bucket = toolEventsByTurn.get(turnId) || [];
+            bucket.push(data);
+            toolEventsByTurn.set(turnId, bucket);
+            const merged = buildToolCallsFromEvents(bucket);
             setMessages(prev => {
               const newMsgs = [...prev];
               const lastIndex = newMsgs.length - 1;
               if (lastIndex >= 0) {
-                const tool_calls = [...(newMsgs[lastIndex].tool_calls || [])];
-                tool_calls.push({
-                  call_id: data.call_id,
-                  tool_name: data.tool_name,
-                  args: data.args,
-                  status: 'running' as const
-                });
-                newMsgs[lastIndex] = { ...newMsgs[lastIndex], tool_calls };
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], tool_calls: merged, assistant_turn_id: data.assistant_turn_id as string | undefined };
               }
               return newMsgs;
             });
           } else if (data.event === "tool.call.finished") {
+            const turnId = (data.assistant_turn_id as string) || "__current__";
+            const bucket = toolEventsByTurn.get(turnId) || [];
+            bucket.push(data);
+            toolEventsByTurn.set(turnId, bucket);
+            const merged = buildToolCallsFromEvents(bucket);
             setMessages(prev => {
               const newMsgs = [...prev];
               const lastIndex = newMsgs.length - 1;
               if (lastIndex >= 0) {
-                const tool_calls = (newMsgs[lastIndex].tool_calls || []).map(tc => 
-                  tc.call_id === data.call_id 
-                    ? { ...tc, status: (data.error ? 'error' : 'success') as 'error' | 'success', result: data.result, error: data.error, duration_ms: data.duration_ms }
-                    : tc
-                );
-                newMsgs[lastIndex] = { ...newMsgs[lastIndex], tool_calls };
+                newMsgs[lastIndex] = { ...newMsgs[lastIndex], tool_calls: merged, assistant_turn_id: data.assistant_turn_id as string | undefined };
               }
               return newMsgs;
             });
@@ -354,7 +455,7 @@ export function useChatState(
             // but we could also set a flag here if needed.
             console.warn("Run limited:", data.reason);
           } else if (data.event === "skill_selected") {
-            setActiveSkill({ name: data.name, version: data.version });
+            setActiveSkill({ name: String(data.name || ""), version: String(data.version || "") });
             setMessages(prev => {
               const newMsgs = [...prev];
               const lastIndex = newMsgs.length - 1;
@@ -385,7 +486,9 @@ export function useChatState(
       setMessages(prev => {
         const newMsgs = [...prev];
         const lastIndex = newMsgs.length - 1;
-        newMsgs[lastIndex] = { ...newMsgs[lastIndex], total_duration };
+        if (lastIndex >= 0) {
+          newMsgs[lastIndex] = { ...newMsgs[lastIndex], total_duration };
+        }
         return newMsgs;
       });
     } catch (err: any) {

@@ -318,7 +318,17 @@ class ExcelService:
             is_truncated = total_rows > self.read_limit
             
             if mode == "markdown":
-                content = df.to_markdown(index=False)
+                try:
+                    content = df.to_markdown(index=False)
+                except ImportError:
+                    columns = [str(col) for col in df.columns]
+                    header = "| " + " | ".join(columns) + " |"
+                    separator = "| " + " | ".join(["---"] * len(columns)) + " |"
+                    rows = []
+                    for _, row in df.iterrows():
+                        values = ["" if pd.isna(v) else str(v) for v in row.tolist()]
+                        rows.append("| " + " | ".join(values) + " |")
+                    content = "\n".join([header, separator, *rows])
             else:
                 content = df.to_dict(orient="records")
 

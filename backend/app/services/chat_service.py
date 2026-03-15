@@ -23,6 +23,11 @@ class Message(BaseModel):
     total_tokens: Optional[int] = None
     finish_reason: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
+    assistant_turn_id: Optional[str] = None
+    run_id: Optional[str] = None
+    supports_reasoning: Optional[bool] = None
+    deep_thinking_enabled: Optional[bool] = None
+    reasoning_enabled: Optional[bool] = None
 
 class ToolCall(BaseModel):
     id: Optional[int] = None
@@ -30,6 +35,14 @@ class ToolCall(BaseModel):
     message_id: Optional[int] = None
     call_id: str
     tool_name: str
+    assistant_turn_id: Optional[str] = None
+    run_id: Optional[str] = None
+    event_id_started: Optional[str] = None
+    event_id_finished: Optional[str] = None
+    started_sequence: Optional[int] = None
+    finished_sequence: Optional[int] = None
+    started_ts: Optional[datetime] = None
+    finished_ts: Optional[datetime] = None
     args: Optional[Dict[str, Any]] = None
     result: Optional[str] = None
     error: Optional[str] = None
@@ -102,6 +115,11 @@ class ChatService:
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    assistant_turn_id TEXT,
+                    run_id TEXT,
+                    supports_reasoning INTEGER,
+                    deep_thinking_enabled INTEGER,
+                    reasoning_enabled INTEGER,
                     thought_duration REAL,
                     ttft REAL,
                     total_duration REAL,
@@ -120,6 +138,14 @@ class ChatService:
                     message_id INTEGER,
                     call_id TEXT NOT NULL,
                     tool_name TEXT NOT NULL,
+                    assistant_turn_id TEXT,
+                    run_id TEXT,
+                    event_id_started TEXT,
+                    event_id_finished TEXT,
+                    started_sequence INTEGER,
+                    finished_sequence INTEGER,
+                    started_ts TIMESTAMP,
+                    finished_ts TIMESTAMP,
                     args TEXT,
                     result TEXT,
                     error TEXT,
@@ -173,6 +199,21 @@ class ChatService:
                 conn.commit()
             cursor = conn.execute("PRAGMA table_info(messages)")
             columns = [info[1] for info in cursor.fetchall()]
+            if "assistant_turn_id" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN assistant_turn_id TEXT")
+                conn.commit()
+            if "run_id" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN run_id TEXT")
+                conn.commit()
+            if "supports_reasoning" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN supports_reasoning INTEGER")
+                conn.commit()
+            if "deep_thinking_enabled" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN deep_thinking_enabled INTEGER")
+                conn.commit()
+            if "reasoning_enabled" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN reasoning_enabled INTEGER")
+                conn.commit()
             if "thought_duration" not in columns:
                 conn.execute("ALTER TABLE messages ADD COLUMN thought_duration REAL")
                 conn.commit()
@@ -205,6 +246,36 @@ class ChatService:
             if "images" not in columns:
                 conn.execute("ALTER TABLE messages ADD COLUMN images TEXT")
                 conn.commit()
+            tool_cursor = conn.execute("PRAGMA table_info(tool_calls)")
+            tool_columns = [info[1] for info in tool_cursor.fetchall()]
+            if "assistant_turn_id" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN assistant_turn_id TEXT")
+                conn.commit()
+            if "run_id" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN run_id TEXT")
+                conn.commit()
+            if "event_id_started" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN event_id_started TEXT")
+                conn.commit()
+            if "event_id_finished" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN event_id_finished TEXT")
+                conn.commit()
+            if "started_sequence" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN started_sequence INTEGER")
+                conn.commit()
+            if "finished_sequence" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN finished_sequence INTEGER")
+                conn.commit()
+            if "started_ts" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN started_ts TIMESTAMP")
+                conn.commit()
+            if "finished_ts" not in tool_columns:
+                conn.execute("ALTER TABLE tool_calls ADD COLUMN finished_ts TIMESTAMP")
+                conn.commit()
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(assistant_turn_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_session_turn_created ON tool_calls(session_id, assistant_turn_id, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_run_sequence ON tool_calls(run_id, created_at)")
+            conn.commit()
 
     def _migrate_from_json(self):
         if not os.path.exists(OLD_CHATS_FILE):
@@ -248,7 +319,10 @@ class ChatService:
             sessions = []
             for row in cursor.fetchall():
                 # Get messages for each session
-                msg_cursor = conn.execute("SELECT role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (row['id'],))
+                msg_cursor = conn.execute(
+                    "SELECT role, content, images, timestamp, assistant_turn_id, run_id, supports_reasoning, deep_thinking_enabled, reasoning_enabled, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC",
+                    (row['id'],)
+                )
                 messages = []
                 for m in msg_cursor.fetchall():
                     msg_dict = dict(m)
@@ -257,6 +331,9 @@ class ChatService:
                             msg_dict['images'] = json.loads(msg_dict['images'])
                         except:
                             msg_dict['images'] = []
+                    for key in ["supports_reasoning", "deep_thinking_enabled", "reasoning_enabled"]:
+                        if msg_dict.get(key) is not None:
+                            msg_dict[key] = bool(msg_dict[key])
                     messages.append(Message(**msg_dict))
                 
                 sessions.append(ChatSession(
@@ -278,14 +355,20 @@ class ChatService:
             if not row:
                 return None
             
-            msg_cursor = conn.execute("SELECT id, role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (chat_id,))
+            msg_cursor = conn.execute(
+                "SELECT id, role, content, images, timestamp, assistant_turn_id, run_id, supports_reasoning, deep_thinking_enabled, reasoning_enabled, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason FROM messages WHERE session_id = ? ORDER BY timestamp ASC",
+                (chat_id,)
+            )
             messages = []
             
-            # Fetch all tool calls for this session once
             all_tool_calls = self.get_tool_calls(chat_id)
-            # Map tool calls to messages if possible (though currently they are session-linked)
-            # For Phase 3, we'll just attach all tool calls to the relevant assistant message
-            # or keep them separate. The frontend expects them on the message.
+            tool_calls_by_turn: Dict[str, List[ToolCall]] = {}
+            legacy_tool_calls: List[ToolCall] = []
+            for call in all_tool_calls:
+                if call.assistant_turn_id:
+                    tool_calls_by_turn.setdefault(call.assistant_turn_id, []).append(call)
+                else:
+                    legacy_tool_calls.append(call)
             
             for m in msg_cursor.fetchall():
                 msg_dict = dict(m)
@@ -294,14 +377,16 @@ class ChatService:
                         msg_dict['images'] = json.loads(msg_dict['images'])
                     except:
                         msg_dict['images'] = []
+                for key in ["supports_reasoning", "deep_thinking_enabled", "reasoning_enabled"]:
+                    if msg_dict.get(key) is not None:
+                        msg_dict[key] = bool(msg_dict[key])
                 
-                # Simple heuristic: attach tool calls to assistant messages
-                # In a more advanced version, we'd use message_id FK
                 if msg_dict['role'] == 'assistant':
-                    # For now, we'll just attach all tool calls to the last assistant message
-                    # or better, implement the message_id linking in Phase 4.
-                    # For this phase, let's just provide them.
-                    msg_dict['tool_calls'] = [tc.model_dump() for tc in all_tool_calls]
+                    turn_id = msg_dict.get("assistant_turn_id")
+                    if turn_id:
+                        msg_dict['tool_calls'] = [tc.model_dump() for tc in tool_calls_by_turn.get(turn_id, [])]
+                    else:
+                        msg_dict['tool_calls'] = [tc.model_dump() for tc in legacy_tool_calls]
                 
                 messages.append(Message(**msg_dict))
             
@@ -378,7 +463,12 @@ class ChatService:
         prompt_tokens: Optional[int] = None,
         completion_tokens: Optional[int] = None,
         total_tokens: Optional[int] = None,
-        finish_reason: Optional[str] = None
+        finish_reason: Optional[str] = None,
+        assistant_turn_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        supports_reasoning: Optional[bool] = None,
+        deep_thinking_enabled: Optional[bool] = None,
+        reasoning_enabled: Optional[bool] = None
     ) -> Optional[ChatSession]:
         now = datetime.now()
         with self._get_connection() as conn:
@@ -391,8 +481,26 @@ class ChatService:
             # Add message
             images_json = json.dumps(images) if images else None
             conn.execute(
-                "INSERT INTO messages (session_id, role, content, images, timestamp, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (chat_id, role, content, images_json, now, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason)
+                "INSERT INTO messages (session_id, role, content, images, timestamp, assistant_turn_id, run_id, supports_reasoning, deep_thinking_enabled, reasoning_enabled, thought_duration, ttft, total_duration, prompt_tokens, completion_tokens, total_tokens, finish_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    chat_id,
+                    role,
+                    content,
+                    images_json,
+                    now,
+                    assistant_turn_id,
+                    run_id,
+                    None if supports_reasoning is None else (1 if supports_reasoning else 0),
+                    None if deep_thinking_enabled is None else (1 if deep_thinking_enabled else 0),
+                    None if reasoning_enabled is None else (1 if reasoning_enabled else 0),
+                    thought_duration,
+                    ttft,
+                    total_duration,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    finish_reason
+                )
             )
             
             # Update title if it's the first user message
@@ -440,14 +548,37 @@ class ChatService:
             conn.commit()
             return True
 
-    def add_tool_call(self, session_id: str, call_id: str, tool_name: str, args: Optional[Dict[str, Any]] = None) -> None:
+    def add_tool_call(
+        self,
+        session_id: str,
+        call_id: str,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        assistant_turn_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        event_id_started: Optional[str] = None,
+        started_sequence: Optional[int] = None,
+        started_ts: Optional[datetime] = None
+    ) -> None:
         """Record the start of a tool call."""
         now = datetime.now()
         args_json = json.dumps(args) if args else None
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT INTO tool_calls (session_id, call_id, tool_name, args, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, call_id, tool_name, args_json, 'running', now)
+                "INSERT INTO tool_calls (session_id, call_id, tool_name, assistant_turn_id, run_id, event_id_started, started_sequence, started_ts, args, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    call_id,
+                    tool_name,
+                    assistant_turn_id,
+                    run_id,
+                    event_id_started,
+                    started_sequence,
+                    started_ts or now,
+                    args_json,
+                    'running',
+                    now
+                )
             )
             conn.commit()
 
@@ -457,14 +588,17 @@ class ChatService:
         status: str, 
         result: Optional[str] = None, 
         error: Optional[str] = None,
-        duration_ms: Optional[float] = None
+        duration_ms: Optional[float] = None,
+        event_id_finished: Optional[str] = None,
+        finished_sequence: Optional[int] = None,
+        finished_ts: Optional[datetime] = None
     ) -> None:
         """Update an existing tool call with results or errors."""
         now = datetime.now()
         with self._get_connection() as conn:
             conn.execute(
-                "UPDATE tool_calls SET status = ?, result = ?, error = ?, finished_at = ?, duration_ms = ? WHERE call_id = ?",
-                (status, result, error, now, duration_ms, call_id)
+                "UPDATE tool_calls SET status = ?, result = ?, error = ?, event_id_finished = ?, finished_sequence = ?, finished_ts = ?, finished_at = ?, duration_ms = ? WHERE call_id = ?",
+                (status, result, error, event_id_finished, finished_sequence, finished_ts or now, now, duration_ms, call_id)
             )
             conn.commit()
 
@@ -472,7 +606,7 @@ class ChatService:
         """Retrieve all tool calls for a given session."""
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM tool_calls WHERE session_id = ? ORDER BY created_at ASC", 
+                "SELECT * FROM tool_calls WHERE session_id = ? ORDER BY COALESCE(started_sequence, finished_sequence, 0) ASC, COALESCE(started_ts, finished_ts, created_at) ASC", 
                 (session_id,)
             )
             rows = cursor.fetchall()
@@ -485,13 +619,146 @@ class ChatService:
                     except:
                         tool_dict['args'] = {}
                 
-                # Convert timestamps
-                for key in ['created_at', 'finished_at']:
+                for key in ['created_at', 'finished_at', 'started_ts', 'finished_ts']:
                     if tool_dict.get(key) and isinstance(tool_dict[key], str):
                         tool_dict[key] = datetime.fromisoformat(tool_dict[key])
                 
                 tool_calls.append(ToolCall(**tool_dict))
             return tool_calls
+
+    def get_chat_events(
+        self,
+        session_id: str,
+        assistant_turn_id: Optional[str] = None,
+        after_sequence: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        with self._get_connection() as conn:
+            message_query = (
+                "SELECT role, content, timestamp, assistant_turn_id, run_id, supports_reasoning, deep_thinking_enabled, reasoning_enabled "
+                "FROM messages WHERE session_id = ? AND role = 'assistant'"
+            )
+            message_args: List[Any] = [session_id]
+            if assistant_turn_id:
+                message_query += " AND assistant_turn_id = ?"
+                message_args.append(assistant_turn_id)
+            message_query += " ORDER BY timestamp ASC"
+            message_rows = conn.execute(message_query, tuple(message_args)).fetchall()
+
+            tool_query = "SELECT * FROM tool_calls WHERE session_id = ?"
+            tool_args: List[Any] = [session_id]
+            if assistant_turn_id:
+                tool_query += " AND assistant_turn_id = ?"
+                tool_args.append(assistant_turn_id)
+            tool_query += " ORDER BY COALESCE(started_sequence, finished_sequence, 0) ASC, COALESCE(started_ts, finished_ts, created_at) ASC"
+            tool_rows = conn.execute(tool_query, tuple(tool_args)).fetchall()
+
+        for row in message_rows:
+            msg = dict(row)
+            turn_id = msg.get("assistant_turn_id")
+            run_id = msg.get("run_id")
+            if not turn_id or not run_id:
+                continue
+            ts_val = msg.get("timestamp")
+            ts = ts_val.isoformat() if isinstance(ts_val, datetime) else str(ts_val)
+            reasoning_enabled = bool(msg.get("reasoning_enabled")) if msg.get("reasoning_enabled") is not None else False
+            supports_reasoning = bool(msg.get("supports_reasoning")) if msg.get("supports_reasoning") is not None else False
+            deep_thinking_enabled = bool(msg.get("deep_thinking_enabled")) if msg.get("deep_thinking_enabled") is not None else False
+            events.append({
+                "version": "v2",
+                "event": "meta",
+                "event_id": f"replay_meta_{session_id}_{turn_id}",
+                "run_id": run_id,
+                "assistant_turn_id": turn_id,
+                "sequence": 1,
+                "ts": ts,
+                "payload": {
+                    "meta": {
+                        "supports_reasoning": supports_reasoning,
+                        "deep_thinking_enabled": deep_thinking_enabled,
+                        "reasoning_enabled": reasoning_enabled
+                    }
+                },
+                "meta": {
+                    "supports_reasoning": supports_reasoning,
+                    "deep_thinking_enabled": deep_thinking_enabled,
+                    "reasoning_enabled": reasoning_enabled
+                }
+            })
+            events.append({
+                "version": "v2",
+                "event": "content.final",
+                "event_id": f"replay_content_{session_id}_{turn_id}",
+                "run_id": run_id,
+                "assistant_turn_id": turn_id,
+                "sequence": 999999,
+                "ts": ts,
+                "payload": {"content": msg.get("content") or ""},
+                "content": msg.get("content") or ""
+            })
+
+        for row in tool_rows:
+            call = dict(row)
+            turn_id = call.get("assistant_turn_id")
+            run_id = call.get("run_id")
+            if not turn_id or not run_id:
+                continue
+            start_ts_val = call.get("started_ts") or call.get("created_at")
+            finish_ts_val = call.get("finished_ts") or call.get("finished_at")
+            start_ts = start_ts_val.isoformat() if isinstance(start_ts_val, datetime) else str(start_ts_val)
+            finish_ts = finish_ts_val.isoformat() if isinstance(finish_ts_val, datetime) else str(finish_ts_val)
+            if call.get("args"):
+                try:
+                    parsed_args = json.loads(call["args"])
+                except Exception:
+                    parsed_args = {}
+            else:
+                parsed_args = {}
+            if call.get("started_sequence"):
+                events.append({
+                    "version": "v2",
+                    "event": "tool.call.started",
+                    "event_id": call.get("event_id_started") or f"replay_started_{call.get('call_id')}",
+                    "run_id": run_id,
+                    "assistant_turn_id": turn_id,
+                    "sequence": int(call.get("started_sequence")),
+                    "ts": start_ts,
+                    "payload": {
+                        "call_id": call.get("call_id"),
+                        "tool_name": call.get("tool_name"),
+                        "args": parsed_args
+                    },
+                    "call_id": call.get("call_id"),
+                    "tool_name": call.get("tool_name"),
+                    "args": parsed_args
+                })
+            if call.get("finished_sequence"):
+                events.append({
+                    "version": "v2",
+                    "event": "tool.call.finished",
+                    "event_id": call.get("event_id_finished") or f"replay_finished_{call.get('call_id')}",
+                    "run_id": run_id,
+                    "assistant_turn_id": turn_id,
+                    "sequence": int(call.get("finished_sequence")),
+                    "ts": finish_ts,
+                    "payload": {
+                        "call_id": call.get("call_id"),
+                        "tool_name": call.get("tool_name"),
+                        "result": call.get("result"),
+                        "error": call.get("error"),
+                        "duration_ms": call.get("duration_ms")
+                    },
+                    "call_id": call.get("call_id"),
+                    "tool_name": call.get("tool_name"),
+                    "result": call.get("result"),
+                    "error": call.get("error"),
+                    "duration_ms": call.get("duration_ms")
+                })
+
+        events.sort(key=lambda item: (str(item.get("run_id") or ""), int(item.get("sequence") or 0), str(item.get("ts") or "")))
+        if after_sequence is not None:
+            events = [event for event in events if int(event.get("sequence") or 0) > int(after_sequence)]
+        return events
 
     def add_skill_effectiveness_event(self, session_id: str, event: Dict[str, Any]) -> None:
         now = datetime.now()

@@ -2,6 +2,14 @@
   "type": "object",
   "required": ["meta"],
   "properties": {
+    "version": { "type": "string" },
+    "event": { "type": "string" },
+    "event_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "assistant_turn_id": { "type": "string" },
+    "sequence": { "type": "integer" },
+    "ts": { "type": "string" },
+    "payload": { "type": "object" },
     "meta": {
       "type": "object",
       "required": ["provider", "model"],
@@ -13,7 +21,13 @@
           "items": { "type": "string" }
         },
         "context_id": { "type": "string" },
-        "agent_id": { "type": ["string", "null"] }
+        "agent_id": { "type": ["string", "null"] },
+        "run_id": { "type": ["string", "null"] },
+        "assistant_turn_id": { "type": ["string", "null"] },
+        "supports_reasoning": { "type": "boolean" },
+        "deep_thinking_enabled": { "type": "boolean" },
+        "reasoning_enabled": { "type": "boolean" },
+        "reasoning_disabled_reason_code": { "type": ["string", "null"] }
       }
     }
   }

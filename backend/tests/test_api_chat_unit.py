@@ -668,3 +668,48 @@ async def test_chat_stream_skip_same_model_retry_and_use_next_candidate(client, 
         second_call_args = mock_get_model.call_args_list[1].args
         assert first_call_args == ("openai", "gpt-4o")
         assert second_call_args == ("deepseek", "deepseek-chat")
+
+@pytest.mark.asyncio
+async def test_chat_stream_emits_meta_reasoning_flags_and_envelope_sequence(client, mock_chat_service):
+    with patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat.config_service.get_model_capabilities") as mock_caps:
+        mock_caps.return_value = ["reasoning"]
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = None
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+
+        async def mock_stream():
+            yield "Hello"
+
+        mock_result.stream_text.return_value = mock_stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post("/api/chat/stream", json={"message": "hi", "provider": "openai", "model": "gpt-4o", "deep_thinking_enabled": True})
+        assert response.status_code == 200
+
+        payloads = []
+        for line in response.iter_lines():
+            if not isinstance(line, str) or not line.startswith("data: "):
+                continue
+            try:
+                payloads.append(json.loads(line[6:]))
+            except Exception:
+                continue
+
+        v2_payloads = [p for p in payloads if p.get("version") == "v2" and isinstance(p.get("sequence"), int)]
+        assert len(v2_payloads) > 0
+        sequences = [p["sequence"] for p in v2_payloads]
+        assert sequences == sorted(sequences)
+
+        meta = next(p["meta"] for p in payloads if isinstance(p, dict) and "meta" in p)
+        assert meta["supports_reasoning"] is True
+        assert meta["deep_thinking_enabled"] is True
+        assert meta["reasoning_enabled"] is True

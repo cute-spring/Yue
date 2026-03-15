@@ -62,6 +62,9 @@ class ConfigService:
             "skill_auto_mode_enabled": flags.get("skill_auto_mode_enabled", True),
             "skill_summary_prompt_enabled": flags.get("skill_summary_prompt_enabled", True),
             "skill_lazy_full_load_enabled": flags.get("skill_lazy_full_load_enabled", True),
+            "transparency_event_v2_enabled": flags.get("transparency_event_v2_enabled", True),
+            "transparency_turn_binding_enabled": flags.get("transparency_turn_binding_enabled", True),
+            "reasoning_display_gated_enabled": flags.get("reasoning_display_gated_enabled", True),
         }
 
     def update_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:

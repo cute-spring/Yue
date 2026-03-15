@@ -12,6 +12,12 @@ MODE="${1:-full}"
 
 echo -e "${GREEN}🔍 Starting Full Stack Quality Check...${NC}"
 
+fail_and_exit() {
+    echo -e "\n------------------------------------"
+    echo -e "${RED}🚩 Some checks failed. Please review the logs above.${NC}"
+    exit 1
+}
+
 run_env_precheck() {
     cd "$PROJECT_ROOT/backend"
     if [ ! -d ".venv" ]; then
@@ -40,7 +46,7 @@ fi
 
 echo -e "\n${YELLOW}--- [1/4] Backend: ENV_PRECHECK ---${NC}"
 if ! run_env_precheck; then
-    FAILED=1
+    fail_and_exit
 fi
 
 # 2. Backend Checks
@@ -54,12 +60,13 @@ if [ -d ".venv" ]; then
         echo -e "${GREEN}✅ Backend unit tests passed.${NC}"
     else
         echo -e "${RED}❌ Backend unit tests failed.${NC}"
-        # FAILED=1 # 暂时不因为测试失败终止，仅作为演示测试 script 运行成功
+        deactivate
+        fail_and_exit
     fi
     deactivate
 else
     echo -e "${RED}⚠️  Backend .venv not found. Skipping backend tests.${NC}"
-    FAILED=1
+    fail_and_exit
 fi
 
 # 3. Frontend: Type Check
@@ -70,11 +77,11 @@ if [ -d "node_modules" ]; then
         echo -e "${GREEN}✅ Frontend type check passed.${NC}"
     else
         echo -e "${RED}❌ Frontend type check failed.${NC}"
-        FAILED=1
+        fail_and_exit
     fi
 else
     echo -e "${RED}⚠️  Frontend node_modules not found. Skipping type check.${NC}"
-    FAILED=1
+    fail_and_exit
 fi
 
 # 4. Frontend: Unit Tests
@@ -84,18 +91,13 @@ if [ -d "node_modules" ]; then
         echo -e "${GREEN}✅ Frontend unit tests passed.${NC}"
     else
         echo -e "${RED}❌ Frontend unit tests failed.${NC}"
-        FAILED=1
+        fail_and_exit
     fi
 else
     echo -e "${RED}⚠️  Frontend node_modules not found. Skipping frontend tests.${NC}"
-    FAILED=1
+    fail_and_exit
 fi
 
 echo -e "\n------------------------------------"
-if [ $FAILED -eq 0 ]; then
-    echo -e "${GREEN}✨ All checks passed! Ready to commit.${NC}"
-    exit 0
-else
-    echo -e "${RED}🚩 Some checks failed. Please review the logs above.${NC}"
-    exit 1
-fi
+echo -e "${GREEN}✨ All checks passed! Ready to commit.${NC}"
+exit 0

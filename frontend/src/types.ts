@@ -64,6 +64,12 @@ export type Message = {
   tool_calls?: ToolCall[];
   citations?: any[];
   context_id?: string;
+  run_id?: string;
+  assistant_turn_id?: string;
+  supports_reasoning?: boolean;
+  deep_thinking_enabled?: boolean;
+  reasoning_enabled?: boolean;
+  reasoning_disabled_reason_code?: string | null;
   error?: string;
   finish_reason?: string;
   active_skill_name?: string;
@@ -78,6 +84,31 @@ export type ToolCall = {
   error?: string;
   status: 'running' | 'success' | 'error';
   duration_ms?: number;
+  sequence?: number;
+  ts?: string;
+};
+
+export type ChatEventEnvelope = {
+  version?: string;
+  event?: string;
+  event_id?: string;
+  run_id?: string;
+  assistant_turn_id?: string;
+  sequence?: number;
+  ts?: string;
+  payload?: Record<string, any>;
+  meta?: Record<string, any>;
+  content?: string;
+  thought?: string;
+  chat_id?: string;
+  citations?: any[];
+  error?: string;
+  call_id?: string;
+  tool_name?: string;
+  args?: any;
+  result?: any;
+  duration_ms?: number;
+  [key: string]: any;
 };
 
 export interface Provider {

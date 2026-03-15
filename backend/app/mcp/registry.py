@@ -54,6 +54,7 @@ class ToolRegistry:
         agent_id: Optional[str], 
         provider: Optional[str] = None,
         on_event: Optional[ToolEventCallback] = None,
+        event_context: Optional[Callable[[], Dict[str, Any]]] = None,
         enabled_tools: Optional[List[str]] = None
     ) -> List[Any]:
         """
@@ -73,9 +74,24 @@ class ToolRegistry:
                 sanitized_server = re.sub(r'[^a-zA-Z0-9_-]', '_', tool.server_name)
                 sanitized_tool = re.sub(r'[^a-zA-Z0-9_-]', '_', tool.name)
                 llm_tool_name = f"mcp__{sanitized_server}__{sanitized_tool}"
-                pydantic_tools.append(self._to_pydantic_ai_tool(tool, llm_name=llm_tool_name, provider=provider, on_event=on_event))
+                pydantic_tools.append(
+                    self._to_pydantic_ai_tool(
+                        tool,
+                        llm_name=llm_tool_name,
+                        provider=provider,
+                        on_event=on_event,
+                        event_context=event_context
+                    )
+                )
             else:
-                pydantic_tools.append(self._to_pydantic_ai_tool(tool, provider=provider, on_event=on_event))
+                pydantic_tools.append(
+                    self._to_pydantic_ai_tool(
+                        tool,
+                        provider=provider,
+                        on_event=on_event,
+                        event_context=event_context
+                    )
+                )
         return pydantic_tools
 
     def _to_pydantic_ai_tool(
@@ -83,7 +99,8 @@ class ToolRegistry:
         tool: BaseTool, 
         llm_name: Optional[str] = None, 
         provider: Optional[str] = None,
-        on_event: Optional[ToolEventCallback] = None
+        on_event: Optional[ToolEventCallback] = None,
+        event_context: Optional[Callable[[], Dict[str, Any]]] = None
     ) -> Tool:
         tool_name = llm_name or tool.name
         ArgsModel = tool.build_args_model()
@@ -95,11 +112,13 @@ class ToolRegistry:
             # Emit tool.call.started event
             if on_event:
                 try:
+                    context = event_context() if event_context else {}
                     await on_event({
                         "event": "tool.call.started",
                         "call_id": call_id,
                         "tool_name": tool_name,
-                        "args": tool.validate_params(args)
+                        "args": tool.validate_params(args),
+                        **context
                     })
                 except Exception:
                     logger.exception("Error emitting tool.call.started event")
@@ -112,12 +131,14 @@ class ToolRegistry:
                 # Emit tool.call.finished event
                 if on_event:
                     try:
+                        context = event_context() if event_context else {}
                         await on_event({
                             "event": "tool.call.finished",
                             "call_id": call_id,
                             "tool_name": tool_name,
                             "result": result,
-                            "duration_ms": duration_ms
+                            "duration_ms": duration_ms,
+                            **context
                         })
                     except Exception:
                         logger.exception("Error emitting tool.call.finished event")
@@ -130,13 +151,15 @@ class ToolRegistry:
                 # Emit tool.call.finished event with error
                 if on_event:
                     try:
+                        context = event_context() if event_context else {}
                         await on_event({
                             "event": "tool.call.finished",
                             "call_id": call_id,
                             "tool_name": tool_name,
                             "error": str(e),
                             "result": error_res,
-                            "duration_ms": duration_ms
+                            "duration_ms": duration_ms,
+                            **context
                         })
                     except Exception:
                         logger.exception("Error emitting tool.call.finished event on error")

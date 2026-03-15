@@ -31,14 +31,14 @@ def test_benchmark_100k_csv():
         # 2. Benchmark Profile
         # Pass root_dir to help resolve
         start = time.time()
-        profile_res = excel_service.profile(csv_path, root_dir=docs_dir)
+        profile_res = excel_service.profile(csv_path, root_dir=docs_dir, allow_roots=[docs_dir])
         profile_time = time.time() - start
         print(f"\nCSV Profile time (100k rows): {profile_time:.4f}s")
         assert profile_res["ok"] is True
         
         # 3. Benchmark Read (with truncation)
         start = time.time()
-        read_res = excel_service.read(csv_path, root_dir=docs_dir)
+        read_res = excel_service.read(csv_path, root_dir=docs_dir, allow_roots=[docs_dir])
         read_time = time.time() - start
         print(f"CSV Read time (truncation to {excel_service.read_limit}): {read_time:.4f}s")
         assert read_res["ok"] is True
@@ -48,7 +48,7 @@ def test_benchmark_100k_csv():
         # 4. Benchmark Query (SQL aggregation)
         start = time.time()
         query = "SELECT Category, SUM(Value) as Total FROM excel_data GROUP BY Category ORDER BY Total DESC"
-        query_res = excel_service.query(csv_path, query, root_dir=docs_dir)
+        query_res = excel_service.query(csv_path, query, root_dir=docs_dir, allow_roots=[docs_dir])
         query_time = time.time() - start
         print(f"CSV Query time (Aggregation on 100k rows): {query_time:.4f}s")
         assert query_res["ok"] is True
@@ -86,14 +86,14 @@ def test_benchmark_100k_xlsx():
     try:
         # 2. Benchmark Profile
         start = time.time()
-        profile_res = excel_service.profile(xlsx_path, root_dir=docs_dir)
+        profile_res = excel_service.profile(xlsx_path, root_dir=docs_dir, allow_roots=[docs_dir])
         profile_time = time.time() - start
         print(f"\nXLSX Profile time (100k rows): {profile_time:.4f}s")
         assert profile_res["ok"] is True
         
         # 3. Benchmark Read (with truncation)
         start = time.time()
-        read_res = excel_service.read(xlsx_path, root_dir=docs_dir)
+        read_res = excel_service.read(xlsx_path, root_dir=docs_dir, allow_roots=[docs_dir])
         read_time = time.time() - start
         print(f"XLSX Read time (truncation to {excel_service.read_limit}): {read_time:.4f}s")
         assert read_res["ok"] is True
@@ -102,7 +102,7 @@ def test_benchmark_100k_xlsx():
         # 4. Benchmark Query (SQL aggregation)
         start = time.time()
         query = "SELECT Category, AVG(Value) as AvgValue FROM excel_data GROUP BY Category"
-        query_res = excel_service.query(xlsx_path, query, root_dir=docs_dir)
+        query_res = excel_service.query(xlsx_path, query, root_dir=docs_dir, allow_roots=[docs_dir])
         query_time = time.time() - start
         print(f"XLSX Query time (Aggregation on 100k rows): {query_time:.4f}s")
         assert query_res["ok"] is True

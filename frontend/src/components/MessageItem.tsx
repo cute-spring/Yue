@@ -352,13 +352,9 @@ export default function MessageItem(props: MessageItemProps) {
             const content = res.content;
             const isActuallyThinking = res.isThinking;
             const thoughtSource = res.source;
-            
-            const isReasoner = () => {
-              const model = (props.msg.model || props.selectedModel || "").toLowerCase();
-              return model.includes("reasoner") || model.includes("r1") || model.includes("thought") || model.includes("o1") || model.includes("o3");
-            };
-            const isThinking = isActuallyThinking || (props.isTyping && (isReasoner() || !!thought) && !content);
-            const showInitializing = () => props.isTyping && !thought && !content && !isReasoner();
+            const reasoningEnabled = props.msg.reasoning_enabled === true;
+            const isThinking = reasoningEnabled && (isActuallyThinking || (props.isTyping && !content));
+            const showInitializing = () => props.isTyping && !thought && !content && !reasoningEnabled;
 
             return (
               <>
@@ -415,7 +411,7 @@ export default function MessageItem(props: MessageItemProps) {
                   </div>
                 </Show>
 
-                <Show when={thought || (props.isTyping && isReasoner() && !content)}>
+                <Show when={reasoningEnabled && (thought || (props.isTyping && !content))}>
                   <div class="mb-4 rounded-2xl border border-border/40 bg-background/40 overflow-hidden group/thought transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.05)]">
                     <button 
                       onClick={() => props.toggleThought(props.index)}

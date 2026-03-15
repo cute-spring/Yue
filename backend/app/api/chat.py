@@ -25,6 +25,7 @@ import json
 import logging
 import os
 from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +214,13 @@ def _build_scope_summary_block(agent_config: Any) -> Tuple[Optional[str], int]:
     lines.append("- If uncertain, call docs_list first to inspect paths.")
     return "\n".join(lines), len(effective_roots)
 
+def _legacy_reasoning_guess(model_name: str) -> bool:
+    name = (model_name or "").lower()
+    return any(token in name for token in ["reasoner", "r1", "thought", "o1", "o3"])
+
+def _iso_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 router = APIRouter()
 
 class ChatRequest(BaseModel):
@@ -224,6 +232,7 @@ class ChatRequest(BaseModel):
     system_prompt: str | None = None
     provider: str | None = None
     model: str | None = None
+    deep_thinking_enabled: bool = False
 
 @router.get("/history", response_model=list[ChatSession])
 async def list_chats():
@@ -235,6 +244,13 @@ async def get_chat(chat_id: str):
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat
+
+@router.get("/{chat_id}/events")
+async def get_chat_events(chat_id: str, assistant_turn_id: Optional[str] = None, after_sequence: Optional[int] = None):
+    chat = chat_service.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return chat_service.get_chat_events(chat_id, assistant_turn_id=assistant_turn_id, after_sequence=after_sequence)
 
 @router.delete("/{chat_id}")
 async def delete_chat(chat_id: str):
@@ -332,39 +348,85 @@ async def chat_stream(request: ChatRequest):
     chat_service.add_message(chat_id, "user", request.message, images=stored_images if stored_images else None)
     
     async def event_generator():
-        # Yield the chat ID first so frontend knows where we are
-        yield _serialize_sse_payload({"chat_id": chat_id})
-        
-        # Tool event queue to capture events from tool callbacks
+        feature_flags = config_service.get_feature_flags()
+        event_v2_enabled = bool(feature_flags.get("transparency_event_v2_enabled", True))
+        turn_binding_enabled = bool(feature_flags.get("transparency_turn_binding_enabled", True))
+        reasoning_display_gated_enabled = bool(feature_flags.get("reasoning_display_gated_enabled", True))
+        run_id = f"run_{uuid.uuid4().hex[:12]}"
+        assistant_turn_id = f"turn_{uuid.uuid4().hex[:12]}"
+        sequence = 0
+
+        def _event_type_of(payload: Dict[str, Any]) -> str:
+            if isinstance(payload.get("event"), str):
+                return payload["event"]
+            if "meta" in payload:
+                return "meta"
+            if "chat_id" in payload:
+                return "chat_id"
+            if "content" in payload:
+                return "content.delta"
+            if "thought" in payload:
+                return "reasoning.delta"
+            if "error" in payload:
+                return "error"
+            return "trace.event"
+
+        def _event_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+            nonlocal sequence
+            if not event_v2_enabled:
+                return payload
+            sequence += 1
+            envelope = {
+                "version": "v2",
+                "event": _event_type_of(payload),
+                "event_id": str(uuid.uuid4()),
+                "run_id": run_id,
+                "assistant_turn_id": assistant_turn_id,
+                "sequence": sequence,
+                "ts": _iso_utc_now(),
+                "payload": payload,
+            }
+            return {**envelope, **payload}
+
+        def _emit(payload: Dict[str, Any]) -> str:
+            return _serialize_sse_payload(_event_payload(payload))
+
+        yield _emit({"chat_id": chat_id})
+
         tool_event_queue = asyncio.Queue()
         tool_call_started_count = 0
         tool_call_finished_count = 0
 
-        # Tool event callback for tool.call.started and tool.call.finished
         async def on_tool_event(event: Dict[str, Any]):
             nonlocal tool_call_started_count, tool_call_finished_count
             try:
-                # 1. Emit to SSE stream
-                await tool_event_queue.put(event)
-                
-                # 2. Persistence (Phase 2)
-                event_type = event.get("event")
+                event_payload = _event_payload(event)
+                await tool_event_queue.put(event_payload)
+                event_type = event_payload.get("event")
                 if event_type == "tool.call.started":
                     tool_call_started_count += 1
                     chat_service.add_tool_call(
                         session_id=chat_id,
-                        call_id=event.get("call_id"),
-                        tool_name=event.get("tool_name"),
-                        args=event.get("args")
+                        call_id=event_payload.get("call_id"),
+                        tool_name=event_payload.get("tool_name"),
+                        args=event_payload.get("args"),
+                        assistant_turn_id=assistant_turn_id if turn_binding_enabled else None,
+                        run_id=run_id if turn_binding_enabled else None,
+                        event_id_started=event_payload.get("event_id"),
+                        started_sequence=event_payload.get("sequence"),
+                        started_ts=datetime.fromisoformat(str(event_payload.get("ts")).replace("Z", "+00:00")) if event_payload.get("ts") else None
                     )
                 elif event_type == "tool.call.finished":
                     tool_call_finished_count += 1
                     chat_service.update_tool_call(
-                        call_id=event.get("call_id"),
-                        status="error" if "error" in event else "success",
-                        result=event.get("result"),
-                        error=event.get("error"),
-                        duration_ms=event.get("duration_ms")
+                        call_id=event_payload.get("call_id"),
+                        status="error" if "error" in event_payload else "success",
+                        result=event_payload.get("result"),
+                        error=event_payload.get("error"),
+                        duration_ms=event_payload.get("duration_ms"),
+                        event_id_finished=event_payload.get("event_id"),
+                        finished_sequence=event_payload.get("sequence"),
+                        finished_ts=datetime.fromisoformat(str(event_payload.get("ts")).replace("Z", "+00:00")) if event_payload.get("ts") else None
                     )
             except Exception:
                 logger.exception("Error in on_tool_event (streaming + persistence)")
@@ -380,6 +442,8 @@ async def chat_stream(request: ChatRequest):
         stream_error_message = None
         provider = request.provider
         model_name = request.model
+        supports_reasoning = False
+        reasoning_enabled = False
 
         try:
             # Get agent config if provided
@@ -400,7 +464,6 @@ async def chat_stream(request: ChatRequest):
             visible_skill_count = 0
             available_skill_count = 0
             always_injected_count = 0
-            feature_flags = config_service.get_feature_flags()
             
             summary_block = None
             if feature_flags.get("skill_summary_prompt_enabled", False) and agent_config and agent_config.skill_mode != "off":
@@ -413,7 +476,11 @@ async def chat_stream(request: ChatRequest):
                     summary_block = "### Skill Summaries\n" + "\n".join(summary_lines)
 
             if feature_flags.get("skill_runtime_enabled") and agent_config and agent_config.skill_mode != "off":
-                bound_name, bound_version = chat_service.get_session_skill(chat_id)
+                bound_pair = chat_service.get_session_skill(chat_id)
+                if isinstance(bound_pair, tuple) and len(bound_pair) >= 2:
+                    bound_name, bound_version = bound_pair[0], bound_pair[1]
+                else:
+                    bound_name, bound_version = None, None
                 bound_skill = None
                 if bound_name:
                     bound_skill = skill_registry.get_skill(bound_name, bound_version)
@@ -520,7 +587,7 @@ async def chat_stream(request: ChatRequest):
                 # Overwrite enabled_tools for tool_registry call later
                 # We'll need a way to pass these to tool_registry
                 logger.info(f"Skill {selected_skill_spec.name} selected. Tool intersection: {final_tools_list}")
-                yield _serialize_sse_payload({"event": "skill_selected", "name": selected_skill_spec.name, "version": selected_skill_spec.version})
+                yield _emit({"event": "skill_selected", "name": selected_skill_spec.name, "version": selected_skill_spec.version})
             elif agent_config:
                 # Legacy path
                 provider = provider or agent_config.provider
@@ -597,25 +664,29 @@ async def chat_stream(request: ChatRequest):
                 chat_service.add_skill_effectiveness_event(chat_id, skill_effectiveness_payload)
             except Exception:
                 logger.exception("Failed to persist skill_effectiveness event")
-            yield _serialize_sse_payload(skill_effectiveness_payload)
+            yield _emit(skill_effectiveness_payload)
 
             if provider == "ollama":
                 models = await fetch_ollama_models()
                 if not models:
-                    yield _serialize_sse_payload({"error": "Ollama 未响应或没有可用模型，请确认服务已启动并可访问"})
+                    yield _emit({"error": "Ollama 未响应或没有可用模型，请确认服务已启动并可访问"})
                     return
                 if model_name not in models:
                     latest_name = f"{model_name}:latest"
                     if latest_name in models:
                         model_name = latest_name
                     else:
-                        yield _serialize_sse_payload({"error": f"Ollama 未找到模型 {model_name}，请先执行 `ollama pull {model_name}`"})
+                        yield _emit({"error": f"Ollama 未找到模型 {model_name}，请先执行 `ollama pull {model_name}`"})
                         return
 
             tools = await tool_registry.get_pydantic_ai_tools_for_agent(
                 request.agent_id, 
                 provider,
                 on_event=on_tool_event,
+                event_context=lambda: {
+                    "run_id": run_id,
+                    "assistant_turn_id": assistant_turn_id
+                },
                 enabled_tools=final_tools_list
             )
 
@@ -628,14 +699,48 @@ async def chat_stream(request: ChatRequest):
                     name = tool.__class__.__name__
                 tool_names.append(name)
 
-            yield _serialize_sse_payload({"meta": {"provider": provider, "model": model_name, "tools": tool_names, "context_id": chat_id, "agent_id": request.agent_id}})
+            model_capabilities = config_service.get_model_capabilities(provider, model_name)
+            supports_reasoning = "reasoning" in model_capabilities
+            reasoning_disabled_reason_code = None
+            if reasoning_display_gated_enabled:
+                reasoning_enabled = bool(supports_reasoning and request.deep_thinking_enabled)
+                if not reasoning_enabled:
+                    if request.deep_thinking_enabled and not supports_reasoning:
+                        reasoning_disabled_reason_code = "MODEL_CAPABILITY_MISSING"
+                    elif not request.deep_thinking_enabled:
+                        reasoning_disabled_reason_code = "DEEP_THINKING_DISABLED"
+            else:
+                reasoning_enabled = bool(_legacy_reasoning_guess(model_name) or request.deep_thinking_enabled)
+                if not reasoning_enabled:
+                    reasoning_disabled_reason_code = "LEGACY_DISABLED"
+            meta_payload = {
+                "meta": {
+                    "provider": provider,
+                    "model": model_name,
+                    "tools": tool_names,
+                    "context_id": chat_id,
+                    "agent_id": request.agent_id,
+                    "run_id": run_id,
+                    "assistant_turn_id": assistant_turn_id if turn_binding_enabled else None,
+                    "supports_reasoning": supports_reasoning,
+                    "deep_thinking_enabled": bool(request.deep_thinking_enabled),
+                    "reasoning_enabled": reasoning_enabled,
+                    "reasoning_disabled_reason_code": reasoning_disabled_reason_code
+                }
+            }
+            yield _emit(meta_payload)
+            if request.deep_thinking_enabled and not reasoning_enabled and reasoning_disabled_reason_code:
+                yield _emit({
+                    "event": "reasoning_toggle_ignored",
+                    "reason_code": reasoning_disabled_reason_code
+                })
             
-            # Use PromptBuilder to enhance system prompt (Builder Pattern)
             system_prompt = build_system_prompt(
                 base_prompt=system_prompt,
                 provider=provider,
                 model_name=model_name,
-                user_message=request.message
+                user_message=request.message,
+                deep_thinking_enabled=reasoning_enabled
             )
 
             try:
@@ -680,8 +785,7 @@ async def chat_stream(request: ChatRequest):
                 model_settings["extra_body"]["max_tokens"] = model_settings["max_tokens"]
             
             # Prepare Parser (Adapter Pattern)
-            capabilities = config_service.get_model_capabilities(provider, model_name)
-            parser = get_parser(provider, model_name, capabilities)
+            parser = get_parser(provider, model_name, model_capabilities)
             
             last_length = 0
             start_time = time.time()
@@ -725,7 +829,7 @@ async def chat_stream(request: ChatRequest):
                                     if "content" in item:
                                         full_response += item["content"]
                                     # Ensure data is followed by exactly two newlines for SSE spec
-                                    yield _serialize_sse_payload(item)
+                                    yield _emit(item)
                                 
                                 # Prepare next stream chunk task
                                 stream_task = asyncio.create_task(stream_iter.__anext__())
@@ -785,23 +889,23 @@ async def chat_stream(request: ChatRequest):
                 except:
                     pass
                 
-                yield _serialize_sse_payload(limit_info)
+                yield _emit(limit_info)
                 
                 # Provide a friendly user message
                 friendly_msg = f"\n\n> ⚠️ **[系统提示]** 已触达策略上限（{limit_err}）。为了您的账户安全和成本控制，本轮执行已自动停止。您可以根据已有信息继续，或尝试缩小问题范围。"
                 full_response += friendly_msg
-                yield _serialize_sse_payload({"content": friendly_msg})
+                yield _emit({"content": friendly_msg})
 
             except Exception as stream_err:
                 err_str = str(stream_err)
                 if "status_code: 502" in err_str and provider == "ollama":
-                    yield _serialize_sse_payload({"error": "Ollama 返回 502，请检查模型是否已拉取且服务正常运行"})
+                    yield _emit({"error": "Ollama 返回 502，请检查模型是否已拉取且服务正常运行"})
                     return
                 
                 # Check for TLS/SSL or Proxy errors
                 friendly_error = handle_llm_exception(stream_err)
                 if friendly_error != err_str:
-                    yield _serialize_sse_payload({"error": friendly_error})
+                    yield _emit({"error": friendly_error})
                     return
 
                 if "does not support tools" in err_str or "Tool use is not supported" in err_str:
@@ -809,7 +913,7 @@ async def chat_stream(request: ChatRequest):
                     # Re-create agent without tools
                     agent_no_tools = Agent(model, system_prompt=system_prompt)
                     # Reset parser and response tracking for second attempt
-                    parser = get_parser(provider, model_name, capabilities)
+                    parser = get_parser(provider, model_name, model_capabilities)
                     full_response = ""
                     first_token_time = None 
                     
@@ -844,7 +948,7 @@ async def chat_stream(request: ChatRequest):
                                     for item in results:
                                         if "content" in item:
                                             full_response += item["content"]
-                                        yield _serialize_sse_payload(item)
+                                        yield _emit(item)
                                     stream_task = asyncio.create_task(stream_iter.__anext__())
                                 except StopAsyncIteration:
                                     if queue_task.done() and not queue_task.cancelled():
@@ -894,12 +998,12 @@ async def chat_stream(request: ChatRequest):
                     thought_duration = time.time() - parser.thought_start_time
 
             if thought_duration is not None:
-                yield _serialize_sse_payload({"thought_duration": thought_duration})
+                yield _emit({"thought_duration": thought_duration})
 
             if ttft is not None:
-                yield _serialize_sse_payload({"ttft": ttft})
+                yield _emit({"ttft": ttft})
             
-            yield _serialize_sse_payload({"total_duration": total_duration})
+            yield _emit({"total_duration": total_duration})
 
             # Capture Usage and Finish Reason using UsageAdapter (Adapter Pattern)
             try:
@@ -922,13 +1026,13 @@ async def chat_stream(request: ChatRequest):
                 total_tokens = usage_stats.total_tokens
                 finish_reason = usage_stats.finish_reason
                 
-                yield _serialize_sse_payload(usage_stats.model_dump())
+                yield _emit(usage_stats.model_dump())
 
                 # Manual continuation guidance logic
                 if finish_reason == "length":
                     continue_msg = "\n\n> ⚠️ **[系统提示]** 由于输出长度限制，内容可能未完全生成。您可以输入 **“继续”** 来获取剩余部分。"
                     full_response += continue_msg
-                    yield _serialize_sse_payload({"content": continue_msg})
+                    yield _emit({"content": continue_msg})
                 elif finish_reason == "tool_call" and tool_call_started_count == 0:
                     mismatch_resolved = False
                     mismatch_config = config_service.get_tool_call_mismatch_config()
@@ -950,7 +1054,7 @@ async def chat_stream(request: ChatRequest):
                                 continue
                             seen_retry_targets.add(normalized_target)
                             try:
-                                yield _serialize_sse_payload({"event": "tool_call_retry", "from_provider": provider, "from_model": model_name, "to_provider": retry_provider, "to_model": retry_model_name})
+                                yield _emit({"event": "tool_call_retry", "from_provider": provider, "from_model": model_name, "to_provider": retry_provider, "to_model": retry_model_name})
                                 retry_model = get_model(retry_provider, retry_model_name)
                                 retry_model_settings = config_service.get_model_settings(retry_provider, retry_model_name)
                                 if "max_tokens" in retry_model_settings:
@@ -993,7 +1097,7 @@ async def chat_stream(request: ChatRequest):
                                                 for item in retry_items:
                                                     if "content" in item:
                                                         full_response += item["content"]
-                                                    yield _serialize_sse_payload(item)
+                                                    yield _emit(item)
                                                 retry_stream_task = asyncio.create_task(retry_stream_iter.__anext__())
                                             except StopAsyncIteration:
                                                 if retry_queue_task.done() and not retry_queue_task.cancelled():
@@ -1024,11 +1128,11 @@ async def chat_stream(request: ChatRequest):
                                     if tool_call_started_count > 0 or retry_finish_reason != "tool_call":
                                         mismatch_resolved = True
                                 if mismatch_resolved:
-                                    yield _serialize_sse_payload({"event": "tool_call_retry_success", "provider": retry_provider, "model": retry_model_name, "started": tool_call_started_count, "finished": tool_call_finished_count})
+                                    yield _emit({"event": "tool_call_retry_success", "provider": retry_provider, "model": retry_model_name, "started": tool_call_started_count, "finished": tool_call_finished_count})
                                     break
                             except Exception as retry_err:
                                 logger.exception("Auto retry after tool_call mismatch failed")
-                                yield _serialize_sse_payload({"event": "tool_call_retry_failed", "provider": retry_provider, "model": retry_model_name, "error": str(retry_err)})
+                                yield _emit({"event": "tool_call_retry_failed", "provider": retry_provider, "model": retry_model_name, "error": str(retry_err)})
                     if not mismatch_resolved:
                         tool_msg = (
                             "\n\n> ⚠️ **[系统提示]** 模型返回了 `tool_call` 结束信号，但未产生可执行工具调用。"
@@ -1037,14 +1141,14 @@ async def chat_stream(request: ChatRequest):
                             "或重试并明确要求“立即调用工具后再回答”。"
                         )
                         full_response += tool_msg
-                        yield _serialize_sse_payload({"event": "tool_call_mismatch", "started": tool_call_started_count, "finished": tool_call_finished_count})
-                        yield _serialize_sse_payload({"content": tool_msg})
+                        yield _emit({"event": "tool_call_mismatch", "started": tool_call_started_count, "finished": tool_call_finished_count})
+                        yield _emit({"content": tool_msg})
             except Exception as usage_err:
                 logger.error(f"Failed to get usage via adapter: {usage_err}")
 
             citations = deps.get("citations") if isinstance(deps, dict) else None
             if isinstance(citations, list) and citations:
-                yield _serialize_sse_payload({"citations": citations})
+                yield _emit({"citations": citations})
 
             require_citations = bool(getattr(agent_config, "require_citations", False)) if agent_config else False
             if require_citations:
@@ -1074,11 +1178,11 @@ async def chat_stream(request: ChatRequest):
                     if sources:
                         suffix = "\n\nSources:\n" + "\n".join(sources)
                         full_response += suffix
-                        yield _serialize_sse_payload({"content": suffix})
+                        yield _emit({"content": suffix})
                 else:
                     suffix = "\n\n未检索到可引用的文档依据（citations 为空）。建议先使用文档检索/读取工具获取证据后再回答。"
                     full_response += suffix
-                    yield _serialize_sse_payload({"content": suffix})
+                    yield _emit({"content": suffix})
 
         except (Exception, GeneratorExit, asyncio.CancelledError) as e:
             if isinstance(e, (GeneratorExit, asyncio.CancelledError)):
@@ -1087,7 +1191,7 @@ async def chat_stream(request: ChatRequest):
             else:
                 stream_error_message = str(e)
                 logger.exception("Chat error")
-                yield _serialize_sse_payload({"error": handle_llm_exception(e)})
+                yield _emit({"error": handle_llm_exception(e)})
         finally:
             # Save Assistant Message after completion
             if full_response:
@@ -1101,7 +1205,12 @@ async def chat_stream(request: ChatRequest):
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
-                    finish_reason=finish_reason or (e.__class__.__name__ if 'e' in locals() and isinstance(e, (GeneratorExit, asyncio.CancelledError)) else None)
+                    finish_reason=finish_reason or (e.__class__.__name__ if 'e' in locals() and isinstance(e, (GeneratorExit, asyncio.CancelledError)) else None),
+                    assistant_turn_id=assistant_turn_id if turn_binding_enabled else None,
+                    run_id=run_id if turn_binding_enabled else None,
+                    supports_reasoning=supports_reasoning,
+                    deep_thinking_enabled=bool(request.deep_thinking_enabled),
+                    reasoning_enabled=reasoning_enabled
                 )
             if _env_flag_with_fallback("LLM_VERBOSE_LOG_ENABLED", "BACKLOG_VERBOSE_LOG_ENABLED", True):
                 logger.info(
