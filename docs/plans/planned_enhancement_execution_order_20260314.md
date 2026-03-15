@@ -130,7 +130,7 @@ Legend:
 |---|---|---|---|
 | 0. Cross-Cutting Priority-0 Foundations | ✅ Clear | Source: This document (P0-1 ~ P0-5) | Split remaining items into dedicated execution plans |
 | P0-1 Unified Contract Gate | ✅ Clear | `unified_contract_gate_execution_plan_20260314.md` | Complete Phase 2 (Replay/Reconnect) and Phase 3 (Backward Compatibility) |
-| P0-2 Release Readiness Gate | ✅ Verified (Ph1) | `release_readiness_gate_execution_plan_20260314.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-001.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-002.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-003.md`; `docs/release_readiness_gate/phase1/rollback_drills/RBD-20260314-001.md`; `docs/release_readiness_gate/phase1/phase2_threshold_friction_notes.md` | Move to Phase 2 pipeline enforcement (CI policy checks + required evidence hard block) |
+| P0-2 Release Readiness Gate | ✅ Verified/Automated (Ph2) | `release_readiness_gate_execution_plan_20260314.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-001.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-002.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-003.md`; `docs/release_readiness_gate/phase1/rollback_drills/RBD-20260314-001.md`; `docs/release_readiness_gate/phase1/phase2_threshold_friction_notes.md`; `scripts/check_gate_completeness.py`; `backend/tests/test_check_gate_completeness.py` | Continue Phase 3 threshold tuning and MTTRb optimization using rollout data |
 | P0-3 Observability Baseline (SLO/Alerting) | 🟡 Partial | Related content exists in `observability_transparency_plan.md` and governance plan | Add explicit SLO catalog + alert ownership + oncall runbook plan |
 | P0-4 Data Lifecycle & Migration Safety | 🟡 Partial | Persistence/migration concerns are mentioned in transparency plan | Add dedicated DB lifecycle plan (retention, migration preflight, rollback strategy, budget checks) |
 | P0-5 Hierarchical Memory Foundation | ❌ Missing | Roadmap-level mention only (`ROADMAP 3.5 / 6.1`) | Create full memory evolution plan (STM/LTM schema, retrieval/decay, write/read governance) |
@@ -152,8 +152,8 @@ Legend:
 ## Immediate Next Actions
 
 1. Create and enforce P0 unified contract gate in CI for stream and replay compatibility.
-2. Complete P0-2 Phase 1 manual enforcement artifacts (Done: 3 gate reports, rollback drill evidence set, Phase 2 threshold/friction notes).
-3. Land Phase 2 readiness for P0-2 by drafting the initial CI policy check script (`check_gate_completeness.py`) as outlined in the friction notes.
+2. Keep P0-2 Phase 1 manual evidence set as audit baseline (3 gate reports + rollback drill + Phase 2 threshold/friction notes).
+3. Phase 2 automation is implemented and verified (`scripts/check_gate_completeness.py` + `backend/tests/test_check_gate_completeness.py`); wire this script into CI/release workflow as a mandatory hard-block step.
 4. Define operational SLOs and alert ownership for chat/tool reliability and stream quality.
 5. Start Memory Foundation MVP: short-term rolling summary and long-term durable memory schema with retrieval/decay policy.
 6. Add memory write/read governance: confidence threshold, provenance, reversible update path.

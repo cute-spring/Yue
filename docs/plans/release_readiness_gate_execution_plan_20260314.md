@@ -258,7 +258,7 @@ Deliverables:
    - at least 1 medium/high release with rollback drill evidence attached
    - threshold/friction notes include blocking conditions, false-positive risk, and implementation sequencing advice for Phase 2
 
-## Phase 2: Pipeline Enforcement
+## Phase 2: Pipeline Enforcement (Verified/Automated)
 
 1. Integrate gate checks into CI/release workflow.
 2. Enforce hard-block policy automatically.
@@ -267,6 +267,8 @@ Deliverables:
 
 1. CI policy checks for gate completeness.
 2. Automated validation for mandatory evidence fields.
+3. Memory-safe stream-test guard for modified test files.
+4. Non-zero exit on gate/report policy violations for CI hard-block.
 
 ## Phase 3: Continuous Optimization
 
@@ -322,6 +324,24 @@ P0-2 is considered complete when:
    - backend targeted retry path: `pytest tests/test_api_chat_unit.py::test_chat_stream_auto_retry_after_tool_call_mismatch tests/test_api_chat_unit.py::test_chat_stream_emits_tool_call_mismatch_when_no_tool_events -q` -> `2 passed`
    - frontend typecheck: `npx tsc --noEmit` -> `pass`
    - frontend unit: `npm run test` -> `14 passed`
+
+### 2026-03-15
+
+1. Phase 2 pipeline enforcement implemented with `scripts/check_gate_completeness.py`.
+2. Automation now validates:
+   - required quality evidence command/result fields
+   - risk score/tier consistency (`R/D/P`, `risk_score`, `tier`)
+   - decision metadata completeness and timestamp format
+   - rollback drill linkage and success policy for medium/high tier releases
+3. Memory-safe CI guard added for modified test files:
+   - blocks `response.content.decode("utf-8")` usage in test files
+   - enforces streaming assertion pattern (`iter_lines`) for SSE-friendly checks
+4. Script behavior is CI-ready:
+   - non-zero exit when any selected gate report fails validation
+   - non-zero exit when memory-safe test constraints are violated
+5. Verification:
+   - `python3 -m pytest backend/tests/test_check_gate_completeness.py -q` -> `4 passed`
+   - `python3 scripts/check_gate_completeness.py` -> `pass`
 
 ---
 
