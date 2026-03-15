@@ -129,11 +129,11 @@ Legend:
 | Item | Breakdown Status | Evidence | Gap to Close |
 |---|---|---|---|
 | 0. Cross-Cutting Priority-0 Foundations | ✅ Clear | Source: This document (P0-1 ~ P0-5) | Split remaining items into dedicated execution plans |
-| P0-1 Unified Contract Gate | ✅ Clear | `unified_contract_gate_execution_plan_20260314.md` | Complete Phase 2 (Replay/Reconnect) and Phase 3 (Backward Compatibility) |
-| P0-2 Release Readiness Gate | ✅ Verified/Automated (Ph2) | `release_readiness_gate_execution_plan_20260314.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-001.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-002.md`; `docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-003.md`; `docs/release_readiness_gate/phase1/rollback_drills/RBD-20260314-001.md`; `docs/release_readiness_gate/phase1/phase2_threshold_friction_notes.md`; `scripts/check_gate_completeness.py`; `backend/tests/test_check_gate_completeness.py` | Continue Phase 3 threshold tuning and MTTRb optimization using rollout data |
-| P0-3 Observability Baseline (SLO/Alerting) | 🟡 Partial | Related content exists in `observability_transparency_plan.md` and governance plan | Add explicit SLO catalog + alert ownership + oncall runbook plan |
-| P0-4 Data Lifecycle & Migration Safety | 🟡 Partial | Persistence/migration concerns are mentioned in transparency plan | Add dedicated DB lifecycle plan (retention, migration preflight, rollback strategy, budget checks) |
-| P0-5 Hierarchical Memory Foundation | ❌ Missing | Roadmap-level mention only (`ROADMAP 3.5 / 6.1`) | Create full memory evolution plan (STM/LTM schema, retrieval/decay, write/read governance) |
+| P0-1 Unified Contract Gate | ✅ Clear | `unified_contract_gate_execution_plan_20260314.md`; `backend/services/contract_gate.py`; `backend/tests/test_contract_gate_unit.py` | Complete Phase 2 (Replay/Reconnect) and Phase 3 (Backward Compatibility) |
+| P0-2 Release Readiness Gate | ✅ Automated (CI/Pre-push) | `release_readiness_gate_execution_plan_20260314.md`; `.github/workflows/release-gate.yml`; `scripts/pre-push`; `scripts/check_gate_completeness.py` | Continue Phase 3 threshold tuning and MTTRb optimization |
+| P0-3 Observability Baseline (SLO/Alerting) | 🟡 Partial | Related content exists in `observability_transparency_plan.md` | Add explicit SLO catalog + alert ownership + oncall runbook plan |
+| P0-4 Data Lifecycle & Migration Safety | 🟡 Partial | Persistence/migration concerns mentioned in transparency plan | Add dedicated DB lifecycle plan |
+| P0-5 Hierarchical Memory Foundation | ✅ Plan Drafted | `docs/plans/hierarchical_memory_foundation_plan_20260315.md` | Implement STM Rolling Summary (MVP) |
 | 1. Reasoning + Tools Execution Enhancement | ✅ Clear | `reasoning_tools_execution_enhancement_plan_20260308.md` | Continue by phase gates |
 | 2. OpenClaw Tool-Calling Governance | ✅ Clear | `openclaw_tool_calling_reference_execution_plan_20260308.md` | Execute Phase A-D rollout |
 | 3. Observability & Transparency | ✅ Clear | `observability_transparency_plan.md` | Continue staged rollout and hardening |
