@@ -8,4 +8,12 @@ if [ "$current_branch" = "$protected_branch" ]; then
     exit 1
 fi
 
+# Release Readiness Gate (P0-2) Check
+echo "Running Release Readiness Gate (P0-2) Check..."
+python3 scripts/check_gate_completeness.py --report docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-001.md
+if [ $? -ne 0 ]; then
+    echo "ERROR: Release Readiness Gate (P0-2) check failed. Please ensure gate reports are complete and verified."
+    exit 1
+fi
+
 exit 0
