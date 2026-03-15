@@ -129,6 +129,94 @@ def test_truncate_chat(temp_db):
     assert len(updated.messages) == 1
     assert updated.messages[0].content == "msg1"
 
+def test_tool_calls_bound_to_assistant_turn(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_message(chat.id, "user", "u1")
+    service.add_message(chat.id, "assistant", "a1", assistant_turn_id="turn_1", run_id="run_1")
+    service.add_message(chat.id, "user", "u2")
+    service.add_message(chat.id, "assistant", "a2", assistant_turn_id="turn_2", run_id="run_2")
+
+    service.add_tool_call(
+        session_id=chat.id,
+        call_id="call_turn1",
+        tool_name="docs_search",
+        args={"q": "one"},
+        assistant_turn_id="turn_1",
+        run_id="run_1",
+        event_id_started="evt_s_1",
+        started_sequence=10
+    )
+    service.update_tool_call(
+        call_id="call_turn1",
+        status="success",
+        result="ok1",
+        event_id_finished="evt_f_1",
+        finished_sequence=11
+    )
+    service.add_tool_call(
+        session_id=chat.id,
+        call_id="call_turn2",
+        tool_name="docs_search",
+        args={"q": "two"},
+        assistant_turn_id="turn_2",
+        run_id="run_2",
+        event_id_started="evt_s_2",
+        started_sequence=20
+    )
+    service.update_tool_call(
+        call_id="call_turn2",
+        status="success",
+        result="ok2",
+        event_id_finished="evt_f_2",
+        finished_sequence=21
+    )
+
+    loaded = service.get_chat(chat.id)
+    assistants = [m for m in loaded.messages if m.role == "assistant"]
+    assert len(assistants) == 2
+    assert len(assistants[0].tool_calls or []) == 1
+    assert assistants[0].tool_calls[0]["call_id"] == "call_turn1"
+    assert len(assistants[1].tool_calls or []) == 1
+    assert assistants[1].tool_calls[0]["call_id"] == "call_turn2"
+
+def test_chat_events_replay_consistency(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_message(
+        chat.id,
+        "assistant",
+        "final answer",
+        assistant_turn_id="turn_replay",
+        run_id="run_replay",
+        supports_reasoning=True,
+        deep_thinking_enabled=True,
+        reasoning_enabled=True
+    )
+    service.add_tool_call(
+        session_id=chat.id,
+        call_id="call_replay",
+        tool_name="docs_search",
+        args={"q": "abc"},
+        assistant_turn_id="turn_replay",
+        run_id="run_replay",
+        event_id_started="evt_start_replay",
+        started_sequence=2
+    )
+    service.update_tool_call(
+        call_id="call_replay",
+        status="success",
+        result="done",
+        event_id_finished="evt_finish_replay",
+        finished_sequence=3
+    )
+    events = service.get_chat_events(chat.id)
+    event_names = [item["event"] for item in events]
+    assert "meta" in event_names
+    assert "tool.call.started" in event_names
+    assert "tool.call.finished" in event_names
+    assert "content.final" in event_names
+
 def test_migrate_from_json(temp_dir_with_json):
     temp_dir, json_file = temp_dir_with_json
     db_file = os.path.join(temp_dir, "yue.db")

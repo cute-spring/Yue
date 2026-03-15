@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 import requests
+from unittest.mock import patch
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 if BASE_DIR not in sys.path:
@@ -44,7 +45,10 @@ class TestConfigSecurity(unittest.TestCase):
                     "deny_roots": ["/denied", " "]
                 }
             }
-            data = config_service.get_doc_access()
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("DOC_ACCESS_ALLOW_ROOTS", None)
+                os.environ.pop("DOC_ACCESS_DENY_ROOTS", None)
+                data = config_service.get_doc_access()
             self.assertEqual(data.get("allow_roots"), ["/allowed"])
             self.assertEqual(data.get("deny_roots"), ["/denied"])
         finally:
@@ -62,8 +66,11 @@ class TestConfigSecurity(unittest.TestCase):
             )
             self.assertEqual(updated.get("allow_roots"), ["/allowed"])
             self.assertEqual(updated.get("deny_roots"), ["/denied"])
-            self.assertEqual(svc.get_doc_access().get("allow_roots"), ["/allowed"])
-            self.assertEqual(svc.get_doc_access().get("deny_roots"), ["/denied"])
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("DOC_ACCESS_ALLOW_ROOTS", None)
+                os.environ.pop("DOC_ACCESS_DENY_ROOTS", None)
+                self.assertEqual(svc.get_doc_access().get("allow_roots"), ["/allowed"])
+                self.assertEqual(svc.get_doc_access().get("deny_roots"), ["/denied"])
             self.assertTrue(os.path.exists(cfg_path))
 
     def test_doc_access_endpoint(self):

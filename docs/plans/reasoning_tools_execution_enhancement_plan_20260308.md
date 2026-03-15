@@ -453,6 +453,17 @@ Output:
 5. 兼容门禁：legacy 客户端可正常工作。
 6. Reasoning 门禁：仅在 `reasoning_enabled=true` 时展示思维链。
 
+### 8.1 建议补充的量化阈值（SLO-like Gates）
+
+为避免“通过/不通过”口径过于主观，建议在灰度与全量阶段使用明确阈值：
+
+1. `event_parse_error_rate < 0.1%`（5 分钟滑窗）。
+2. `duplicate_tool_render_rate < 0.2%`（按 assistant turn 统计）。
+3. `history_alignment_success_rate >= 99.5%`（实时 vs 回放抽样比对）。
+4. `reasoning_display_accuracy_rate >= 99.9%`（按判定矩阵自动校验）。
+5. `reasoning_toggle_ignored_rate` 仅因模型不支持导致，且可解释率 `= 100%`（需带原因码）。
+6. 任一指标连续 2 个窗口超阈值时自动触发“停止扩大灰度”。
+
 ---
 
 ## 9. 验收标准（Acceptance Criteria）
@@ -524,6 +535,43 @@ Output:
 
 1. `MessageItem` 基于模型名关键字判断 reasoning 的主路径进入废弃状态。
 2. 计划在 1-2 个发布周期后移除关键词主逻辑，仅保留监控告警用途。
+
+### 12.4 建议固化的 Event Envelope 规范（Normative Contract）
+
+建议将以下字段定义为强约束，减少联调歧义：
+
+1. 顶层字段：
+   - `version`：事件契约版本，例如 `v2`。
+   - `event`：事件类型，如 `tool.call.started`。
+   - `event_id`：全局唯一 ID，建议 `uuid7`。
+   - `run_id`：同一 assistant 运行链路唯一标识。
+   - `assistant_turn_id`：同一 assistant 回合唯一标识。
+   - `sequence`：同一 `run_id` 内严格递增序号（从 1 开始）。
+   - `ts`：事件时间戳（ISO-8601 UTC）。
+2. 兼容原则：
+   - 新前端优先消费 envelope 统一字段；
+   - 旧字段在灰度期保留，至少 1-2 个发布周期后再移除；
+   - 若 `version` 缺失，前端自动降级 legacy 路径并打点告警。
+3. 推荐示例：
+
+```json
+{
+  "version": "v2",
+  "event": "tool.call.started",
+  "event_id": "018f2f5e-0b3d-7c9f-bf65-3dc4a18d9f52",
+  "run_id": "run_7f4c6f5d",
+  "assistant_turn_id": "turn_01J...",
+  "sequence": 7,
+  "ts": "2026-03-15T08:31:12.120Z",
+  "payload": {
+    "call_id": "call_123",
+    "tool_name": "builtin:docs_search",
+    "args": {
+      "query": "reasoning_enabled"
+    }
+  }
+}
+```
 
 ---
 
@@ -648,3 +696,42 @@ Output:
 ### Phase 5 DoD
 - [ ] 灰度数据达标后全量发布。
 - [ ] 回滚演练完成并记录结果。
+
+---
+
+## 17. 本次评审补充的进一步优化建议（Actionable Addendum）
+
+以下内容是在当前方案基础上的可执行增强，优先级按落地收益排序。
+
+### 17.1 P0：先补“不会返工”的规范项
+
+1. **`sequence` 作用域写死**：明确为“同一 `run_id` 内递增”，禁止跨 run 复用计数器。
+2. **`assistant_turn_id` 生命周期写死**：每次 assistant 开始生成即创建；重试沿用同一 turn；新用户输入创建新 turn。
+3. **`reasoning_enabled` 作为唯一渲染开关**：前端主路径不得再依赖模型名猜测；模型名仅用于诊断日志。
+4. **错误原因码标准化**：为 `reasoning_toggle_ignored` 增加原因码（如 `MODEL_CAPABILITY_MISSING`）。
+
+### 17.2 P1：补全迁移与回填策略，降低上线风险
+
+1. **数据迁移脚本要求**：
+   - 新增列采用可空 + 默认兼容，不阻塞旧写入；
+   - 对历史 `tool_calls` 进行按时间窗口回填 `assistant_turn_id`（无法精确时标记 `legacy_unbound`）。
+2. **灰度期间双写策略**：
+   - 写入新字段同时保留旧字段；
+   - 读取优先新字段，新字段缺失再降级旧路径。
+3. **回填可观测性**：
+   - 增加 `tool_call_backfill_coverage_rate` 与 `legacy_unbound_rate` 指标，确保迁移质量可见。
+
+### 17.3 P1：增加“混沌验证”场景，提前暴露边界缺陷
+
+1. 人工注入乱序事件（`sequence` 2,1,3）验证 UI 收敛顺序。
+2. 人工注入重复 `event_id` 验证幂等渲染。
+3. 模拟网络抖动 + 重连 + 增量回放，验证实时与历史最终一致。
+4. 模拟 deep thinking 切换频繁变化，验证 `reasoning_enabled` 判定稳定且不跨轮污染。
+
+### 17.4 建议执行顺序（资源紧张版）
+
+1. 先完成 **Phase 1.5 + Phase 2**（复杂度收敛与错挂修复）。
+2. 再完成 **Phase 1 + Phase 3**（契约统一与前端幂等）。
+3. 最后实施 **Phase 4 + Phase 5**（回放同构与灰度放量）。
+
+该顺序相比原计划更偏向先解决用户可见错误，再提升协议一致性，能更快降低投诉面与排障成本。
