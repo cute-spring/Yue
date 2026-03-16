@@ -356,7 +356,7 @@ class MarkdownSkillAdapter:
             
         return RuntimeCapabilityDescriptor(
             prompt_blocks=prompt_blocks,
-            tool_policy={"allowed_tools": skill.constraints.allowed_tools if skill.constraints else []},
+            tool_policy={"allowed_tools": skill.constraints.allowed_tools if skill.constraints else None},
             constraints=skill.constraints.model_dump() if skill.constraints else {},
             source_type="markdown_skill",
             name=skill.name,

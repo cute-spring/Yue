@@ -113,3 +113,69 @@ def test_api_tool_select_runtime_skill_success(client):
         assert data["reason_code"] == "skill_selected"
         assert data["fallback_used"] is False
         assert data["effective_tools"] == ["builtin:docs_read"]
+
+def test_api_select_skill_preserves_agent_tools_when_allowed_tools_is_none(client):
+    payload = {
+        "agent_id": "skill-agent",
+        "task": "design a plan",
+        "mode": "manual",
+        "requested_skill": "planner:1.0.0"
+    }
+    fake_agent = AgentConfig(
+        id="skill-agent",
+        name="Skill Agent",
+        system_prompt="agent",
+        provider="openai",
+        model="gpt-4o",
+        enabled_tools=["builtin:docs_read", "builtin:exec"],
+        skill_mode="manual",
+        visible_skills=["planner:1.0.0"]
+    )
+    fake_skill = SkillSpec(
+        name="planner",
+        version="1.0.0",
+        description="planner",
+        capabilities=["planning"],
+        entrypoint="system_prompt",
+        constraints=None
+    )
+
+    with patch("app.api.skills.agent_store.get_agent", return_value=fake_agent), \
+        patch("app.api.skills.skill_router.route", return_value=fake_skill):
+        response = client.post("/api/skills/select", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert set(data["effective_tools"]) == {"builtin:docs_read", "builtin:exec"}
+
+def test_api_select_skill_blocks_all_tools_when_allowed_tools_is_empty_list(client):
+    payload = {
+        "agent_id": "skill-agent",
+        "task": "design a plan",
+        "mode": "manual",
+        "requested_skill": "planner:1.0.0"
+    }
+    fake_agent = AgentConfig(
+        id="skill-agent",
+        name="Skill Agent",
+        system_prompt="agent",
+        provider="openai",
+        model="gpt-4o",
+        enabled_tools=["builtin:docs_read", "builtin:exec"],
+        skill_mode="manual",
+        visible_skills=["planner:1.0.0"]
+    )
+    fake_skill = SkillSpec(
+        name="planner",
+        version="1.0.0",
+        description="planner",
+        capabilities=["planning"],
+        entrypoint="system_prompt",
+        constraints=SkillConstraints(allowed_tools=[])
+    )
+
+    with patch("app.api.skills.agent_store.get_agent", return_value=fake_agent), \
+        patch("app.api.skills.skill_router.route", return_value=fake_skill):
+        response = client.post("/api/skills/select", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["effective_tools"] == []
