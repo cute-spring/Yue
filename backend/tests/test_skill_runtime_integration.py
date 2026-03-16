@@ -210,6 +210,70 @@ YOU ARE A MANUAL SKILL.
             assert "[Active Skill:" not in kwargs["system_prompt"]
 
 @pytest.mark.asyncio
+async def test_skill_runtime_no_constraints_keeps_agent_tools(client):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        skill_content = """---
+name: unconstrained-skill
+version: 1.0.0
+description: A skill without constraints
+capabilities: ["general"]
+entrypoint: system_prompt
+---
+## System Prompt
+YOU ARE AN UNCONSTRAINED SKILL.
+"""
+        skill_path = os.path.join(tmp_dir, "unconstrained.md")
+        with open(skill_path, "w") as f:
+            f.write(skill_content)
+
+        skill_registry.skill_dirs = [tmp_dir]
+        skill_registry.load_all()
+
+        payload = {
+            "message": "Use unconstrained skill.",
+            "agent_id": "unconstrained-agent",
+            "provider": "openai",
+            "model": "gpt-4o"
+        }
+
+        with patch("app.api.chat.agent_store") as mock_agent_store, \
+             patch("app.api.chat.Agent") as mock_agent_cls, \
+             patch("app.api.chat.chat_service") as mock_chat_service, \
+             patch("app.api.chat.tool_registry") as mock_registry:
+
+            mock_agent = AgentConfig(
+                id="unconstrained-agent",
+                name="Unconstrained Agent",
+                system_prompt="YOU ARE A LEGACY AGENT.",
+                provider="openai",
+                model="gpt-4o",
+                enabled_tools=["builtin:docs_read", "builtin:exec"],
+                skill_mode="auto",
+                visible_skills=["unconstrained-skill:1.0.0"]
+            )
+            mock_agent_store.get_agent.return_value = mock_agent
+            mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+            mock_chat_service.get_chat.return_value = None
+            mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+            mock_agent_instance = MagicMock()
+            mock_agent_cls.return_value = mock_agent_instance
+
+            mock_result = MagicMock()
+            async def mock_stream_gen():
+                yield "data: " + json.dumps({"content": "Applied unconstrained skill."}) + "\n\n"
+            mock_result.stream_text.return_value = mock_stream_gen()
+            mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+            mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+
+            response = client.post("/api/chat/stream", json=payload)
+            assert response.status_code == 200
+
+            mock_registry.get_pydantic_ai_tools_for_agent.assert_called_once()
+            _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
+            assert set(reg_kwargs["enabled_tools"]) == {"builtin:docs_read", "builtin:exec"}
+
+@pytest.mark.asyncio
 async def test_skill_runtime_kill_switch_forces_legacy_path(client):
     with tempfile.TemporaryDirectory() as tmp_dir:
         skill_content = """---
