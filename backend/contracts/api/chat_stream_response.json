@@ -3,7 +3,15 @@
   "properties": {
     "chat_id": { "type": "string" },
     "version": { "type": "string" },
-    "meta": { "type": "object" },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "supports_vision": { "type": "boolean" },
+        "vision_enabled": { "type": "boolean" },
+        "image_count": { "type": "integer" },
+        "vision_fallback_mode": { "type": "string" }
+      }
+    },
     "event_id": { "type": "string" },
     "run_id": { "type": "string" },
     "assistant_turn_id": { "type": "string" },

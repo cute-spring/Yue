@@ -15,6 +15,7 @@ from app.services.response_parser_service import get_parser
 from app.services.contract_gate import validate_sse_payload
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
+from app.services.multimodal_service import MultimodalService, MultimodalValidationError
 from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
 from app.services import doc_retrieval
 from app.utils.image_handler import save_base64_image, load_image_to_base64
@@ -322,21 +323,22 @@ async def chat_stream(request: ChatRequest):
         # Restore chronological order
         history = list(reversed(temp_history))
 
+    multimodal_service = MultimodalService.from_config(config_service.get_config())
+    try:
+        validated_images = multimodal_service.validate_images(request.images)
+    except MultimodalValidationError as image_err:
+        raise HTTPException(status_code=400, detail={"code": image_err.code, "message": image_err.message})
+
     # Save User Message to DB
     # Save images to disk before DB
     stored_images = []
-    if request.images:
-        for img in request.images:
+    if validated_images:
+        for img in validated_images:
             try:
-                # If it's already a path (e.g. from existing chat re-sent?), keep it.
-                # But request.images from frontend usually base64.
-                # save_base64_image will just return if it fails or we might want to check?
-                # Actually save_base64_image raises exception if fails.
-                path = save_base64_image(img)
+                path = img if img.startswith("/files/") else save_base64_image(img)
                 stored_images.append(path)
             except Exception as e:
                 logger.error(f"Failed to save image: {e}")
-                # Fallback? Or skip?
                 pass
 
     if _env_flag_with_fallback("LLM_VERBOSE_LOG_ENABLED", "BACKLOG_VERBOSE_LOG_ENABLED", True):
@@ -712,6 +714,22 @@ async def chat_stream(request: ChatRequest):
                 tool_names.append(name)
 
             model_capabilities = config_service.get_model_capabilities(provider, model_name)
+            vision_decision = multimodal_service.decide_vision(
+                model_capabilities=model_capabilities,
+                request_has_images=bool(validated_images),
+                fallback_enabled=bool(feature_flags.get("multimodal_vision_fallback_enabled", False)),
+            )
+            supports_vision = bool(vision_decision["supports_vision"])
+            vision_enabled = bool(vision_decision["vision_enabled"])
+            fallback_mode = str(vision_decision["fallback_mode"])
+            if fallback_mode == "reject":
+                yield _emit({
+                    "error": "当前模型不支持图片理解，请切换支持视觉的模型后重试。",
+                    "error_code": "MODEL_VISION_UNSUPPORTED",
+                    "supports_vision": supports_vision,
+                    "vision_enabled": vision_enabled,
+                })
+                return
             supports_reasoning = "reasoning" in model_capabilities
             reasoning_disabled_reason_code = None
             if reasoning_display_gated_enabled:
@@ -737,7 +755,11 @@ async def chat_stream(request: ChatRequest):
                     "supports_reasoning": supports_reasoning,
                     "deep_thinking_enabled": bool(request.deep_thinking_enabled),
                     "reasoning_enabled": reasoning_enabled,
-                    "reasoning_disabled_reason_code": reasoning_disabled_reason_code
+                    "reasoning_disabled_reason_code": reasoning_disabled_reason_code,
+                    "supports_vision": supports_vision,
+                    "vision_enabled": vision_enabled,
+                    "image_count": len(validated_images),
+                    "vision_fallback_mode": fallback_mode,
                 }
             }
             yield _emit(meta_payload)
@@ -806,9 +828,9 @@ async def chat_stream(request: ChatRequest):
             try:
                 # Prepare input
                 user_input = request.message
-                if request.images:
+                if vision_enabled:
                     user_input = [request.message]
-                    for img in request.images:
+                    for img in validated_images:
                         user_input.append(ImageUrl(url=img))
 
                 # Run with history and model settings
@@ -931,9 +953,9 @@ async def chat_stream(request: ChatRequest):
                     
                     # Prepare input
                     user_input = request.message
-                    if request.images:
+                    if vision_enabled:
                         user_input = [request.message]
-                        for img in request.images:
+                        for img in validated_images:
                             user_input.append(ImageUrl(url=img))
 
                     async with agent_no_tools.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings) as result:
@@ -1081,9 +1103,9 @@ async def chat_stream(request: ChatRequest):
                                     tools=tools
                                 )
                                 retry_input = request.message
-                                if request.images:
+                                if vision_enabled:
                                     retry_input = [request.message]
-                                    for img in request.images:
+                                    for img in validated_images:
                                         retry_input.append(ImageUrl(url=img))
                                 async with retry_agent.run_stream(
                                     retry_input,

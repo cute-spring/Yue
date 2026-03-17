@@ -713,3 +713,52 @@ async def test_chat_stream_emits_meta_reasoning_flags_and_envelope_sequence(clie
         assert meta["supports_reasoning"] is True
         assert meta["deep_thinking_enabled"] is True
         assert meta["reasoning_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_emits_vision_meta(client, mock_chat_service):
+    with patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.save_base64_image", return_value="/files/x.png"), \
+         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat.config_service.get_model_capabilities", return_value=["vision"]):
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = None
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+
+        async def mock_stream():
+            yield "ok"
+
+        mock_result.stream_text.return_value = mock_stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post(
+            "/api/chat/stream",
+            json={
+                "message": "what is in this image",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "images": ["data:image/png;base64,QUJDRA=="],
+            },
+        )
+        assert response.status_code == 200
+
+        payloads = []
+        for line in response.iter_lines():
+            if not isinstance(line, str) or not line.startswith("data: "):
+                continue
+            try:
+                payloads.append(json.loads(line[6:]))
+            except Exception:
+                continue
+
+        meta = next(p["meta"] for p in payloads if isinstance(p, dict) and "meta" in p)
+        assert meta["supports_vision"] is True
+        assert meta["vision_enabled"] is True
+        assert meta["image_count"] == 1

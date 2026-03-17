@@ -119,4 +119,5 @@ export interface Provider {
   supports_model_refresh: boolean;
   models: string[];
   available_models: string[];
+  model_capabilities?: Record<string, string[]>;
 }

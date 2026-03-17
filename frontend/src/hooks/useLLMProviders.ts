@@ -5,6 +5,17 @@ import { useToast } from '../context/ToastContext';
 const PROVIDER_STORAGE_KEY = 'yue_selected_provider';
 const MODEL_STORAGE_KEY = 'yue_selected_model';
 
+export const modelSupportsVision = (
+  providers: Provider[],
+  providerName: string,
+  modelName: string,
+): boolean => {
+  const provider = providers.find((item) => item.name === providerName);
+  if (!provider) return false;
+  const capabilities = provider.model_capabilities?.[modelName] || [];
+  return capabilities.includes('vision');
+};
+
 export function useLLMProviders() {
   const toast = useToast();
   const [providers, setProviders] = createSignal<Provider[]>([]);
