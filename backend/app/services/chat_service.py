@@ -59,12 +59,15 @@ class SkillEffectivenessEvent(BaseModel):
     fallback_used: bool
     selected_skill_name: Optional[str] = None
     selected_skill_version: Optional[str] = None
+    selected_skill_source_layer: Optional[str] = None
+    override_hit: Optional[bool] = None
     visible_skill_count: Optional[int] = None
     available_skill_count: Optional[int] = None
     always_injected_count: Optional[int] = None
     summary_injected: Optional[bool] = None
     summary_prompt_enabled: Optional[bool] = None
     lazy_full_load_enabled: Optional[bool] = None
+    selection_score: Optional[int] = None
     system_prompt_tokens_estimate: Optional[int] = None
     user_message_tokens_estimate: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.now)
@@ -166,12 +169,15 @@ class ChatService:
                     fallback_used INTEGER NOT NULL,
                     selected_skill_name TEXT,
                     selected_skill_version TEXT,
+                    selected_skill_source_layer TEXT,
+                    override_hit INTEGER,
                     visible_skill_count INTEGER,
                     available_skill_count INTEGER,
                     always_injected_count INTEGER,
                     summary_injected INTEGER,
                     summary_prompt_enabled INTEGER,
                     lazy_full_load_enabled INTEGER,
+                    selection_score INTEGER,
                     system_prompt_tokens_estimate INTEGER,
                     user_message_tokens_estimate INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -271,6 +277,23 @@ class ChatService:
                 conn.commit()
             if "finished_ts" not in tool_columns:
                 conn.execute("ALTER TABLE tool_calls ADD COLUMN finished_ts TIMESTAMP")
+                conn.commit()
+            skill_cursor = conn.execute("PRAGMA table_info(skill_effectiveness_events)")
+            skill_columns = [info[1] for info in skill_cursor.fetchall()]
+            if "lazy_full_load_enabled" not in skill_columns:
+                conn.execute("ALTER TABLE skill_effectiveness_events ADD COLUMN lazy_full_load_enabled INTEGER")
+                conn.commit()
+            if "selection_score" not in skill_columns:
+                conn.execute("ALTER TABLE skill_effectiveness_events ADD COLUMN selection_score INTEGER")
+                conn.commit()
+            if "system_prompt_tokens_estimate" not in skill_columns:
+                conn.execute("ALTER TABLE skill_effectiveness_events ADD COLUMN system_prompt_tokens_estimate INTEGER")
+                conn.commit()
+            if "selected_skill_source_layer" not in skill_columns:
+                conn.execute("ALTER TABLE skill_effectiveness_events ADD COLUMN selected_skill_source_layer TEXT")
+                conn.commit()
+            if "override_hit" not in skill_columns:
+                conn.execute("ALTER TABLE skill_effectiveness_events ADD COLUMN override_hit INTEGER")
                 conn.commit()
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(assistant_turn_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_session_turn_created ON tool_calls(session_id, assistant_turn_id, created_at)")
@@ -773,16 +796,19 @@ class ChatService:
                     fallback_used,
                     selected_skill_name,
                     selected_skill_version,
+                    selected_skill_source_layer,
+                    override_hit,
                     visible_skill_count,
                     available_skill_count,
                     always_injected_count,
                     summary_injected,
                     summary_prompt_enabled,
                     lazy_full_load_enabled,
+                    selection_score,
                     system_prompt_tokens_estimate,
                     user_message_tokens_estimate,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -791,12 +817,15 @@ class ChatService:
                     1 if bool(event.get("fallback_used")) else 0,
                     selected.get("name"),
                     selected.get("version"),
+                    event.get("selected_skill_source_layer"),
+                    1 if bool(event.get("override_hit")) else 0,
                     event.get("visible_skill_count"),
                     event.get("available_skill_count"),
                     event.get("always_injected_count"),
                     1 if bool(event.get("summary_injected")) else 0,
                     1 if bool(event.get("summary_prompt_enabled")) else 0,
                     1 if bool(event.get("lazy_full_load_enabled")) else 0,
+                    event.get("selection_score"),
                     event.get("system_prompt_tokens_estimate"),
                     event.get("user_message_tokens_estimate"),
                     now,
@@ -813,6 +842,8 @@ class ChatService:
                 SELECT
                     COUNT(*) AS total_runs,
                     SUM(CASE WHEN fallback_used = 1 THEN 1 ELSE 0 END) AS fallback_runs,
+                    SUM(CASE WHEN override_hit = 1 THEN 1 ELSE 0 END) AS override_hits,
+                    AVG(selection_score) AS avg_selection_score,
                     AVG(system_prompt_tokens_estimate) AS avg_system_prompt_tokens,
                     AVG(user_message_tokens_estimate) AS avg_user_message_tokens
                 FROM skill_effectiveness_events
@@ -842,19 +873,35 @@ class ChatService:
                 """,
                 (since_expr,)
             ).fetchall()
+            layer_rows = conn.execute(
+                """
+                SELECT selected_skill_source_layer, COUNT(*) AS cnt
+                FROM skill_effectiveness_events
+                WHERE created_at >= datetime('now', ?)
+                  AND selected_skill_source_layer IS NOT NULL
+                GROUP BY selected_skill_source_layer
+                ORDER BY cnt DESC
+                """,
+                (since_expr,)
+            ).fetchall()
         total_runs = int((agg["total_runs"] or 0) if agg else 0)
         fallback_runs = int((agg["fallback_runs"] or 0) if agg else 0)
+        override_hits = int((agg["override_hits"] or 0) if agg else 0)
         hit_rate = 0.0 if total_runs == 0 else (total_runs - fallback_runs) / total_runs
         fallback_rate = 0.0 if total_runs == 0 else fallback_runs / total_runs
+        override_hit_rate = 0.0 if total_runs == 0 else override_hits / total_runs
         return {
             "window_hours": hours,
             "total_runs": total_runs,
             "skill_hit_rate": hit_rate,
             "fallback_rate": fallback_rate,
+            "override_hit_rate": override_hit_rate,
+            "avg_selection_score": float(agg["avg_selection_score"] or 0.0) if agg else 0.0,
             "avg_system_prompt_tokens": float(agg["avg_system_prompt_tokens"] or 0.0) if agg else 0.0,
             "avg_user_message_tokens": float(agg["avg_user_message_tokens"] or 0.0) if agg else 0.0,
             "reason_distribution": [{ "reason_code": row["reason_code"], "count": int(row["cnt"]) } for row in reason_rows],
             "top_selected_skills": [{ "name": row["selected_skill_name"], "count": int(row["cnt"]) } for row in skill_rows],
+            "source_layer_distribution": [{ "source_layer": row["selected_skill_source_layer"], "count": int(row["cnt"]) } for row in layer_rows],
         }
 
 chat_service = ChatService()

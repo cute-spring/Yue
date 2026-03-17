@@ -4,10 +4,23 @@ import logging
 import re
 import platform
 import shutil
+import threading
+import time
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
+
+SKILL_LAYER_PRIORITY = {
+    "builtin": 0,
+    "workspace": 1,
+    "user": 2,
+}
+
+class SkillDirectorySpec(BaseModel):
+    layer: str
+    path: str
 
 class SkillConstraints(BaseModel):
     max_tokens: Optional[int] = None
@@ -42,12 +55,39 @@ class SkillSpec(BaseModel):
     
     # Metadata
     source_path: Optional[str] = None
+    source_layer: Optional[str] = None
+    source_dir: Optional[str] = None
+    override_from: Optional[str] = None
 
 class SkillSummary(BaseModel):
     name: str
     description: str
     availability: Optional[bool] = True
     source_path: Optional[str] = None
+    source_layer: Optional[str] = None
+    source_dir: Optional[str] = None
+    override_from: Optional[str] = None
+
+class SkillDirectoryResolver:
+    def __init__(
+        self,
+        builtin_dir: Optional[str] = None,
+        workspace_dir: Optional[str] = None,
+        user_dir: Optional[str] = None,
+    ):
+        backend_root = Path(__file__).resolve().parents[2]
+        workspace_root = Path(__file__).resolve().parents[3]
+        resolved_user_dir = user_dir or os.getenv("YUE_USER_SKILLS_DIR") or str(Path.home() / ".yue" / "skills")
+        self.builtin_dir = str(Path(builtin_dir or (backend_root / "data" / "skills")).resolve())
+        self.workspace_dir = str(Path(workspace_dir or (workspace_root / "data" / "skills")).resolve())
+        self.user_dir = str(Path(resolved_user_dir).expanduser().resolve())
+
+    def resolve(self) -> List[SkillDirectorySpec]:
+        return [
+            SkillDirectorySpec(layer="builtin", path=self.builtin_dir),
+            SkillDirectorySpec(layer="workspace", path=self.workspace_dir),
+            SkillDirectorySpec(layer="user", path=self.user_dir),
+        ]
 
 class RuntimeCapabilityDescriptor(BaseModel):
     prompt_blocks: Dict[str, str] = Field(default_factory=dict)
@@ -172,6 +212,26 @@ class SkillValidator:
         entrypoint_attr = skill.entrypoint.lower().replace(" ", "_")
         if not getattr(skill, entrypoint_attr, None):
             errors.append(f"Entrypoint section '{skill.entrypoint}' not found in Markdown")
+        
+        # Section completeness
+        if skill.system_prompt and len(skill.system_prompt.strip()) < 10:
+            warnings.append("System prompt is very short")
+        
+        # Schema validation
+        if skill.inputs_schema is not None and not isinstance(skill.inputs_schema, dict):
+            errors.append("inputs_schema must be a dictionary")
+        if skill.outputs_schema is not None and not isinstance(skill.outputs_schema, dict):
+            errors.append("outputs_schema must be a dictionary")
+            
+        # Constraints validation
+        if skill.constraints:
+            if skill.constraints.allowed_tools is not None:
+                if not isinstance(skill.constraints.allowed_tools, list):
+                    errors.append("constraints.allowed_tools must be a list")
+                else:
+                    for tool in skill.constraints.allowed_tools:
+                        if not isinstance(tool, str):
+                            errors.append(f"Invalid tool name in allowed_tools: {tool}")
             
         return SkillValidationResult(is_valid=len(errors) == 0, errors=errors, warnings=warnings)
 
@@ -181,14 +241,115 @@ class SkillRegistry:
     """
     def __init__(self, skill_dirs: List[str] = None):
         self.skill_dirs = skill_dirs or []
+        self.layered_skill_dirs: List[SkillDirectorySpec] = []
         self._skills: Dict[str, Dict[str, SkillSpec]] = {} # name -> {version -> spec}
         self._latest_versions: Dict[str, str] = {} # name -> latest_version
+        self._watch_thread: Optional[threading.Thread] = None
+        self._watch_stop_event = threading.Event()
+        self._watch_debounce_ms = 2000
+        self._watch_layer = "all"
+        self._watch_poll_interval = 1.0
+        self._watch_snapshot: Dict[str, float] = {}
 
-    def load_all(self):
+    def set_layered_skill_dirs(self, layered_skill_dirs: List[SkillDirectorySpec | Dict[str, str]]):
+        normalized: List[SkillDirectorySpec] = []
+        for item in layered_skill_dirs:
+            if isinstance(item, SkillDirectorySpec):
+                normalized.append(item)
+            elif isinstance(item, dict):
+                normalized.append(SkillDirectorySpec(layer=str(item.get("layer")), path=str(item.get("path"))))
+        self.layered_skill_dirs = normalized
+
+    def _infer_layer(self, skill_dir: str) -> str:
+        resolved = str(Path(skill_dir).expanduser().resolve())
+        if self.layered_skill_dirs:
+            for item in self.layered_skill_dirs:
+                if str(Path(item.path).expanduser().resolve()) == resolved:
+                    return item.layer
+        basename = Path(resolved).name.lower()
+        if basename == "builtin":
+            return "builtin"
+        if basename == "user":
+            return "user"
+        if basename == "workspace":
+            return "workspace"
+        defaults = {item.path: item.layer for item in SkillDirectoryResolver().resolve()}
+        return defaults.get(resolved, "workspace")
+
+    def _get_ordered_skill_directories(self) -> List[SkillDirectorySpec]:
+        if self.layered_skill_dirs:
+            dirs = self.layered_skill_dirs
+        else:
+            dirs = [
+                SkillDirectorySpec(layer=self._infer_layer(skill_dir), path=str(Path(skill_dir).expanduser().resolve()))
+                for skill_dir in self.skill_dirs
+            ]
+        return sorted(dirs, key=lambda item: SKILL_LAYER_PRIORITY.get(item.layer, -1))
+
+    def _resolve_target_dirs(self, layer: str = "all") -> List[SkillDirectorySpec]:
+        ordered = self._get_ordered_skill_directories()
+        if layer == "all":
+            return ordered
+        return [item for item in ordered if item.layer == layer]
+
+    def _build_watch_snapshot(self, layer: str = "all") -> Dict[str, float]:
+        snapshot: Dict[str, float] = {}
+        for item in self._resolve_target_dirs(layer):
+            if not os.path.exists(item.path):
+                continue
+            for root, _, files in os.walk(item.path):
+                for file in files:
+                    if not file.endswith(".md"):
+                        continue
+                    file_path = os.path.join(root, file)
+                    try:
+                        stat = os.stat(file_path)
+                        snapshot[file_path] = stat.st_mtime
+                    except OSError:
+                        continue
+        return snapshot
+
+    def start_runtime_watch(self, layer: str = "all", debounce_ms: int = 2000, poll_interval: float = 1.0):
+        self.stop_runtime_watch()
+        self._watch_layer = layer
+        self._watch_debounce_ms = max(100, int(debounce_ms))
+        self._watch_poll_interval = max(0.1, float(poll_interval))
+        self._watch_snapshot = self._build_watch_snapshot(layer=self._watch_layer)
+        self._watch_stop_event.clear()
+        self._watch_thread = threading.Thread(target=self._watch_loop, daemon=True)
+        self._watch_thread.start()
+
+    def stop_runtime_watch(self):
+        if self._watch_thread and self._watch_thread.is_alive():
+            self._watch_stop_event.set()
+            self._watch_thread.join(timeout=2.0)
+        self._watch_thread = None
+        self._watch_stop_event.clear()
+
+    def _watch_loop(self):
+        pending_since: Optional[float] = None
+        while not self._watch_stop_event.is_set():
+            time.sleep(self._watch_poll_interval)
+            current_snapshot = self._build_watch_snapshot(layer=self._watch_layer)
+            if current_snapshot != self._watch_snapshot:
+                if pending_since is None:
+                    pending_since = time.time()
+                elapsed_ms = (time.time() - pending_since) * 1000
+                if elapsed_ms >= self._watch_debounce_ms:
+                    self._watch_snapshot = current_snapshot
+                    self.load_all(layer=self._watch_layer)
+                    pending_since = None
+            else:
+                pending_since = None
+
+    def load_all(self, layer: str = "all"):
         self._skills = {}
         self._latest_versions = {}
-        
-        for skill_dir in self.skill_dirs:
+
+        ordered_dirs = self._get_ordered_skill_directories()
+        self.skill_dirs = [item.path for item in ordered_dirs]
+        for skill_dir_spec in ordered_dirs:
+            skill_dir = skill_dir_spec.path
             if not os.path.exists(skill_dir):
                 logger.warning(f"Skill directory not found: {skill_dir}")
                 continue
@@ -211,6 +372,13 @@ class SkillRegistry:
                         if spec:
                             res = SkillValidator.validate(spec)
                             if res.is_valid:
+                                spec.source_layer = skill_dir_spec.layer
+                                spec.source_dir = skill_dir
+                                existing = self.get_skill(spec.name, spec.version)
+                                if existing:
+                                    existing_layer = existing.source_layer or "unknown"
+                                    existing_dir = existing.source_dir or ""
+                                    spec.override_from = f"{existing_layer}:{existing_dir}"
                                 self.register(spec)
                             else:
                                 logger.error(f"Skill validation failed for {path}: {res.errors}")
@@ -286,7 +454,10 @@ class SkillRegistry:
                     name=skill.name,
                     description=skill.description,
                     availability=skill.availability,
-                    source_path=skill.source_path
+                    source_path=skill.source_path,
+                    source_layer=skill.source_layer,
+                    source_dir=skill.source_dir,
+                    override_from=skill.override_from,
                 ))
         return summaries
 

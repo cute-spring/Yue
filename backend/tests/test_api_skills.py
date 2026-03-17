@@ -39,6 +39,48 @@ def test_api_reload_skills(client):
     assert response.status_code == 200
     assert response.json()["status"] == "success"
 
+def test_api_reload_skills_layered_reload(client):
+    with patch("app.api.skills.skill_registry.load_all") as mock_load_all:
+        response = client.post("/api/skills/reload?layer=user")
+        assert response.status_code == 200
+        mock_load_all.assert_called_once_with(layer="user")
+
+def test_api_list_skills_source_layer(client):
+    skill = SkillSpec(
+        name="layered-skill",
+        version="1.0.0",
+        description="layered",
+        capabilities=["layered"],
+        entrypoint="system_prompt",
+        source_layer="user",
+        source_dir="/tmp/user-skills"
+    )
+    with patch.object(skills_module.skill_registry, "_skills", {"layered-skill": {"1.0.0": skill}}), \
+        patch.object(skills_module.skill_registry, "_latest_versions", {"layered-skill": "1.0.0"}):
+        response = client.get("/api/skills")
+        assert response.status_code == 200
+        data = response.json()
+        assert data[0]["source_layer"] == "user"
+        assert data[0]["source_dir"] == "/tmp/user-skills"
+
+def test_api_list_skill_summaries_source_layer(client):
+    skill = SkillSpec(
+        name="layered-skill",
+        version="1.0.0",
+        description="layered",
+        capabilities=["layered"],
+        entrypoint="system_prompt",
+        source_layer="user",
+        source_dir="/tmp/user-skills"
+    )
+    with patch.object(skills_module.skill_registry, "_skills", {"layered-skill": {"1.0.0": skill}}), \
+        patch.object(skills_module.skill_registry, "_latest_versions", {"layered-skill": "1.0.0"}):
+        response = client.get("/api/skills/summary")
+        assert response.status_code == 200
+        data = response.json()
+        assert data[0]["source_layer"] == "user"
+        assert data[0]["source_dir"] == "/tmp/user-skills"
+
 def test_api_select_skill_not_found(client):
     payload = {
         "agent_id": "non-existent",

@@ -1,12 +1,13 @@
 import pytest
 import json
 import os
+import sqlite3
 import tempfile
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from app.main import app
 from app.services.agent_store import AgentConfig
-from app.services.skill_service import skill_registry
+from app.services.skill_service import skill_registry, SkillRegistry, SkillDirectorySpec
 
 @pytest.fixture
 def client():
@@ -343,3 +344,85 @@ YOU ARE A KILL SWITCH SKILL.
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+def test_user_dir_hot_reload():
+    with tempfile.TemporaryDirectory() as root_dir:
+        builtin_dir = os.path.join(root_dir, "builtin")
+        workspace_dir = os.path.join(root_dir, "workspace")
+        user_dir = os.path.join(root_dir, "user")
+        os.makedirs(builtin_dir, exist_ok=True)
+        os.makedirs(workspace_dir, exist_ok=True)
+        os.makedirs(user_dir, exist_ok=True)
+
+        registry = SkillRegistry()
+        registry.set_layered_skill_dirs([
+            SkillDirectorySpec(layer="builtin", path=builtin_dir),
+            SkillDirectorySpec(layer="workspace", path=workspace_dir),
+            SkillDirectorySpec(layer="user", path=user_dir),
+        ])
+        registry.load_all()
+        assert registry.get_skill("hot-reload-skill", "1.0.0") is None
+
+        registry.start_runtime_watch(layer="user", debounce_ms=200)
+        try:
+            skill_pkg = os.path.join(user_dir, "hot-reload-skill")
+            os.makedirs(skill_pkg, exist_ok=True)
+            with open(os.path.join(skill_pkg, "SKILL.md"), "w") as f:
+                f.write("""---
+name: hot-reload-skill
+version: 1.0.0
+description: hot reload
+capabilities: ["hot"]
+entrypoint: system_prompt
+---
+## System Prompt
+HOT RELOAD
+""")
+
+            deadline = 4.0
+            elapsed = 0.0
+            while elapsed < deadline:
+                if registry.get_skill("hot-reload-skill", "1.0.0") is not None:
+                    break
+                import time
+                time.sleep(0.2)
+                elapsed += 0.2
+            assert registry.get_skill("hot-reload-skill", "1.0.0") is not None
+        finally:
+            registry.stop_runtime_watch()
+
+def test_source_layer_metrics():
+    import app.services.chat_service as chat_service_module
+
+    with tempfile.TemporaryDirectory() as td:
+        old_data_dir = chat_service_module.DATA_DIR
+        old_db_file = chat_service_module.DB_FILE
+        old_chats_file = chat_service_module.OLD_CHATS_FILE
+        chat_service_module.DATA_DIR = td
+        chat_service_module.DB_FILE = os.path.join(td, "yue.db")
+        chat_service_module.OLD_CHATS_FILE = os.path.join(td, "chats.json")
+        try:
+            service = chat_service_module.ChatService()
+            chat = service.create_chat()
+            service.add_skill_effectiveness_event(chat.id, {
+                "reason_code": "skill_selected",
+                "selection_source": "explicit",
+                "fallback_used": False,
+                "selected_skill": {"name": "planner", "version": "1.0.0"},
+                "selected_skill_source_layer": "user",
+                "override_hit": True,
+            })
+            conn = sqlite3.connect(chat_service_module.DB_FILE)
+            try:
+                row = conn.execute(
+                    "SELECT selected_skill_source_layer, override_hit FROM skill_effectiveness_events ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+            finally:
+                conn.close()
+            assert row is not None
+            assert row[0] == "user"
+            assert row[1] == 1
+        finally:
+            chat_service_module.DATA_DIR = old_data_dir
+            chat_service_module.DB_FILE = old_db_file
+            chat_service_module.OLD_CHATS_FILE = old_chats_file

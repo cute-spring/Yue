@@ -171,6 +171,40 @@ Legacy prompt.
         names = sorted([s.name for s in registry.list_skills()])
         assert names == ["legacy-skill", "package-skill"]
 
+def test_skill_registry_directory_priority_user_over_workspace_over_builtin():
+    with tempfile.TemporaryDirectory() as root_dir:
+        builtin_dir = os.path.join(root_dir, "builtin")
+        workspace_dir = os.path.join(root_dir, "workspace")
+        user_dir = os.path.join(root_dir, "user")
+        os.makedirs(builtin_dir, exist_ok=True)
+        os.makedirs(workspace_dir, exist_ok=True)
+        os.makedirs(user_dir, exist_ok=True)
+
+        skill_name = "layered-skill"
+        version = "1.0.0"
+        template = """---
+name: {name}
+version: {version}
+description: {description}
+capabilities: ["layered"]
+entrypoint: system_prompt
+---
+## System Prompt
+{prompt}
+"""
+        with open(os.path.join(builtin_dir, "layered.md"), "w") as f:
+            f.write(template.format(name=skill_name, version=version, description="builtin", prompt="BUILTIN"))
+        with open(os.path.join(workspace_dir, "layered.md"), "w") as f:
+            f.write(template.format(name=skill_name, version=version, description="workspace", prompt="WORKSPACE"))
+        with open(os.path.join(user_dir, "layered.md"), "w") as f:
+            f.write(template.format(name=skill_name, version=version, description="user", prompt="USER"))
+
+        registry = SkillRegistry(skill_dirs=[user_dir, builtin_dir, workspace_dir])
+        registry.load_all()
+        selected = registry.get_skill(skill_name, version)
+        assert selected is not None
+        assert selected.system_prompt == "USER"
+
 def test_skill_registry_get_full_skill_from_source_path():
     with tempfile.TemporaryDirectory() as tmp_dir:
         pkg_dir = os.path.join(tmp_dir, "lazy-skill")
