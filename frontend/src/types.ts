@@ -19,6 +19,9 @@ export type SkillSpec = {
   availability?: boolean;
   missing_requirements?: Record<string, string[]>;
   source_path?: string;
+  source_layer?: 'builtin' | 'workspace' | 'user' | string;
+  source_dir?: string;
+  override_from?: string;
 };
 
 export type McpTool = {

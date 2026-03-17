@@ -11,10 +11,6 @@ def _default_data_dir() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data"))
 
 
-def _legacy_data_dir() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
-
-
 def _timestamp_tag() -> str:
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
@@ -34,9 +30,8 @@ class AgentConfig(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
 
 class AgentStore:
-    def __init__(self, data_dir: Optional[str] = None, legacy_data_dir: Optional[str] = None):
+    def __init__(self, data_dir: Optional[str] = None):
         self.data_dir = data_dir or _default_data_dir()
-        self.legacy_data_dir = legacy_data_dir or _legacy_data_dir()
         self.agents_file = os.path.join(self.data_dir, "agents.json")
         self.agents_backup_file = f"{self.agents_file}.bak"
         self._lock = threading.RLock()
@@ -48,20 +43,6 @@ class AgentStore:
 
         if os.path.exists(self.agents_file):
             return
-
-        legacy_agents_file = os.path.join(self.legacy_data_dir, "agents.json")
-        if os.path.exists(legacy_agents_file):
-            try:
-                with open(legacy_agents_file, "r") as f:
-                    data = json.load(f)
-                self._atomic_write_json(self.agents_file, data)
-                return
-            except Exception:
-                corrupt = f"{legacy_agents_file}.corrupt.{_timestamp_tag()}"
-                try:
-                    os.replace(legacy_agents_file, corrupt)
-                except Exception:
-                    pass
 
         self._atomic_write_json(
             self.agents_file,

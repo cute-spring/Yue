@@ -356,7 +356,8 @@ export default function Chat() {
     const skills = currentAgent()?.visible_skills || [];
     return skills.map(skillId => {
       const spec = resolveSkillSpec(skillId);
-      const labelBase = spec ? `${spec.name}:${spec.version}` : skillId;
+      const sourceLayerTag = spec?.source_layer ? ` [${spec.source_layer}]` : "";
+      const labelBase = spec ? `${spec.name}:${spec.version}${sourceLayerTag}` : skillId;
       const unavailable = spec?.availability === false;
       const label = unavailable ? `${labelBase} unavailable${missingSummary(spec?.missing_requirements)}` : labelBase;
       return { value: skillId, label, disabled: unavailable };

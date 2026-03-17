@@ -461,6 +461,7 @@ async def chat_stream(request: ChatRequest):
             always_skill_specs = []
             selection_reason_code = "legacy_path"
             selection_source = "none"
+            selection_score = 0
             visible_skill_count = 0
             available_skill_count = 0
             always_injected_count = 0
@@ -495,7 +496,7 @@ async def chat_stream(request: ChatRequest):
                     explicit_requested_skill = request.requested_skill or inferred_requested_skill
                     if explicit_requested_skill:
                         selection_source = "explicit" if request.requested_skill else "inferred"
-                        selected_skill_spec, _ = skill_router.route_with_score(
+                        selected_skill_spec, selection_score = skill_router.route_with_score(
                             agent_config,
                             request.message,
                             requested_skill=explicit_requested_skill
@@ -504,6 +505,7 @@ async def chat_stream(request: ChatRequest):
                         bound_score = skill_router.score_skill(bound_skill, request.message)
                         if bound_score >= SKILL_BIND_MIN_SCORE:
                             selected_skill_spec = bound_skill
+                            selection_score = bound_score
                 elif agent_config.skill_mode == "auto":
                     if feature_flags.get("skill_auto_mode_enabled", True):
                         if inferred_requested_skill:
@@ -518,18 +520,23 @@ async def chat_stream(request: ChatRequest):
                             if not best_skill:
                                 if bound_score >= SKILL_BIND_MIN_SCORE:
                                     selected_skill_spec = bound_skill
+                                    selection_score = bound_score
                             else:
                                 if bound_skill.name == best_skill.name and bound_skill.version == best_skill.version:
                                     if best_score >= SKILL_BIND_MIN_SCORE:
                                         selected_skill_spec = bound_skill
+                                        selection_score = best_score
                                 else:
                                     if best_score >= max(bound_score + SKILL_SWITCH_DELTA, SKILL_BIND_MIN_SCORE):
                                         selected_skill_spec = best_skill
+                                        selection_score = best_score
                                     elif bound_score >= SKILL_BIND_MIN_SCORE:
                                         selected_skill_spec = bound_skill
+                                        selection_score = bound_score
                         else:
                             if best_skill and best_score >= SKILL_BIND_MIN_SCORE:
                                 selected_skill_spec = best_skill
+                                selection_score = best_score
                 if selected_skill_spec:
                     selection_reason_code = "skill_selected"
                     chat_service.set_session_skill(chat_id, selected_skill_spec.name, selected_skill_spec.version)
@@ -644,11 +651,16 @@ async def chat_stream(request: ChatRequest):
                 "event": "skill_effectiveness",
                 "reason_code": selection_reason_code,
                 "selection_source": selection_source,
+                "selection_score": selection_score,
                 "fallback_used": selected_skill_spec is None,
                 "selected_skill": (
                     {"name": selected_skill_spec.name, "version": selected_skill_spec.version}
                     if selected_skill_spec else None
                 ),
+                "selected_skill_source_layer": (
+                    selected_skill_spec.source_layer if selected_skill_spec else None
+                ),
+                "override_hit": bool(selected_skill_spec and selected_skill_spec.override_from),
                 "visible_skill_count": visible_skill_count,
                 "available_skill_count": available_skill_count,
                 "always_injected_count": always_injected_count,

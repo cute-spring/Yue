@@ -66,7 +66,7 @@ test('Agents form supports skill_mode and visible_skills payload', async ({ page
   await page.getByPlaceholder('You are a helpful assistant...').fill('Manual mode test');
   await page.getByRole('button', { name: 'Manual' }).click();
   await page.getByLabel(/planner/i).check();
-  await page.locator('form button[type="submit"]').click();
+  await page.getByRole('button', { name: /^Create Agent$/ }).last().click();
 });
 
 test('Agents list shows skill badges only for manual and auto modes', async ({ page }) => {
@@ -144,6 +144,16 @@ test('Chat sends requested_skill and renders active skill indicator', async ({ p
       body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
+  await page.route('**/api/skills', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { name: 'planner', version: '1.0.0', description: 'Planning', source_layer: 'user' },
+        { name: 'coder', version: '2.1.0', description: 'Coding', source_layer: 'workspace' }
+      ])
+    });
+  });
   await page.route('**/api/agents/', async route => {
     await route.fulfill({
       status: 200,
@@ -183,6 +193,7 @@ test('Chat sends requested_skill and renders active skill indicator', async ({ p
   await page.getByRole('button', { name: /Manual Skill Agent/i }).first().click();
 
   await page.locator('select').selectOption('planner:1.0.0');
+  await expect(page.locator('select option').nth(1)).toContainText('[user]');
   await page.getByRole('button', { name: /Select Model/i }).click();
   await page.getByRole('button', { name: /^gpt-4o$/i }).click();
   await input.fill('Use planning flow');

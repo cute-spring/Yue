@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from app.api import chat, agents, mcp, models, config, notebook, health, skills
 from app.mcp.manager import mcp_manager
-from app.services.skill_service import skill_registry
+from app.services.skill_service import skill_registry, SkillDirectoryResolver
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
 # Load .env from backend directory
@@ -26,12 +26,18 @@ from app.services.health_monitor import health_monitor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize Skill Registry
-    skills_dir = Path(__file__).parent.parent / "data" / "skills"
-    if not skills_dir.exists():
-        skills_dir.mkdir(parents=True, exist_ok=True)
-    skill_registry.skill_dirs = [str(skills_dir)]
+    resolver = SkillDirectoryResolver()
+    layered_dirs = resolver.resolve()
+    for item in layered_dirs:
+        if item.layer in {"workspace", "user"}:
+            Path(item.path).mkdir(parents=True, exist_ok=True)
+    skill_registry.set_layered_skill_dirs(layered_dirs)
+    skill_registry.skill_dirs = [item.path for item in layered_dirs]
     skill_registry.load_all()
+    watch_enabled = os.getenv("YUE_SKILLS_WATCH_ENABLED", "true").lower() not in {"0", "false", "off"}
+    debounce_ms = int(os.getenv("YUE_SKILLS_RELOAD_DEBOUNCE_MS", "2000"))
+    if watch_enabled:
+        skill_registry.start_runtime_watch(layer="user", debounce_ms=debounce_ms)
     
     # Initialize MCP Manager first
     await mcp_manager.initialize()
@@ -40,6 +46,7 @@ async def lifespan(app: FastAPI):
     yield
     # Stop Health Monitor
     await health_monitor.stop()
+    skill_registry.stop_runtime_watch()
     # Cleanup MCP Manager
     await mcp_manager.cleanup()
 

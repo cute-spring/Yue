@@ -294,8 +294,20 @@ export function AgentForm(props: AgentFormProps) {
                         />
                         <div class="min-w-0">
                           <div class="text-sm font-semibold text-gray-900 truncate">{skill.name}</div>
-                          <div class="text-[10px] uppercase tracking-wider font-bold text-violet-700">{skill.version}</div>
+                          <div class="flex items-center gap-2 mt-0.5">
+                            <div class="text-[10px] uppercase tracking-wider font-bold text-violet-700">{skill.version}</div>
+                            <Show when={skill.source_layer}>
+                              <div class="text-[10px] uppercase tracking-wider font-bold text-sky-700 bg-sky-100 border border-sky-200 rounded px-1.5 py-0.5">
+                                {skill.source_layer}
+                              </div>
+                            </Show>
+                          </div>
                           <div class="text-xs text-gray-500 mt-1 line-clamp-2">{skill.description}</div>
+                          <Show when={skill.override_from}>
+                            <div class="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
+                              Overrides {skill.override_from}
+                            </div>
+                          </Show>
                         </div>
                       </label>
                     );

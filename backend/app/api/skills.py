@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Query
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, SkillSpec, SkillSummary
@@ -40,10 +40,12 @@ async def get_skill(name: str, version: Optional[str] = None):
     return skill
 
 @router.post("/reload")
-async def reload_skills():
-    """Manual reload of skills from disk."""
-    skill_registry.load_all()
-    return {"status": "success", "count": len(skill_registry.list_skills())}
+async def reload_skills(layer: str = Query("all")):
+    allowed_layers = {"all", "builtin", "workspace", "user"}
+    if layer not in allowed_layers:
+        raise HTTPException(status_code=400, detail=f"Invalid layer '{layer}'")
+    skill_registry.load_all(layer=layer)
+    return {"status": "success", "count": len(skill_registry.list_skills()), "layer": layer}
 
 @router.post("/select", response_model=SkillSelectionResponse)
 async def select_skill(request: SkillSelectionRequest):

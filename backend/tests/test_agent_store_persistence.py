@@ -5,12 +5,12 @@ import unittest
 
 
 class TestAgentStorePersistence(unittest.TestCase):
-    def test_migrate_legacy_agents_file(self):
+    def test_ignore_legacy_agents_file(self):
         from app.services.agent_store import AgentStore, AgentConfig
 
         with tempfile.TemporaryDirectory() as td:
             legacy_dir = os.path.join(td, "legacy")
-            new_dir = os.path.join(td, "new")
+            data_dir = os.path.join(td, "new")
             os.makedirs(legacy_dir, exist_ok=True)
 
             custom = AgentConfig(name="Custom", system_prompt="x")
@@ -18,21 +18,21 @@ class TestAgentStorePersistence(unittest.TestCase):
             with open(legacy_path, "w") as f:
                 json.dump([custom.model_dump(mode="json")], f, indent=2)
 
-            store = AgentStore(data_dir=new_dir, legacy_data_dir=legacy_dir)
+            store = AgentStore(data_dir=data_dir)
             agents = store.list_agents()
             ids = {a.id for a in agents}
-            self.assertIn(custom.id, ids)
+            self.assertNotIn(custom.id, ids)
             self.assertIn("builtin-docs", ids)
             self.assertIn("builtin-local-docs", ids)
             self.assertIn("builtin-excel-analyst", ids)
 
-            self.assertTrue(os.path.exists(os.path.join(new_dir, "agents.json")))
+            self.assertTrue(os.path.exists(os.path.join(data_dir, "agents.json")))
 
     def test_recover_from_backup_when_agents_file_corrupt(self):
         from app.services.agent_store import AgentStore, AgentConfig
 
         with tempfile.TemporaryDirectory() as td:
-            store = AgentStore(data_dir=td, legacy_data_dir=os.path.join(td, "legacy"))
+            store = AgentStore(data_dir=td)
             store.create_agent(AgentConfig(name="Custom", system_prompt="x"))
 
             agents_path = os.path.join(td, "agents.json")
@@ -57,7 +57,7 @@ class TestAgentStorePersistence(unittest.TestCase):
         from app.services.agent_store import AgentStore
 
         with tempfile.TemporaryDirectory() as td:
-            store = AgentStore(data_dir=td, legacy_data_dir=os.path.join(td, "legacy"))
+            store = AgentStore(data_dir=td)
             agents_path = os.path.join(td, "agents.json")
             bak_path = f"{agents_path}.bak"
             if os.path.exists(bak_path):

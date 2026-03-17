@@ -57,5 +57,12 @@
   "tool_call_mismatch": {
     "auto_retry_enabled": true,
     "fallback_model": "gpt-4o-mini"
+  },
+  "skills_directory_strategy": {
+    "builtin_dir": "backend/data/skills",
+    "workspace_dir": "data/skills",
+    "user_dir": "~/.yue/skills",
+    "watch_enabled": true,
+    "reload_debounce_ms": 2000
   }
 }
