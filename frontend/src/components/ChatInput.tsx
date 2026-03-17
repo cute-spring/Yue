@@ -1,4 +1,4 @@
-import { Show } from 'solid-js';
+import { For, Show } from 'solid-js';
 import { Agent, Provider } from '../types';
 import LLMSelector from './LLMSelector';
 import AgentSelector from './AgentSelector';
@@ -43,8 +43,35 @@ interface ChatInputProps {
   imageInputRef: (el: HTMLInputElement) => void;
 }
 
+export const canSubmitFromInput = (inputText: string, imageCount: number): boolean => {
+  return inputText.trim().length > 0 || imageCount > 0;
+};
+
+export const mergeImageAttachments = (
+  existing: File[],
+  incoming: File[],
+  maxCount: number,
+  maxSizeBytes: number,
+): { files: File[]; oversizedCount: number; overflowCount: number } => {
+  const validIncoming = incoming.filter((file) => file.size <= maxSizeBytes);
+  const oversizedCount = incoming.length - validIncoming.length;
+  const merged = [...existing, ...validIncoming];
+  const files = merged.slice(0, maxCount);
+  const overflowCount = Math.max(0, merged.length - maxCount);
+  return { files, oversizedCount, overflowCount };
+};
+
+export const getUploadButtonClass = (attachmentCount: number): string => {
+  if (attachmentCount > 0) {
+    return 'relative flex items-center gap-1.5 px-2.5 py-2 border border-primary/40 bg-primary/15 text-primary rounded-2xl transition-all active:scale-90 shadow-sm';
+  }
+  return 'relative flex items-center gap-1.5 px-2.5 py-2 border border-border bg-background text-text-primary hover:text-primary hover:border-primary/40 hover:bg-primary/10 rounded-2xl transition-all active:scale-90 shadow-sm';
+};
+
 export default function ChatInput(props: ChatInputProps) {
   const toast = useToast();
+  const canSubmit = () => canSubmitFromInput(props.input, props.imageAttachments.length);
+  const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(2)}MB`;
 
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
@@ -127,23 +154,24 @@ export default function ChatInput(props: ChatInputProps) {
                         const files = Array.from(e.currentTarget.files || []);
                         const maxCount = 10;
                         const maxSize = 10 * 1024 * 1024;
-                        const valid = files.filter(f => f.size <= maxSize);
-                        if (files.length > maxCount) {
+                        const merged = mergeImageAttachments(props.imageAttachments, files, maxCount, maxSize);
+                        if (merged.overflowCount > 0) {
                           toast.warning(`最多选择 ${maxCount} 张图片`);
                         }
-                        if (valid.length !== files.length) {
+                        if (merged.oversizedCount > 0) {
                           toast.warning('部分文件超过 10MB 大小限制，已忽略');
                         }
-                        props.setImageAttachments(valid.slice(0, maxCount));
+                        props.setImageAttachments(merged.files);
                         e.currentTarget.value = '';
                       }} />
-                    <button type="button" class="relative p-2.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Upload images"
+                    <button type="button" class={getUploadButtonClass(props.imageAttachments.length)} aria-label="Upload images"
                       onClick={props.onImageClick}>
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-width="2" />
                         <circle cx="8.5" cy="8.5" r="1.5" stroke-width="2" />
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15l-5-5L5 21" />
                       </svg>
+                      <span class="text-xs font-semibold">上传图片</span>
                       <Show when={props.imageAttachments.length > 0}>
                         <span class="absolute -top-1 -right-1 text-[10px] bg-primary text-white rounded-full px-1.5 py-0.5 border border-background shadow-sm">{props.imageAttachments.length}</span>
                       </Show>
@@ -175,12 +203,12 @@ export default function ChatInput(props: ChatInputProps) {
                       props.onSubmit(e);
                     }
                   }}
-                  disabled={!props.isTyping && (!props.input.trim() || !props.selectedModel)}
+                  disabled={!props.isTyping && (!canSubmit() || !props.selectedModel)}
                   class={`
                     flex items-center justify-center p-3 rounded-2xl transition-all duration-500 shadow-lg
                     ${props.isTyping 
                       ? 'bg-rose-500 text-white hover:bg-rose-600 hover:shadow-rose-500/30 active:scale-95' 
-                      : (props.input.trim() && props.selectedModel)
+                      : (canSubmit() && props.selectedModel)
                         ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/30 hover:scale-[1.02] active:scale-95' 
                         : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}
                   `}
@@ -201,6 +229,33 @@ export default function ChatInput(props: ChatInputProps) {
             </div>
           </div>
         </form>
+
+        <Show when={props.imageAttachments.length > 0}>
+          <div class="mt-2 px-2 flex items-center gap-2 overflow-x-auto">
+            <For each={props.imageAttachments}>
+              {(file: File, index: () => number) => (
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-surface text-xs">
+                  <span class="max-w-[180px] truncate">{file.name}</span>
+                  <span class="text-text-secondary">{formatSize(file.size)}</span>
+                  <button
+                    type="button"
+                    class="text-text-secondary hover:text-rose-500"
+                    onClick={() => props.setImageAttachments(props.imageAttachments.filter((_, i) => i !== index()))}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </For>
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-xl border border-border text-xs text-text-secondary hover:text-rose-500"
+              onClick={() => props.setImageAttachments([])}
+            >
+              Clear
+            </button>
+          </div>
+        </Show>
 
         <Show when={!props.selectedModel}>
           <div class="mt-3 flex items-center justify-center">

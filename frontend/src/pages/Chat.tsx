@@ -21,9 +21,9 @@ import ChatInput from '../components/ChatInput';
 import MessageList from '../components/MessageList';
 import IntelligencePanel from '../components/IntelligencePanel';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { useLLMProviders } from '../hooks/useLLMProviders';
+import { modelSupportsVision, useLLMProviders } from '../hooks/useLLMProviders';
 import { useAgents } from '../hooks/useAgents';
-import { useChatState } from '../hooks/useChatState';
+import { canSubmitChatRequest, useChatState } from '../hooks/useChatState';
 import { useMermaid } from '../hooks/useMermaid';
 
 export default function Chat() {
@@ -148,7 +148,7 @@ export default function Chat() {
     }
 
     const trimmedInput = input().trim();
-    if (!trimmedInput) return;
+    if (!canSubmitChatRequest(trimmedInput, imageAttachments().length)) return;
 
     // Handle slash commands
     if (trimmedInput === '/help') {
@@ -183,6 +183,16 @@ export default function Chat() {
 
     // Regular chat message logic...
     if (!selectedModel()) {
+      setShowLLMSelector(true);
+      return;
+    }
+
+    if (
+      imageAttachments().length > 0
+      && !modelSupportsVision(providers(), selectedProvider(), selectedModel())
+    ) {
+      setInlineToast({ type: 'error', message: '当前模型不支持视觉能力，请切换支持 Vision 的模型。' });
+      setTimeout(() => setInlineToast(null), 3500);
       setShowLLMSelector(true);
       return;
     }

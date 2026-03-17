@@ -65,6 +65,21 @@ class ConfigService:
             "transparency_event_v2_enabled": flags.get("transparency_event_v2_enabled", True),
             "transparency_turn_binding_enabled": flags.get("transparency_turn_binding_enabled", True),
             "reasoning_display_gated_enabled": flags.get("reasoning_display_gated_enabled", True),
+            "multimodal_enabled": flags.get("multimodal_enabled", True),
+            "multimodal_image_only_submit_enabled": flags.get("multimodal_image_only_submit_enabled", True),
+            "multimodal_vision_fallback_enabled": flags.get("multimodal_vision_fallback_enabled", False),
+        }
+
+    def get_multimodal_config(self) -> Dict[str, Any]:
+        multimodal = self._config.get("multimodal", {})
+        allowed_mime_types = multimodal.get(
+            "allowed_mime_types",
+            ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"],
+        )
+        return {
+            "max_image_count": int(multimodal.get("max_image_count", 10)),
+            "max_image_size_mb": int(multimodal.get("max_image_size_mb", 10)),
+            "allowed_mime_types": list(allowed_mime_types),
         }
 
     def update_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:

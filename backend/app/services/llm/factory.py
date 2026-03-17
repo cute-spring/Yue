@@ -59,6 +59,11 @@ async def list_providers(refresh: bool = False, check_connectivity: bool = False
             available_models = [m for m in models if m in config_enabled] if models else config_enabled
         else:
             available_models = models
+        capability_models = models or (config_enabled if isinstance(config_enabled, list) else [])
+        model_capabilities = {
+            model_name: config_service.get_model_capabilities(name, model_name)
+            for model_name in capability_models
+        }
         
         is_configured = handler.configured()
         if not is_configured:
@@ -69,6 +74,7 @@ async def list_providers(refresh: bool = False, check_connectivity: bool = False
             "requirements": handler.requirements(),
             "available_models": available_models,
             "models": models or (config_enabled if isinstance(config_enabled, list) else []),
+            "model_capabilities": model_capabilities,
             "supports_model_refresh": _supports_model_refresh(name),
             "current_model": llm_config.get(f"{name}_model"),
             "description": handler.__doc__ or f"{name} provider",

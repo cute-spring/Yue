@@ -14,6 +14,15 @@ interface LLMSelectorProps {
   onRefreshModels: () => Promise<void>;
 }
 
+export const getModelCapabilityBadges = (provider: Provider, model: string): string[] => {
+  const capabilities = provider.model_capabilities?.[model] || [];
+  const badges: string[] = [];
+  if (capabilities.includes('vision')) {
+    badges.push('Vision');
+  }
+  return badges;
+};
+
 export default function LLMSelector(props: LLMSelectorProps) {
   return (
     <div class="relative">
@@ -91,7 +100,16 @@ export default function LLMSelector(props: LLMSelectorProps) {
                             : 'hover:bg-white/5 text-gray-300 hover:text-white'
                         }`}
                       >
-                        <span>{model}</span>
+                        <div class="flex items-center gap-2">
+                          <span>{model}</span>
+                          <For each={getModelCapabilityBadges(provider, model)}>
+                            {badge => (
+                              <span class="text-[10px] px-2 py-0.5 rounded-full border border-emerald-400/40 bg-emerald-400/10 text-emerald-200">
+                                {badge}
+                              </span>
+                            )}
+                          </For>
+                        </div>
                         <Show when={props.selectedModel === model}>
                           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />

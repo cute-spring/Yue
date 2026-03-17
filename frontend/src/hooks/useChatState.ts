@@ -67,6 +67,10 @@ export const shouldAcceptEvent = (seenEventIds: Set<string>, event: ChatEventEnv
   return true;
 };
 
+export const canSubmitChatRequest = (inputText: string, imageCount: number): boolean => {
+  return inputText.trim().length > 0 || imageCount > 0;
+};
+
 export function useChatState(
   selectedProvider: () => string,
   selectedModel: () => string,
@@ -212,7 +216,8 @@ export function useChatState(
     }
 
     const text = input().trim();
-    if (!text) return;
+    const currentImages = imageAttachments();
+    if (!canSubmitChatRequest(text, currentImages.length)) return;
 
     if (!selectedModel()) {
       setShowLLMSelector(true);
@@ -224,7 +229,6 @@ export function useChatState(
     }
 
     const agentId = selectedAgent() || undefined;
-    const currentImages = imageAttachments();
     let base64Images: string[] = [];
     if (currentImages.length > 0) {
       try {
