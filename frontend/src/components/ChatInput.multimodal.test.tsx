@@ -25,12 +25,12 @@ describe('ChatInput multimodal helpers', () => {
     expect(result.overflowCount).toBe(1);
   });
 
-  it('uses high-contrast style for upload button', () => {
+  it('uses minimalist style for upload button', () => {
     const idleClass = getUploadButtonClass(0);
     const activeClass = getUploadButtonClass(2);
-    expect(idleClass).toContain('border');
-    expect(idleClass).toContain('bg-background');
-    expect(activeClass).toContain('bg-primary/15');
-    expect(activeClass).toContain('border-primary/40');
+    expect(idleClass).toContain('text-slate-500');
+    expect(idleClass).not.toContain('border');
+    expect(activeClass).toContain('bg-primary/20');
+    expect(activeClass).toContain('border-primary/30');
   });
 });

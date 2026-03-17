@@ -64,9 +64,9 @@ export const mergeImageAttachments = (
 
 export const getUploadButtonClass = (attachmentCount: number): string => {
   if (attachmentCount > 0) {
-    return 'relative flex items-center gap-1.5 px-2.5 py-2 border border-primary/40 bg-primary/15 text-primary rounded-2xl transition-all active:scale-90 shadow-sm';
+    return 'relative p-2.5 bg-primary/20 text-primary border border-primary/30 rounded-2xl transition-all active:scale-90 shadow-sm';
   }
-  return 'relative flex items-center gap-1.5 px-2.5 py-2 border border-border bg-background text-text-primary hover:text-primary hover:border-primary/40 hover:bg-primary/10 rounded-2xl transition-all active:scale-90 shadow-sm';
+  return 'relative p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90';
 };
 
 export default function ChatInput(props: ChatInputProps) {
@@ -139,8 +139,8 @@ export default function ChatInput(props: ChatInputProps) {
                 {/* Tools Group */}
                 <div class="flex items-center gap-1.5">
                   <div class="relative group/tooltip">
-                    <button type="button" class="p-2.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <button type="button" class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
                     </button>
@@ -169,14 +169,13 @@ export default function ChatInput(props: ChatInputProps) {
                         }} />
                       <button type="button" class={getUploadButtonClass(props.imageAttachments.length)} aria-label="Upload images"
                         onClick={props.onImageClick}>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-width="2" />
                           <circle cx="8.5" cy="8.5" r="1.5" stroke-width="2" />
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15l-5-5L5 21" />
                         </svg>
-                        <span class="text-xs font-semibold">上传图片</span>
                         <Show when={props.imageAttachments.length > 0}>
-                          <span class="absolute -top-1 -right-1 text-[10px] bg-primary text-white rounded-full px-1.5 py-0.5 border border-background shadow-sm">{props.imageAttachments.length}</span>
+                          <span class="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-primary text-white rounded-full px-1 border-2 border-surface shadow-sm">{props.imageAttachments.length}</span>
                         </Show>
                       </button>
                       <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
@@ -187,8 +186,8 @@ export default function ChatInput(props: ChatInputProps) {
                     </div>
                   </Show>
                   <div class="relative group/tooltip">
-                    <button type="button" class="p-2.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Voice input">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <button type="button" class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Voice input">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </button>

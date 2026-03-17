@@ -171,11 +171,9 @@ export default function Chat() {
     if (trimmedInput === '/note') {
       const lastAssistantMsg = [...messages()].reverse().find(m => m.role === 'assistant');
       if (lastAssistantMsg) {
-        setInlineToast({ message: 'Saved to notes.', type: 'success' });
-        setTimeout(() => setInlineToast(null), 3000);
+        toast.success('Saved to notes.', 3000);
       } else {
-        setInlineToast({ message: 'No assistant message to save.', type: 'error' });
-        setTimeout(() => setInlineToast(null), 3000);
+        toast.error('No assistant message to save.', 3000);
       }
       setInput('');
       return;
@@ -187,16 +185,6 @@ export default function Chat() {
       return;
     }
 
-    if (
-      imageAttachments().length > 0
-      && !modelSupportsVision(providers(), selectedProvider(), selectedModel())
-    ) {
-      setInlineToast({ type: 'error', message: '当前模型不支持视觉能力，请切换支持 Vision 的模型。' });
-      setTimeout(() => setInlineToast(null), 3500);
-      setShowLLMSelector(true);
-      return;
-    }
-    
     originalHandleSubmit(e);
   };
 
@@ -220,9 +208,6 @@ export default function Chat() {
     return () => window.removeEventListener('resize', handleResize);
   });
   const isMobile = () => windowWidth() < 1024;
-
-  // Additional UI State
-  const [inlineToast, setInlineToast] = createSignal<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
 
   createEffect(() => {
     if (messages().length > 0 && !userHasScrolledUp()) {
@@ -398,8 +383,7 @@ export default function Chat() {
     // If switched to a model that doesn't support vision, clear image attachments
     if (imageAttachments().length > 0 && !modelSupportsVision(providers(), provider, model)) {
       setImageAttachments([]);
-      setInlineToast({ type: 'info', message: '已自动清空图片，当前模型不支持视觉能力。' });
-      setTimeout(() => setInlineToast(null), 3000);
+      toast.info('已自动清空图片，当前模型不支持视觉能力。', 3500);
     }
   };
 
@@ -525,7 +509,7 @@ export default function Chat() {
               class={`p-2.5 rounded-xl transition-all duration-300 active:scale-90 ${showKnowledge() ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-secondary hover:bg-primary/10 hover:text-primary'}`}
               title="Toggle Knowledge Intelligence"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </button>
@@ -598,33 +582,6 @@ export default function Chat() {
         isMobile={isMobile()}
       />
       
-      <Show when={inlineToast()}>
-        <div class="fixed bottom-6 right-6 z-[2000]">
-          <div
-            class={`px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md flex items-center gap-3 min-w-[240px] ${
-              inlineToast()!.type === 'success'
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200'
-                : inlineToast()!.type === 'error'
-                  ? 'bg-rose-500/10 border-rose-500/20 text-rose-200'
-                  : 'bg-slate-500/10 border-slate-500/20 text-slate-200'
-            }`}
-          >
-            <div class={`w-2 h-2 rounded-full ${inlineToast()!.type === 'success' ? 'bg-emerald-400' : inlineToast()!.type === 'error' ? 'bg-rose-400' : 'bg-slate-300'}`} />
-            <div class="text-sm font-bold">{inlineToast()!.message}</div>
-            <button
-              type="button"
-              onClick={() => setInlineToast(null)}
-              class="ml-auto p-1.5 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-              aria-label="Close"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </Show>
-
       {/* Mobile Overlays */}
       {(showHistory() || (showKnowledge() && isMobile())) && (
         <div 
