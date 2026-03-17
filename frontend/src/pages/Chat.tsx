@@ -128,6 +128,17 @@ export default function Chat() {
     setActiveSkill(null);
   });
 
+  // Sync textarea height with input content
+  createEffect(() => {
+    const _value = input(); // Track input
+    if (textareaRef) {
+      textareaRef.style.height = 'auto';
+      if (_value !== '') {
+        textareaRef.style.height = `${textareaRef.scrollHeight}px`;
+      }
+    }
+  });
+
   const handleSubmit = (e: Event) => {
     e.preventDefault();
 
@@ -388,10 +399,6 @@ export default function Chat() {
     const target = e.currentTarget;
     const value = target.value;
     
-    // Auto-expand height
-    target.style.height = 'auto';
-    target.style.height = `${target.scrollHeight}px`;
-
     const pos = target.selectionStart || 0;
     const textBefore = value.substring(0, pos);
     const lastAtPos = textBefore.lastIndexOf('@');
