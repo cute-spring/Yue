@@ -394,6 +394,13 @@ export default function Chat() {
     setSelectedModel(model);
     localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
     localStorage.setItem(MODEL_STORAGE_KEY, model);
+
+    // If switched to a model that doesn't support vision, clear image attachments
+    if (imageAttachments().length > 0 && !modelSupportsVision(providers(), provider, model)) {
+      setImageAttachments([]);
+      setInlineToast({ type: 'info', message: '已自动清空图片，当前模型不支持视觉能力。' });
+      setTimeout(() => setInlineToast(null), 3000);
+    }
   };
 
   const handleRefreshModels = async () => {
