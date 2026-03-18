@@ -375,8 +375,8 @@ async def test_chat_stream_with_images(client, mock_chat_service):
         mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
         
         response = client.post("/api/chat/stream", json={
-            "message": "look at this", 
-            "images": ["data:image/png;base64,xxx"],
+            "message": "look at this",
+            "images": ["data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII="],
             "chat_id": "chat-id"
         })
         assert response.status_code == 200

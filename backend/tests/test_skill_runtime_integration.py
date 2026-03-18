@@ -37,69 +37,76 @@ YOU ARE A TEST SKILL.
         with open(skill_path, "w") as f:
             f.write(skill_content)
         
-        # Point registry to temp dir
-        skill_registry.skill_dirs = [tmp_dir]
-        skill_registry.load_all()
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
         
-        # 2. Mock Agent and Chat Flow
-        payload = {
-            "message": "Use the test skill.",
-            "agent_id": "test-agent",
-            "provider": "openai",
-            "model": "gpt-4o"
-        }
+            # 2. Mock Agent and Chat Flow
+            payload = {
+                "message": "Use the test skill.",
+                "agent_id": "test-agent",
+                "provider": "openai",
+                "model": "gpt-4o"
+            }
         
-        with patch("app.api.chat.agent_store") as mock_agent_store, \
-             patch("app.api.chat.Agent") as mock_agent_cls, \
-             patch("app.api.chat.chat_service") as mock_chat_service, \
-             patch("app.api.chat.tool_registry") as mock_registry:
-            
-            # Mock AgentConfig (Legacy)
-            mock_agent = AgentConfig(
-                id="test-agent",
-                name="Test Agent",
-                system_prompt="YOU ARE A LEGACY AGENT.",
-                provider="openai",
-                model="gpt-4o",
-                enabled_tools=["builtin:docs_read", "builtin:exec"], # Legacy tools
-                skill_mode="auto",
-                visible_skills=["test-skill"]
-            )
-            mock_agent_store.get_agent.return_value = mock_agent
-            mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
-            mock_chat_service.get_chat.return_value = None
-            mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
-            
-            # Mock Agent instance and its run_stream method
-            mock_agent_instance = MagicMock()
-            mock_agent_cls.return_value = mock_agent_instance
-            
-            mock_result = MagicMock()
-            async def mock_stream_gen():
-                yield "data: " + json.dumps({"content": "Applied skill."}) + "\n\n"
-            mock_result.stream_text.return_value = mock_stream_gen()
-            mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
-            mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.Agent") as mock_agent_cls, \
+                 patch("app.api.chat.chat_service") as mock_chat_service, \
+                 patch("app.api.chat.tool_registry") as mock_registry:
 
-            # 3. Execution
-            response = client.post("/api/chat/stream", json=payload)
-            
-            # 4. Assertions
-            assert response.status_code == 200
-            
-            # Verify Agent was initialized with LAYERED system prompt
-            mock_agent_cls.assert_called_once()
-            _, kwargs = mock_agent_cls.call_args
-            
-            # Persona + Skill
-            assert "YOU ARE A LEGACY AGENT." in kwargs["system_prompt"]
-            assert "[Active Skill: test-skill]" in kwargs["system_prompt"]
-            assert "YOU ARE A TEST SKILL." in kwargs["system_prompt"]
-            
-            # Verify Tool Intersection: ["builtin:docs_read", "builtin:exec"] ∩ ["builtin:docs_read"] = ["builtin:docs_read"]
-            mock_registry.get_pydantic_ai_tools_for_agent.assert_called_once()
-            _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
-            assert set(reg_kwargs["enabled_tools"]) == {"builtin:docs_read"}
+                # Mock AgentConfig (Legacy)
+                mock_agent = AgentConfig(
+                    id="test-agent",
+                    name="Test Agent",
+                    system_prompt="YOU ARE A LEGACY AGENT.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:docs_read", "builtin:exec"], # Legacy tools
+                    skill_mode="auto",
+                    visible_skills=["test-skill"]
+                )
+                mock_agent_store.get_agent.return_value = mock_agent
+                mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+                # Mock Agent instance and its run_stream method
+                mock_agent_instance = MagicMock()
+                mock_agent_cls.return_value = mock_agent_instance
+
+                mock_result = MagicMock()
+                async def mock_stream_gen():
+                    yield "data: " + json.dumps({"content": "Applied skill."}) + "\n\n"
+                mock_result.stream_text.return_value = mock_stream_gen()
+                mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+                mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+
+                # 3. Execution
+                response = client.post("/api/chat/stream", json=payload)
+
+                # 4. Assertions
+                assert response.status_code == 200
+
+                # Verify Agent was initialized with LAYERED system prompt
+                mock_agent_cls.assert_called_once()
+                _, kwargs = mock_agent_cls.call_args
+
+                # Persona + Skill
+                assert "YOU ARE A LEGACY AGENT." in kwargs["system_prompt"]
+                assert "[Active Skill: test-skill]" in kwargs["system_prompt"]
+                assert "YOU ARE A TEST SKILL." in kwargs["system_prompt"]
+
+                # Verify Tool Intersection: ["builtin:docs_read", "builtin:exec"] ∩ ["builtin:docs_read"] = ["builtin:docs_read"]
+                mock_registry.get_pydantic_ai_tools_for_agent.assert_called_once()
+                _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
+                assert set(reg_kwargs["enabled_tools"]) == {"builtin:docs_read"}
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
 
 @pytest.mark.asyncio
 async def test_skill_runtime_manual_mode_requires_requested_skill(client):
@@ -120,95 +127,103 @@ YOU ARE A MANUAL SKILL.
         with open(skill_path, "w") as f:
             f.write(skill_content)
 
-        skill_registry.skill_dirs = [tmp_dir]
-        skill_registry.load_all()
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
 
-        payload = {
-            "message": "Use manual skill.",
-            "agent_id": "manual-agent",
-            "provider": "openai",
-            "model": "gpt-4o",
-            "requested_skill": "manual-skill:1.0.0"
-        }
+            payload = {
+                "message": "Use manual skill.",
+                "agent_id": "manual-agent",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "requested_skill": "manual-skill:1.0.0"
+            }
 
-        with patch("app.api.chat.agent_store") as mock_agent_store, \
-             patch("app.api.chat.Agent") as mock_agent_cls, \
-             patch("app.api.chat.chat_service") as mock_chat_service, \
-             patch("app.api.chat.tool_registry") as mock_registry:
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.Agent") as mock_agent_cls, \
+                 patch("app.api.chat.chat_service") as mock_chat_service, \
+                 patch("app.api.chat.tool_registry") as mock_registry:
 
-            mock_agent = AgentConfig(
-                id="manual-agent",
-                name="Manual Agent",
-                system_prompt="YOU ARE A LEGACY AGENT.",
-                provider="openai",
-                model="gpt-4o",
-                enabled_tools=["builtin:docs_read", "builtin:exec"],
-                skill_mode="manual",
-                visible_skills=["manual-skill:1.0.0"]
-            )
-            mock_agent_store.get_agent.return_value = mock_agent
-            mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
-            mock_chat_service.get_chat.return_value = None
-            mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_agent = AgentConfig(
+                    id="manual-agent",
+                    name="Manual Agent",
+                    system_prompt="YOU ARE A LEGACY AGENT.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:docs_read", "builtin:exec"],
+                    skill_mode="manual",
+                    visible_skills=["manual-skill:1.0.0"]
+                )
+                mock_agent_store.get_agent.return_value = mock_agent
+                mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
 
-            mock_agent_instance = MagicMock()
-            mock_agent_cls.return_value = mock_agent_instance
+                mock_agent_instance = MagicMock()
+                mock_agent_cls.return_value = mock_agent_instance
 
-            mock_result = MagicMock()
-            async def mock_stream_gen():
-                yield "data: " + json.dumps({"content": "Applied manual skill."}) + "\n\n"
-            mock_result.stream_text.return_value = mock_stream_gen()
-            mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
-            mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+                mock_result = MagicMock()
+                async def mock_stream_gen():
+                    yield "data: " + json.dumps({"content": "Applied manual skill."}) + "\n\n"
+                mock_result.stream_text.return_value = mock_stream_gen()
+                mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+                mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
 
-            response = client.post("/api/chat/stream", json=payload)
-            assert response.status_code == 200
+                response = client.post("/api/chat/stream", json=payload)
+                assert response.status_code == 200
 
-            _, kwargs = mock_agent_cls.call_args
-            assert "[Active Skill: manual-skill]" in kwargs["system_prompt"]
+                _, kwargs = mock_agent_cls.call_args
+                assert "[Active Skill: manual-skill]" in kwargs["system_prompt"]
 
-        payload_without_selection = {
-            "message": "No explicit skill.",
-            "agent_id": "manual-agent",
-            "provider": "openai",
-            "model": "gpt-4o"
-        }
+            payload_without_selection = {
+                "message": "No explicit skill.",
+                "agent_id": "manual-agent",
+                "provider": "openai",
+                "model": "gpt-4o"
+            }
 
-        with patch("app.api.chat.agent_store") as mock_agent_store, \
-             patch("app.api.chat.Agent") as mock_agent_cls, \
-             patch("app.api.chat.chat_service") as mock_chat_service, \
-             patch("app.api.chat.tool_registry") as mock_registry:
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.Agent") as mock_agent_cls, \
+                 patch("app.api.chat.chat_service") as mock_chat_service, \
+                 patch("app.api.chat.tool_registry") as mock_registry:
 
-            mock_agent = AgentConfig(
-                id="manual-agent",
-                name="Manual Agent",
-                system_prompt="YOU ARE A LEGACY AGENT.",
-                provider="openai",
-                model="gpt-4o",
-                enabled_tools=["builtin:docs_read", "builtin:exec"],
-                skill_mode="manual",
-                visible_skills=["manual-skill:1.0.0"]
-            )
-            mock_agent_store.get_agent.return_value = mock_agent
-            mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
-            mock_chat_service.get_chat.return_value = None
-            mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_agent = AgentConfig(
+                    id="manual-agent",
+                    name="Manual Agent",
+                    system_prompt="YOU ARE A LEGACY AGENT.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:docs_read", "builtin:exec"],
+                    skill_mode="manual",
+                    visible_skills=["manual-skill:1.0.0"]
+                )
+                mock_agent_store.get_agent.return_value = mock_agent
+                mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
 
-            mock_agent_instance = MagicMock()
-            mock_agent_cls.return_value = mock_agent_instance
+                mock_agent_instance = MagicMock()
+                mock_agent_cls.return_value = mock_agent_instance
 
-            mock_result = MagicMock()
-            async def mock_stream_gen_legacy():
-                yield "data: " + json.dumps({"content": "Legacy path."}) + "\n\n"
-            mock_result.stream_text.return_value = mock_stream_gen_legacy()
-            mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
-            mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+                mock_result = MagicMock()
+                async def mock_stream_gen_legacy():
+                    yield "data: " + json.dumps({"content": "Legacy path."}) + "\n\n"
+                mock_result.stream_text.return_value = mock_stream_gen_legacy()
+                mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+                mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
 
-            response = client.post("/api/chat/stream", json=payload_without_selection)
-            assert response.status_code == 200
+                response = client.post("/api/chat/stream", json=payload_without_selection)
+                assert response.status_code == 200
 
-            _, kwargs = mock_agent_cls.call_args
-            assert "[Active Skill:" not in kwargs["system_prompt"]
+                _, kwargs = mock_agent_cls.call_args
+                assert "[Active Skill:" not in kwargs["system_prompt"]
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
 
 @pytest.mark.asyncio
 async def test_skill_runtime_no_constraints_keeps_agent_tools(client):
