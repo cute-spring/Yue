@@ -390,4 +390,47 @@ Expected: PASS
 
 ---
 
+## 14. 测试闭环追踪矩阵（2026-03-18 基线）
+
+### 14.1 已完成项（代码与测试资产已存在）
+
+| 测试目标 | 测试文件 | 状态 |
+| :--- | :--- | :--- |
+| 图片大小/格式/payload 校验 + vision 判定 | `backend/tests/test_multimodal_service_unit.py` | ✅ |
+| 流式 meta 的 vision 字段契约 | `backend/tests/test_api_chat_unit.py::test_chat_stream_emits_vision_meta` | ✅ |
+| 历史图片回放与缺失文件回退 | `backend/tests/test_multimodal_integration.py` | ✅ |
+| 前端仅图片发送规则 | `frontend/src/hooks/useChatState.multimodal.test.ts` | ✅ |
+| 前端附件策略与上传入口行为 | `frontend/src/components/ChatInput.multimodal.test.tsx` | ✅ |
+| 视觉能力标识渲染 | `frontend/src/components/LLMSelector.vision.test.tsx` | ✅ |
+| 前端多模态 E2E 基础入口 | `frontend/e2e/multimodal-image-chat.spec.ts` | ✅ |
+
+### 14.2 待补强项（闭环升级到生产验收）
+
+1. `frontend/e2e/multimodal-image-chat.spec.ts` 需补齐三类断言：
+   - 上传图片 + 文本发送成功
+   - 仅图片发送成功
+   - 不支持视觉模型时提示或降级行为可见
+2. 手工验收证据需归档：Case A-F 截图/录屏、执行环境、模型组合、日期与执行人。
+3. 灰度验证需补齐：10% 窗口观测 `MODEL_VISION_UNSUPPORTED` 与多模态失败率趋势。
+
+### 14.3 闭环执行命令（标准顺序）
+
+```bash
+PYTHONPATH=backend pytest backend/tests/test_multimodal_service_unit.py -v
+PYTHONPATH=backend pytest backend/tests/test_api_chat_unit.py -k vision_meta -v
+PYTHONPATH=backend pytest backend/tests/test_multimodal_integration.py -v
+cd frontend && npm run test -- src/hooks/useChatState.multimodal.test.ts src/components/ChatInput.multimodal.test.tsx src/components/LLMSelector.vision.test.tsx
+cd frontend && npx playwright test e2e/multimodal-image-chat.spec.ts
+./check.sh
+```
+
+### 14.4 结果判定
+
+1. 所有自动化命令通过。
+2. UI 手工 Case A-F 全部通过。
+3. 回滚开关验证通过（`multimodal_enabled`、`multimodal_vision_fallback_enabled`）。
+4. 发布记录中存在完整测试证据与执行日志。
+
+---
+
 Plan complete and saved to `docs/plans/multimodal_image_qa_enhancement_plan_20260317.md`. Ready to execute.

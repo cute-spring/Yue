@@ -1,4 +1,4 @@
-import { For, Show } from 'solid-js';
+import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js';
 import { Agent, Provider } from '../types';
 import LLMSelector from './LLMSelector';
 import AgentSelector from './AgentSelector';
@@ -69,11 +69,38 @@ export const getUploadButtonClass = (attachmentCount: number): string => {
   return 'relative p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90';
 };
 
+export const removeImageAttachmentAt = (files: File[], index: number): File[] => {
+  return files.filter((_, i) => i !== index);
+};
+
+export const getVisionCapabilityHint = (
+  hasSelectedModel: boolean,
+  supportsVision: boolean,
+  attachmentCount: number,
+): string => {
+  if (!hasSelectedModel || attachmentCount === 0 || supportsVision) return '';
+  return '当前模型不支持视觉能力，图片请求将被拒绝或降级为纯文本。';
+};
+
 export default function ChatInput(props: ChatInputProps) {
   const toast = useToast();
   const canSubmit = () => canSubmitFromInput(props.input, props.imageAttachments.length);
   const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(2)}MB`;
   const supportsVision = () => modelSupportsVision(props.providers, props.selectedProvider, props.selectedModel);
+  const [previewUrls, setPreviewUrls] = createSignal<string[]>([]);
+  let trackedPreviewUrls: string[] = [];
+  createEffect(() => {
+    props.imageAttachments.length;
+    const previous = trackedPreviewUrls;
+    const next = props.imageAttachments.map(file => URL.createObjectURL(file));
+    trackedPreviewUrls = next;
+    setPreviewUrls(next);
+    previous.forEach(url => URL.revokeObjectURL(url));
+  });
+  onCleanup(() => {
+    trackedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+  });
+  const visionCapabilityHint = () => getVisionCapabilityHint(!!props.selectedModel, supportsVision(), props.imageAttachments.length);
 
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
@@ -237,13 +264,16 @@ export default function ChatInput(props: ChatInputProps) {
           <div class="mt-2 px-2 flex items-center gap-2 overflow-x-auto">
             <For each={props.imageAttachments}>
               {(file: File, index: () => number) => (
-                <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-surface text-xs">
-                  <span class="max-w-[180px] truncate">{file.name}</span>
-                  <span class="text-text-secondary">{formatSize(file.size)}</span>
+                <div class="flex items-center gap-2 px-2 py-1.5 rounded-xl border border-border bg-surface text-xs min-w-[200px]">
+                  <img src={previewUrls()[index()]} alt={file.name} class="w-10 h-10 rounded-lg object-cover border border-border/60 bg-background/50 shrink-0" />
+                  <div class="min-w-0 flex-1">
+                    <div class="max-w-[150px] truncate font-semibold text-text-primary">{file.name}</div>
+                    <div class="text-text-secondary">{formatSize(file.size)}</div>
+                  </div>
                   <button
                     type="button"
                     class="text-text-secondary hover:text-rose-500"
-                    onClick={() => props.setImageAttachments(props.imageAttachments.filter((_, i) => i !== index()))}
+                    onClick={() => props.setImageAttachments(removeImageAttachmentAt(props.imageAttachments, index()))}
                   >
                     ×
                   </button>
@@ -257,6 +287,11 @@ export default function ChatInput(props: ChatInputProps) {
             >
               Clear
             </button>
+          </div>
+        </Show>
+        <Show when={visionCapabilityHint()}>
+          <div class="mt-2 px-3 py-2 rounded-xl border border-amber-400/30 bg-amber-500/10 text-[12px] text-amber-700">
+            {visionCapabilityHint()}
           </div>
         </Show>
 
