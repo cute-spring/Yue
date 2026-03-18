@@ -188,6 +188,89 @@ Code refs: [test_mcp_and_models.py](../backend/tests/test_mcp_and_models.py), [t
 - MCP reload transient errors: retry /reload; state should recover.
 - Provider connectivity: enforce timeouts; clear error messages.
 
+## Multimodal QA 闭环测试（Chunk 1-3）
+
+### 测试目标
+- 验证“仅图片发送、图片校验、Vision 门禁、流式 meta 契约、回放稳定性”形成端到端闭环。
+- 覆盖后端单测、后端集成、前端单测、前端 E2E 与 UI 手工验收。
+
+### 自动化测试矩阵
+
+#### Backend - Service Unit
+```bash
+PYTHONPATH=backend pytest backend/tests/test_multimodal_service_unit.py -v
+```
+- 覆盖：大小/格式校验、非法 payload、vision 判定矩阵、仅图片输入组装。
+- 对应文件：`backend/tests/test_multimodal_service_unit.py`
+
+#### Backend - API Contract Unit
+```bash
+PYTHONPATH=backend pytest backend/tests/test_api_chat_unit.py -k vision_meta -v
+```
+- 覆盖：SSE `meta` 中 `supports_vision`、`vision_enabled`、`image_count`、`vision_fallback_mode`。
+- 对应文件：`backend/tests/test_api_chat_unit.py`
+
+#### Backend - Multimodal Integration
+```bash
+PYTHONPATH=backend pytest backend/tests/test_multimodal_integration.py -v
+```
+- 覆盖：历史消息携带图片回放、缺失图片回退不崩溃。
+- 对应文件：`backend/tests/test_multimodal_integration.py`
+
+#### Frontend - Unit
+```bash
+cd frontend && npm run test -- src/hooks/useChatState.multimodal.test.ts src/components/ChatInput.multimodal.test.tsx src/components/LLMSelector.vision.test.tsx
+```
+- 覆盖：仅图片发送规则、附件数量与大小策略、Vision 徽标显示。
+- 对应文件：
+  - `frontend/src/hooks/useChatState.multimodal.test.ts`
+  - `frontend/src/components/ChatInput.multimodal.test.tsx`
+  - `frontend/src/components/LLMSelector.vision.test.tsx`
+
+#### Frontend - E2E
+```bash
+cd frontend && npx playwright test e2e/multimodal-image-chat.spec.ts
+```
+- 覆盖：聊天输入区图片上传能力可见性（MVP）。
+- 对应文件：`frontend/e2e/multimodal-image-chat.spec.ts`
+
+### UI 手工验收清单
+
+#### Case A：仅图片发送
+- 步骤：输入框留空，仅上传 1 张图片并发送。
+- 预期：请求成功进入流式响应；会话可继续。
+
+#### Case B：图文混发
+- 步骤：输入文本并上传 1 张图片发送。
+- 预期：正常返回；`meta.image_count >= 1`。
+
+#### Case C：模型不支持 Vision（严格模式）
+- 前置：`multimodal_vision_fallback_enabled=false`，切换到不支持视觉模型。
+- 预期：返回 `MODEL_VISION_UNSUPPORTED`，并给出切换模型建议。
+
+#### Case D：模型不支持 Vision（降级模式）
+- 前置：`multimodal_vision_fallback_enabled=true`。
+- 预期：不中断请求；`meta.vision_fallback_mode = text_only`。
+
+#### Case E：图片格式/大小失败
+- 步骤：上传不支持格式或超大图片。
+- 预期：返回结构化错误码（`IMAGE_FORMAT_UNSUPPORTED` / `IMAGE_TOO_LARGE`）。
+
+#### Case F：历史回放稳定性
+- 步骤：先发仅图片，再在同一 `chat_id` 连续追问。
+- 预期：无历史拼接异常；流式正常。
+
+### 闭环完成定义（Multimodal）
+- 自动化测试矩阵全部通过。
+- UI 手工 Case A-F 全部通过并保留截图/录屏证据。
+- 回归后 `./check.sh` 通过。
+- 如启用灰度：至少完成 10% 灰度窗口观测，错误率无显著异常。
+
+### 证据归档建议
+- 自动化日志：保存 pytest/vitest/playwright 输出。
+- 手工证据：每个 Case 至少 1 张截图，命名为 `multimodal_case_<A-F>.png`。
+- 汇总记录：在发布记录中附“通过日期、执行人、环境、模型组合”。
+
 ## Troubleshooting
 - Backend logs: check hot reload and MCP connection info; rerun /reload after config changes.
 - Frontend: refresh or restart dev server if UI stale; confirm production assets in backend/static for Docker.
