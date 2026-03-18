@@ -138,7 +138,7 @@
 | 2. OpenClaw Tool-Calling 治理 | ✅ Clear | `openclaw_tool_calling_reference_execution_plan_20260308.md` | 执行 Phase A-D Rollout |
 | 3. Observability & Transparency | ✅ Clear | `observability_transparency_plan.md` | 继续分阶段 Rollout 和加固 |
 | 4. PPT Skill Gap 增强 | ✅ Clear | `ppt_skill_gap_enhancement_plan_20260307.md` | 执行分阶段的 Design/Dev/Test Track |
-| 5. Markdown 定义的 Skills | ✅ Clear | `markdown_defined_skills_plan.md` | 完成 Pending 的手动 Sign-off 和剩余 Gate |
+| 5. Markdown 定义的 Skills | ✅ Completed | `markdown_defined_skills_plan.md`; `skills_long_term_architecture_and_legacy_removal_plan_20260317.md` | 已完成三层目录体系、Legacy 清理、热重载与 UI 来源展示 |
 | 6. Nanobot Skill Gap 延续 | ✅ Clear | `nanobot_skill_gap_plan_20260307.md` | 根据需求阈值决定 Phase 3/4 |
 | 7. 内置 Tools 重构 | ✅ Clear | `builtin_tools_refactor_plan.md` | 仅维护 |
 
