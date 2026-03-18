@@ -39,3 +39,41 @@ jobs:
       - name: Run Unified Contract Gate Tests
         run: |
           pytest backend/tests/test_contract_gate_unit.py
+
+  smoke-e2e-title-refinement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+      - name: Install Playwright Chromium
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
+      - name: Start frontend
+        run: |
+          cd frontend
+          npm run dev -- --host 127.0.0.1 --port 3000 > /tmp/yue-frontend.log 2>&1 &
+      - name: Wait for frontend
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000 > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Frontend failed to start"
+          cat /tmp/yue-frontend.log || true
+          exit 1
+      - name: Run smoke e2e for title refinement
+        run: |
+          cd frontend
+          npx playwright test e2e/title-refinement.spec.ts --reporter=line

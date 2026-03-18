@@ -41,13 +41,27 @@ class ConfigService:
             try:
                 with open(self.config_path, 'r') as f:
                     config = json.load(f)
-                    logger.info("Loaded config: %s", json.dumps(config, indent=2))
+                    logger.info("Loaded config: %s", json.dumps(self._redact_secrets(config), indent=2))
                     return config
             except Exception as e:
                 logger.error("Error loading config: %s", e)
                 return {}
         logger.warning("Config file not found: %s", self.config_path.absolute())
         return {}
+
+    def _redact_secrets(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            redacted = {}
+            for k, v in value.items():
+                key = str(k).lower()
+                if any(token in key for token in ("api_key", "token", "secret", "password")):
+                    redacted[k] = "****"
+                else:
+                    redacted[k] = self._redact_secrets(v)
+            return redacted
+        if isinstance(value, list):
+            return [self._redact_secrets(item) for item in value]
+        return value
 
     def get_config(self) -> Dict[str, Any]:
         """获取完整配置字典"""
@@ -109,6 +123,24 @@ class ConfigService:
         # 2. 通用设置 (settings 子树)
         settings = llm_section.get("settings", {})
         config["llm_request_timeout"] = os.getenv("LLM_REQUEST_TIMEOUT") or settings.get("request_timeout")
+        meta_enabled_raw = os.getenv("META_ENABLED")
+        if meta_enabled_raw is None:
+            meta_enabled_raw = settings.get("meta_enabled", True)
+        if isinstance(meta_enabled_raw, str):
+            config["meta_enabled"] = meta_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            config["meta_enabled"] = bool(meta_enabled_raw)
+        config["meta_provider"] = os.getenv("META_PROVIDER") or settings.get("meta_provider")
+        config["meta_model"] = os.getenv("META_MODEL") or settings.get("meta_model")
+        config["meta_timeout_ms"] = os.getenv("META_TIMEOUT_MS") or settings.get("meta_timeout_ms")
+        config["meta_max_tokens"] = os.getenv("META_MAX_TOKENS") or settings.get("meta_max_tokens")
+        meta_use_runtime_raw = os.getenv("META_USE_RUNTIME_MODEL_FOR_TITLE")
+        if meta_use_runtime_raw is None:
+            meta_use_runtime_raw = settings.get("meta_use_runtime_model_for_title", False)
+        if isinstance(meta_use_runtime_raw, str):
+            config["meta_use_runtime_model_for_title"] = meta_use_runtime_raw.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            config["meta_use_runtime_model_for_title"] = bool(meta_use_runtime_raw)
 
         # 3. 各 Provider 策略化加载 (providers 子树)
         for provider_name, strategy in STRATEGIES.items():
@@ -138,6 +170,24 @@ class ConfigService:
                 config['llm_request_timeout'] = int(config['llm_request_timeout'])
             except (ValueError, TypeError):
                 config['llm_request_timeout'] = 300
+        if config.get("meta_provider") is None:
+            config["meta_provider"] = config.get("provider")
+        if config.get("meta_model") is None and isinstance(config.get("meta_provider"), str):
+            config["meta_model"] = config.get(f"{config['meta_provider']}_model")
+        if not config.get("meta_timeout_ms"):
+            config["meta_timeout_ms"] = config["llm_request_timeout"] * 1000
+        else:
+            try:
+                config["meta_timeout_ms"] = int(config["meta_timeout_ms"])
+            except (ValueError, TypeError):
+                config["meta_timeout_ms"] = config["llm_request_timeout"] * 1000
+        if not config.get("meta_max_tokens"):
+            config["meta_max_tokens"] = 96
+        else:
+            try:
+                config["meta_max_tokens"] = int(config["meta_max_tokens"])
+            except (ValueError, TypeError):
+                config["meta_max_tokens"] = 96
                 
         return config
 
@@ -313,6 +363,8 @@ class ConfigService:
                 llm["enabled_providers"] = v
             elif k == "llm_request_timeout":
                 llm["settings"]["request_timeout"] = v
+            elif k in {"meta_enabled", "meta_provider", "meta_model", "meta_timeout_ms", "meta_max_tokens", "meta_use_runtime_model_for_title"}:
+                llm["settings"][k] = v
             elif k.endswith("_enabled_models_mode"):
                 llm["settings"][k] = v
             elif k == "custom_models":

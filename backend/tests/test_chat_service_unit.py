@@ -53,6 +53,16 @@ def test_add_message(temp_db):
     # Check if title updated
     assert updated.title == "Hello world"
 
+def test_update_chat_title_and_summary(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat(title="Old")
+    assert service.update_chat_title(chat.id, "New Title") is True
+    assert service.update_chat_summary(chat.id, "Summary text") is True
+    loaded = service.get_chat(chat.id)
+    assert loaded is not None
+    assert loaded.title == "New Title"
+    assert loaded.summary == "Summary text"
+
 def test_list_chats(temp_db):
     service, _ = temp_db
     service.create_chat(title="Chat 1")

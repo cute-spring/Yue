@@ -75,6 +75,7 @@ class SkillEffectivenessEvent(BaseModel):
 class ChatSession(BaseModel):
     id: str
     title: str
+    summary: Optional[str] = None
     agent_id: Optional[str] = None
     active_skill_name: Optional[str] = None
     active_skill_version: Optional[str] = None
@@ -104,6 +105,7 @@ class ChatService:
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
+                    summary TEXT,
                     agent_id TEXT,
                     active_skill_name TEXT,
                     active_skill_version TEXT,
@@ -202,6 +204,9 @@ class ChatService:
                 conn.commit()
             if "active_skill_version" not in session_columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN active_skill_version TEXT")
+                conn.commit()
+            if "summary" not in session_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN summary TEXT")
                 conn.commit()
             cursor = conn.execute("PRAGMA table_info(messages)")
             columns = [info[1] for info in cursor.fetchall()]
@@ -362,6 +367,7 @@ class ChatService:
                 sessions.append(ChatSession(
                     id=row['id'],
                     title=row['title'],
+                    summary=row['summary'] if 'summary' in row.keys() else None,
                     agent_id=row['agent_id'],
                     active_skill_name=row['active_skill_name'],
                     active_skill_version=row['active_skill_version'],
@@ -416,6 +422,7 @@ class ChatService:
             return ChatSession(
                 id=row['id'],
                 title=row['title'],
+                summary=row['summary'] if 'summary' in row.keys() else None,
                 agent_id=row['agent_id'],
                 active_skill_name=row['active_skill_name'],
                 active_skill_version=row['active_skill_version'],
@@ -429,14 +436,15 @@ class ChatService:
         now = datetime.now()
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, agent_id, active_skill_name, active_skill_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (chat_id, title, agent_id, None, None, now, now)
+                "INSERT INTO sessions (id, title, summary, agent_id, active_skill_name, active_skill_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (chat_id, title, None, agent_id, None, None, now, now)
             )
             conn.commit()
         
         return ChatSession(
             id=chat_id,
             title=title,
+            summary=None,
             agent_id=agent_id,
             active_skill_name=None,
             active_skill_version=None,
@@ -444,6 +452,26 @@ class ChatService:
             created_at=now,
             updated_at=now
         )
+
+    def update_chat_title(self, chat_id: str, title: str) -> bool:
+        now = datetime.now()
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?",
+                (title, now, chat_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_chat_summary(self, chat_id: str, summary: Optional[str]) -> bool:
+        now = datetime.now()
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?",
+                (summary, now, chat_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def get_session_skill(self, chat_id: str) -> tuple[Optional[str], Optional[str]]:
         with self._get_connection() as conn:

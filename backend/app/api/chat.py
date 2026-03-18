@@ -16,6 +16,7 @@ from app.services.contract_gate import validate_sse_payload
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.services.multimodal_service import MultimodalService, MultimodalValidationError
+from app.services.session_meta_service import session_meta_service
 from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, MarkdownSkillAdapter, LegacyAgentAdapter
 from app.services import doc_retrieval
 from app.utils.image_handler import save_base64_image, load_image_to_base64
@@ -25,6 +26,7 @@ import uuid
 import json
 import logging
 import os
+from collections import defaultdict
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
 
@@ -38,6 +40,7 @@ MAX_CONTEXT_TOKENS = 100000
 MAX_SINGLE_MSG_TOKENS = 20000  # Cap single messages to avoid one massive file read blocking everything
 SKILL_BIND_MIN_SCORE = 2
 SKILL_SWITCH_DELTA = 2
+_TITLE_REFINEMENT_REASON_COUNTS: Dict[str, int] = defaultdict(int)
 
 def estimate_tokens(text: str) -> int:
     if not text:
@@ -222,6 +225,83 @@ def _legacy_reasoning_guess(model_name: str) -> bool:
 def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
+def _title_refinement_reason_distribution() -> Dict[str, Any]:
+    counts = {k: int(v) for k, v in _TITLE_REFINEMENT_REASON_COUNTS.items()}
+    return {
+        "total": int(sum(counts.values())),
+        "counts": dict(sorted(counts.items(), key=lambda item: item[0]))
+    }
+
+def _record_title_refinement_reason(reason: str) -> Dict[str, Any]:
+    key = reason.strip().lower() if isinstance(reason, str) and reason.strip() else "unknown"
+    _TITLE_REFINEMENT_REASON_COUNTS[key] += 1
+    return _title_refinement_reason_distribution()
+
+def _is_placeholder_title(chat: ChatSession) -> bool:
+    title = (chat.title or "").strip()
+    if not title:
+        return True
+    if title == "New Chat":
+        return True
+    first_user_message = next(
+        ((m.content or "").strip() for m in chat.messages if m.role == "user" and (m.content or "").strip()),
+        None
+    )
+    if not first_user_message:
+        return False
+    expected = first_user_message[:30] + "..." if len(first_user_message) > 30 else first_user_message
+    return title == expected
+
+async def _refine_title_once(
+    chat_id: str,
+    provider_override: Optional[str] = None,
+    model_override: Optional[str] = None
+) -> None:
+    try:
+        chat = chat_service.get_chat(chat_id)
+        if not chat:
+            distribution = _record_title_refinement_reason("chat_not_found")
+            logger.info("TITLE_REFINEMENT chat_id=%s action=skip reason=chat_not_found distribution=%s", chat_id, distribution)
+            return
+        original_title = (chat.title or "").strip()
+        if not _is_placeholder_title(chat):
+            distribution = _record_title_refinement_reason("non_placeholder")
+            logger.info("TITLE_REFINEMENT chat_id=%s action=skip reason=non_placeholder title=%s distribution=%s", chat_id, original_title, distribution)
+            return
+        assistant_count = sum(1 for m in chat.messages if m.role == "assistant")
+        if assistant_count != 1:
+            distribution = _record_title_refinement_reason("assistant_count_mismatch")
+            logger.info("TITLE_REFINEMENT chat_id=%s action=skip reason=assistant_count_mismatch assistant_count=%s distribution=%s", chat_id, assistant_count, distribution)
+            return
+        llm_config = config_service.get_llm_config()
+        if not llm_config.get("meta_use_runtime_model_for_title", False):
+            provider_override = None
+            model_override = None
+        generated_title = await session_meta_service.generate_session_meta(
+            chat_id,
+            task="title",
+            provider_override=provider_override,
+            model_override=model_override
+        )
+        if not generated_title:
+            distribution = _record_title_refinement_reason("empty_generated_title")
+            logger.info("TITLE_REFINEMENT chat_id=%s action=skip reason=empty_generated_title distribution=%s", chat_id, distribution)
+            return
+        updated = chat_service.update_chat_title(chat_id, generated_title)
+        distribution = _record_title_refinement_reason("updated" if updated else "update_noop")
+        logger.info(
+            "TITLE_REFINEMENT chat_id=%s action=%s old_title=%s new_title=%s distribution=%s",
+            chat_id,
+            "updated" if updated else "skip",
+            original_title,
+            generated_title,
+            distribution
+        )
+    except Exception:
+        distribution = _record_title_refinement_reason("error")
+        logger.info("TITLE_REFINEMENT chat_id=%s action=error distribution=%s", chat_id, distribution)
+        logger.exception("TITLE_REFINEMENT chat_id=%s action=error", chat_id)
+
 router = APIRouter()
 
 class ChatRequest(BaseModel):
@@ -262,10 +342,39 @@ async def delete_chat(chat_id: str):
 class TruncateRequest(BaseModel):
     keep_count: int
 
+class SummaryGenerateRequest(BaseModel):
+    force: bool = False
+
 @router.post("/{chat_id}/truncate")
 async def truncate_chat(chat_id: str, request: TruncateRequest):
     chat_service.truncate_chat(chat_id, request.keep_count)
     return {"status": "success"}
+
+@router.post("/{chat_id}/summary")
+async def generate_chat_summary(chat_id: str, request: Optional[SummaryGenerateRequest] = None):
+    chat = chat_service.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    force = bool(request.force) if request else False
+    if chat.summary and not force:
+        return {"summary": chat.summary}
+    summary = await session_meta_service.generate_session_meta(chat_id, task="summary")
+    if not summary:
+        return {"summary": chat.summary or ""}
+    chat_service.update_chat_summary(chat_id, summary)
+    return {"summary": summary}
+
+@router.get("/{chat_id}/meta")
+async def get_chat_meta(chat_id: str):
+    chat = chat_service.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return {
+        "id": chat.id,
+        "title": chat.title,
+        "summary": chat.summary,
+        "updated_at": chat.updated_at
+    }
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest):
@@ -1247,6 +1356,7 @@ async def chat_stream(request: ChatRequest):
                     deep_thinking_enabled=bool(request.deep_thinking_enabled),
                     reasoning_enabled=reasoning_enabled
                 )
+                asyncio.create_task(_refine_title_once(chat_id, provider_override=provider, model_override=model_name))
             if _env_flag_with_fallback("LLM_VERBOSE_LOG_ENABLED", "BACKLOG_VERBOSE_LOG_ENABLED", True):
                 logger.info(
                     "BACKLOG_CHAT_RESPONSE %s",
@@ -1276,3 +1386,7 @@ async def get_skill_effectiveness_report(hours: int = 24):
     if hours <= 0 or hours > 24 * 30:
         raise HTTPException(status_code=400, detail="hours_out_of_range")
     return chat_service.get_skill_effectiveness_report(hours=hours)
+
+@router.get("/title-refinement/reasons")
+async def get_title_refinement_reason_distribution():
+    return _title_refinement_reason_distribution()

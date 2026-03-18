@@ -77,6 +77,34 @@ curl -s -X POST http://127.0.0.1:8003/api/models/test/openai -H "Content-Type: a
 
 Code refs: [models.py](../backend/app/api/models.py#L20-L39), [model_factory.py](../backend/app/services/model_factory.py)
 
+### 2.1) Meta LLM 配置体感验证（Title / Summary）
+
+- 目标：验证 `meta_use_runtime_model_for_title` 对标题生成路径的影响是否符合预期。
+- 配置项：`llm.settings.meta_use_runtime_model_for_title` 或环境变量 `META_USE_RUNTIME_MODEL_FOR_TITLE`。
+
+#### 自动化验证（后端单测）
+```bash
+PYTHONPATH=backend pytest backend/tests/test_config_service_unit.py::test_config_service_load_existing_redacts_secrets_in_logs \
+  backend/tests/test_config_service_unit.py::test_meta_llm_config_round_trip \
+  backend/tests/test_api_chat_unit.py::test_refine_title_once_forwards_runtime_provider_model \
+  backend/tests/test_api_chat_unit.py::test_refine_title_once_ignores_runtime_provider_model_when_disabled -v
+```
+
+预期：
+- 全部通过；
+- 覆盖“日志脱敏”“开关开启时透传 runtime model”“开关关闭时忽略 runtime model”。
+
+#### 手工验证（最有体感）
+1. 在 `backend/data/global_config.json` 设置：
+   - `meta_provider` 与 `meta_model` 为固定值（例如 `openai/gpt-4o-mini`）；
+   - 分别测试 `meta_use_runtime_model_for_title=false` 与 `true`。
+2. 前端新建会话，使用同样的首轮问题，但切换不同聊天模型发送。
+3. 对比自动 refinement 后的标题风格是否变化。
+
+预期：
+- `false`：标题更稳定，主要受 `meta_provider/meta_model` 影响。
+- `true`：标题更容易跟随当前对话使用的 runtime model 风格变化。
+
 ### 3) MCP Tools & Status
 - Tools must include stable id "server:name".
 - Status must show enabled/connected/last_error per server.

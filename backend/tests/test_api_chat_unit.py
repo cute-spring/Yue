@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from app.main import app
 from app.services.skill_service import SkillSpec
 from app.services.agent_store import AgentConfig
+from app.services.chat_service import Message
 
 from datetime import datetime
 
@@ -78,6 +79,43 @@ def test_truncate_chat(client, mock_chat_service):
     response = client.post("/api/chat/1/truncate", json={"keep_count": 5})
     assert response.status_code == 200
     mock_chat_service.truncate_chat.assert_called_once_with("1", 5)
+
+def test_generate_summary_not_found(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = None
+    response = client.post("/api/chat/missing/summary")
+    assert response.status_code == 404
+
+def test_generate_summary_updates_session(client, mock_chat_service):
+    now = datetime.now()
+    mock_chat_service.get_chat.side_effect = [
+        {"id": "1", "title": "Chat 1", "summary": None, "created_at": now, "updated_at": now, "messages": []},
+        {"id": "1", "title": "Chat 1", "summary": "new summary", "created_at": now, "updated_at": now, "messages": []}
+    ]
+    with patch("app.api.chat.session_meta_service.generate_session_meta", new=AsyncMock(return_value="new summary")):
+        response = client.post("/api/chat/1/summary")
+    assert response.status_code == 200
+    assert response.json()["summary"] == "new summary"
+    mock_chat_service.update_chat_summary.assert_called_once_with("1", "new summary")
+
+def test_get_chat_meta_not_found(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = None
+    response = client.get("/api/chat/missing/meta")
+    assert response.status_code == 404
+
+def test_get_chat_meta_success(client, mock_chat_service):
+    now = datetime.now()
+    chat_obj = MagicMock()
+    chat_obj.id = "1"
+    chat_obj.title = "Refined Title"
+    chat_obj.summary = "Summary"
+    chat_obj.updated_at = now
+    mock_chat_service.get_chat.return_value = chat_obj
+    response = client.get("/api/chat/1/meta")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "1"
+    assert payload["title"] == "Refined Title"
+    assert payload["summary"] == "Summary"
 
 @pytest.mark.asyncio
 async def test_chat_stream_basic(client, mock_chat_service):
@@ -382,6 +420,107 @@ async def test_chat_stream_with_images(client, mock_chat_service):
         assert response.status_code == 200
         mock_save.assert_called_once()
         mock_load.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_refine_title_once_updates_only_placeholder_title():
+    from app.api import chat as chat_api
+    user_text = "A" * 35
+    placeholder_title = "A" * 30 + "..."
+    chat_obj = MagicMock()
+    chat_obj.title = placeholder_title
+    chat_obj.messages = [
+        Message(role="user", content=user_text, timestamp=datetime.now()),
+        Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
+    ]
+    with patch("app.api.chat.chat_service") as mock_service, \
+         patch("app.api.chat.session_meta_service") as mock_meta:
+        mock_service.get_chat.return_value = chat_obj
+        mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
+        await chat_api._refine_title_once("chat-id")
+        mock_meta.generate_session_meta.assert_called_once()
+        _, kwargs = mock_meta.generate_session_meta.call_args
+        assert kwargs.get("task") == "title"
+        mock_service.update_chat_title.assert_called_once_with("chat-id", "Refined Title")
+
+@pytest.mark.asyncio
+async def test_refine_title_once_skips_manual_title():
+    from app.api import chat as chat_api
+    chat_obj = MagicMock()
+    chat_obj.title = "Manual Name"
+    chat_obj.messages = [
+        Message(role="user", content="hello", timestamp=datetime.now()),
+        Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
+    ]
+    with patch("app.api.chat.chat_service") as mock_service, \
+         patch("app.api.chat.session_meta_service") as mock_meta:
+        mock_service.get_chat.return_value = chat_obj
+        mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
+        await chat_api._refine_title_once("chat-id")
+        mock_meta.generate_session_meta.assert_not_called()
+        mock_service.update_chat_title.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_refine_title_once_forwards_runtime_provider_model():
+    from app.api import chat as chat_api
+    chat_obj = MagicMock()
+    chat_obj.title = "A" * 30 + "..."
+    chat_obj.messages = [
+        Message(role="user", content="A" * 35, timestamp=datetime.now()),
+        Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
+    ]
+    with patch("app.api.chat.chat_service") as mock_service, \
+         patch("app.api.chat.session_meta_service") as mock_meta, \
+         patch("app.api.chat.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": True}):
+        mock_service.get_chat.return_value = chat_obj
+        mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
+        await chat_api._refine_title_once("chat-id", provider_override="zhipu", model_override="glm-4.6v")
+        mock_meta.generate_session_meta.assert_called_once()
+        _, kwargs = mock_meta.generate_session_meta.call_args
+        assert kwargs.get("provider_override") == "zhipu"
+        assert kwargs.get("model_override") == "glm-4.6v"
+
+@pytest.mark.asyncio
+async def test_refine_title_once_ignores_runtime_provider_model_when_disabled():
+    from app.api import chat as chat_api
+    chat_obj = MagicMock()
+    chat_obj.title = "A" * 30 + "..."
+    chat_obj.messages = [
+        Message(role="user", content="A" * 35, timestamp=datetime.now()),
+        Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
+    ]
+    with patch("app.api.chat.chat_service") as mock_service, \
+         patch("app.api.chat.session_meta_service") as mock_meta, \
+         patch("app.api.chat.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": False}):
+        mock_service.get_chat.return_value = chat_obj
+        mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
+        await chat_api._refine_title_once("chat-id", provider_override="zhipu", model_override="glm-4.6v")
+        mock_meta.generate_session_meta.assert_called_once()
+        _, kwargs = mock_meta.generate_session_meta.call_args
+        assert kwargs.get("provider_override") is None
+        assert kwargs.get("model_override") is None
+
+def test_title_refinement_reason_distribution_endpoint(client, mock_chat_service):
+    from app.api import chat as chat_api
+    chat_api._TITLE_REFINEMENT_REASON_COUNTS.clear()
+    chat_api._TITLE_REFINEMENT_REASON_COUNTS["updated"] = 2
+    chat_api._TITLE_REFINEMENT_REASON_COUNTS["non_placeholder"] = 3
+    response = client.get("/api/chat/title-refinement/reasons")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 5
+    assert payload["counts"]["updated"] == 2
+    assert payload["counts"]["non_placeholder"] == 3
+
+def test_record_title_refinement_reason_counts():
+    from app.api import chat as chat_api
+    chat_api._TITLE_REFINEMENT_REASON_COUNTS.clear()
+    chat_api._record_title_refinement_reason("updated")
+    chat_api._record_title_refinement_reason("updated")
+    chat_api._record_title_refinement_reason("non_placeholder")
+    distribution = chat_api._title_refinement_reason_distribution()
+    assert distribution["total"] == 3
+    assert distribution["counts"]["updated"] == 2
+    assert distribution["counts"]["non_placeholder"] == 1
 
 @pytest.mark.asyncio
 async def test_chat_stream_with_agent_config(client, mock_chat_service):

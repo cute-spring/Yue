@@ -1,20 +1,44 @@
 {
+  "settings": {
+    "request_timeout": 300,
+    "meta_enabled": true,
+    "meta_provider": "openai",
+    "meta_model": "gpt-4o-mini",
+    "meta_timeout_ms": 1800,
+    "meta_max_tokens": 96,
+    "meta_use_runtime_model_for_title": false
+  },
   "llm": {
     "provider": "deepseek",
     "enabled_providers": "openai,azure_openai,deepseek,ollama,zhipu",
+    "openai_enabled_models_mode": "allowlist",
+    "zhipu_enabled_models_mode": "allowlist",
     "settings": {
-      "request_timeout": 300
+      "request_timeout": 300,
+      "meta_enabled": true,
+      "meta_provider": "openai",
+      "meta_model": "gpt-4o-mini",
+      "meta_timeout_ms": 1800,
+      "meta_max_tokens": 96,
+      "meta_use_runtime_model_for_title": false
     },
     "providers": {
       "openai": {
         "default_model": "gpt-4o",
         "max_output_tokens": 8192,
+        "enabled_models": [
+          "openai/gpt-4o",
+          "openai/gpt-4o-mini"
+        ],
         "api_key": "YOUR_OPENAI_API_KEY"
       },
       "zhipu": {
         "default_model": "glm-4.6v",
         "base_url": "https://open.bigmodel.cn/api/paas/v4/",
         "max_output_tokens": 4096,
+        "enabled_models": [
+          "zhipu/glm-4.6v"
+        ],
         "api_key": "YOUR_ZHIPU_API_KEY"
       },
       "deepseek": {
@@ -36,8 +60,44 @@
       }
     },
     "models": {
+      "openai/gpt-4o": {
+        "display_name": "GPT-4o",
+        "description": "General multimodal model for text and image understanding",
+        "context_window": 128000,
+        "max_output_tokens": 8192,
+        "capabilities": [
+          "text",
+          "vision",
+          "function_calling"
+        ],
+        "enabled": true
+      },
+      "openai/gpt-4o-mini": {
+        "display_name": "GPT-4o Mini",
+        "description": "Lower-cost multimodal model for text and image understanding",
+        "context_window": 128000,
+        "max_output_tokens": 4096,
+        "capabilities": [
+          "text",
+          "vision",
+          "function_calling"
+        ],
+        "enabled": true
+      },
+      "zhipu/glm-4.6v": {
+        "display_name": "GLM-4.6V",
+        "description": "Vision-capable model example with text + image input",
+        "context_window": 128000,
+        "max_output_tokens": 4096,
+        "capabilities": [
+          "text",
+          "vision"
+        ],
+        "enabled": true
+      },
       "deepseek/deepseek-chat": {
         "display_name": "DeepSeek Chat",
+        "description": "Text-only model optimized for general chat and tool calling",
         "context_window": 128000,
         "max_output_tokens": 8192,
         "capabilities": [
