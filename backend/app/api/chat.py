@@ -309,9 +309,11 @@ async def chat_stream(request: ChatRequest):
             # Add to temp history
             if m.role == "user":
                 if m.images:
-                    parts = [m.content]
+                    parts = []
+                    content_text = (m.content or "").strip()
+                    if content_text:
+                        parts.append(content_text)
                     for img in m.images:
-                        # Reload from disk if it's a path
                         base64_img = load_image_to_base64(img)
                         parts.append(ImageUrl(url=base64_img))
                     temp_history.append(ModelRequest(parts=[UserPromptPart(content=parts)]))
@@ -826,12 +828,11 @@ async def chat_stream(request: ChatRequest):
             first_token_time = None
             
             try:
-                # Prepare input
-                user_input = request.message
-                if vision_enabled:
-                    user_input = [request.message]
-                    for img in validated_images:
-                        user_input.append(ImageUrl(url=img))
+                user_input = multimodal_service.build_user_input(
+                    message=request.message,
+                    validated_images=validated_images,
+                    vision_enabled=vision_enabled,
+                )
 
                 # Run with history and model settings
                 async with agent.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings, usage_limits=usage_limits) as result:
@@ -1102,11 +1103,11 @@ async def chat_stream(request: ChatRequest):
                                     system_prompt=system_prompt,
                                     tools=tools
                                 )
-                                retry_input = request.message
-                                if vision_enabled:
-                                    retry_input = [request.message]
-                                    for img in validated_images:
-                                        retry_input.append(ImageUrl(url=img))
+                                retry_input = multimodal_service.build_user_input(
+                                    message=request.message,
+                                    validated_images=validated_images,
+                                    vision_enabled=vision_enabled,
+                                )
                                 async with retry_agent.run_stream(
                                     retry_input,
                                     message_history=history,
