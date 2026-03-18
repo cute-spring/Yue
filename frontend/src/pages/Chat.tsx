@@ -104,6 +104,7 @@ export default function Chat() {
     loadChat,
     startNewChat,
     deleteChat,
+    generateSummary,
     toggleThought,
     copyUserMessage,
     quoteUserMessage,
@@ -194,6 +195,18 @@ export default function Chat() {
     setTimeout(() => {
       handleSubmit(new Event('submit'));
     }, 0);
+  };
+
+  const handleGenerateSummary = async (chatId: string) => {
+    const summary = await generateSummary(chatId, true);
+    if (summary) {
+      toast.success('Summary updated');
+    } else {
+      toast.info('No summary generated');
+    }
+    if (currentChatId() === chatId) {
+      await loadChat(chatId, false, setShowHistory, setSelectedAgent);
+    }
   };
 
   const {
@@ -444,6 +457,7 @@ export default function Chat() {
         onNewChat={() => startNewChat(isMobile(), setShowHistory)} 
         onLoadChat={(id) => loadChat(id, isMobile(), setShowHistory, setSelectedAgent)} 
         onDeleteChat={(id) => setConfirmDeleteId(id)} 
+        onGenerateSummary={handleGenerateSummary}
       />
 
       {/* 2. Main Chat Area (flex) */}

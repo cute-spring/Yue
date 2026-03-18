@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildToolCallsFromEvents, normalizeStreamEvent, shouldAcceptEvent } from './useChatState';
+import { buildToolCallsFromEvents, normalizeStreamEvent, shouldAcceptEvent, shouldSkipHistoryFetch } from './useChatState';
 
 describe('useChatState event helpers', () => {
   it('dedupes by event_id for reconnect duplicates', () => {
@@ -35,5 +35,13 @@ describe('useChatState event helpers', () => {
     expect(merged[0].status).toBe('success');
     expect(merged[0].sequence).toBe(20);
     expect(merged[0].args).toEqual({ q: 'reasoning' });
+  });
+
+  it('skips redundant history fetch within short interval', () => {
+    expect(shouldSkipHistoryFetch(1000, 1500, 800)).toBe(true);
+  });
+
+  it('allows history fetch after interval threshold', () => {
+    expect(shouldSkipHistoryFetch(1000, 1900, 800)).toBe(false);
   });
 });

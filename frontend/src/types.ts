@@ -43,6 +43,7 @@ export type SmartDraft = {
 export type ChatSession = {
   id: string;
   title: string;
+  summary?: string | null;
   updated_at: string;
   active_skill_name?: string | null;
   active_skill_version?: string | null;

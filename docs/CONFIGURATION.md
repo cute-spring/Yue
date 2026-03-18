@@ -56,6 +56,43 @@
 `"gpt4o=enterprise-gpt-4o-prod:2024-06-01, o1=internal-o1-preview"`
 *UI 将显示 `gpt4o`，但实际请求 Azure 的 `enterprise-gpt-4o-prod` 部署。*
 
+### 2.4 会话 Meta 生成配置（Title / Summary）
+
+该组配置控制会话标题与摘要的生成行为，位于 `llm.settings`。
+
+| 参数名 | 环境变量 | 作用 | 默认值 |
+| :--- | :--- | :--- | :--- |
+| `meta_enabled` | `META_ENABLED` | 是否启用 Title/Summary 的 Meta LLM 生成 | `true` |
+| `meta_provider` | `META_PROVIDER` | Meta LLM 的 Provider | 回退到 `provider` |
+| `meta_model` | `META_MODEL` | Meta LLM 的模型名 | 回退到对应 Provider 默认模型 |
+| `meta_timeout_ms` | `META_TIMEOUT_MS` | Meta 请求超时（毫秒） | `llm_request_timeout * 1000` |
+| `meta_max_tokens` | `META_MAX_TOKENS` | Meta 输出最大 token 限制 | `96` |
+| `meta_use_runtime_model_for_title` | `META_USE_RUNTIME_MODEL_FOR_TITLE` | 标题生成是否跟随当前会话运行时模型 | `false` |
+
+**行为说明（重点）**:
+- 当 `meta_use_runtime_model_for_title=false`：标题与摘要都优先走 `meta_provider/meta_model`，风格更稳定，便于统一产出。
+- 当 `meta_use_runtime_model_for_title=true`：标题会优先跟随当前聊天请求的 `provider/model`，摘要仍走 `meta_provider/meta_model`。
+
+**推荐配置**:
+- 生产环境建议先使用 `false`，确保标题与摘要一致性。
+- 仅在你希望标题“贴合当前模型风格”时开启 `true`。
+
+**示例配置**:
+```json
+{
+  "llm": {
+    "settings": {
+      "meta_enabled": true,
+      "meta_provider": "openai",
+      "meta_model": "gpt-4o-mini",
+      "meta_timeout_ms": 1800,
+      "meta_max_tokens": 96,
+      "meta_use_runtime_model_for_title": false
+    }
+  }
+}
+```
+
 ---
 
 ## 3. 文档访问控制 (`doc_access`)

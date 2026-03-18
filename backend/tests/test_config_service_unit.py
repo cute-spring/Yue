@@ -23,6 +23,13 @@ def test_config_service_load_existing(temp_config_file):
     service = ConfigService(str(temp_config_file))
     assert service.get_config() == data
 
+def test_config_service_load_existing_redacts_secrets_in_logs(temp_config_file, caplog):
+    data = {"llm": {"providers": {"openai": {"api_key": "sk-secret-123"}}}}
+    temp_config_file.write_text(json.dumps(data))
+    caplog.set_level("INFO")
+    ConfigService(str(temp_config_file))
+    assert "sk-secret-123" not in caplog.text
+
 def test_config_service_update(temp_config_file):
     service = ConfigService(str(temp_config_file))
     new_data = {"preferences": {"theme": "dark"}}
@@ -63,6 +70,26 @@ def test_get_llm_config_merges_env(temp_config_file, monkeypatch):
     # 环境变量优先级更高
     assert llm_config["llm_request_timeout"] == 30
 
+def test_meta_enabled_defaults_true_when_unset(temp_config_file):
+    data = {
+        "llm": {
+            "provider": "openai",
+            "providers": {
+                "openai": {
+                    "default_model": "gpt-4o-mini"
+                }
+            },
+            "settings": {
+                "request_timeout": 60
+            }
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    service = ConfigService(str(temp_config_file))
+    llm_config = service.get_llm_config()
+    assert llm_config["meta_enabled"] is True
+    assert llm_config["meta_use_runtime_model_for_title"] is False
+
 def test_update_llm_config_protects_secrets(temp_config_file, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # 使用新的结构化配置格式
@@ -86,6 +113,52 @@ def test_update_llm_config_protects_secrets(temp_config_file, monkeypatch):
     # 掩码值应该被保护，保留原有值
     assert llm_config["openai_api_key"] == "secret-key"
     assert llm_config["provider"] == "ollama"
+
+def test_meta_llm_config_round_trip(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+    updated = service.update_llm_config({
+        "meta_enabled": True,
+        "meta_provider": "openai",
+        "meta_model": "gpt-4o-mini",
+        "meta_timeout_ms": 1800,
+        "meta_max_tokens": 96,
+        "meta_use_runtime_model_for_title": True,
+    })
+    assert updated["meta_enabled"] is True
+    assert updated["meta_provider"] == "openai"
+    assert updated["meta_model"] == "gpt-4o-mini"
+    assert updated["meta_timeout_ms"] == 1800
+    assert updated["meta_max_tokens"] == 96
+    assert updated["meta_use_runtime_model_for_title"] is True
+
+def test_meta_llm_config_env_override(temp_config_file, monkeypatch):
+    data = {
+        "llm": {
+            "settings": {
+                "meta_enabled": False,
+                "meta_provider": "deepseek",
+                "meta_model": "deepseek-chat",
+                "meta_timeout_ms": 3000,
+                "meta_max_tokens": 88,
+                "meta_use_runtime_model_for_title": False
+            }
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    monkeypatch.setenv("META_ENABLED", "true")
+    monkeypatch.setenv("META_PROVIDER", "openai")
+    monkeypatch.setenv("META_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("META_TIMEOUT_MS", "1500")
+    monkeypatch.setenv("META_MAX_TOKENS", "66")
+    monkeypatch.setenv("META_USE_RUNTIME_MODEL_FOR_TITLE", "true")
+    service = ConfigService(str(temp_config_file))
+    llm_config = service.get_llm_config()
+    assert llm_config["meta_enabled"] is True
+    assert llm_config["meta_provider"] == "openai"
+    assert llm_config["meta_model"] == "gpt-4o-mini"
+    assert llm_config["meta_timeout_ms"] == 1500
+    assert llm_config["meta_max_tokens"] == 66
+    assert llm_config["meta_use_runtime_model_for_title"] is True
 
 def test_custom_models_crud(temp_config_file):
     service = ConfigService(str(temp_config_file))

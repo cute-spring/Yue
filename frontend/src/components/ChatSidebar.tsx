@@ -8,6 +8,7 @@ interface ChatSidebarProps {
   onNewChat: () => void;
   onLoadChat: (id: string) => void;
   onDeleteChat: (id: string) => void;
+  onGenerateSummary: (id: string) => void;
 }
 
 export default function ChatSidebar(props: ChatSidebarProps) {
@@ -45,19 +46,36 @@ export default function ChatSidebar(props: ChatSidebarProps) {
               >
                 <div class="flex-1 min-w-0">
                   <h3 class={`text-sm font-medium truncate ${props.currentChatId === chat.id ? 'text-primary' : 'text-text-primary'}`}>{chat.title}</h3>
+                  <Show when={chat.summary}>
+                    <p class="text-[10px] text-text-secondary mt-1 line-clamp-2">{chat.summary}</p>
+                  </Show>
                   <p class="text-[10px] text-text-secondary mt-1">{new Date(chat.updated_at).toLocaleDateString()}</p>
                 </div>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onDeleteChat(chat.id);
-                  }}
-                  class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 transition-all"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                <div class="flex items-start gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onGenerateSummary(chat.id);
+                    }}
+                    class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-primary p-1 transition-all"
+                    title="Generate summary"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8M8 14h5M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3V8a2 2 0 012-2z" />
+                    </svg>
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onDeleteChat(chat.id);
+                    }}
+                    class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 transition-all"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             )}
           </For>

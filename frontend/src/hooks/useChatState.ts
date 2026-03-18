@@ -71,6 +71,11 @@ export const canSubmitChatRequest = (inputText: string, imageCount: number): boo
   return inputText.trim().length > 0 || imageCount > 0;
 };
 
+export const shouldSkipHistoryFetch = (lastFetchAt: number, now: number, minIntervalMs: number): boolean => {
+  if (lastFetchAt <= 0) return false;
+  return now - lastFetchAt < minIntervalMs;
+};
+
 export type VisionStreamFeedback = {
   level: 'info' | 'warning' | 'error';
   message: string;
@@ -127,15 +132,89 @@ export function useChatState(
   
   let abortController: AbortController | null = null;
   let timerInterval: any = null;
+  let metaRefreshTimers: number[] = [];
+  let historyFetchInFlight: Promise<void> | null = null;
+  let lastHistoryFetchAt = 0;
+  const historyFetchMinIntervalMs = 800;
 
-  const loadHistory = async () => {
+  const loadHistory = async (force: boolean = false) => {
+    if (historyFetchInFlight) {
+      await historyFetchInFlight;
+      return;
+    }
+    const now = Date.now();
+    if (!force && shouldSkipHistoryFetch(lastHistoryFetchAt, now, historyFetchMinIntervalMs)) {
+      return;
+    }
+    historyFetchInFlight = (async () => {
+      try {
+        const res = await fetch('/api/chat/history');
+        const data = await res.json();
+        setChats(data);
+        lastHistoryFetchAt = Date.now();
+      } catch (e) {
+        console.error("Failed to load history", e);
+        toast.error("Failed to load chat history");
+      } finally {
+        historyFetchInFlight = null;
+      }
+    })();
+    await historyFetchInFlight;
+  };
+
+  const clearMetaRefreshTimers = () => {
+    for (const timer of metaRefreshTimers) {
+      clearTimeout(timer);
+    }
+    metaRefreshTimers = [];
+  };
+
+  const refreshChatMeta = async (chatId: string): Promise<boolean> => {
     try {
-      const res = await fetch('/api/chat/history');
-      const data = await res.json();
-      setChats(data);
+      const res = await fetch(`/api/chat/${chatId}/meta`);
+      if (!res.ok) {
+        return false;
+      }
+      const meta = await res.json();
+      let titleChanged = false;
+      setChats(prev => {
+        const idx = prev.findIndex(c => c.id === chatId);
+        if (idx === -1) {
+          return [{ id: meta.id, title: meta.title, summary: meta.summary, updated_at: meta.updated_at }, ...prev];
+        }
+        const current = prev[idx];
+        if (current.title !== meta.title) {
+          titleChanged = true;
+        }
+        if (current.title === meta.title && current.summary === meta.summary && current.updated_at === meta.updated_at) {
+          return prev;
+        }
+        const next = [...prev];
+        next[idx] = {
+          ...current,
+          title: meta.title,
+          summary: meta.summary,
+          updated_at: meta.updated_at
+        };
+        return next;
+      });
+      return titleChanged;
     } catch (e) {
-      console.error("Failed to load history", e);
-      toast.error("Failed to load chat history");
+      console.warn("Failed to refresh chat meta", e);
+      return false;
+    }
+  };
+
+  const scheduleMetaRefreshForTitle = (chatId: string) => {
+    clearMetaRefreshTimers();
+    for (const delay of [1200, 3000]) {
+      const timer = window.setTimeout(async () => {
+        const changed = await refreshChatMeta(chatId);
+        if (changed) {
+          clearMetaRefreshTimers();
+        }
+      }, delay);
+      metaRefreshTimers.push(timer);
     }
   };
 
@@ -195,6 +274,7 @@ export function useChatState(
 
   const startNewChat = (isMobile: boolean, setShowHistory: (v: boolean) => void) => {
     if (isTyping()) stopGeneration();
+    clearMetaRefreshTimers();
     setCurrentChatId(null);
     setMessages([]);
     setInput("");
@@ -206,7 +286,7 @@ export function useChatState(
   const deleteChat = async (id: string) => {
     try {
       await fetch(`/api/chat/${id}`, { method: 'DELETE' });
-      loadHistory();
+      await loadHistory(true);
       if (currentChatId() === id) {
         setCurrentChatId(null);
         setMessages([]);
@@ -217,8 +297,29 @@ export function useChatState(
     }
   };
 
+  const generateSummary = async (chatId: string, force: boolean = false): Promise<string> => {
+    try {
+      const res = await fetch(`/api/chat/${chatId}/summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force })
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      await loadHistory(true);
+      return typeof data?.summary === 'string' ? data.summary : '';
+    } catch (e) {
+      console.error("Failed to generate summary", e);
+      toast.error("Failed to generate summary");
+      return '';
+    }
+  };
+
   const stopGeneration = () => {
     console.log("Stopping generation...");
+    clearMetaRefreshTimers();
     if (abortController) {
       console.log("Aborting fetch request");
       abortController.abort();
@@ -380,7 +481,7 @@ export function useChatState(
           if (data.chat_id) {
             setCurrentChatId(data.chat_id);
             setMessages(prev => prev.map(m => m.context_id ? m : { ...m, context_id: data.chat_id }));
-            loadHistory();
+            void refreshChatMeta(String(data.chat_id));
           } else if (data.meta) {
             const metaObj = data.meta as Record<string, any>;
             setMessages(prev => {
@@ -567,6 +668,10 @@ export function useChatState(
       setIsTyping(false);
       clearInterval(timerInterval);
       abortController = null;
+      const chatIdForMeta = currentChatId();
+      if (chatIdForMeta) {
+        scheduleMetaRefreshForTitle(chatIdForMeta);
+      }
     }
   };
 
@@ -649,6 +754,7 @@ export function useChatState(
     loadChat,
     startNewChat,
     deleteChat,
+    generateSummary,
     stopGeneration,
     handleSubmit,
     handleRegenerate,
