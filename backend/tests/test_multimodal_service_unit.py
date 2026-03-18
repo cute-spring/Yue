@@ -1,6 +1,7 @@
 import base64
 
 import pytest
+from pydantic_ai.messages import ImageUrl
 
 from app.services.multimodal_service import MultimodalService, MultimodalValidationError
 
@@ -28,6 +29,15 @@ def test_validate_images_rejects_unsupported_mime():
         service.validate_images([invalid])
 
     assert exc_info.value.code == "IMAGE_FORMAT_UNSUPPORTED"
+
+
+def test_normalize_images_rejects_invalid_payload_type():
+    service = MultimodalService()
+
+    with pytest.raises(MultimodalValidationError) as exc_info:
+        service.normalize_images("data:image/png;base64,YWJj")
+
+    assert exc_info.value.code == "IMAGE_PAYLOAD_INVALID"
 
 
 @pytest.mark.parametrize(
@@ -58,3 +68,19 @@ def test_decide_vision_enabled_matrix(
     assert decision["supports_vision"] is expected_supports
     assert decision["vision_enabled"] is expected_enabled
     assert decision["fallback_mode"] == expected_mode
+
+
+def test_build_user_input_supports_image_only_request():
+    service = MultimodalService()
+    image = _to_data_uri(b"abc")
+
+    result = service.build_user_input(
+        message="   ",
+        validated_images=[image],
+        vision_enabled=True,
+    )
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], ImageUrl)
+    assert result[0].url == image

@@ -1,5 +1,6 @@
 import base64
 from typing import Any, Dict, List, Optional
+from pydantic_ai.messages import ImageUrl
 
 
 class MultimodalValidationError(Exception):
@@ -43,6 +44,8 @@ class MultimodalService:
     def normalize_images(self, images: Optional[List[str]]) -> List[str]:
         if not images:
             return []
+        if not isinstance(images, list):
+            raise MultimodalValidationError("IMAGE_PAYLOAD_INVALID", "images_must_be_list")
         normalized = []
         for item in images:
             if not isinstance(item, str):
@@ -78,6 +81,22 @@ class MultimodalService:
             "vision_enabled": vision_enabled,
             "fallback_mode": fallback_mode,
         }
+
+    def build_user_input(
+        self,
+        message: Optional[str],
+        validated_images: Optional[List[str]],
+        vision_enabled: bool,
+    ) -> str | List[Any]:
+        text = (message or "").strip()
+        if not vision_enabled:
+            return text
+        parts: List[Any] = []
+        if text:
+            parts.append(text)
+        for image in validated_images or []:
+            parts.append(ImageUrl(url=image))
+        return parts if parts else text
 
     def _validate_single_image(self, image: str) -> None:
         if image.startswith("/files/"):
