@@ -71,6 +71,40 @@ export const canSubmitChatRequest = (inputText: string, imageCount: number): boo
   return inputText.trim().length > 0 || imageCount > 0;
 };
 
+export type VisionStreamFeedback = {
+  level: 'info' | 'warning' | 'error';
+  message: string;
+};
+
+export const getVisionStreamFeedback = (
+  meta: Record<string, any> = {},
+  errorCode?: string | null,
+): VisionStreamFeedback | null => {
+  if (errorCode === 'MODEL_VISION_UNSUPPORTED') {
+    return {
+      level: 'error',
+      message: '当前模型不支持视觉能力。请切换到带 Vision 标识的模型后重试。',
+    };
+  }
+  const fallbackMode = typeof meta.vision_fallback_mode === 'string' ? meta.vision_fallback_mode : '';
+  const imageCount = typeof meta.image_count === 'number' ? meta.image_count : 0;
+  const supportsVision = typeof meta.supports_vision === 'boolean' ? meta.supports_vision : null;
+  const visionEnabled = typeof meta.vision_enabled === 'boolean' ? meta.vision_enabled : null;
+  if (fallbackMode === 'text_only' && imageCount > 0) {
+    return {
+      level: 'warning',
+      message: '当前模型不支持视觉，已自动降级为纯文本回复。建议切换到支持 Vision 的模型。',
+    };
+  }
+  if (imageCount > 0 && supportsVision === false && visionEnabled === false) {
+    return {
+      level: 'warning',
+      message: '当前模型未开启视觉处理，图片内容可能未参与回答。',
+    };
+  }
+  return null;
+};
+
 export function useChatState(
   selectedProvider: () => string,
   selectedModel: () => string,
@@ -357,6 +391,10 @@ export function useChatState(
               }
               return newMsgs;
             });
+            const visionFeedback = getVisionStreamFeedback(metaObj);
+            if (visionFeedback?.level === 'warning') {
+              toast.warning(visionFeedback.message, 3500);
+            }
           } else if (data.content || data.thought) {
             if (!firstTokenTime) {
               firstTokenTime = Date.now();
@@ -473,14 +511,37 @@ export function useChatState(
               return newMsgs;
             });
           } else if (data.error) {
+            const errorCode = typeof data.error_code === 'string' ? data.error_code : undefined;
+            const visionFeedback = getVisionStreamFeedback(
+              {
+                supports_vision: data.supports_vision,
+                vision_enabled: data.vision_enabled,
+                image_count: data.image_count,
+                vision_fallback_mode: data.vision_fallback_mode,
+              },
+              errorCode,
+            );
+            const errorMessage = visionFeedback?.message || String(data.error);
             setMessages(prev => {
               const newMsgs = [...prev];
               const lastIndex = newMsgs.length - 1;
               if (lastIndex >= 0) {
-                newMsgs[lastIndex] = { ...newMsgs[lastIndex], content: `Error: ${data.error}`, error: data.error };
+                newMsgs[lastIndex] = {
+                  ...newMsgs[lastIndex],
+                  content: `Error: ${errorMessage}`,
+                  error: errorMessage,
+                  error_code: errorCode,
+                  supports_vision: data.supports_vision,
+                  vision_enabled: data.vision_enabled,
+                  vision_fallback_mode: data.vision_fallback_mode,
+                  image_count: data.image_count,
+                };
               }
               return newMsgs;
             });
+            if (visionFeedback?.level === 'error') {
+              toast.error(visionFeedback.message);
+            }
           }
         } catch (e) {
           console.warn("Failed to parse stream message", e, "Line:", line, "JSON:", jsonStr);

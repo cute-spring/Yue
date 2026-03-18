@@ -21,6 +21,48 @@ interface MessageItemProps {
   selectedModel: string;
 }
 
+export const getVisionBadge = (msg: Pick<Message, 'supports_vision' | 'vision_enabled' | 'vision_fallback_mode' | 'image_count'>) => {
+  const imageCount = typeof msg.image_count === 'number' ? msg.image_count : 0;
+  if (msg.vision_fallback_mode === 'text_only' && imageCount > 0) {
+    return {
+      label: 'Vision Fallback',
+      className: 'bg-amber-500/5 border-amber-500/20 text-amber-500',
+    };
+  }
+  if (msg.supports_vision === true && msg.vision_enabled === true) {
+    return {
+      label: 'Vision On',
+      className: 'bg-emerald-500/5 border-emerald-500/20 text-emerald-500',
+    };
+  }
+  if (msg.supports_vision === true) {
+    return {
+      label: 'Vision Ready',
+      className: 'bg-sky-500/5 border-sky-500/20 text-sky-500',
+    };
+  }
+  if (msg.supports_vision === false) {
+    return {
+      label: 'Vision Off',
+      className: 'bg-rose-500/5 border-rose-500/20 text-rose-500',
+    };
+  }
+  return null;
+};
+
+export const getVisionFeedbackText = (
+  msg: Pick<Message, 'error_code' | 'vision_fallback_mode' | 'image_count'>,
+): string => {
+  if (msg.error_code === 'MODEL_VISION_UNSUPPORTED') {
+    return '该模型不支持视觉能力，请切换到带 Vision 标识的模型后重试。';
+  }
+  const imageCount = typeof msg.image_count === 'number' ? msg.image_count : 0;
+  if (msg.vision_fallback_mode === 'text_only' && imageCount > 0) {
+    return '已自动降级为纯文本模式，本次回复不会分析图片内容。';
+  }
+  return '';
+};
+
 export default function MessageItem(props: MessageItemProps) {
   const [waitSecs, setWaitSecs] = createSignal(0);
   let timer: any;
@@ -96,6 +138,8 @@ export default function MessageItem(props: MessageItemProps) {
     if (model) return model;
     return "Unknown model";
   };
+  const visionBadge = () => getVisionBadge(props.msg);
+  const visionFeedbackText = () => getVisionFeedbackText(props.msg);
 
   const renderThought = (thought: string | null) => {
     if (!thought) return null;
@@ -197,6 +241,12 @@ export default function MessageItem(props: MessageItemProps) {
             </Show>
             {responseStatus(msg)}
           </div>
+          <Show when={visionBadge()}>
+            <div class={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] font-bold uppercase tracking-tight ${visionBadge()?.className}`}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>
+              {visionBadge()?.label}
+            </div>
+          </Show>
 
           <div class="flex items-center gap-2">
             <Show when={msg.ttft}>
@@ -545,6 +595,11 @@ export default function MessageItem(props: MessageItemProps) {
                 </Show>
 
                 <Show when={content || (props.isTyping && !thought)}>
+                  <Show when={visionFeedbackText()}>
+                    <div class="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 text-[13px]">
+                      {visionFeedbackText()}
+                    </div>
+                  </Show>
                   <div 
                     innerHTML={renderMarkdown(content, props.isTyping)} 
                     class="prose prose-slate dark:prose-invert max-w-none 

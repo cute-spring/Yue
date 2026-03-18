@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canSubmitFromInput, getUploadButtonClass, mergeImageAttachments } from './ChatInput';
+import { canSubmitFromInput, getUploadButtonClass, getVisionCapabilityHint, mergeImageAttachments, removeImageAttachmentAt } from './ChatInput';
 
 const makeFile = (name: string, size: number): File => {
   const content = new Array(size).fill('a').join('');
@@ -32,5 +32,17 @@ describe('ChatInput multimodal helpers', () => {
     expect(idleClass).not.toContain('border');
     expect(activeClass).toContain('bg-primary/20');
     expect(activeClass).toContain('border-primary/30');
+  });
+
+  it('removes single attachment by index', () => {
+    const files = [makeFile('a.png', 10), makeFile('b.png', 10), makeFile('c.png', 10)];
+    const result = removeImageAttachmentAt(files, 1);
+    expect(result.map((item: File) => item.name)).toEqual(['a.png', 'c.png']);
+  });
+
+  it('returns capability hint when model is not vision-enabled', () => {
+    expect(getVisionCapabilityHint(true, false, 2)).toBe('当前模型不支持视觉能力，图片请求将被拒绝或降级为纯文本。');
+    expect(getVisionCapabilityHint(true, true, 2)).toBe('');
+    expect(getVisionCapabilityHint(false, false, 2)).toBe('');
   });
 });

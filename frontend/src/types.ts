@@ -73,7 +73,12 @@ export type Message = {
   deep_thinking_enabled?: boolean;
   reasoning_enabled?: boolean;
   reasoning_disabled_reason_code?: string | null;
+  supports_vision?: boolean;
+  vision_enabled?: boolean;
+  vision_fallback_mode?: string | null;
+  image_count?: number;
   error?: string;
+  error_code?: string;
   finish_reason?: string;
   active_skill_name?: string;
   active_skill_version?: string;
