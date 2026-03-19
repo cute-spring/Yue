@@ -323,7 +323,7 @@
       "**/*.*"
     ],
     "require_citations": false,
-    "skill_mode": "auto",
+    "skill_mode": "manual",
     "visible_skills": [
       "release-test-planner:1.0.0",
       "doc-summarizer:1.0.0",
@@ -341,6 +341,6 @@
     "extra_visible_skills": [],
     "resolved_visible_skills": [],
     "created_at": "2026-03-05T14:42:05.437086",
-    "updated_at": "2026-03-19T23:41:15.245488"
+    "updated_at": "2026-03-19T23:57:46.693187"
   }
 ]

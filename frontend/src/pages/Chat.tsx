@@ -379,8 +379,8 @@ export default function Chat() {
       const labelBase = spec ? `${spec.name}:${spec.version}${sourceLayerTag}` : skillId;
       const unavailable = spec?.availability === false;
       const label = unavailable ? `${labelBase} unavailable${missingSummary(spec?.missing_requirements)}` : labelBase;
-      return { value: skillId, label, disabled: unavailable };
-    });
+      return { value: skillId, label, disabled: unavailable, name: spec?.name || skillId, version: spec?.version };
+    }).filter(s => !s.disabled);
   };
 
   const handleMentionSelect = (agent: any) => {
@@ -496,18 +496,6 @@ export default function Chat() {
                 <span class="text-[10px] uppercase tracking-wider font-bold text-violet-700 bg-violet-100 border border-violet-200 rounded-full px-2 py-1">
                   {currentAgent()?.skill_mode}
                 </span>
-                <Show when={currentAgent()?.skill_mode === 'manual'}>
-                  <select
-                    class="text-xs border border-violet-200 bg-white rounded-lg px-2 py-1.5 text-violet-700 font-medium focus:outline-none focus:ring-2 focus:ring-violet-400"
-                    value={requestedSkill() || ''}
-                    onChange={e => setRequestedSkill(e.currentTarget.value || null)}
-                  >
-                    <option value="">No skill selected</option>
-                    {visibleSkillOptions().map(skill => (
-                      <option value={skill.value} disabled={skill.disabled}>{skill.label}</option>
-                    ))}
-                  </select>
-                </Show>
                 <Show when={activeSkill()}>
                   <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2 py-1">
                     Active: {activeSkill()!.name}@{activeSkill()!.version}
@@ -580,6 +568,10 @@ export default function Chat() {
           setImageAttachments={setImageAttachments}
           onImageClick={() => imageInputRef?.click()}
           imageInputRef={el => imageInputRef = el}
+          visibleSkills={visibleSkillOptions()}
+          requestedSkill={requestedSkill()}
+          onSelectSkill={setRequestedSkill}
+          skillMode={currentAgent()?.skill_mode}
         />
       </div>
 

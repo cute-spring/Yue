@@ -42,6 +42,12 @@ interface ChatInputProps {
   setImageAttachments: (files: File[]) => void;
   onImageClick: () => void;
   imageInputRef: (el: HTMLInputElement) => void;
+
+  // Skills
+  visibleSkills: { value: string; label: string; disabled: boolean; name: string; version?: string }[];
+  requestedSkill: string | null;
+  onSelectSkill: (skillId: string | null) => void;
+  skillMode?: string;
 }
 
 export const canSubmitFromInput = (inputText: string, imageCount: number): boolean => {
@@ -111,6 +117,33 @@ export default function ChatInput(props: ChatInputProps) {
           selectedIndex={props.selectedIndex}
           onSelect={props.selectAgent}
         />
+
+        <Show when={props.skillMode === 'manual' && props.visibleSkills.length > 0}>
+          <div class="flex items-center gap-2 mb-3 overflow-x-auto pb-2 scrollbar-hide no-scrollbar">
+            <For each={props.visibleSkills}>
+              {(skill) => (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (props.requestedSkill === skill.value) {
+                      props.onSelectSkill(null);
+                    } else {
+                      props.onSelectSkill(skill.value);
+                    }
+                  }}
+                  class={`
+                    px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border
+                    ${props.requestedSkill === skill.value
+                      ? 'bg-violet-600 border-violet-600 text-white shadow-md shadow-violet-500/20 scale-105'
+                      : 'bg-surface border-border text-text-secondary hover:border-violet-400/50 hover:text-violet-600 hover:bg-violet-50'}
+                  `}
+                >
+                  {skill.name}{skill.version ? `:${skill.version}` : ''}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
 
         <form onSubmit={props.onSubmit} class="relative">
           <div class={`
