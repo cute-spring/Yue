@@ -335,6 +335,13 @@ test('Chat manual mode falls back cleanly for invalid requested skill', async ({
       body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
+  await page.route('**/api/skills', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ name: 'planner', version: '1.0.0', description: 'Planning' }])
+    });
+  });
   await page.route('**/api/agents/', async route => {
     await route.fulfill({
       status: 200,
@@ -348,14 +355,14 @@ test('Chat manual mode falls back cleanly for invalid requested skill', async ({
           model: 'gpt-4o',
           enabled_tools: [],
           skill_mode: 'manual',
-          visible_skills: ['planner:1.0.0']
+          visible_skills: ['missing:9.9.9']
         }
       ])
     });
   });
   await page.route('**/api/chat/stream', async route => {
     const body = route.request().postDataJSON() as any;
-    expect(body.requested_skill).toBeUndefined();
+    expect(body.requested_skill).toBe('missing:9.9.9');
     const stream = [
       `data: ${JSON.stringify({ chat_id: 'chat-fallback' })}\n\n`,
       `data: ${JSON.stringify({ content: 'Fallback to legacy completed.' })}\n\n`
@@ -371,12 +378,10 @@ test('Chat manual mode falls back cleanly for invalid requested skill', async ({
   const input = page.getByPlaceholder(/You are chatting with/i);
   await input.fill('@');
   await page.getByRole('button', { name: /Manual Skill Agent/i }).first().click();
-  // Skip the selectOption call as there is no dropdown anymore. 
-  // To test fallback with missing:9.9.9, we'd need to bypass the UI or inject a button.
-  // For now, let's just verify that no skill is selected by default and we can send a message.
+  await page.locator('[data-testid="skill-chip-list"] [data-skill-id="missing:9.9.9"]').click();
   await page.getByRole('button', { name: /Select Model/i }).click();
   await page.getByRole('button', { name: /^gpt-4o$/i }).click();
-  await input.fill('Try no skill');
+  await input.fill('Try missing skill');
   await input.press('Enter');
 
   await expect(page.getByText('Fallback to legacy completed.')).toBeVisible();
@@ -439,9 +444,8 @@ test('Chat manual mode prefers resolved_visible_skills for selector', async ({ p
   const input = page.getByPlaceholder(/You are chatting with/i);
   await input.fill('@');
   await page.getByRole('button', { name: /Manual Resolved Agent/i }).first().click();
-  // We expect 1 skill chip (planner:1.0.0)
-  await expect(page.locator('.no-scrollbar button')).toHaveCount(1);
-  await page.getByRole('button', { name: /planner:1.0.0/i }).click();
+  await expect(page.locator('[data-testid="skill-chip-list"] [data-testid="skill-chip"]')).toHaveCount(1);
+  await page.locator('[data-testid="skill-chip-list"] [data-skill-id="planner:1.0.0"]').click();
   await page.getByRole('button', { name: /Select Model/i }).click();
   await page.getByRole('button', { name: /^gpt-4o$/i }).click();
   await input.fill('Use resolved skill');
@@ -493,12 +497,12 @@ test('Allowlist agent exposes skill selector while non-allowlist agent does not'
   const input = page.getByPlaceholder(/You are chatting with/i);
   await input.fill('@');
   await page.getByRole('button', { name: /Legacy Agent/i }).first().click();
-  await expect(page.locator('.no-scrollbar')).toHaveCount(0);
+  await expect(page.locator('[data-testid="skill-chip-list"]')).toHaveCount(0);
 
   await input.fill('@');
   await page.getByRole('button', { name: /Allowlist Agent/i }).first().click();
-  await expect(page.locator('.no-scrollbar')).toHaveCount(1);
-  await expect(page.locator('.no-scrollbar button')).toHaveCount(1);
+  await expect(page.locator('[data-testid="skill-chip-list"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="skill-chip-list"] [data-testid="skill-chip"]')).toHaveCount(1);
 });
 
 test('Skill Groups management page supports list/create/update/delete', async ({ page }) => {

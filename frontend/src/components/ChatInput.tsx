@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js';
-import { Agent, Provider } from '../types';
+import { Agent, Provider, SkillMode, VisibleSkillChip } from '../types';
 import LLMSelector from './LLMSelector';
 import AgentSelector from './AgentSelector';
 import { useToast } from '../context/ToastContext';
@@ -44,10 +44,10 @@ interface ChatInputProps {
   imageInputRef: (el: HTMLInputElement) => void;
 
   // Skills
-  visibleSkills: { value: string; label: string; disabled: boolean; name: string; version?: string }[];
+  visibleSkills: VisibleSkillChip[];
   requestedSkill: string | null;
   onSelectSkill: (skillId: string | null) => void;
-  skillMode?: string;
+  skillMode?: SkillMode;
 }
 
 export const canSubmitFromInput = (inputText: string, imageCount: number): boolean => {
@@ -119,21 +119,24 @@ export default function ChatInput(props: ChatInputProps) {
         />
 
         <Show when={props.skillMode === 'manual' && props.visibleSkills.length > 0}>
-          <div class="flex items-center gap-2 mb-3 overflow-x-auto pb-2 scrollbar-hide no-scrollbar">
+          <div class="flex items-center gap-2 mb-3 overflow-x-auto pb-2 scrollbar-hide no-scrollbar" data-testid="skill-chip-list">
             <For each={props.visibleSkills}>
               {(skill) => (
                 <button
+                  data-testid="skill-chip"
+                  data-skill-id={skill.id}
                   type="button"
+                  aria-pressed={props.requestedSkill === skill.id}
                   onClick={() => {
-                    if (props.requestedSkill === skill.value) {
+                    if (props.requestedSkill === skill.id) {
                       props.onSelectSkill(null);
                     } else {
-                      props.onSelectSkill(skill.value);
+                      props.onSelectSkill(skill.id);
                     }
                   }}
                   class={`
                     px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border
-                    ${props.requestedSkill === skill.value
+                    ${props.requestedSkill === skill.id
                       ? 'bg-violet-600 border-violet-600 text-white shadow-md shadow-violet-500/20 scale-105'
                       : 'bg-surface border-border text-text-secondary hover:border-violet-400/50 hover:text-violet-600 hover:bg-violet-50'}
                   `}

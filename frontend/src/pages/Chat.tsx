@@ -1,5 +1,5 @@
 import { createSignal, onMount, Show, createEffect } from 'solid-js';
-import { Message, SkillSpec } from '../types';
+import { Message, SkillSpec, VisibleSkillChip } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
@@ -361,26 +361,13 @@ export default function Chat() {
     return [...matches].sort((a, b) => compareVersion(a.version, b.version)).pop();
   };
 
-  const missingSummary = (missing?: Record<string, string[]>) => {
-    if (!missing) return "";
-    const parts: string[] = [];
-    if (missing.bins?.length) parts.push("bins");
-    if (missing.env?.length) parts.push("env");
-    if (missing.os?.length) parts.push("os");
-    if (!parts.length) return "";
-    return ` (missing ${parts.join(", ")})`;
-  };
-
-  const visibleSkillOptions = () => {
+  const visibleSkillOptions = (): VisibleSkillChip[] => {
     const skills = getAgentVisibleSkills(currentAgent());
-    return skills.map(skillId => {
+    return skills.map((skillId) => {
       const spec = resolveSkillSpec(skillId);
-      const sourceLayerTag = spec?.source_layer ? ` [${spec.source_layer}]` : "";
-      const labelBase = spec ? `${spec.name}:${spec.version}${sourceLayerTag}` : skillId;
       const unavailable = spec?.availability === false;
-      const label = unavailable ? `${labelBase} unavailable${missingSummary(spec?.missing_requirements)}` : labelBase;
-      return { value: skillId, label, disabled: unavailable, name: spec?.name || skillId, version: spec?.version };
-    }).filter(s => !s.disabled);
+      return { id: skillId, name: spec?.name || skillId, version: spec?.version, unavailable };
+    }).filter((skill) => !skill.unavailable).map(({ unavailable: _unavailable, ...skill }) => skill);
   };
 
   const handleMentionSelect = (agent: any) => {
