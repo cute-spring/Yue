@@ -145,4 +145,5 @@ export interface Provider {
   models: string[];
   available_models: string[];
   model_capabilities?: Record<string, string[]>;
+  explicit_model_capabilities?: Record<string, string[]>;
 }

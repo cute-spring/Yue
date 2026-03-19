@@ -155,6 +155,7 @@ class ConfigService:
 
         # 4. 列表字段兼容性补全
         config["custom_models" ] = llm_section.get("custom_models", [])
+        config["models"] = llm_section.get("models", {})
         for k, v in llm_section.items():
             if not isinstance(k, str):
                 continue
@@ -196,6 +197,20 @@ class ConfigService:
         获取特定模型的设置 (如 max_tokens)
         """
         llm_section = self._config.get("llm", {})
+        
+        # Handle custom models
+        if provider == "custom":
+            custom_models = llm_section.get("custom_models", [])
+            for cm in custom_models:
+                if cm.get("name") == model_name:
+                    explicit_caps = cm.get("capabilities")
+                    if explicit_caps is not None:
+                        return infer_capabilities(provider, model_name, explicit_caps)
+                    # Infer based on actual provider/model if possible
+                    actual_provider = cm.get("provider", "openai")
+                    actual_model = cm.get("model", model_name)
+                    return infer_capabilities(actual_provider, actual_model, None)
+
         models_cfg = llm_section.get("models", {})
         
         # Try exact match: provider/model_name
@@ -220,13 +235,28 @@ class ConfigService:
         """
         获取模型的特殊能力 (如 reasoning, vision)
         """
+        from app.services.llm.capabilities import infer_capabilities
+        from app.services.llm.registry import get_registered_providers
+
         llm_section = self._config.get("llm", {})
         models_cfg = llm_section.get("models", {})
         
         model_key = f"{provider}/{model_name}"
         model_cfg = models_cfg.get(model_key, {})
         
-        return model_cfg.get("capabilities", [])
+        explicit_caps = model_cfg.get("capabilities")
+        if explicit_caps is not None:
+            return infer_capabilities(provider, model_name, explicit_caps)
+            
+        # Try to get native capabilities from the provider instance
+        provider_instance = get_registered_providers().get(provider)
+        if provider_instance:
+            native_caps = provider_instance.get_model_capabilities(model_name)
+            if native_caps is not None:
+                return infer_capabilities(provider, model_name, native_caps)
+                
+        # Fallback to heuristic inference
+        return infer_capabilities(provider, model_name, None)
 
     def get_provider_config(self, provider_name: str) -> Dict[str, Any]:
         """按策略模式获取特定 Provider 的配置"""
@@ -278,6 +308,13 @@ class ConfigService:
         :return: 模型信息字典，包含 display_name、context_window、capabilities 等
         """
         llm_section = self._config.get("llm", {})
+        
+        if model_id.startswith("custom/"):
+            model_name = model_id[len("custom/"):]
+            for cm in llm_section.get("custom_models", []):
+                if cm.get("name") == model_name:
+                    return cm
+                    
         models_config = llm_section.get("models", {})
         return models_config.get(model_id)
 
@@ -369,6 +406,14 @@ class ConfigService:
                 llm["settings"][k] = v
             elif k == "custom_models":
                 llm["custom_models"] = v
+            elif k == "models":
+                if "models" not in llm:
+                    llm["models"] = {}
+                for model_id, model_data in v.items():
+                    if model_id not in llm["models"]:
+                        llm["models"][model_id] = {}
+                    for field_key, field_val in model_data.items():
+                        llm["models"][model_id][field_key] = field_val
             else:
                 # 尝试匹配 provider_key 格式
                 matched = False

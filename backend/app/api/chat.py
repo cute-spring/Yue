@@ -218,9 +218,7 @@ def _build_scope_summary_block(agent_config: Any) -> Tuple[Optional[str], int]:
     lines.append("- If uncertain, call docs_list first to inspect paths.")
     return "\n".join(lines), len(effective_roots)
 
-def _legacy_reasoning_guess(model_name: str) -> bool:
-    name = (model_name or "").lower()
-    return any(token in name for token in ["reasoner", "r1", "thought", "o1", "o3"])
+from app.services.llm.capabilities import CAP_VISION, CAP_REASONING, has_capability
 
 def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -862,7 +860,7 @@ async def chat_stream(request: ChatRequest):
                     elif not request.deep_thinking_enabled:
                         reasoning_disabled_reason_code = "DEEP_THINKING_DISABLED"
             else:
-                reasoning_enabled = bool(_legacy_reasoning_guess(model_name) or request.deep_thinking_enabled)
+                reasoning_enabled = bool(supports_reasoning or request.deep_thinking_enabled)
                 if not reasoning_enabled:
                     reasoning_disabled_reason_code = "LEGACY_DISABLED"
             meta_payload = {
