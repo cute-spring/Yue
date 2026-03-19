@@ -1,0 +1,25 @@
+[
+  {
+    "id": "412c7717-7f96-43d2-bbce-80b4b72fdfde",
+    "name": "Document AI",
+    "description": "Extract data from documents to answer user's query smartly",
+    "skill_refs": [
+      "pdf-insight-extractor:1.0.0",
+      "excel-metric-explorer:1.0.0",
+      "doc-summarizer:1.0.0",
+      "ppt-expert:1.0.0"
+    ],
+    "created_at": "2026-03-19T22:13:05.637200",
+    "updated_at": "2026-03-19T22:39:03.564283"
+  },
+  {
+    "id": "6f2e28f3-ee9d-4a1b-9bac-2da62b63bf10",
+    "name": "Terminal skill",
+    "description": "",
+    "skill_refs": [
+      "system-ops-expert:1.0.0"
+    ],
+    "created_at": "2026-03-19T22:45:23.793684",
+    "updated_at": "2026-03-19T22:45:23.793689"
+  }
+]

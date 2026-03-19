@@ -5,11 +5,30 @@ export type Agent = {
   provider: string;
   model: string;
   enabled_tools: string[];
-  skill_mode?: 'off' | 'manual' | 'auto';
+  skill_mode?: SkillMode;
   visible_skills?: string[];
+  agent_kind?: 'traditional' | 'universal';
+  skill_groups?: string[];
+  extra_visible_skills?: string[];
+  resolved_visible_skills?: string[];
   doc_roots?: string[];
   doc_file_patterns?: string[];
   avatar?: string;
+};
+
+export type SkillMode = 'off' | 'manual' | 'auto';
+
+export type VisibleSkillChip = {
+  id: string;
+  name: string;
+  version?: string;
+};
+
+export type SkillGroup = {
+  id: string;
+  name: string;
+  description?: string;
+  skill_refs: string[];
 };
 
 export type SkillSpec = {

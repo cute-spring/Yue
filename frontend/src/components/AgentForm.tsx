@@ -1,5 +1,6 @@
-import { For, Show } from 'solid-js';
-import { McpTool, SkillSpec } from '../types';
+import { For, Show, createMemo, createSignal } from 'solid-js';
+import { McpTool, SkillSpec, SkillGroup } from '../types';
+import defaultSkillAgentPrompt from '../prompts/default_skill_agent_prompt.md?raw';
 
 interface AgentFormProps {
   editingId: () => string | null;
@@ -17,6 +18,13 @@ interface AgentFormProps {
   setFormSkillMode: (mode: 'off' | 'manual' | 'auto') => void;
   formVisibleSkills: () => string[];
   setFormVisibleSkills: (skills: string[]) => void;
+  formAgentKind: () => 'traditional' | 'universal';
+  setFormAgentKind: (kind: 'traditional' | 'universal') => void;
+  skillGroups: () => SkillGroup[];
+  formSkillGroups: () => string[];
+  setFormSkillGroups: (groupIds: string[]) => void;
+  formExtraVisibleSkills: () => string[];
+  setFormExtraVisibleSkills: (skills: string[]) => void;
   skills: () => SkillSpec[];
   availableTools: () => McpTool[];
   groupedTools: () => Record<string, McpTool[]>;
@@ -51,6 +59,42 @@ interface AgentFormProps {
 }
 
 export function AgentForm(props: AgentFormProps) {
+  const [showAdvancedTools, setShowAdvancedTools] = createSignal(false);
+  const [showGroupOverrides, setShowGroupOverrides] = createSignal(false);
+  const normalizedDefaultSkillPrompt = defaultSkillAgentPrompt.trim();
+
+  type AgentTemplate = 'traditional' | 'skills_direct' | 'skill_groups';
+  const selectedTemplate = createMemo<AgentTemplate>(() => {
+    if (props.formSkillMode() === 'off') return 'traditional';
+    return props.formAgentKind() === 'universal' ? 'skill_groups' : 'skills_direct';
+  });
+  const runtimeEnabled = createMemo(() => selectedTemplate() !== 'traditional');
+  const isDirectSkillsTemplate = createMemo(() => selectedTemplate() === 'skills_direct');
+  const isSkillGroupsTemplate = createMemo(() => selectedTemplate() === 'skill_groups');
+  const selectTemplate = (template: AgentTemplate) => {
+    if (template === 'traditional') {
+      props.setFormAgentKind('traditional');
+      props.setFormSkillMode('off');
+      return;
+    }
+    if (template === 'skills_direct') {
+      props.setFormAgentKind('traditional');
+      if (props.formSkillMode() === 'off') props.setFormSkillMode('manual');
+      return;
+    }
+    props.setFormAgentKind('universal');
+    if (props.formSkillMode() === 'off') props.setFormSkillMode('manual');
+    if (!props.formPrompt().trim()) props.setFormPrompt(normalizedDefaultSkillPrompt);
+    return;
+  };
+  const selectTemplateWithDefaultPrompt = (template: AgentTemplate) => {
+    const currentPrompt = props.formPrompt().trim();
+    selectTemplate(template);
+    if (template !== 'traditional' && !currentPrompt) {
+      props.setFormPrompt(normalizedDefaultSkillPrompt);
+    }
+  };
+
   const toggleVisibleSkill = (name: string, version: string) => {
     const id = `${name}:${version}`;
     if (props.formVisibleSkills().includes(id)) {
@@ -58,6 +102,23 @@ export function AgentForm(props: AgentFormProps) {
       return;
     }
     props.setFormVisibleSkills([...props.formVisibleSkills(), id]);
+  };
+
+  const toggleSkillGroup = (groupId: string) => {
+    if (props.formSkillGroups().includes(groupId)) {
+      props.setFormSkillGroups(props.formSkillGroups().filter(id => id !== groupId));
+      return;
+    }
+    props.setFormSkillGroups([...props.formSkillGroups(), groupId]);
+  };
+
+  const toggleExtraVisibleSkill = (name: string, version: string) => {
+    const id = `${name}:${version}`;
+    if (props.formExtraVisibleSkills().includes(id)) {
+      props.setFormExtraVisibleSkills(props.formExtraVisibleSkills().filter(s => s !== id));
+      return;
+    }
+    props.setFormExtraVisibleSkills([...props.formExtraVisibleSkills(), id]);
   };
 
   return (
@@ -208,125 +269,312 @@ export function AgentForm(props: AgentFormProps) {
         <div class="rounded-2xl border border-violet-100 bg-violet-50/60 p-4 space-y-4">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="text-[10px] font-black text-violet-700 uppercase tracking-[0.2em]">Skill Runtime</div>
-              <div class="text-xs text-violet-700/80 mt-1">Control markdown skill activation per agent</div>
+              <div class="text-[10px] font-black text-violet-700 uppercase tracking-[0.2em]">Agent Template</div>
+              <div class="text-xs text-violet-700/80 mt-1">Choose one setup model and configure only what matters</div>
             </div>
-            <div class="text-[10px] font-bold text-violet-700 bg-white/80 px-2 py-1 rounded-full border border-violet-100">Phase 6.2</div>
+            <div class="text-[10px] font-bold text-violet-700 bg-white/80 px-2 py-1 rounded-full border border-violet-100">Skill Runtime</div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
             <button
               type="button"
-              onClick={() => props.setFormSkillMode('off')}
-              class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
-                props.formSkillMode() === 'off'
+              onClick={() => selectTemplateWithDefaultPrompt('traditional')}
+              class={`px-3 py-2.5 rounded-xl border text-left transition-all ${
+                selectedTemplate() === 'traditional'
                   ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
                   : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
               }`}
             >
-              Off
+              <div class="text-xs font-bold uppercase tracking-wider">Traditional Agent</div>
+              <div class={`text-[11px] mt-1 ${selectedTemplate() === 'traditional' ? 'text-violet-100' : 'text-violet-700/70'}`}>
+                Prompt + tools only
+              </div>
             </button>
             <button
               type="button"
-              onClick={() => props.setFormSkillMode('manual')}
-              class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
-                props.formSkillMode() === 'manual'
+              onClick={() => selectTemplateWithDefaultPrompt('skills_direct')}
+              class={`px-3 py-2.5 rounded-xl border text-left transition-all ${
+                selectedTemplate() === 'skills_direct'
                   ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
                   : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
               }`}
             >
-              Manual
+              <div class="text-xs font-bold uppercase tracking-wider">Agent With Skills Directly</div>
+              <div class={`text-[11px] mt-1 ${selectedTemplate() === 'skills_direct' ? 'text-violet-100' : 'text-violet-700/70'}`}>
+                Select individual skills
+              </div>
             </button>
             <button
               type="button"
-              onClick={() => props.setFormSkillMode('auto')}
-              class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
-                props.formSkillMode() === 'auto'
+              onClick={() => selectTemplateWithDefaultPrompt('skill_groups')}
+              class={`px-3 py-2.5 rounded-xl border text-left transition-all ${
+                selectedTemplate() === 'skill_groups'
                   ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
                   : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
               }`}
             >
-              Auto
+              <div class="text-xs font-bold uppercase tracking-wider">Agent With Skill Groups</div>
+              <div class={`text-[11px] mt-1 ${selectedTemplate() === 'skill_groups' ? 'text-violet-100' : 'text-violet-700/70'}`}>
+                Compose with reusable groups
+              </div>
             </button>
           </div>
-          <Show when={props.formSkillMode() !== 'off'}>
+
+          <Show
+            when={runtimeEnabled()}
+            fallback={
+              <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                Skill runtime is off for Traditional Agent. Skill configuration panels are hidden.
+              </div>
+            }
+          >
             <div class="space-y-3">
               <div class="flex items-center justify-between">
-                <label class="block text-xs font-bold text-violet-700 uppercase tracking-wider">Visible Skills</label>
-                <div class="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => props.loadSkills(true)}
-                    class="text-[10px] uppercase tracking-wider font-bold text-sky-600 hover:text-sky-700 bg-sky-100 px-2 py-1 rounded"
-                  >
-                    Reload Skills
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => props.setFormVisibleSkills(props.skills().map(s => `${s.name}:${s.version}`))}
-                    class="text-[10px] uppercase tracking-wider font-bold text-violet-600 hover:text-violet-700 bg-violet-100 px-2 py-1 rounded"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => props.setFormVisibleSkills([])}
-                    class="text-[10px] uppercase tracking-wider font-bold text-gray-500 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded"
-                  >
-                    Clear
-                  </button>
+                <label class="block text-xs font-bold text-violet-700 uppercase tracking-wider">Skill Runtime Mode</label>
+                <div class="text-[10px] text-violet-700/80 font-semibold">
+                  {props.formSkillMode() === 'manual' ? 'Manual selection in chat' : 'Automatic routing in chat'}
                 </div>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <For each={props.skills()}>
-                  {skill => {
-                    const skillId = `${skill.name}:${skill.version}`;
-                    return (
+                <button
+                  type="button"
+                  onClick={() => props.setFormSkillMode('manual')}
+                  class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+                    props.formSkillMode() === 'manual'
+                      ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                      : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
+                  }`}
+                >
+                  Manual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => props.setFormSkillMode('auto')}
+                  class={`px-3 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+                    props.formSkillMode() === 'auto'
+                      ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                      : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-100'
+                  }`}
+                >
+                  Auto
+                </button>
+              </div>
+            </div>
+
+            <Show when={isSkillGroupsTemplate()}>
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <label class="block text-xs font-bold text-violet-700 uppercase tracking-wider">Skill Groups</label>
+                  <div class="text-[10px] text-violet-700/80 font-semibold">Primary source: groups</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <For each={props.skillGroups()}>
+                    {group => (
                       <label class={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                        props.formVisibleSkills().includes(skillId)
+                        props.formSkillGroups().includes(group.id)
                           ? 'bg-violet-100 border-violet-400 ring-1 ring-violet-400'
                           : 'bg-white border-violet-100 hover:bg-violet-50'
                       }`}>
                         <input
                           type="checkbox"
-                          checked={props.formVisibleSkills().includes(skillId)}
-                          onChange={() => toggleVisibleSkill(skill.name, skill.version)}
+                          checked={props.formSkillGroups().includes(group.id)}
+                          onChange={() => toggleSkillGroup(group.id)}
                           class="mt-1 text-violet-600 focus:ring-violet-500 rounded border-gray-300"
                         />
                         <div class="min-w-0">
-                          <div class="text-sm font-semibold text-gray-900 truncate">{skill.name}</div>
-                          <div class="flex items-center gap-2 mt-0.5">
-                            <div class="text-[10px] uppercase tracking-wider font-bold text-violet-700">{skill.version}</div>
-                            <Show when={skill.source_layer}>
-                              <div class="text-[10px] uppercase tracking-wider font-bold text-sky-700 bg-sky-100 border border-sky-200 rounded px-1.5 py-0.5">
-                                {skill.source_layer}
+                          <div class="text-sm font-semibold text-gray-900 truncate">{group.name}</div>
+                          <div class="text-xs text-gray-500 mt-1 line-clamp-2">{group.description || ''}</div>
+                        </div>
+                      </label>
+                    )}
+                  </For>
+                </div>
+                <Show when={props.skillGroups().length === 0}>
+                  <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                    No skill groups found. Create groups in Skill Groups first.
+                  </div>
+                </Show>
+                <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                  Group template does not use direct Visible Skills selection. Runtime visibility is resolved from selected groups.
+                </div>
+              </div>
+            </Show>
+
+            <Show when={isDirectSkillsTemplate()}>
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <label class="block text-xs font-bold text-violet-700 uppercase tracking-wider">Visible Skills</label>
+                  <div class="text-[10px] text-violet-700/80 font-semibold">Primary source: direct selection</div>
+                </div>
+                <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                  Direct template writes visible skills on this agent only and does not inherit group bundles.
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => props.loadSkills(true)}
+                      class="text-[10px] uppercase tracking-wider font-bold text-sky-600 hover:text-sky-700 bg-sky-100 px-2 py-1 rounded"
+                    >
+                      Reload Skills
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => props.setFormVisibleSkills(props.skills().map(s => `${s.name}:${s.version}`))}
+                      class="text-[10px] uppercase tracking-wider font-bold text-violet-600 hover:text-violet-700 bg-violet-100 px-2 py-1 rounded"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => props.setFormVisibleSkills([])}
+                      class="text-[10px] uppercase tracking-wider font-bold text-gray-500 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <For each={props.skills()}>
+                    {skill => {
+                      const skillId = `${skill.name}:${skill.version}`;
+                      return (
+                        <label class={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                          props.formVisibleSkills().includes(skillId)
+                            ? 'bg-violet-100 border-violet-400 ring-1 ring-violet-400'
+                            : 'bg-white border-violet-100 hover:bg-violet-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={props.formVisibleSkills().includes(skillId)}
+                            onChange={() => toggleVisibleSkill(skill.name, skill.version)}
+                            class="mt-1 text-violet-600 focus:ring-violet-500 rounded border-gray-300"
+                          />
+                          <div class="min-w-0">
+                            <div class="text-sm font-semibold text-gray-900 truncate">{skill.name}</div>
+                            <div class="flex items-center gap-2 mt-0.5">
+                              <div class="text-[10px] uppercase tracking-wider font-bold text-violet-700">{skill.version}</div>
+                              <Show when={skill.source_layer}>
+                                <div class="text-[10px] uppercase tracking-wider font-bold text-sky-700 bg-sky-100 border border-sky-200 rounded px-1.5 py-0.5">
+                                  {skill.source_layer}
+                                </div>
+                              </Show>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1 line-clamp-2">{skill.description}</div>
+                            <Show when={skill.override_from}>
+                              <div class="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
+                                Overrides {skill.override_from}
                               </div>
                             </Show>
                           </div>
-                          <div class="text-xs text-gray-500 mt-1 line-clamp-2">{skill.description}</div>
-                          <Show when={skill.override_from}>
-                            <div class="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
-                              Overrides {skill.override_from}
-                            </div>
-                          </Show>
-                        </div>
-                      </label>
-                    );
-                  }}
-                </For>
-              </div>
-              <Show when={props.skills().length === 0}>
-                <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
-                  No loaded skills found. Use /api/skills/reload after adding markdown skill files.
+                        </label>
+                      );
+                    }}
+                  </For>
                 </div>
-              </Show>
-            </div>
+                <Show when={props.skills().length === 0}>
+                  <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                    No loaded skills found. Use /api/skills/reload after adding markdown skill files.
+                  </div>
+                </Show>
+              </div>
+            </Show>
+
+            <Show when={isSkillGroupsTemplate()}>
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <label class="block text-xs font-bold text-violet-700 uppercase tracking-wider">Per-Agent Overrides</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowGroupOverrides(!showGroupOverrides())}
+                    class="text-[10px] uppercase tracking-wider font-bold text-violet-700 bg-white border border-violet-200 px-2.5 py-1 rounded hover:bg-violet-100"
+                  >
+                    {showGroupOverrides() ? 'Hide Overrides' : 'Manage Overrides'}
+                  </button>
+                </div>
+                <Show
+                  when={showGroupOverrides()}
+                  fallback={
+                    <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                      Keep this empty for strict group governance. Current overrides: {props.formExtraVisibleSkills().length}
+                    </div>
+                  }
+                >
+                  <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                    Overrides are additive. Use only for temporary exceptions or experiments.
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => props.loadSkills(true)}
+                        class="text-[10px] uppercase tracking-wider font-bold text-sky-600 hover:text-sky-700 bg-sky-100 px-2 py-1 rounded"
+                      >
+                        Reload Skills
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => props.setFormExtraVisibleSkills([])}
+                        class="text-[10px] uppercase tracking-wider font-bold text-gray-500 hover:text-gray-600 bg-gray-100 px-2 py-1 rounded"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <For each={props.skills()}>
+                      {skill => {
+                        const skillId = `${skill.name}:${skill.version}`;
+                        return (
+                          <label class={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                            props.formExtraVisibleSkills().includes(skillId)
+                              ? 'bg-violet-100 border-violet-400 ring-1 ring-violet-400'
+                              : 'bg-white border-violet-100 hover:bg-violet-50'
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={props.formExtraVisibleSkills().includes(skillId)}
+                              onChange={() => toggleExtraVisibleSkill(skill.name, skill.version)}
+                              class="mt-1 text-violet-600 focus:ring-violet-500 rounded border-gray-300"
+                            />
+                            <div class="min-w-0">
+                              <div class="text-sm font-semibold text-gray-900 truncate">{skill.name}</div>
+                              <div class="text-[10px] uppercase tracking-wider font-bold text-violet-700">{skill.version}</div>
+                              <div class="text-xs text-gray-500 mt-1 line-clamp-2">{skill.description}</div>
+                            </div>
+                          </label>
+                        );
+                      }}
+                    </For>
+                  </div>
+                  <Show when={props.skills().length === 0}>
+                    <div class="text-xs text-violet-700/80 bg-white/80 border border-violet-200 rounded-lg px-3 py-2">
+                      No loaded skills found. Use /api/skills/reload after adding markdown skill files.
+                    </div>
+                  </Show>
+                </Show>
+              </div>
+            </Show>
           </Show>
         </div>
 
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <label class="block text-sm font-semibold text-gray-700">Enabled Tools (MCP)</label>
-            <div class="flex gap-2">
+        <div class="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="block text-sm font-semibold text-emerald-800">Tool Permissions (Advanced)</label>
+              <div class="text-xs text-emerald-700/80 mt-1">Final tools = Agent Enabled Tools ∩ Skill Allowed Tools</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedTools(!showAdvancedTools())}
+              class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 bg-white border border-emerald-200 px-3 py-1.5 rounded hover:bg-emerald-100"
+            >
+              {showAdvancedTools() ? 'Hide Advanced' : 'Show Advanced'}
+            </button>
+          </div>
+          <Show when={showAdvancedTools()}>
+            <div class="flex items-center justify-between mb-3">
+              <label class="block text-sm font-semibold text-gray-700">Enabled Tools (MCP)</label>
+              <div class="flex gap-2">
               <button 
                 type="button"
                 onClick={() => props.setFormTools(props.availableTools().map(t => t.id))}
@@ -357,9 +605,9 @@ export function AgentForm(props: AgentFormProps) {
                 {props.isRefreshingTools() ? 'Refreshing...' : 'Refresh Tools'}
               </button>
             </div>
-          </div>
-          <div class="space-y-6">
-            <For each={Object.entries(props.groupedTools())}>
+            </div>
+            <div class="space-y-6">
+              <For each={Object.entries(props.groupedTools())}>
               {([server, tools]) => {
                 const isExpanded = () => !!props.expandedGroups()[server];
                 const selectedCountInGroup = () => tools.filter(t => props.formTools().includes(t.id)).length;
@@ -434,16 +682,17 @@ export function AgentForm(props: AgentFormProps) {
                   </div>
                 );
               }}
-            </For>
-            <Show when={props.availableTools().length === 0}>
-              <div class="col-span-full text-center py-8 text-gray-500 text-sm bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 011 1V4z" />
-                </svg>
-                No MCP tools found. Configure MCP servers in Settings.
-              </div>
-            </Show>
-          </div>
+              </For>
+              <Show when={props.availableTools().length === 0}>
+                <div class="col-span-full text-center py-8 text-gray-500 text-sm bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 011 1V4z" />
+                  </svg>
+                  No MCP tools found. Configure MCP servers in Settings.
+                </div>
+              </Show>
+            </div>
+          </Show>
         </div>
 
         <Show when={props.supportsDocScope()}>

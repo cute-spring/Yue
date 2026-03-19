@@ -1,5 +1,42 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
-import { Agent, McpTool, SkillSpec, SmartDraft } from '../types';
+import { Agent, McpTool, SkillSpec, SmartDraft, SkillGroup } from '../types';
+
+type BuildAgentPayloadInput = {
+  name: string;
+  systemPrompt: string;
+  provider: string;
+  model: string;
+  enabledTools: string[];
+  skillMode: 'off' | 'manual' | 'auto';
+  visibleSkills: string[];
+  agentKind: 'traditional' | 'universal';
+  skillGroups: string[];
+  extraVisibleSkills: string[];
+  docRoots: string[];
+  docFilePatternsText: string;
+};
+
+export const buildAgentPayload = (input: BuildAgentPayloadInput) => {
+  const parsedPatterns = input.docFilePatternsText
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('#'));
+
+  return {
+    name: input.name,
+    system_prompt: input.systemPrompt,
+    provider: input.provider,
+    model: input.model,
+    enabled_tools: input.enabledTools,
+    skill_mode: input.skillMode,
+    visible_skills: input.visibleSkills,
+    agent_kind: input.agentKind,
+    skill_groups: input.skillGroups,
+    extra_visible_skills: input.extraVisibleSkills,
+    doc_roots: input.docRoots,
+    doc_file_patterns: parsedPatterns
+  };
+};
 
 export function useAgentsState() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
@@ -35,6 +72,7 @@ export function useAgentsState() {
   const [smartApplyTools, setSmartApplyTools] = createSignal(true);
   const [isRefreshingTools, setIsRefreshingTools] = createSignal(false);
   const [skills, setSkills] = createSignal<SkillSpec[]>([]);
+  const [skillGroups, setSkillGroups] = createSignal<SkillGroup[]>([]);
   
   // Form state
   const [formName, setFormName] = createSignal("");
@@ -44,6 +82,9 @@ export function useAgentsState() {
   const [formTools, setFormTools] = createSignal<string[]>([]);
   const [formSkillMode, setFormSkillMode] = createSignal<'off' | 'manual' | 'auto'>('off');
   const [formVisibleSkills, setFormVisibleSkills] = createSignal<string[]>([]);
+  const [formAgentKind, setFormAgentKind] = createSignal<'traditional' | 'universal'>('traditional');
+  const [formSkillGroups, setFormSkillGroups] = createSignal<string[]>([]);
+  const [formExtraVisibleSkills, setFormExtraVisibleSkills] = createSignal<string[]>([]);
   const [formDocRoots, setFormDocRoots] = createSignal<string[]>([]);
   const [formDocRootInput, setFormDocRootInput] = createSignal("");
   const [formDocFilePatternsText, setFormDocFilePatternsText] = createSignal("");
@@ -124,12 +165,24 @@ export function useAgentsState() {
     }
   };
 
+  const loadSkillGroups = async () => {
+    try {
+      const res = await fetch('/api/skill-groups/');
+      const data = await res.json();
+      setSkillGroups(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("Failed to load skill groups", e);
+      setSkillGroups([]);
+    }
+  };
+
   onMount(async () => {
     loadAgents();
     loadTools();
     loadProviders();
     loadDocAccess();
     loadSkills();
+    loadSkillGroups();
 
     const handleClickOutside = () => {
       if (showLLMSelector()) {
@@ -143,6 +196,7 @@ export function useAgentsState() {
   const openCreate = () => {
     loadTools(); // Auto refresh tools when opening form
     loadSkills();
+    loadSkillGroups();
     setFormName("");
     setFormPrompt("");
     setFormProvider("openai");
@@ -150,6 +204,9 @@ export function useAgentsState() {
     setFormTools([]);
     setFormSkillMode("off");
     setFormVisibleSkills([]);
+    setFormAgentKind("traditional");
+    setFormSkillGroups([]);
+    setFormExtraVisibleSkills([]);
     setFormDocRoots([]);
     setFormDocRootInput("");
     setFormDocFilePatternsText("");
@@ -160,6 +217,7 @@ export function useAgentsState() {
   const openEdit = (agent: Agent) => {
     loadTools(); // Auto refresh tools when opening form
     loadSkills();
+    loadSkillGroups();
     setFormName(agent.name);
     setFormPrompt(agent.system_prompt);
     setFormProvider(agent.provider);
@@ -167,6 +225,9 @@ export function useAgentsState() {
     setFormTools(agent.enabled_tools);
     setFormSkillMode((agent.skill_mode as 'off' | 'manual' | 'auto') || "off");
     setFormVisibleSkills(agent.visible_skills || []);
+    setFormAgentKind((agent.agent_kind as 'traditional' | 'universal') || "traditional");
+    setFormSkillGroups(agent.skill_groups || []);
+    setFormExtraVisibleSkills(agent.extra_visible_skills || []);
     setFormDocRoots(agent.doc_roots || []);
     setFormDocRootInput("");
     setFormDocFilePatternsText((agent.doc_file_patterns || []).join("\n"));
@@ -265,22 +326,20 @@ export function useAgentsState() {
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     
-    const parsedPatterns = formDocFilePatternsText()
-      .split("\n")
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith("#"));
-
-    const payload = {
+    const payload = buildAgentPayload({
       name: formName(),
-      system_prompt: formPrompt(),
+      systemPrompt: formPrompt(),
       provider: formProvider(),
       model: formModel(),
-      enabled_tools: formTools(),
-      skill_mode: formSkillMode(),
-      visible_skills: formVisibleSkills(),
-      doc_roots: formDocRoots(),
-      doc_file_patterns: parsedPatterns
-    };
+      enabledTools: formTools(),
+      skillMode: formSkillMode(),
+      visibleSkills: formVisibleSkills(),
+      agentKind: formAgentKind(),
+      skillGroups: formSkillGroups(),
+      extraVisibleSkills: formExtraVisibleSkills(),
+      docRoots: formDocRoots(),
+      docFilePatternsText: formDocFilePatternsText()
+    });
 
     if (editingId()) {
       await fetch(`/api/agents/${editingId()}`, {
@@ -348,20 +407,22 @@ export function useAgentsState() {
   return {
     agents, availableTools, groupedTools, isEditing, editingId, providers,
     skills,
+    skillGroups,
     showLLMSelector, isRefreshingModels, isRefreshingTools, showAllModels, showSmartGenerate,
     smartDescription, smartUpdateTools, smartIsGenerating, smartError, smartDraft,
     smartApplyName, smartApplyPrompt, smartApplyTools, formName, formPrompt,
-    formProvider, formModel, formTools, formSkillMode, formVisibleSkills, formDocRoots, formDocRootInput,
+    formProvider, formModel, formTools, formSkillMode, formVisibleSkills, formAgentKind, formSkillGroups, formExtraVisibleSkills, formDocRoots, formDocRootInput,
     formDocFilePatternsText, expandedGroups, allowDocRoots, denyDocRoots,
     setAgents, setAvailableTools, setIsEditing, setEditingId, setProviders,
     setSkills,
+    setSkillGroups,
     setShowLLMSelector, setIsRefreshingModels, setIsRefreshingTools, setShowAllModels, setShowSmartGenerate,
     setSmartDescription, setSmartUpdateTools, setSmartIsGenerating, setSmartError,
     setSmartDraft, setSmartApplyName, setSmartApplyPrompt, setSmartApplyTools,
-    setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools, setFormSkillMode, setFormVisibleSkills,
+    setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools, setFormSkillMode, setFormVisibleSkills, setFormAgentKind, setFormSkillGroups, setFormExtraVisibleSkills,
     setFormDocRoots, setFormDocRootInput, setFormDocFilePatternsText,
     setExpandedGroups, setAllowDocRoots, setDenyDocRoots,
-    toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess, loadSkills,
+    toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess, loadSkills, loadSkillGroups,
     openCreate, openEdit, openSmartGenerate, applySmartDraft, smartPromptLint,
     smartRiskSummary, runSmartGenerate, handleSubmit, handleDelete, toggleTool,
     supportsDocScope, addDocRoot, addDocRootValue, removeDocRoot

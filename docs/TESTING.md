@@ -45,6 +45,28 @@
     }
     ```
 
+### 3) Agent Kind + Skill Groups Regression (Mandatory)
+- **Backend unit + API + runtime**
+```bash
+cd backend && PYTHONPATH=$(pwd) pytest tests/test_skill_group_store_unit.py tests/test_agent_store_unit.py tests/test_api_skill_groups.py tests/test_skill_runtime_integration.py -v
+```
+- **Migration script**
+```bash
+cd backend && PYTHONPATH=$(pwd) pytest tests/test_agent_store_persistence.py -k migrate -q
+```
+- **Frontend state/types**
+```bash
+cd frontend && npm run test -- Agents
+```
+- **Frontend E2E**
+```bash
+cd frontend && npm run test:e2e -- skills-runtime-ui.spec.ts
+```
+- **Release gate**
+```bash
+./check.sh
+```
+
 ### 2) Frontend E2E Suite
 - **Location**: `frontend/e2e/`
 - **Command**: `cd frontend && npx playwright test`

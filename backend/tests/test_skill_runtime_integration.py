@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from app.main import app
 from app.services.agent_store import AgentConfig
-from app.services.skill_service import skill_registry, SkillRegistry, SkillDirectorySpec
+from app.services.skill_service import skill_registry, SkillRegistry, SkillDirectorySpec, SkillSpec, SkillRouter
 
 @pytest.fixture
 def client():
@@ -66,7 +66,9 @@ YOU ARE A TEST SKILL.
                     model="gpt-4o",
                     enabled_tools=["builtin:docs_read", "builtin:exec"], # Legacy tools
                     skill_mode="auto",
-                    visible_skills=["test-skill"]
+                    visible_skills=[],
+                    skill_groups=["group-backend"],
+                    resolved_visible_skills=["test-skill:1.0.0"]
                 )
                 mock_agent_store.get_agent.return_value = mock_agent
                 mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
@@ -103,6 +105,9 @@ YOU ARE A TEST SKILL.
                 mock_registry.get_pydantic_ai_tools_for_agent.assert_called_once()
                 _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
                 assert set(reg_kwargs["enabled_tools"]) == {"builtin:docs_read"}
+                _, metrics = mock_chat_service.add_skill_effectiveness_event.call_args.args
+                assert metrics["selected_group_ids"] == ["group-backend"]
+                assert metrics["resolved_skill_count"] == 1
         finally:
             skill_registry.layered_skill_dirs = prev_layered
             skill_registry.skill_dirs = prev_skill_dirs
@@ -155,7 +160,9 @@ YOU ARE A MANUAL SKILL.
                     model="gpt-4o",
                     enabled_tools=["builtin:docs_read", "builtin:exec"],
                     skill_mode="manual",
-                    visible_skills=["manual-skill:1.0.0"]
+                    visible_skills=[],
+                    skill_groups=["group-manual"],
+                    resolved_visible_skills=["manual-skill:1.0.0"]
                 )
                 mock_agent_store.get_agent.return_value = mock_agent
                 mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
@@ -177,6 +184,9 @@ YOU ARE A MANUAL SKILL.
 
                 _, kwargs = mock_agent_cls.call_args
                 assert "[Active Skill: manual-skill]" in kwargs["system_prompt"]
+                _, metrics = mock_chat_service.add_skill_effectiveness_event.call_args.args
+                assert metrics["selected_group_ids"] == ["group-manual"]
+                assert metrics["resolved_skill_count"] == 1
 
             payload_without_selection = {
                 "message": "No explicit skill.",
@@ -441,3 +451,69 @@ def test_source_layer_metrics():
             chat_service_module.DATA_DIR = old_data_dir
             chat_service_module.DB_FILE = old_db_file
             chat_service_module.OLD_CHATS_FILE = old_chats_file
+
+
+def test_visible_skills_resolve_from_groups_and_extra_with_dedupe():
+    registry = SkillRegistry()
+    registry.register(
+        SkillSpec(
+            name="release-test-planner",
+            version="1.0.0",
+            description="planner",
+            capabilities=["planning"],
+            entrypoint="system_prompt",
+            system_prompt="planner",
+        )
+    )
+    registry.register(
+        SkillSpec(
+            name="backend-api-debugger",
+            version="1.0.0",
+            description="debugger",
+            capabilities=["debug"],
+            entrypoint="system_prompt",
+            system_prompt="debugger",
+        )
+    )
+
+    router = SkillRouter(registry)
+    agent = AgentConfig(
+        name="Group Agent",
+        system_prompt="Agent prompt",
+        skill_groups=["group-backend"],
+        extra_visible_skills=["backend-api-debugger:1.0.0"],
+        visible_skills=["release-test-planner:1.0.0", "backend-api-debugger:1.0.0"],
+    )
+
+    with patch("app.services.skill_service.skill_group_store") as mock_group_store:
+        mock_group_store.get_skill_refs_by_group_ids.return_value = [
+            "release-test-planner:1.0.0",
+            "backend-api-debugger:1.0.0",
+        ]
+        visible = router.get_visible_skills(agent)
+
+    refs = [f"{s.name}:{s.version}" for s in visible]
+    assert refs == ["release-test-planner:1.0.0", "backend-api-debugger:1.0.0"]
+
+
+def test_visible_skills_legacy_fallback_without_groups():
+    registry = SkillRegistry()
+    registry.register(
+        SkillSpec(
+            name="release-test-planner",
+            version="1.0.0",
+            description="planner",
+            capabilities=["planning"],
+            entrypoint="system_prompt",
+            system_prompt="planner",
+        )
+    )
+    router = SkillRouter(registry)
+    agent = AgentConfig(
+        name="Legacy Agent",
+        system_prompt="Agent prompt",
+        visible_skills=["release-test-planner:1.0.0"],
+    )
+    visible = router.get_visible_skills(agent)
+    assert len(visible) == 1
+    assert visible[0].name == "release-test-planner"

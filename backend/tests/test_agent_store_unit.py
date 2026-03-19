@@ -144,3 +144,38 @@ def test_migrate_agents_script_dry_run(temp_dirs):
     assert result.returncode == 0
     assert "dry_run" in result.stdout
     assert not os.path.exists(runtime_file)
+
+
+def test_agent_config_defaults_include_agent_kind():
+    cfg = AgentConfig(name="x", system_prompt="y")
+    assert cfg.agent_kind == "traditional"
+    assert cfg.skill_groups == []
+    assert cfg.extra_visible_skills == []
+
+
+def test_agent_store_loads_legacy_record_with_new_defaults(temp_dirs):
+    data_dir, _legacy_dir = temp_dirs
+    store = AgentStore(data_dir=data_dir)
+    agents_file = os.path.join(data_dir, "agents.json")
+    with open(agents_file, "w") as f:
+        json.dump(
+            [
+                {
+                    "id": "legacy-agent",
+                    "name": "Legacy Agent",
+                    "system_prompt": "legacy",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "enabled_tools": [],
+                    "skill_mode": "manual",
+                    "visible_skills": ["planner:1.0.0"],
+                }
+            ],
+            f,
+        )
+
+    loaded = store.get_agent("legacy-agent")
+    assert loaded is not None
+    assert loaded.agent_kind == "traditional"
+    assert loaded.skill_groups == []
+    assert loaded.extra_visible_skills == []

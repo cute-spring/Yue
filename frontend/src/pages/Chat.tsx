@@ -1,5 +1,5 @@
-import { createSignal, onMount, Show, createEffect } from 'solid-js';
-import { Message, SkillSpec } from '../types';
+import { createSignal, onMount, Show, createEffect, createMemo } from 'solid-js';
+import { Message, SkillSpec, VisibleSkillChip } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
@@ -23,7 +23,7 @@ import IntelligencePanel from '../components/IntelligencePanel';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { modelSupportsVision, useLLMProviders } from '../hooks/useLLMProviders';
 import { useAgents } from '../hooks/useAgents';
-import { canSubmitChatRequest, useChatState } from '../hooks/useChatState';
+import { canSubmitChatRequest, getAgentVisibleSkills, useChatState } from '../hooks/useChatState';
 import { useMermaid } from '../hooks/useMermaid';
 
 export default function Chat() {
@@ -361,27 +361,22 @@ export default function Chat() {
     return [...matches].sort((a, b) => compareVersion(a.version, b.version)).pop();
   };
 
-  const missingSummary = (missing?: Record<string, string[]>) => {
-    if (!missing) return "";
-    const parts: string[] = [];
-    if (missing.bins?.length) parts.push("bins");
-    if (missing.env?.length) parts.push("env");
-    if (missing.os?.length) parts.push("os");
-    if (!parts.length) return "";
-    return ` (missing ${parts.join(", ")})`;
+  const parseSkillReference = (skillId: string) => {
+    if (!skillId.includes(':')) return { name: skillId, version: undefined as string | undefined };
+    const [name, version] = skillId.split(':', 2);
+    return { name, version };
   };
 
-  const visibleSkillOptions = () => {
-    const skills = currentAgent()?.visible_skills || [];
-    return skills.map(skillId => {
+  const visibleSkillOptions = createMemo<VisibleSkillChip[]>(() => {
+    const visibleSkillIds = getAgentVisibleSkills(currentAgent());
+    return visibleSkillIds.flatMap((skillId) => {
       const spec = resolveSkillSpec(skillId);
-      const sourceLayerTag = spec?.source_layer ? ` [${spec.source_layer}]` : "";
-      const labelBase = spec ? `${spec.name}:${spec.version}${sourceLayerTag}` : skillId;
-      const unavailable = spec?.availability === false;
-      const label = unavailable ? `${labelBase} unavailable${missingSummary(spec?.missing_requirements)}` : labelBase;
-      return { value: skillId, label, disabled: unavailable };
+      if (spec?.availability === false) return [];
+      if (spec) return [{ id: skillId, name: spec.name, version: spec.version }];
+      const parsed = parseSkillReference(skillId);
+      return [{ id: skillId, name: parsed.name, version: parsed.version }];
     });
-  };
+  });
 
   const handleMentionSelect = (agent: any) => {
     selectAgent(agent, input(), setInput);
@@ -496,18 +491,6 @@ export default function Chat() {
                 <span class="text-[10px] uppercase tracking-wider font-bold text-violet-700 bg-violet-100 border border-violet-200 rounded-full px-2 py-1">
                   {currentAgent()?.skill_mode}
                 </span>
-                <Show when={currentAgent()?.skill_mode === 'manual'}>
-                  <select
-                    class="text-xs border border-violet-200 bg-white rounded-lg px-2 py-1.5 text-violet-700 font-medium focus:outline-none focus:ring-2 focus:ring-violet-400"
-                    value={requestedSkill() || ''}
-                    onChange={e => setRequestedSkill(e.currentTarget.value || null)}
-                  >
-                    <option value="">No skill selected</option>
-                    {visibleSkillOptions().map(skill => (
-                      <option value={skill.value} disabled={skill.disabled}>{skill.label}</option>
-                    ))}
-                  </select>
-                </Show>
                 <Show when={activeSkill()}>
                   <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2 py-1">
                     Active: {activeSkill()!.name}@{activeSkill()!.version}
@@ -580,6 +563,10 @@ export default function Chat() {
           setImageAttachments={setImageAttachments}
           onImageClick={() => imageInputRef?.click()}
           imageInputRef={el => imageInputRef = el}
+          visibleSkills={visibleSkillOptions()}
+          requestedSkill={requestedSkill()}
+          onSelectSkill={setRequestedSkill}
+          skillMode={currentAgent()?.skill_mode}
         />
       </div>
 

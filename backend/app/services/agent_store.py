@@ -26,6 +26,10 @@ class AgentConfig(BaseModel):
     require_citations: bool = False
     skill_mode: str = "off"  # off | manual | auto
     visible_skills: List[str] = []
+    agent_kind: str = "traditional"
+    skill_groups: List[str] = []
+    extra_visible_skills: List[str] = []
+    resolved_visible_skills: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

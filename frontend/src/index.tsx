@@ -6,6 +6,7 @@ import './index.css';
 import App from './App';
 import Chat from './pages/Chat';
 import Agents from './pages/Agents';
+import SkillGroups from './pages/SkillGroups';
 import Settings from './pages/Settings';
 
 import Notebook from './pages/Notebook';
@@ -23,6 +24,7 @@ render(() => (
     <Router root={App}>
       <Route path="/" component={Chat} />
       <Route path="/agents" component={Agents} />
+      <Route path="/skill-groups" component={SkillGroups} />
       <Route path="/settings" component={Settings} />
       <Route path="/notebook" component={Notebook} />
     </Router>
