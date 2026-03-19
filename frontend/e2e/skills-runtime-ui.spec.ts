@@ -315,7 +315,7 @@ test('Chat sends requested_skill and renders active skill indicator', async ({ p
   await input.fill('@');
   await page.getByRole('button', { name: /Manual Skill Agent/i }).first().click();
 
-  await page.getByRole('button', { name: /planner:1.0.0/i }).click();
+  await page.locator('[data-testid="skill-chip-list"] [data-skill-id="planner:1.0.0"]').click();
   await page.getByRole('button', { name: /Select Model/i }).click();
   await page.getByRole('button', { name: /^gpt-4o$/i }).click();
   await input.fill('Use planning flow');

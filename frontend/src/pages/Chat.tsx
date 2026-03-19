@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show, createEffect } from 'solid-js';
+import { createSignal, onMount, Show, createEffect, createMemo } from 'solid-js';
 import { Message, SkillSpec, VisibleSkillChip } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
@@ -361,14 +361,22 @@ export default function Chat() {
     return [...matches].sort((a, b) => compareVersion(a.version, b.version)).pop();
   };
 
-  const visibleSkillOptions = (): VisibleSkillChip[] => {
-    const skills = getAgentVisibleSkills(currentAgent());
-    return skills.map((skillId) => {
-      const spec = resolveSkillSpec(skillId);
-      const unavailable = spec?.availability === false;
-      return { id: skillId, name: spec?.name || skillId, version: spec?.version, unavailable };
-    }).filter((skill) => !skill.unavailable).map(({ unavailable: _unavailable, ...skill }) => skill);
+  const parseSkillReference = (skillId: string) => {
+    if (!skillId.includes(':')) return { name: skillId, version: undefined as string | undefined };
+    const [name, version] = skillId.split(':', 2);
+    return { name, version };
   };
+
+  const visibleSkillOptions = createMemo<VisibleSkillChip[]>(() => {
+    const visibleSkillIds = getAgentVisibleSkills(currentAgent());
+    return visibleSkillIds.flatMap((skillId) => {
+      const spec = resolveSkillSpec(skillId);
+      if (spec?.availability === false) return [];
+      if (spec) return [{ id: skillId, name: spec.name, version: spec.version }];
+      const parsed = parseSkillReference(skillId);
+      return [{ id: skillId, name: parsed.name, version: parsed.version }];
+    });
+  });
 
   const handleMentionSelect = (agent: any) => {
     selectAgent(agent, input(), setInput);

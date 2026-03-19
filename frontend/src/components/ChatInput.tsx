@@ -119,7 +119,12 @@ export default function ChatInput(props: ChatInputProps) {
         />
 
         <Show when={props.skillMode === 'manual' && props.visibleSkills.length > 0}>
-          <div class="flex items-center gap-2 mb-3 overflow-x-auto pb-2 scrollbar-hide no-scrollbar" data-testid="skill-chip-list">
+          <div
+            class="flex items-center gap-2 mb-3 overflow-x-auto pb-2 scrollbar-hide no-scrollbar"
+            data-testid="skill-chip-list"
+            role="group"
+            aria-label="Manual skill selection"
+          >
             <For each={props.visibleSkills}>
               {(skill) => (
                 <button
@@ -127,6 +132,8 @@ export default function ChatInput(props: ChatInputProps) {
                   data-skill-id={skill.id}
                   type="button"
                   aria-pressed={props.requestedSkill === skill.id}
+                  aria-label={skill.version ? `Select skill ${skill.name} ${skill.version}` : `Select skill ${skill.name}`}
+                  title={skill.version ? `${skill.name}:${skill.version}` : skill.name}
                   onClick={() => {
                     if (props.requestedSkill === skill.id) {
                       props.onSelectSkill(null);
