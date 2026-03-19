@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ValidationError
+from app.services.skill_group_store import skill_group_store
 
 logger = logging.getLogger(__name__)
 
@@ -541,16 +542,42 @@ class SkillRouter:
     def __init__(self, registry: SkillRegistry):
         self.registry = registry
 
+    def resolve_visible_skill_refs(self, agent: Any) -> List[str]:
+        refs: List[str] = []
+        pre_resolved_refs = getattr(agent, "resolved_visible_skills", None) or []
+        refs.extend(pre_resolved_refs)
+        selected_group_ids = getattr(agent, "skill_groups", None) or []
+        if not pre_resolved_refs:
+            refs.extend(skill_group_store.get_skill_refs_by_group_ids(selected_group_ids))
+        extra_refs = getattr(agent, "extra_visible_skills", None) or []
+        if not pre_resolved_refs:
+            refs.extend(extra_refs)
+        legacy_refs = getattr(agent, "visible_skills", None) or []
+        if not pre_resolved_refs:
+            refs.extend(legacy_refs)
+        deduped: List[str] = []
+        seen = set()
+        for ref in refs:
+            if not isinstance(ref, str):
+                continue
+            norm = ref.strip()
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            deduped.append(norm)
+        return deduped
+
     def get_visible_skills(self, agent: Any) -> List[SkillSpec]:
         """
         Filter skills based on agent.visible_skills allowlist.
         If agent.visible_skills is empty, no skills are visible (fail-closed).
         """
-        if not hasattr(agent, "visible_skills") or not agent.visible_skills:
+        visible_refs = self.resolve_visible_skill_refs(agent)
+        if not visible_refs:
             return []
             
         visible = []
-        for name_version in agent.visible_skills:
+        for name_version in visible_refs:
             # name_version can be "name" or "name:version"
             if ":" in name_version:
                 name, version = name_version.split(":", 1)

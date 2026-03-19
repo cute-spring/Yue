@@ -24,6 +24,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-02-07T19:29:45.697525",
     "updated_at": "2026-02-07T19:32:30.883952"
   },
@@ -39,6 +43,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-02-11T22:27:49.859461",
     "updated_at": "2026-02-11T22:27:49.859462"
   },
@@ -54,6 +62,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-02-14T06:49:15.259287",
     "updated_at": "2026-02-14T06:49:15.259293"
   },
@@ -69,6 +81,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-02-14T07:05:58.261591",
     "updated_at": "2026-02-14T07:05:58.261595"
   },
@@ -94,6 +110,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-02-14T14:22:54.742313",
     "updated_at": "2026-03-01T14:31:22.108831"
   },
@@ -111,6 +131,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-03-01T16:38:04.074666",
     "updated_at": "2026-03-01T16:38:04.074679"
   },
@@ -145,6 +169,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-03-03T07:52:23.928356",
     "updated_at": "2026-03-03T08:46:17.739230"
   },
@@ -175,6 +203,10 @@
     "require_citations": true,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-03-03T19:41:22.043699",
     "updated_at": "2026-03-03T19:41:22.043709"
   },
@@ -201,6 +233,10 @@
     "require_citations": true,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-03-03T19:41:22.043717",
     "updated_at": "2026-03-03T19:41:22.043718"
   },
@@ -226,6 +262,10 @@
     "require_citations": true,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-03-03T22:50:46.272912",
     "updated_at": "2026-03-04T07:11:28.538270"
   },
@@ -241,6 +281,10 @@
     "require_citations": false,
     "skill_mode": "off",
     "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-03-05T10:01:46.756173",
     "updated_at": "2026-03-05T10:01:46.756178"
   },
@@ -292,7 +336,11 @@
       "ppt-expert:1.0.0",
       "system-ops-expert:1.0.0"
     ],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
     "created_at": "2026-03-05T14:42:05.437086",
-    "updated_at": "2026-03-15T23:27:30.659794"
+    "updated_at": "2026-03-19T23:41:15.245488"
   }
 ]

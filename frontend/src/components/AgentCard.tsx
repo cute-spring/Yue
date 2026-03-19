@@ -88,9 +88,17 @@ export function AgentCard(props: AgentCardProps) {
             <span class="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded border border-violet-100 uppercase font-bold tracking-wide">
               {props.agent.skill_mode}
             </span>
+            <span class="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100 uppercase font-bold tracking-wide">
+              {props.agent.agent_kind || 'traditional'}
+            </span>
             <span class="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded border border-violet-100">
               {(props.agent.visible_skills || []).length} visible
             </span>
+            <Show when={(props.agent.skill_groups || []).length > 0}>
+              <span class="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
+                {(props.agent.skill_groups || []).length} groups
+              </span>
+            </Show>
             <Show when={selectedSkillsSummary()}>
               <span class="text-[10px] bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded border border-violet-200 font-semibold">
                 {selectedSkillsSummary()}

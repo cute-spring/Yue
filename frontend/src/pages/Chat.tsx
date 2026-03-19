@@ -23,7 +23,7 @@ import IntelligencePanel from '../components/IntelligencePanel';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { modelSupportsVision, useLLMProviders } from '../hooks/useLLMProviders';
 import { useAgents } from '../hooks/useAgents';
-import { canSubmitChatRequest, useChatState } from '../hooks/useChatState';
+import { canSubmitChatRequest, getAgentVisibleSkills, useChatState } from '../hooks/useChatState';
 import { useMermaid } from '../hooks/useMermaid';
 
 export default function Chat() {
@@ -372,7 +372,7 @@ export default function Chat() {
   };
 
   const visibleSkillOptions = () => {
-    const skills = currentAgent()?.visible_skills || [];
+    const skills = getAgentVisibleSkills(currentAgent());
     return skills.map(skillId => {
       const spec = resolveSkillSpec(skillId);
       const sourceLayerTag = spec?.source_layer ? ` [${spec.source_layer}]` : "";

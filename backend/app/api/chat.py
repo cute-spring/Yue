@@ -356,11 +356,12 @@ async def generate_chat_summary(chat_id: str, request: Optional[SummaryGenerateR
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     force = bool(request.force) if request else False
-    if chat.summary and not force:
-        return {"summary": chat.summary}
+    existing_summary = chat.get("summary") if isinstance(chat, dict) else chat.summary
+    if existing_summary and not force:
+        return {"summary": existing_summary}
     summary = await session_meta_service.generate_session_meta(chat_id, task="summary")
     if not summary:
-        return {"summary": chat.summary or ""}
+        return {"summary": existing_summary or ""}
     chat_service.update_chat_summary(chat_id, summary)
     return {"summary": summary}
 
@@ -578,6 +579,14 @@ async def chat_stream(request: ChatRequest):
             visible_skill_count = 0
             available_skill_count = 0
             always_injected_count = 0
+            selected_group_ids = []
+            resolved_skill_count = 0
+
+            if agent_config:
+                selected_group_ids = list(getattr(agent_config, "skill_groups", None) or [])
+                resolved_refs = skill_router.resolve_visible_skill_refs(agent_config)
+                agent_config.resolved_visible_skills = resolved_refs
+                resolved_skill_count = len(resolved_refs)
             
             summary_block = None
             if feature_flags.get("skill_summary_prompt_enabled", False) and agent_config and agent_config.skill_mode != "off":
@@ -777,6 +786,8 @@ async def chat_stream(request: ChatRequest):
                 "visible_skill_count": visible_skill_count,
                 "available_skill_count": available_skill_count,
                 "always_injected_count": always_injected_count,
+                "selected_group_ids": selected_group_ids,
+                "resolved_skill_count": resolved_skill_count,
                 "summary_injected": summary_injected,
                 "scope_summary_injected": scope_summary_injected,
                 "effective_scope_count": effective_scope_count,

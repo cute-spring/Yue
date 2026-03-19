@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health, skills
+from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups
 from app.mcp.manager import mcp_manager
 from app.services.skill_service import skill_registry, SkillDirectoryResolver
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
@@ -76,6 +76,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
+app.include_router(skill_groups.router, prefix="/api/skill-groups", tags=["skill-groups"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])

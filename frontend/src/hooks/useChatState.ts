@@ -1,5 +1,5 @@
 import { createSignal, onMount } from 'solid-js';
-import { ChatSession, Message, ChatEventEnvelope, ToolCall } from '../types';
+import { ChatSession, Message, ChatEventEnvelope, ToolCall, Agent } from '../types';
 import { useToast } from '../context/ToastContext';
 
 export const normalizeStreamEvent = (raw: any): ChatEventEnvelope => {
@@ -69,6 +69,13 @@ export const shouldAcceptEvent = (seenEventIds: Set<string>, event: ChatEventEnv
 
 export const canSubmitChatRequest = (inputText: string, imageCount: number): boolean => {
   return inputText.trim().length > 0 || imageCount > 0;
+};
+
+export const getAgentVisibleSkills = (agent?: Agent | null): string[] => {
+  if (!agent) return [];
+  const resolved = Array.isArray(agent.resolved_visible_skills) ? agent.resolved_visible_skills : [];
+  if (resolved.length > 0) return resolved;
+  return Array.isArray(agent.visible_skills) ? agent.visible_skills : [];
 };
 
 export const shouldSkipHistoryFetch = (lastFetchAt: number, now: number, minIntervalMs: number): boolean => {

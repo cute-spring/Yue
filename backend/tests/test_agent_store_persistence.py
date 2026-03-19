@@ -2,6 +2,8 @@ import json
 import os
 import tempfile
 import unittest
+import subprocess
+from pathlib import Path
 
 
 class TestAgentStorePersistence(unittest.TestCase):
@@ -75,6 +77,79 @@ class TestAgentStorePersistence(unittest.TestCase):
             with open(agents_path, "r") as f:
                 data = json.load(f)
             self.assertTrue(isinstance(data, list))
+
+    def test_migrate_agent_kind_groups_dry_run_report(self):
+        with tempfile.TemporaryDirectory() as td:
+            agents_file = os.path.join(td, "agents.json")
+            groups_file = os.path.join(td, "skill_groups.json")
+            with open(agents_file, "w") as f:
+                json.dump(
+                    [
+                        {"id": "a-off", "name": "Off", "system_prompt": "x", "skill_mode": "off", "visible_skills": []},
+                        {"id": "a-auto", "name": "Auto", "system_prompt": "x", "skill_mode": "auto", "visible_skills": ["planner:1.0.0"]},
+                    ],
+                    f,
+                )
+
+            backend_dir = Path(__file__).resolve().parents[1]
+            result = subprocess.run(
+                [
+                    "python",
+                    "scripts/migrate_agents_to_agent_kind_groups.py",
+                    "--agents-file",
+                    agents_file,
+                    "--skill-groups-file",
+                    groups_file,
+                    "--dry-run",
+                ],
+                cwd=str(backend_dir),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('"dry_run": true', result.stdout)
+            self.assertFalse(os.path.exists(groups_file))
+
+    def test_migrate_agent_kind_groups_apply(self):
+        with tempfile.TemporaryDirectory() as td:
+            agents_file = os.path.join(td, "agents.json")
+            groups_file = os.path.join(td, "skill_groups.json")
+            with open(agents_file, "w") as f:
+                json.dump(
+                    [
+                        {"id": "a-off", "name": "Off", "system_prompt": "x", "skill_mode": "off", "visible_skills": []},
+                        {"id": "a-manual", "name": "Manual", "system_prompt": "x", "skill_mode": "manual", "visible_skills": ["planner:1.0.0"]},
+                    ],
+                    f,
+                )
+
+            backend_dir = Path(__file__).resolve().parents[1]
+            result = subprocess.run(
+                [
+                    "python",
+                    "scripts/migrate_agents_to_agent_kind_groups.py",
+                    "--agents-file",
+                    agents_file,
+                    "--skill-groups-file",
+                    groups_file,
+                ],
+                cwd=str(backend_dir),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0)
+
+            with open(agents_file, "r") as f:
+                migrated_agents = json.load(f)
+            by_id = {item["id"]: item for item in migrated_agents}
+            self.assertEqual(by_id["a-off"]["agent_kind"], "traditional")
+            self.assertEqual(by_id["a-manual"]["agent_kind"], "universal")
+            self.assertGreaterEqual(len(by_id["a-manual"]["skill_groups"]), 1)
+
+            with open(groups_file, "r") as f:
+                migrated_groups = json.load(f)
+            self.assertEqual(len(migrated_groups), 1)
+            self.assertEqual(migrated_groups[0]["skill_refs"], ["planner:1.0.0"])
 
 
 if __name__ == "__main__":

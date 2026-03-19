@@ -140,6 +140,7 @@ export default function Agents() {
 
       <div class="flex items-center justify-between text-xs text-gray-500 mb-4">
         <span>{filteredAgents().length} agents</span>
+        <span>{state.skillGroups().length} skill groups</span>
         <Show when={searchQuery().trim().length > 0}>
           <span>Filtered by "{searchQuery().trim()}"</span>
         </Show>
