@@ -1,4 +1,4 @@
-import { createSignal, Show, onCleanup, onMount } from 'solid-js';
+import { createSignal, onCleanup, onMount } from 'solid-js';
 import { downloadMarkdown, downloadMessageAsImage } from '../utils/exportUtils';
 import { useToast } from '../context/ToastContext';
 
@@ -57,7 +57,10 @@ export default function MessageExportMenu(props: Props) {
         body: JSON.stringify({ content: props.content, format })
       });
       
-      if (!res.ok) throw new Error('Export failed');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || 'Export failed');
+      }
       
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -70,8 +73,8 @@ export default function MessageExportMenu(props: Props) {
       URL.revokeObjectURL(url);
       
       toast.showToast(`Message exported as ${format.toUpperCase()}`, 'success');
-    } catch (e) {
-      toast.showToast('Failed to export document', 'error');
+    } catch (e: any) {
+      toast.showToast(e.message || 'Failed to export document', 'error');
     } finally {
       setIsExporting(false);
       props.onClose();
