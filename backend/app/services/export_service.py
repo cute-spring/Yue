@@ -167,13 +167,6 @@ class ExportService:
         os.close(fd)
         
         try:
-            import sys
-            # Workaround for macOS Apple Silicon Homebrew to find pango/cairo
-            if sys.platform == "darwin":
-                homebrew_lib = "/opt/homebrew/lib"
-                if os.path.exists(homebrew_lib) and "DYLD_FALLBACK_LIBRARY_PATH" not in os.environ:
-                    os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = homebrew_lib
-                    
             from weasyprint import HTML
             HTML(string=styled_html).write_pdf(path)
         except Exception as e:

@@ -1,4 +1,13 @@
 import os
+import sys
+
+# Workaround for WeasyPrint on macOS Apple Silicon (Homebrew)
+# Must be set before any other imports that might load cffi/glib
+if sys.platform == "darwin":
+    homebrew_lib = "/opt/homebrew/lib"
+    if os.path.exists(homebrew_lib) and "DYLD_FALLBACK_LIBRARY_PATH" not in os.environ:
+        os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = homebrew_lib
+
 import logging
 import asyncio
 import shutil
