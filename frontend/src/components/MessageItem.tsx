@@ -3,6 +3,7 @@ import { Message } from '../types';
 import { renderMarkdown } from '../utils/markdown';
 import { getAdaptedThought } from "../utils/thoughtParser";
 import ToolCallItem from './ToolCallItem';
+import MessageExportMenu from './MessageExportMenu';
 
 interface MessageItemProps {
   msg: Message;
@@ -66,6 +67,13 @@ export const getVisionFeedbackText = (
 export default function MessageItem(props: MessageItemProps) {
   const [waitSecs, setWaitSecs] = createSignal(0);
   let timer: any;
+
+  const [exportMenuPos, setExportMenuPos] = createSignal<{x: number, y: number} | null>(null);
+
+  const handleExportClick = (e: MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setExportMenuPos({ x: rect.left, y: rect.bottom + 8 });
+  };
 
   // Memoize parsing to avoid redundant work and logic issues during non-typing states
   const adapted = createMemo(() => getAdaptedThought(props.msg, props.isTyping));
@@ -214,7 +222,7 @@ export default function MessageItem(props: MessageItemProps) {
     };
 
     return (
-      <div class={`mt-4 flex flex-wrap items-center gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div class={`export-exclude mt-4 flex flex-wrap items-center gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
         <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-text-secondary/5 border border-border/40 text-[10px] font-medium text-text-secondary/70">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           {formatTime(msg.timestamp)}
@@ -335,7 +343,7 @@ export default function MessageItem(props: MessageItemProps) {
           {props.msg.role === 'user' ? 'You' : props.activeAgentName}
         </span>
       </div>
-      <div class={`group relative max-w-[85%] lg:max-w-[75%] ${
+      <div id={`message-container-${props.index}`} class={`group relative max-w-[85%] lg:max-w-[75%] ${
         props.msg.role === 'user' 
           ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-primary/20 rounded-[26px] rounded-br-none overflow-hidden' 
           : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none'
@@ -607,12 +615,12 @@ export default function MessageItem(props: MessageItemProps) {
                       prose-headings:text-text-primary prose-headings:font-black prose-headings:tracking-tight
                       prose-a:text-primary prose-a:font-bold hover:prose-a:text-primary-hover prose-a:no-underline border-b border-transparent hover:border-primary
                       prose-strong:text-text-primary prose-strong:font-bold
-                      prose-code:text-primary prose-code:bg-primary/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-code:font-bold
+                      prose-code:text-primary prose-code:bg-primary/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-code:font-bold prose-code:break-words prose-code:break-all
                       prose-pre:p-0 prose-pre:bg-transparent
                       prose-ol:my-4 prose-ul:my-4 prose-li:my-1
-                      prose-table:w-full prose-table:border-collapse prose-table:my-6
-                      prose-th:bg-primary/5 prose-th:text-primary prose-th:p-3 prose-th:text-left prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-wider prose-th:border prose-th:border-border/60
-                      prose-td:p-3 prose-td:text-sm prose-td:border prose-td:border-border/60 prose-td:text-text-secondary" 
+                      prose-table:w-full prose-table:border-collapse prose-table:my-6 prose-table:table-fixed
+                      prose-th:bg-primary/5 prose-th:text-primary prose-th:p-3 prose-th:text-left prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-wider prose-th:border prose-th:border-border/60 prose-th:break-words prose-th:break-all
+                      prose-td:p-3 prose-td:text-sm prose-td:border prose-td:border-border/60 prose-td:text-text-secondary prose-td:break-words prose-td:break-all" 
                   />
                 </Show>
 
@@ -679,7 +687,7 @@ export default function MessageItem(props: MessageItemProps) {
         </Show>
 
         <Show when={props.msg.role === 'assistant' && !props.isTyping}>
-          <div class="flex items-center gap-1 mt-3 -ml-2">
+          <div class="export-exclude flex items-center gap-1 mt-3 -ml-2">
             <button 
               class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
               title="Copy" 
@@ -694,7 +702,11 @@ export default function MessageItem(props: MessageItemProps) {
                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 14.142M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                </svg>
             </button>
-             <button class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" title="Download">
+             <button 
+               class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
+               title="Download/Export"
+               onClick={handleExportClick}
+             >
                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                </svg>
@@ -725,6 +737,14 @@ export default function MessageItem(props: MessageItemProps) {
         </Show>
         {renderMetaBadges(props.msg)}
       </div>
+      <Show when={exportMenuPos()}>
+        <MessageExportMenu 
+          content={props.msg.content}
+          messageId={`message-container-${props.index}`}
+          position={exportMenuPos()!}
+          onClose={() => setExportMenuPos(null)}
+        />
+      </Show>
     </div>
   );
 }
