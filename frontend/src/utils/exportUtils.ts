@@ -29,7 +29,16 @@ export const downloadMessageAsImage = async (
     exportRoot.style.top = '0';
     exportRoot.style.zIndex = '-9999';
     exportRoot.style.pointerEvents = 'none';
-    exportRoot.style.width = `${Math.max(760, Math.ceil(sourceRect.width))}px`;
+
+    let maxScrollWidth = Math.ceil(sourceNode.scrollWidth);
+    const scrollableElements = sourceNode.querySelectorAll('*');
+    scrollableElements.forEach((el) => {
+      if (el.scrollWidth > maxScrollWidth) {
+        maxScrollWidth = el.scrollWidth;
+      }
+    });
+
+    exportRoot.style.width = `${Math.max(760, Math.ceil(sourceRect.width), maxScrollWidth + 80)}px`;
     exportRoot.style.padding = '40px';
     exportRoot.style.background = 'linear-gradient(180deg, #f8fbfa 0%, #f0f7f4 100%)';
     exportRoot.style.boxSizing = 'border-box';

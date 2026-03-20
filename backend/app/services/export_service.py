@@ -147,14 +147,15 @@ class ExportService:
         <html>
         <head>
             <style>
-                body {{ font-family: sans-serif; line-height: 1.6; padding: 2em; color: #333; }}
-                pre {{ background: #f4f4f4; padding: 1em; border-radius: 4px; white-space: pre-wrap; }}
-                code {{ font-family: monospace; background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; }}
-                h1, h2, h3, h4 {{ color: #111; margin-top: 1.5em; }}
+                body {{ font-family: sans-serif; line-height: 1.6; padding: 2em; color: #333; word-wrap: break-word; }}
+                pre {{ background: #f4f4f4; padding: 1em; border-radius: 4px; white-space: pre-wrap; word-break: break-all; overflow-x: auto; }}
+                code {{ font-family: monospace; background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; word-break: break-all; white-space: pre-wrap; }}
+                h1, h2, h3, h4 {{ color: #111; margin-top: 1.5em; page-break-after: avoid; }}
                 blockquote {{ border-left: 4px solid #ccc; margin-left: 0; padding-left: 1em; color: #666; }}
-                table {{ border-collapse: collapse; width: 100%; margin-bottom: 1em; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                table {{ border-collapse: collapse; width: 100%; margin-bottom: 1em; table-layout: fixed; word-wrap: break-word; word-break: break-all; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; word-wrap: break-word; word-break: break-all; overflow-wrap: break-word; }}
                 th {{ background-color: #f4f4f4; }}
+                img {{ max-width: 100%; height: auto; }}
             </style>
         </head>
         <body>

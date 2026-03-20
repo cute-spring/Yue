@@ -3,12 +3,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from app.services.export_service import ExportService
 import os
+from typing import Literal
 
 router = APIRouter()
 
 class ExportRequest(BaseModel):
     content: str
-    format: str # 'pdf', 'docx', 'txt'
+    format: Literal['pdf', 'docx', 'txt']
 
 def remove_file(path: str):
     try:
@@ -32,9 +33,6 @@ async def export_message(req: ExportRequest, background_tasks: BackgroundTasks):
             path = ExportService.export_to_txt(req.content)
             media_type = 'text/plain'
             filename = 'export.txt'
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported format")
-
         background_tasks.add_task(remove_file, path)
 
         return FileResponse(
@@ -42,5 +40,7 @@ async def export_message(req: ExportRequest, background_tasks: BackgroundTasks):
             media_type=media_type, 
             filename=filename,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
