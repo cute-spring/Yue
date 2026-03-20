@@ -68,6 +68,11 @@ type LLMProvider = {
     const [isSavingModels, setIsSavingModels] = createSignal(false);
     const [isRefreshingProviders, setIsRefreshingProviders] = createSignal(false);
     
+    // Add loading state and cache for the modal
+    const [isLoadingModels, setIsLoadingModels] = createSignal(false);
+    const [adminModelsCache, setAdminModelsCache] = createSignal<Record<string, any>>({});
+    const [adminModelCapabilities, setAdminModelCapabilities] = createSignal<Record<string, string[]>>({});
+    
     // Agents State
     const [agents, setAgents] = createSignal<Agent[]>([]);
   
@@ -197,12 +202,42 @@ type LLMProvider = {
   };
 
 
-  const openModelManager = (provider: LLMProvider) => {
+  const openModelManager = async (provider: LLMProvider) => {
     setManagingProvider(provider.name);
-    setManagedModels(provider.models || []);
-    setEnabledModels(new Set(provider.available_models || []));
-    setCapabilityOverrides(provider.explicit_model_capabilities || {});
     setShowModelManager(true);
+    
+    // Check cache first
+    if (adminModelsCache()[provider.name]) {
+      const data = adminModelsCache()[provider.name];
+      setManagedModels(data.models || []);
+      setEnabledModels(new Set<string>(data.available_models || []));
+      setCapabilityOverrides(data.explicit_model_capabilities || {});
+      setAdminModelCapabilities(data.model_capabilities || {});
+      return;
+    }
+
+    setIsLoadingModels(true);
+    try {
+      // Fetch full list from new admin endpoint
+      const res = await fetch(`/api/models/providers/${provider.name}/models`);
+      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      const data = await res.json();
+      
+      setManagedModels(data.models || []);
+      setEnabledModels(new Set<string>(data.available_models || []));
+      setCapabilityOverrides(data.explicit_model_capabilities || {});
+      
+      // We also need to store the full capabilities for rendering the badges in the modal
+      setAdminModelCapabilities(data.model_capabilities || {});
+      
+      // Cache the result
+      setAdminModelsCache(prev => ({ ...prev, [provider.name]: data }));
+    } catch (e: any) {
+      console.error("Failed to load models", e);
+      showToast('error', `Failed to load models: ${e.message}`);
+    } finally {
+      setIsLoadingModels(false);
+    }
   };
   const openProviderEditor = (name: string) => {
     setEditingProvider(name);
@@ -1019,14 +1054,18 @@ type LLMProvider = {
                   </div>
 
                   <div class="flex-1 overflow-y-auto p-2">
-                    <div class="grid grid-cols-1 gap-1">
-                      <For each={managedModels()}>
-                        {(model) => {
-                          const currentProvider = () => providers().find(p => p.name === managingProvider());
-                          const inferredCaps = () => currentProvider()?.model_capabilities?.[model] || [];
-                          const explicitCaps = () => capabilityOverrides()[model];
-                          const hasOverride = () => explicitCaps() !== undefined;
-                          const activeCaps = () => explicitCaps() ?? inferredCaps();
+                    <Show when={!isLoadingModels()} fallback={
+                      <div class="flex justify-center items-center py-10">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                      </div>
+                    }>
+                      <div class="grid grid-cols-1 gap-1">
+                        <For each={managedModels()}>
+                          {(model) => {
+                            const inferredCaps = () => adminModelCapabilities()[model] || [];
+                            const explicitCaps = () => capabilityOverrides()[model];
+                            const hasOverride = () => explicitCaps() !== undefined;
+                            const activeCaps = () => explicitCaps() ?? inferredCaps();
 
                           const toggleCap = (cap: string, e: Event) => {
                             e.preventDefault();
@@ -1115,6 +1154,7 @@ type LLMProvider = {
                         </div>
                       </Show>
                     </div>
+                  </Show>
                   </div>
 
                   <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2">
