@@ -36,51 +36,83 @@
 ### 2.3 优化建议
 - **生命周期挂钩（Cascading Deletes）**：在数据库的外键或 ORM 层设计中，确保当 `Session` 或 `Message` 被删除时，触发一个后台任务（或文件系统同步逻辑）去递归删除对应的 `user/session_id` 文件夹，避免产生“僵尸文件”。
 - **文件类型与大小强校验**：在写入物理磁盘前，不要仅依赖扩展名，建议校验文件的 Magic Number（真实 MIME Type），并根据系统配置限制单文件大小（如图片最大 5MB，文档最大 20MB）。
-- **与现有架构的融合**：可以与当前系统的 `backend/data/uploads` 目录架构无缝结合。存储路径可规划为 `backend/data/uploads/users/{user_id}/{session_id}/{uuid}.{ext}`，并通过 Vite Proxy (如 `/files` -> `http://127.0.0.1:8003`) 统一对外提供安全的静态资源访问服务。
 - **考虑哈希去重（可选演进）**：如果未来文件量极大，可考虑将 UUID 替换为文件内容的 Hash（如 SHA-256），实现系统级的“秒传”和存储去重；但在当前阶段，UUID 方案在工程实现上最为简单可靠，推荐保持。
 
 ---
 
 ## 3. V2 调整方案专项评审 (Evaluation of V2 Adjustments)
 
-根据最新提出的两点调整想法，这里进行专项的专业评估：
-
 ### 3.1 调整一：将上传文件保存到系统当前用户的 `~/.yue/upload` 目录
 **评估结论：非常推荐（适用于本地/客户端优先应用）**
 
-*   **架构契合度**：采用 `~/.yue/upload` 遵循了 Linux/macOS 的 XDG Base Directory 规范精神（即将应用数据存放在 User Home Directory 下），能够有效隔离不同操作系统的用户数据，不污染项目的源代码目录（相比于放在项目自身的 `backend/data` 目录下）。
-*   **权限安全性**：存放在 `~/.yue` 意味着该目录天然继承了当前系统用户的权限（如 700 或 755），其他系统用户无法轻易越权访问，从 OS 层面加固了安全。
-*   **推荐的最终目录结构**：
-    考虑到后续不仅有上传文件，可能还会有日志、数据库文件、缓存等，建议设计一个标准化的隐藏应用数据目录结构：
-    ```text
-    ~/.yue/
-      ├── data/
-      │   ├── uploads/            # 上传文件根目录
-      │   │   └── {user_id}/      # 应用层多租户隔离 (如果有)
-      │   │       └── {session_id}/
-      │   │           └── {uuid}.{ext}
-      │   └── database/           # SQLite 数据库文件
-      ├── logs/                   # 应用日志
-      └── config/                 # 配置文件 (如 config.yaml)
-    ```
-    *注：如果系统纯粹是单用户本地运行的工具，`{user_id}` 这一层可以省略，直接使用 `~/.yue/data/uploads/{session_id}/`。*
+*   **架构契合度**：采用 `~/.yue/upload` 遵循了 Linux/macOS 的 XDG Base Directory 规范精神，能够有效隔离不同操作系统的用户数据，不污染项目的源代码目录。
+*   **权限安全性**：存放在 `~/.yue` 意味着该目录天然继承了当前系统用户的权限（如 700 或 755），其他系统用户无法轻易越权访问。
 
 ### 3.2 调整二：Prompt 中仅注入目录级信息，不预先遍历所有文件名
 **评估结论：绝对的行业最佳实践（Best Practice for Agentic RAG / Tool-use）**
 
-*   **解决 Token 爆炸的核心痛点**：预先找出所有文件名并注入 Prompt 会导致上下文极速膨胀（Lost in the Middle），既费钱又降低 LLM 遵循指令的准确率。仅注入“目录及简介”彻底避免了这个问题。
-*   **赋能 LLM 主动探索（ReAct 模式）**：
-    将系统设计为：
-    1.  **Prompt 提示空间范围**：“你可以访问以下目录：`/Alias1` (对应用户文档), `/Alias2` (对应项目源码)...”
-    2.  **提供探索工具 (Tools/MCP)**：给 LLM 提供 `list_directory(path)` 和 `search_files(keyword, path)` 等工具。
-    这样 LLM 会像一个真实的人类程序员一样，先阅读目录简介，然后主动调用 `list_directory` 探查具体有哪些文件，最后决定读取哪个文件。这种按需检索（On-demand Discovery）的模式是当前主流智能体架构（如 AutoGPT, Claude Computer Use）的标配。
-*   **动态性更强**：如果底层文件系统发生改变（如用户刚新建了一个文件），预先全部注入的方式会读取到旧状态（Stale Data）；而通过 Tool 主动查询，LLM 每次拿到的都是文件系统的最新实时快照。
+*   **解决 Token 爆炸的核心痛点**：预先找出所有文件名并注入 Prompt 会导致上下文极速膨胀。仅注入“目录及简介”彻底避免了这个问题。
+*   **赋能 LLM 主动探索（ReAct 模式）**：通过“Prompt 提示空间范围”配合“探索工具 (`list_directory`, `search_files`)”，让 LLM 能够像真实程序员一样按需检索。
 
 ---
 
-## 4. 最终总结
-这两点补充调整是对原方案的**重大升华**：
-1. **`~/.yue/upload` 的物理隔离**让存储方案更符合操作系统规范，适合长期沉淀为标准应用产品。
-2. **“Prompt 仅给目录地图 + 配合 Tool 动态探索”** 的思路，完美踩中了当前大模型工程（LLMOps）中关于 Context Management 的最佳实践，既克制了 Token 消耗，又充分释放了模型自主使用工具的智能。
+## 4. 架构演进：兼容本地与服务器多人部署的存储方案设计
 
-该文件管理架构设计已达到非常成熟的标准，强烈建议按照此最终方案推进工程落地。
+基于将应用部署到服务器供多人使用的演进需求，我们需要将当前的**本地文件系统强耦合设计**升级为**存储抽象层设计**。以下是专业的架构演进建议：
+
+### 4.1 核心矛盾分析
+*   **本地模式**：用户期望文件存在 `~/.yue/upload`，即服务器运行账号的 Home 目录。这在单机本地运行非常完美。
+*   **服务器多人模式**：如果部署在服务器上，所有 Web 用户（User A, User B）上传的文件都会挤在服务器运行该程序的系统账号的 `~/.yue/upload` 目录下。这带来了几个致命问题：
+    1.  **无法横向扩展（Scale-out）**：如果部署多台服务器负载均衡，文件只存在某一台服务器的本地磁盘上，其他服务器无法读取。
+    2.  **安全隔离风险**：不同 Web 租户的文件物理上混在同一个 Linux 用户的目录中，一旦出现路径越权漏洞，极易发生跨租户数据泄露。
+    3.  **存储容量限制**：服务器的系统盘（Home 目录所在）容量通常有限，无法支撑多人长期上传的大量文件。
+
+### 4.2 解决方案：引入存储抽象层（Storage Abstraction Layer）
+
+为了兼顾“本地轻量化”和“云端可扩展”，系统在设计上必须引入一个**存储接口层（Storage Provider）**。
+
+#### 4.2.1 存储接口定义 (Storage Provider Interface)
+在代码层面，所有文件的读写不应再直接调用 `os.open` 或 `shutil`，而是通过一个统一的接口：
+```python
+class StorageProvider:
+    def save(self, user_id: str, session_id: str, filename: str, content: bytes) -> str: pass
+    def get(self, file_uri: str) -> bytes: pass
+    def delete(self, file_uri: str) -> bool: pass
+```
+
+#### 4.2.2 适配不同环境的存储实现
+
+**A. 本地环境 (Local Provider)**
+*   **实现机制**：当配置文件为 `ENV=local` 时，实例化 `LocalStorageProvider`。
+*   **存储路径**：使用之前确定的 `~/.yue/upload/{user_id}/{session_id}/`。
+*   **访问方式**：由于是本地运行，前端或本地 LLM 可以直接通过本地文件绝对路径（如 `/Users/gavin/.yue/...`）或通过一个轻量的本地静态文件代理（如 Vite 代理 `/files -> http://127.0.0.1:8003/data/`）访问。
+
+**B. 服务器多人环境 (Cloud/S3 Provider) —— 【关键改进】**
+*   **实现机制**：当配置文件为 `ENV=production` 时，实例化 `S3StorageProvider`（如 AWS S3, 阿里云 OSS, 或自建的 MinIO）。
+*   **存储路径 (Object Key)**：`uploads/{user_id}/{session_id}/{uuid}.{ext}`。
+*   **访问方式**：存储完成后，Provider 返回一个标准的 URL（如 `https://s3.your-domain.com/uploads/...`）。数据库中存储该 URL 而不是物理路径。
+*   **为何必须是对象存储 (S3-compatible)**：
+    1.  **无状态服务器**：应用服务器本地不存文件，随时可以扩容或销毁。
+    2.  **天然的租户隔离**：可以通过云厂商的 IAM 策略或预签名 URL (Presigned URL) 严格控制每个文件只允许对应的 `user_id` 下载。
+    3.  **无限容量与高可用**：无需担心磁盘写满。
+
+### 4.3 读取文件（DocAccess）的云端适配
+
+对于“读取本地配置目录”的功能，在多人服务器模式下也需要演进：
+
+*   **本地模式**：读取系统真实的 `/Users/gavin/my-projects` 等目录。
+*   **服务器模式**：显然不能允许 Web 用户去读取服务器底层的 `/etc` 或 `/home/ubuntu`。
+    *   **方案一（用户网盘）**：将每个用户的专属 S3 Bucket 路径映射为其虚拟的“本地根目录”。LLM 调用的 `list_directory` 工具底层自动转换为对 S3 API 的 `list_objects` 调用。
+    *   **方案二（系统级知识库）**：管理员在服务器上挂载一个只读的共享数据盘（如 NAS/EFS），并在系统配置中将其别名暴露给所有租户（如 `alias: Public_Docs -> /mnt/nas/docs`）。
+
+### 4.4 最终架构建议总结
+
+要实现“既支持本地又支持远程多人”，**不要在代码里硬编码任何物理路径**，而是采用以下架构：
+
+1.  **代码解耦**：实现 `LocalStorage` 和 `S3Storage` 两个适配器，通过配置文件的 `STORAGE_TYPE` 环境变量一键切换。
+2.  **路径虚拟化 (URI 化)**：数据库中不要存 `/Users/xxx/...`，而是存储一种 URI 协议。例如存为 `yue://uploads/user_1/session_2/abc.pdf`。
+    *   如果是本地模式，系统将其解析为 `~/.yue/upload/user_1/...`。
+    *   如果是服务器模式，系统将其解析为 `https://s3-bucket/uploads/user_1/...`。
+3.  **安全基线**：无论哪种模式，原方案中优秀的 `UUID 文件名`、`user_id/session_id 物理隔离` 策略都完全适用并应被保留。
+
+这种**“底层接口抽象 + 统一资源标识符 (URI)”**的设计，是业界标准（如 Laravel Flysystem, Spring Flysystem）处理此类兼容性需求的唯一最佳实践。
