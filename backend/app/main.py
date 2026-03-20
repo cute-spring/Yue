@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups
+from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, export
 from app.mcp.manager import mcp_manager
 from app.services.skill_service import skill_registry, SkillDirectoryResolver
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
@@ -82,6 +82,7 @@ app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(notebook.router, prefix="/api/notebook", tags=["notebook"])
 app.include_router(health.router, prefix="/api/health", tags=["health"])
+app.include_router(export.router, prefix="/api", tags=["export"])
 
 # Mount Uploads & Exports Directory
 uploads_dir = Path(__file__).parent.parent / "data" / "uploads"
