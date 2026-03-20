@@ -99,6 +99,12 @@ This document serves as a structured task list for AI development. Each phase is
 ## Phase 3: Architecture Refinement & Quality Assurance (架构优化与质量保障) - [IN PROGRESS]
 *Goal: Refactor the service layer for modularity and implement a comprehensive testing framework.*
 
+- [x] **3.1 Centralized Capability Inference**
+  - [x] Move model capability checks (`vision`, `reasoning`) out of scattered code into `app.services.llm.capabilities`.
+  - [x] Implement Provider-level metadata hooks in `SimpleProvider`.
+  - [x] Add heuristic fallback with explicit anti-false-positive rules.
+  - [x] Document architecture in `docs/LLM_Capability_Inference_Architecture.md`.
+
 - ### Status Snapshot — Phase 3 (2026-02-26)
   - Completed
     - **Dependency Management Modernization**: Migrated from `requirements.txt` to `uv` ([pyproject.toml](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/pyproject.toml) + [uv.lock](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/uv.lock)).

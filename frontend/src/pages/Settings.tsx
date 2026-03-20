@@ -19,6 +19,8 @@ type LLMProvider = {
     current_model?: string;
     available_models?: string[];
     models?: string[];
+    model_capabilities?: Record<string, string[]>;
+    explicit_model_capabilities?: Record<string, string[]>;
   };
 
   export default function Settings() {
@@ -44,9 +46,9 @@ type LLMProvider = {
     // LLM State
   const [providers, setProviders] = createSignal<LLMProvider[]>([]);
   const [llmForm, setLlmForm] = createSignal<Record<string, any>>({});
-  const [customModels, setCustomModels] = createSignal<{name:string;base_url?:string;api_key?:string;model?:string}[]>([]);
+  const [customModels, setCustomModels] = createSignal<{name:string;base_url?:string;api_key?:string;model?:string;capabilities?:string[]}[]>([]);
     const [showAddCustom, setShowAddCustom] = createSignal(false);
-    const [newCM, setNewCM] = createSignal<{name:string;provider:string;model:string;base_url?:string;api_key?:string}>({name:"",provider:"openai",model:""});
+    const [newCM, setNewCM] = createSignal<{name:string;provider:string;model:string;base_url?:string;api_key?:string;capabilities?:string[]}>({name:"",provider:"openai",model:"",capabilities:[]});
     const [newCMStatus, setNewCMStatus] = createSignal<string>("");
   const [showEditProvider, setShowEditProvider] = createSignal(false);
   const [editingProvider, setEditingProvider] = createSignal<string>("");
@@ -62,8 +64,14 @@ type LLMProvider = {
     const [managingProvider, setManagingProvider] = createSignal<string | null>(null);
     const [managedModels, setManagedModels] = createSignal<string[]>([]);
     const [enabledModels, setEnabledModels] = createSignal<Set<string>>(new Set());
+    const [capabilityOverrides, setCapabilityOverrides] = createSignal<Record<string, string[]>>({});
     const [isSavingModels, setIsSavingModels] = createSignal(false);
     const [isRefreshingProviders, setIsRefreshingProviders] = createSignal(false);
+    
+    // Add loading state and cache for the modal
+    const [isLoadingModels, setIsLoadingModels] = createSignal(false);
+    const [adminModelsCache, setAdminModelsCache] = createSignal<Record<string, any>>({});
+    const [adminModelCapabilities, setAdminModelCapabilities] = createSignal<Record<string, string[]>>({});
     
     // Agents State
     const [agents, setAgents] = createSignal<Agent[]>([]);
@@ -194,11 +202,42 @@ type LLMProvider = {
   };
 
 
-  const openModelManager = (provider: LLMProvider) => {
+  const openModelManager = async (provider: LLMProvider) => {
     setManagingProvider(provider.name);
-    setManagedModels(provider.models || []);
-    setEnabledModels(new Set(provider.available_models || []));
     setShowModelManager(true);
+    
+    // Check cache first
+    if (adminModelsCache()[provider.name]) {
+      const data = adminModelsCache()[provider.name];
+      setManagedModels(data.models || []);
+      setEnabledModels(new Set<string>(data.available_models || []));
+      setCapabilityOverrides(data.explicit_model_capabilities || {});
+      setAdminModelCapabilities(data.model_capabilities || {});
+      return;
+    }
+
+    setIsLoadingModels(true);
+    try {
+      // Fetch full list from new admin endpoint
+      const res = await fetch(`/api/models/providers/${provider.name}/models`);
+      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      const data = await res.json();
+      
+      setManagedModels(data.models || []);
+      setEnabledModels(new Set<string>(data.available_models || []));
+      setCapabilityOverrides(data.explicit_model_capabilities || {});
+      
+      // We also need to store the full capabilities for rendering the badges in the modal
+      setAdminModelCapabilities(data.model_capabilities || {});
+      
+      // Cache the result
+      setAdminModelsCache(prev => ({ ...prev, [provider.name]: data }));
+    } catch (e: any) {
+      console.error("Failed to load models", e);
+      showToast('error', `Failed to load models: ${e.message}`);
+    } finally {
+      setIsLoadingModels(false);
+    }
   };
   const openProviderEditor = (name: string) => {
     setEditingProvider(name);
@@ -221,11 +260,24 @@ type LLMProvider = {
     
     try {
       const previous = new Set(enabledModels());
+      const previousOverrides = { ...capabilityOverrides() };
       const key = `${providerName}_enabled_models`;
       const modeKey = `${providerName}_enabled_models_mode`;
       const currentConfig = llmForm();
       const previousMode = currentConfig[modeKey];
-      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()), [modeKey]: "allowlist" };
+      
+      const modelsDict = { ...(currentConfig.models || {}) };
+      managedModels().forEach(m => {
+        const fullId = `${providerName}/${m}`;
+        const overrides = capabilityOverrides()[m];
+        if (overrides) {
+          modelsDict[fullId] = { ...(modelsDict[fullId] || {}), capabilities: overrides };
+        } else if (modelsDict[fullId]) {
+          delete modelsDict[fullId].capabilities;
+        }
+      });
+      
+      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()), [modeKey]: "allowlist", models: modelsDict };
       setLlmForm(newConfig);
       
       await fetch('/api/config/llm', {
@@ -235,7 +287,16 @@ type LLMProvider = {
       });
       setShowModelManager(false);
       showToast('success', `Models for ${providerName} updated`, 'Undo', async () => {
-        const revertConfig = { ...currentConfig, [key]: Array.from(previous), [modeKey]: previousMode };
+        const revertModelsDict = { ...modelsDict };
+        managedModels().forEach(m => {
+          const fullId = `${providerName}/${m}`;
+          if (previousOverrides[m]) {
+            revertModelsDict[fullId] = { ...(revertModelsDict[fullId] || {}), capabilities: previousOverrides[m] };
+          } else if (revertModelsDict[fullId]) {
+            delete revertModelsDict[fullId].capabilities;
+          }
+        });
+        const revertConfig = { ...currentConfig, [key]: Array.from(previous), [modeKey]: previousMode, models: revertModelsDict };
         setLlmForm(revertConfig);
         await fetch('/api/config/llm', {
           method: 'POST',
@@ -818,6 +879,17 @@ type LLMProvider = {
                           <div class="font-bold">{m.name}</div>
                           <div class="text-xs text-gray-500">{m.base_url || ''}</div>
                           <div class="text-xs text-gray-500">{m.model || ''}</div>
+                          <Show when={m.capabilities && m.capabilities.length > 0}>
+                            <div class="flex gap-1 mt-1">
+                              <For each={m.capabilities}>
+                                {(cap) => (
+                                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                    {cap === 'function_calling' ? 'Tools' : cap.charAt(0).toUpperCase() + cap.slice(1)}
+                                  </span>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
                         </div>
                         <div class="flex gap-2">
                           <button onClick={()=>testCustomModel(m)} class="text-xs px-2 py-1 rounded border">Test</button>
@@ -869,6 +941,47 @@ type LLMProvider = {
                       <div class="text-xs font-bold text-gray-600 mb-1">API Key</div>
                       <input class="w-full border rounded-lg p-2" type="password" placeholder="****" value={newCM().api_key || ''} onInput={e => setNewCM({...newCM(), api_key: e.currentTarget.value})}/>
                     </div>
+                    <div>
+                      <div class="text-xs font-bold text-gray-600 mb-2">Model Capabilities</div>
+                      <div class="flex flex-col gap-2">
+                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                          <input type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-500" 
+                            checked={newCM().capabilities?.includes('vision')}
+                            onChange={(e) => {
+                              const caps = new Set(newCM().capabilities || []);
+                              if (e.currentTarget.checked) caps.add('vision');
+                              else caps.delete('vision');
+                              setNewCM({...newCM(), capabilities: Array.from(caps)});
+                            }}
+                          />
+                          Supports Vision (Image input)
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                          <input type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-500" 
+                            checked={newCM().capabilities?.includes('reasoning')}
+                            onChange={(e) => {
+                              const caps = new Set(newCM().capabilities || []);
+                              if (e.currentTarget.checked) caps.add('reasoning');
+                              else caps.delete('reasoning');
+                              setNewCM({...newCM(), capabilities: Array.from(caps)});
+                            }}
+                          />
+                          Supports Deep Thinking (Reasoning)
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                          <input type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-500" 
+                            checked={newCM().capabilities?.includes('function_calling')}
+                            onChange={(e) => {
+                              const caps = new Set(newCM().capabilities || []);
+                              if (e.currentTarget.checked) caps.add('function_calling');
+                              else caps.delete('function_calling');
+                              setNewCM({...newCM(), capabilities: Array.from(caps)});
+                            }}
+                          />
+                          Supports Function Calling (Tools)
+                        </label>
+                      </div>
+                    </div>
                     <div class="text-xs text-gray-600">{newCMStatus()}</div>
                   </div>
                   <div class="px-6 py-4 border-t flex justify-end gap-2">
@@ -894,12 +1007,12 @@ type LLMProvider = {
                         await fetch('/api/models/custom', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ name: newCM().name, base_url: newCM().base_url, api_key: newCM().api_key, model: newCM().model })
+                          body: JSON.stringify({ name: newCM().name, base_url: newCM().base_url, api_key: newCM().api_key, model: newCM().model, capabilities: newCM().capabilities })
                         });
                         const cmRes = await fetch('/api/models/custom');
                         setCustomModels(await cmRes.json());
                         setShowAddCustom(false);
-                        setNewCM({name:"",provider:"openai",model:""});
+                        setNewCM({name:"",provider:"openai",model:"",capabilities:[]});
                         setNewCMStatus("");
                       }} 
                       class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
@@ -941,29 +1054,99 @@ type LLMProvider = {
                   </div>
 
                   <div class="flex-1 overflow-y-auto p-2">
-                    <div class="grid grid-cols-1 gap-1">
-                      <For each={managedModels()}>
-                        {(model) => (
-                          <label class="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer transition-colors">
-                            <input 
-                              type="checkbox" 
-                              class="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300"
-                              checked={enabledModels().has(model)} 
-                              onChange={(e) => {
-                                const newSet = new Set(enabledModels());
-                                if (e.currentTarget.checked) {
-                                  newSet.add(model);
-                                } else {
-                                  newSet.delete(model);
-                                }
-                                setEnabledModels(newSet);
-                              }}
-                            />
-                            <span class={`text-sm ${enabledModels().has(model) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
-                              {model}
-                            </span>
-                          </label>
-                        )}
+                    <Show when={!isLoadingModels()} fallback={
+                      <div class="flex justify-center items-center py-10">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                      </div>
+                    }>
+                      <div class="grid grid-cols-1 gap-1">
+                        <For each={managedModels()}>
+                          {(model) => {
+                            const inferredCaps = () => adminModelCapabilities()[model] || [];
+                            const explicitCaps = () => capabilityOverrides()[model];
+                            const hasOverride = () => explicitCaps() !== undefined;
+                            const activeCaps = () => explicitCaps() ?? inferredCaps();
+
+                          const toggleCap = (cap: string, e: Event) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const currentActive = new Set(activeCaps());
+                            if (currentActive.has(cap)) {
+                              currentActive.delete(cap);
+                            } else {
+                              currentActive.add(cap);
+                            }
+                            setCapabilityOverrides({
+                              ...capabilityOverrides(),
+                              [model]: Array.from(currentActive)
+                            });
+                          };
+
+                          const resetCaps = (e: Event) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const newOverrides = { ...capabilityOverrides() };
+                            delete newOverrides[model];
+                            setCapabilityOverrides(newOverrides);
+                          };
+
+                          return (
+                            <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors group">
+                              <label class="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
+                                <input 
+                                  type="checkbox" 
+                                  class="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300"
+                                  checked={enabledModels().has(model)} 
+                                  onChange={(e) => {
+                                    const newSet = new Set(enabledModels());
+                                    if (e.currentTarget.checked) {
+                                      newSet.add(model);
+                                    } else {
+                                      newSet.delete(model);
+                                    }
+                                    setEnabledModels(newSet);
+                                  }}
+                                />
+                                <span class={`text-sm truncate ${enabledModels().has(model) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
+                                  {model}
+                                </span>
+                              </label>
+                              <div class="flex items-center gap-1.5 ml-4">
+                                <For each={['vision', 'reasoning', 'function_calling']}>
+                                  {(cap) => {
+                                    const isActive = () => activeCaps().includes(cap);
+                                    const label = cap === 'function_calling' ? 'Tools' : cap.charAt(0).toUpperCase() + cap.slice(1);
+                                    
+                                    return (
+                                      <button
+                                        onClick={(e) => toggleCap(cap, e)}
+                                        class={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                                          isActive() 
+                                            ? hasOverride() 
+                                              ? 'bg-emerald-100 border-emerald-300 text-emerald-700 font-medium' 
+                                              : 'bg-gray-100 border-gray-200 text-gray-600'
+                                            : 'bg-transparent border-gray-100 text-gray-400 hover:border-gray-300'
+                                        }`}
+                                        title={isActive() ? `Supports ${label}` : `Does not support ${label}`}
+                                      >
+                                        {label}
+                                      </button>
+                                    );
+                                  }}
+                                </For>
+                                <Show when={hasOverride()}>
+                                  <button
+                                    onClick={resetCaps}
+                                    class="ml-1 text-[10px] text-gray-400 hover:text-red-500"
+                                    title="Reset to auto-inferred capabilities"
+                                  >
+                                    ↺ Reset
+                                  </button>
+                                </Show>
+                              </div>
+                            </div>
+                          );
+                        }}
                       </For>
                       <Show when={managedModels().length === 0}>
                         <div class="p-8 text-center text-gray-500">
@@ -971,6 +1154,7 @@ type LLMProvider = {
                         </div>
                       </Show>
                     </div>
+                  </Show>
                   </div>
 
                   <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2">

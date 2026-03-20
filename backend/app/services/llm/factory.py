@@ -27,7 +27,7 @@ def get_model(provider_name: str, model_name: Optional[str] = None):
 def list_supported_providers() -> List[str]:
     return list_registered_providers()
 
-async def list_providers(refresh: bool = False, check_connectivity: bool = False) -> List[Dict[str, Any]]:
+async def list_providers(refresh: bool = False, check_connectivity: bool = False, admin_mode: bool = False, target_provider: Optional[str] = None) -> List[Dict[str, Any]]:
     providers_info = []
     llm_config = config_service.get_llm_config()
     registered_providers = get_registered_providers()
@@ -41,6 +41,10 @@ async def list_providers(refresh: bool = False, check_connectivity: bool = False
     for name, handler in registered_providers.items():
         # Filter by enabled_providers if configured
         if enabled_providers is not None and name.lower() not in enabled_providers:
+            continue
+            
+        # Optimization: Skip processing other providers if target_provider is specified
+        if target_provider and name.lower() != target_provider.lower():
             continue
             
         try:
@@ -59,22 +63,42 @@ async def list_providers(refresh: bool = False, check_connectivity: bool = False
             available_models = [m for m in models if m in config_enabled] if models else config_enabled
         else:
             available_models = models
-        capability_models = models or (config_enabled if isinstance(config_enabled, list) else [])
+            
+        # Optimization: Only calculate capabilities for available_models in runtime mode
+        capability_models = models if admin_mode else available_models
+        # fallback if neither is available
+        if not capability_models and isinstance(config_enabled, list):
+            capability_models = config_enabled if not admin_mode else config_enabled
+
         model_capabilities = {
             model_name: config_service.get_model_capabilities(name, model_name)
-            for model_name in capability_models
+            for model_name in (capability_models or [])
         }
+        
+        explicit_model_capabilities = {}
+        for model_name in (capability_models or []):
+            model_info = config_service.get_model_info(f"{name}/{model_name}")
+            if model_info and "capabilities" in model_info:
+                explicit_model_capabilities[model_name] = model_info["capabilities"]
         
         is_configured = handler.configured()
         if not is_configured:
             available_models = []
+            
+        # Optimization: Don't return the massive 'models' list in runtime mode
+        returned_models = models if admin_mode else available_models
+        # fallback if list_models failed
+        if not returned_models and isinstance(config_enabled, list):
+            returned_models = config_enabled if not admin_mode else config_enabled
+            
         provider_data = {
             "name": name,
             "configured": is_configured,
             "requirements": handler.requirements(),
             "available_models": available_models,
-            "models": models or (config_enabled if isinstance(config_enabled, list) else []),
+            "models": returned_models or [],
             "model_capabilities": model_capabilities,
+            "explicit_model_capabilities": explicit_model_capabilities,
             "supports_model_refresh": _supports_model_refresh(name),
             "current_model": llm_config.get(f"{name}_model"),
             "description": handler.__doc__ or f"{name} provider",

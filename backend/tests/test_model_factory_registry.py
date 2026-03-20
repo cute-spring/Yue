@@ -102,7 +102,7 @@ class TestModelFactoryRegistry(unittest.TestCase):
         llm["dummy_enabled_models_mode"] = "allowlist"
         config_service._config["llm"] = llm
         try:
-            providers = asyncio.run(list_providers(refresh=True))
+            providers = asyncio.run(list_providers(refresh=True, admin_mode=True))
             dummy = [p for p in providers if p["name"] == "dummy"][0]
             self.assertEqual(dummy["models"], ["d1", "d2"])
             self.assertEqual(dummy["available_models"], [])
@@ -125,7 +125,7 @@ class TestModelFactoryRegistry(unittest.TestCase):
         llm["dummy_enabled_models"] = ["d2"]
         config_service._config["llm"] = llm
         try:
-            providers = asyncio.run(list_providers(refresh=True))
+            providers = asyncio.run(list_providers(refresh=True, admin_mode=True))
             dummy = [p for p in providers if p["name"] == "dummy"][0]
             self.assertEqual(dummy["models"], ["d1", "d2"])
             self.assertEqual(dummy["available_models"], ["d2"])

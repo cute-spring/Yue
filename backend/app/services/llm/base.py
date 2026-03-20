@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
@@ -33,6 +33,14 @@ class SimpleProvider(ABC):
         """返回可用的模型名称列表；出错时建议返回空列表"""
         pass
 
+    def get_model_capabilities(self, model_name: str) -> Optional[List[str]]:
+        """
+        返回特定模型的特殊能力 (如 reasoning, vision)。
+        如果返回 None，则由调用方（如 config_service）降级使用全局规则推断。
+        子类 Provider（如 Litellm 或 OpenRouter）可覆盖此方法，从其 API 返回原生能力。
+        """
+        return None
+
     def requirements(self) -> List[str]:
         """返回该 Provider 所需的环境或配置说明（如 API_KEY）"""
         return []
@@ -53,3 +61,5 @@ class ProviderInfo(BaseModel):
     status: str = "unknown"
     error: Optional[str] = None
     model_count: Optional[int] = None
+    model_capabilities: Optional[Dict[str, List[str]]] = None
+    explicit_model_capabilities: Optional[Dict[str, List[str]]] = None

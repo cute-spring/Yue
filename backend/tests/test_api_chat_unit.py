@@ -87,9 +87,19 @@ def test_generate_summary_not_found(client, mock_chat_service):
 
 def test_generate_summary_updates_session(client, mock_chat_service):
     now = datetime.now()
+    class DummyChat:
+        def __init__(self, summary):
+            self.id = "1"
+            self.title = "Chat 1"
+            self.summary = summary
+            self.created_at = now
+            self.updated_at = now
+            self.messages = []
+            self.active_skill_name = None
+            self.active_skill_version = None
     mock_chat_service.get_chat.side_effect = [
-        {"id": "1", "title": "Chat 1", "summary": None, "created_at": now, "updated_at": now, "messages": []},
-        {"id": "1", "title": "Chat 1", "summary": "new summary", "created_at": now, "updated_at": now, "messages": []}
+        DummyChat(None),
+        DummyChat("new summary")
     ]
     with patch("app.api.chat.session_meta_service.generate_session_meta", new=AsyncMock(return_value="new summary")):
         response = client.post("/api/chat/1/summary")

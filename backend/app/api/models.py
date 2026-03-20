@@ -19,6 +19,21 @@ async def supported():
 async def providers(refresh: bool = Query(default=False)):
     return await list_providers(refresh=refresh)
 
+@router.get("/providers/{provider}/models")
+async def get_provider_models(provider: str, refresh: bool = Query(default=False)):
+    """Admin endpoint to fetch ALL models for a specific provider with capabilities."""
+    providers_list = await list_providers(refresh=refresh, admin_mode=True, target_provider=provider)
+    if providers_list:
+        p = providers_list[0]
+        return {
+            "name": p["name"],
+            "models": p["models"],
+            "available_models": p["available_models"],
+            "model_capabilities": p["model_capabilities"],
+            "explicit_model_capabilities": p["explicit_model_capabilities"]
+        }
+    raise HTTPException(status_code=404, detail="Provider not found")
+
 @router.post("/reload-env")
 async def reload_env():
     load_dotenv(override=True)

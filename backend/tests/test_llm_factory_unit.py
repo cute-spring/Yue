@@ -80,9 +80,31 @@ async def test_list_providers_basic(mock_registry, mock_config):
     p = providers[0]
     assert p["name"] == "mock_provider"
     assert p["available_models"] == ["model1"] # Filtered by allowlist
-    assert p["models"] == ["model1", "model2"] # All models
+    assert p["models"] == ["model1"] # Runtime mode returns only available_models in models
     assert p["supports_model_refresh"] is False
     assert p["current_model"] == "model1"
+
+@pytest.mark.asyncio
+async def test_list_providers_admin_mode(mock_registry, mock_config):
+    _, mock_p = mock_registry
+    providers = await list_providers(admin_mode=True)
+    
+    assert len(providers) == 1
+    p = providers[0]
+    assert p["name"] == "mock_provider"
+    assert p["available_models"] == ["model1"] # Filtered by allowlist
+    assert p["models"] == ["model1", "model2"] # Admin mode returns all models
+
+@pytest.mark.asyncio
+async def test_list_providers_target_provider(mock_registry, mock_config):
+    _, mock_p = mock_registry
+    # Test valid target
+    providers = await list_providers(target_provider="mock_provider")
+    assert len(providers) == 1
+    
+    # Test invalid target
+    providers_empty = await list_providers(target_provider="non_existent")
+    assert len(providers_empty) == 0
 
 @pytest.mark.asyncio
 async def test_list_providers_no_allowlist(mock_registry, mock_config):
