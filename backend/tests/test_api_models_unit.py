@@ -36,6 +36,27 @@ def test_get_providers(client, mock_model_factory):
     assert response.json() == [{"name": "openai"}]
     mock_model_factory["list_providers"].assert_called_once_with(refresh=True)
 
+def test_get_provider_admin_models_success(client, mock_model_factory):
+    mock_model_factory["list_providers"].return_value = [{
+        "name": "openai",
+        "models": ["gpt-4", "gpt-3.5"],
+        "available_models": ["gpt-4"],
+        "model_capabilities": {},
+        "explicit_model_capabilities": {}
+    }]
+    response = client.get("/api/models/providers/openai/models")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "openai"
+    assert data["models"] == ["gpt-4", "gpt-3.5"]
+    mock_model_factory["list_providers"].assert_called_once_with(refresh=False, admin_mode=True, target_provider="openai")
+
+def test_get_provider_admin_models_not_found(client, mock_model_factory):
+    mock_model_factory["list_providers"].return_value = []
+    response = client.get("/api/models/providers/unknown/models")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Provider not found"
+
 @pytest.mark.asyncio
 async def test_reload_env(client, mock_model_factory):
     with patch("app.api.models.load_dotenv") as mock_load:

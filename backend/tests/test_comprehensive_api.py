@@ -60,6 +60,17 @@ def test_models_discovery():
     providers = r.json()
     assert any(p['name'] == 'openai' for p in providers)
 
+def test_provider_models_admin():
+    """Verify admin endpoint for full provider models."""
+    r = requests.get(f"{BASE_URL}/api/models/providers/openai/models")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "openai"
+    assert "models" in data
+    assert isinstance(data["models"], list)
+    assert "model_capabilities" in data
+    assert isinstance(data["model_capabilities"], dict)
+
 def test_config_management():
     """Verify that configuration can be retrieved."""
     # GET
