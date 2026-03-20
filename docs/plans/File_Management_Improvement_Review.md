@@ -58,61 +58,45 @@
 
 ## 4. 架构演进：兼容本地与服务器多人部署的存储方案设计
 
-基于将应用部署到服务器供多人使用的演进需求，我们需要将当前的**本地文件系统强耦合设计**升级为**存储抽象层设计**。以下是专业的架构演进建议：
-
 ### 4.1 核心矛盾分析
-*   **本地模式**：用户期望文件存在 `~/.yue/upload`，即服务器运行账号的 Home 目录。这在单机本地运行非常完美。
-*   **服务器多人模式**：如果部署在服务器上，所有 Web 用户（User A, User B）上传的文件都会挤在服务器运行该程序的系统账号的 `~/.yue/upload` 目录下。这带来了几个致命问题：
-    1.  **无法横向扩展（Scale-out）**：如果部署多台服务器负载均衡，文件只存在某一台服务器的本地磁盘上，其他服务器无法读取。
-    2.  **安全隔离风险**：不同 Web 租户的文件物理上混在同一个 Linux 用户的目录中，一旦出现路径越权漏洞，极易发生跨租户数据泄露。
-    3.  **存储容量限制**：服务器的系统盘（Home 目录所在）容量通常有限，无法支撑多人长期上传的大量文件。
+*   **本地模式**：用户期望文件存在 `~/.yue/upload`。这在单机本地运行非常完美。
+*   **服务器多人模式**：面临横向扩展、安全隔离和存储容量三大问题。
 
 ### 4.2 解决方案：引入存储抽象层（Storage Abstraction Layer）
+引入存储接口层（Storage Provider），定义 `save`, `get`, `delete` 等标准接口。通过 `LocalStorageProvider` 和 `S3StorageProvider` 分别适配本地和生产环境。
 
-为了兼顾“本地轻量化”和“云端可扩展”，系统在设计上必须引入一个**存储接口层（Storage Provider）**。
+### 4.3 最终架构建议总结
+1.  **代码解耦**：适配器模式切换存储后端。
+2.  **路径虚拟化 (URI 化)**：数据库存储 `yue://...` 格式的统一资源标识符。
+3.  **安全基线**：保留 UUID 和 user/session 物理隔离策略。
 
-#### 4.2.1 存储接口定义 (Storage Provider Interface)
-在代码层面，所有文件的读写不应再直接调用 `os.open` 或 `shutil`，而是通过一个统一的接口：
-```python
-class StorageProvider:
-    def save(self, user_id: str, session_id: str, filename: str, content: bytes) -> str: pass
-    def get(self, file_uri: str) -> bytes: pass
-    def delete(self, file_uri: str) -> bool: pass
-```
+---
 
-#### 4.2.2 适配不同环境的存储实现
+## 5. 工具兼容性与 CLI 影响分析 (Impact on Tools and CLI Compatibility)
 
-**A. 本地环境 (Local Provider)**
-*   **实现机制**：当配置文件为 `ENV=local` 时，实例化 `LocalStorageProvider`。
-*   **存储路径**：使用之前确定的 `~/.yue/upload/{user_id}/{session_id}/`。
-*   **访问方式**：由于是本地运行，前端或本地 LLM 可以直接通过本地文件绝对路径（如 `/Users/gavin/.yue/...`）或通过一个轻量的本地静态文件代理（如 Vite 代理 `/files -> http://127.0.0.1:8003/data/`）访问。
+引入“抽象存储层”和“虚拟化路径”后，对于现有工具（如命令行工具、Shell 脚本）的使用会产生如下影响：
 
-**B. 服务器多人环境 (Cloud/S3 Provider) —— 【关键改进】**
-*   **实现机制**：当配置文件为 `ENV=production` 时，实例化 `S3StorageProvider`（如 AWS S3, 阿里云 OSS, 或自建的 MinIO）。
-*   **存储路径 (Object Key)**：`uploads/{user_id}/{session_id}/{uuid}.{ext}`。
-*   **访问方式**：存储完成后，Provider 返回一个标准的 URL（如 `https://s3.your-domain.com/uploads/...`）。数据库中存储该 URL 而不是物理路径。
-*   **为何必须是对象存储 (S3-compatible)**：
-    1.  **无状态服务器**：应用服务器本地不存文件，随时可以扩容或销毁。
-    2.  **天然的租户隔离**：可以通过云厂商的 IAM 策略或预签名 URL (Presigned URL) 严格控制每个文件只允许对应的 `user_id` 下载。
-    3.  **无限容量与高可用**：无需担心磁盘写满。
+### 5.1 对物理路径直接操作的影响
+*   **命令行直接执行 (Shell Commands)**：
+    *   标准的 Shell 命令（如 `ls`, `cat`, `grep`, `find`）**无法直接识别**虚拟化路径（如 `yue://...`）。
+    *   **本地模式 (Local Mode)**：
+        *   **解决方案**：系统必须提供一个“路径解析助手 (Path Resolver)”。当 Agent 想要执行 `cat yue://path/to/file` 时，在实际交给终端执行前，系统会自动将其解析为 `/Users/gavin/.yue/upload/path/to/file`。
+        *   **影响程度**：**极低**。只要有解析层，现有的 CLI 工具依然能正常工作。
+    *   **服务器模式 (Server/Cloud Mode)**：
+        *   **核心挑战**：由于物理文件存在 S3 等远程存储上，本地磁盘根本没有这个文件，因此传统的 `cat`, `grep` 等命令会**彻底失效**。
+        *   **解决方案**：Agent 必须从“直接执行 Shell 命令”转向“使用高级 Tool”。例如，不再执行 `cat path`，而是调用系统的 `read_file_content` 工具，该工具底层通过 `StorageProvider.get()` 获取内容。
+        *   **影响程度**：**高**。需要 Agent 具备更强的 Tool-use 能力，而不是过度依赖原始 Shell 环境。
 
-### 4.3 读取文件（DocAccess）的云端适配
+### 5.2 对内部搜索与查询工具的影响
+*   **内部搜索工具 (Grep/Find)**：
+    *   在本地模式下，由于文件系统是真实的，现有的 `grep` 搜索工具在解析路径后可以继续工作。
+    *   在云端模式下，搜索需要演进为**索引搜索**（如将文件内容存入向量数据库或 Elasticsearch）。 Agent 不再通过遍历物理磁盘搜索，而是通过 `search_files_by_index` 工具。
 
-对于“读取本地配置目录”的功能，在多人服务器模式下也需要演进：
+### 5.3 结论与建议
+1.  **路径透明化**：在本地开发阶段，系统应默认对 Agent 隐藏 `yue://` 协议的解析细节，让 Agent 感受到的依然是真实的本地路径，以保证现有 CLI 工具的“无痛兼容”。
+2.  **强制工具化 (Tool-first Approach)**：在架构设计上，应鼓励 Agent 优先使用“封装好的文件操作工具”而不是“原始 Shell 命令”。
+    *   *Bad*: `RunCommand("cat /path/to/file")`
+    *   *Good*: `read_file_content(file_id)`
+3.  **抽象层的作用**：正是因为有了抽象层，我们才可以在本地模式下返回物理路径，在云端模式下返回对象内容。
 
-*   **本地模式**：读取系统真实的 `/Users/gavin/my-projects` 等目录。
-*   **服务器模式**：显然不能允许 Web 用户去读取服务器底层的 `/etc` 或 `/home/ubuntu`。
-    *   **方案一（用户网盘）**：将每个用户的专属 S3 Bucket 路径映射为其虚拟的“本地根目录”。LLM 调用的 `list_directory` 工具底层自动转换为对 S3 API 的 `list_objects` 调用。
-    *   **方案二（系统级知识库）**：管理员在服务器上挂载一个只读的共享数据盘（如 NAS/EFS），并在系统配置中将其别名暴露给所有租户（如 `alias: Public_Docs -> /mnt/nas/docs`）。
-
-### 4.4 最终架构建议总结
-
-要实现“既支持本地又支持远程多人”，**不要在代码里硬编码任何物理路径**，而是采用以下架构：
-
-1.  **代码解耦**：实现 `LocalStorage` 和 `S3Storage` 两个适配器，通过配置文件的 `STORAGE_TYPE` 环境变量一键切换。
-2.  **路径虚拟化 (URI 化)**：数据库中不要存 `/Users/xxx/...`，而是存储一种 URI 协议。例如存为 `yue://uploads/user_1/session_2/abc.pdf`。
-    *   如果是本地模式，系统将其解析为 `~/.yue/upload/user_1/...`。
-    *   如果是服务器模式，系统将其解析为 `https://s3-bucket/uploads/user_1/...`。
-3.  **安全基线**：无论哪种模式，原方案中优秀的 `UUID 文件名`、`user_id/session_id 物理隔离` 策略都完全适用并应被保留。
-
-这种**“底层接口抽象 + 统一资源标识符 (URI)”**的设计，是业界标准（如 Laravel Flysystem, Spring Flysystem）处理此类兼容性需求的唯一最佳实践。
+这种方案不仅不影响工具使用，反而通过**规范化路径解析**让工具的使用变得更加安全和可移植。当。 (Portable)。将来从本地迁往云端时，Agent 的逻辑无需修改)。
