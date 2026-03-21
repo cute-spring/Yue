@@ -40,14 +40,6 @@
 
 *建议按照以下顺序（从易到难、从底层到上层）逐步实施：*
 
-### Epic 2: 数据库架构演进 (核心数据层)
-> **状态**: 待启动
-> **详情文档**: [Database_Evolution_Plan.md](./Database_Evolution_Plan.md)
-> **目标**: 解决 SQLite 的并发和无状态部署瓶颈，引入 ORM 实现方言解耦。
-- [ ] **Phase 1: 引入 ORM 框架** (选型并集成 SQLAlchemy / Prisma)
-- [ ] **Phase 2: 数据访问层 (DAO) 重构** (将原生 SQL 替换为 ORM 模型)
-- [ ] **Phase 3: 引入数据库迁移工具** (集成 Alembic 等 Migration 工具)
-
 ### Epic 3: 文件管理与存储抽象层重构 (业务逻辑层)
 > **状态**: 待启动
 > **详情文档**: [File_Management_Improvement_Review.md](./File_Management_Improvement_Review.md)
@@ -83,6 +75,7 @@
 ---
 
 ## ⚪ Done (已完成)
+- [x] **Epic 2: 数据库架构演进 (核心数据层)** (见 [archive/Database_Evolution_Plan.md](./archive/Database_Evolution_Plan.md))
 - [x] **Epic 1: 配置与日志的云端演进** (见 [archive/Logging_Config_Evolution_Plan.md](./archive/Logging_Config_Evolution_Plan.md))
 - [x] **架构演进可行性与依赖关系分析** (完成了日志、数据库、文件管理的拆解与评估)
 - [x] **建立 AI 驱动的工程管理最佳实践** (见 [archive/AI_Driven_Project_Management_Best_Practices.md](./archive/AI_Driven_Project_Management_Best_Practices.md))
