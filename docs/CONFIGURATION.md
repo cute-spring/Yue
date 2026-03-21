@@ -1,6 +1,6 @@
 # Yue 系统配置指南
 
-本文档详细介绍了 `backend/data/global_config.json` 中各项配置参数的作用、取值建议以及安全实践。
+本文档详细介绍了 `~/.yue/data/global_config.json` 中各项配置参数的作用、取值建议以及安全实践。
 
 ## 1. 核心设计原则
 

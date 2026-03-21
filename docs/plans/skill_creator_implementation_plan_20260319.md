@@ -31,7 +31,7 @@ Introduce the `skill-creator` skill to the Yue project to enable an AI-driven "D
   constraints:
     allowed_tools: [builtin:docs_read, builtin:docs_write, builtin:skill_benchmark]
   ```
-- [ ] Port `System Prompt` and `Instructions` with Yue-specific path knowledge (e.g., `data/skills` vs `~/.yue/skills`).
+- [ ] Port `System Prompt` and `Instructions` with Yue-specific path knowledge (e.g., `backend/data/skills` vs `~/.yue/skills`).
 
 ### **Phase 2: The Benchmark Engine (Backend Enhancement)**
 - [ ] **Implement `SkillBenchmarkTool`**:

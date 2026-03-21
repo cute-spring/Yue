@@ -38,6 +38,12 @@ class TestModelFactoryStructured(unittest.TestCase):
         self._prev_env_enabled_providers = os.environ.get("ENABLED_PROVIDERS")
         if "ENABLED_PROVIDERS" in os.environ:
             os.environ.pop("ENABLED_PROVIDERS")
+            
+        os.environ["ENABLED_PROVIDERS"] = "openai,deepseek,ollama,zhipu,azure_openai,dummy2"
+        from app.core.settings import AppSettings
+        import app.core.settings
+        app.core.settings.settings = AppSettings()
+        
         unregister_provider("dummy2")
         register_provider(DummyProvider2())
 
@@ -53,6 +59,10 @@ class TestModelFactoryStructured(unittest.TestCase):
             os.environ.pop("ENABLED_PROVIDERS", None)
         else:
             os.environ["ENABLED_PROVIDERS"] = self._prev_env_enabled_providers
+            
+        from app.core.settings import AppSettings
+        import app.core.settings
+        app.core.settings.settings = AppSettings()
 
     def test_structured_provider_info(self):
         infos = asyncio.run(list_providers_structured(refresh=True))

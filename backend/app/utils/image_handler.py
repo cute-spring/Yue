@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
+UPLOAD_DIR = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))) / "uploads"
 URL_PREFIX = "/files"
 
 def save_base64_image(base64_str: str) -> str:

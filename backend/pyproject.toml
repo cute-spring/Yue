@@ -29,6 +29,8 @@ dependencies = [
     "openpyxl",
     "duckdb",
     "pandas",
+    "sqlalchemy>=2.0.48",
+    "alembic>=1.18.4",
 ]
 
 [dependency-groups]

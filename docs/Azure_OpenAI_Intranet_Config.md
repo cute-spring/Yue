@@ -103,7 +103,7 @@ sequenceDiagram
 
 ## 4. 核心配置项详解
 
-在 `backend/data/global_config.json` 的 `llm` 部分，你可以进行以下关键配置：
+在 `~/.yue/data/global_config.json` 的 `llm` 部分，你可以进行以下关键配置：
 
 ### 4.1 模型列表管理 (`enabled_models` & `enabled_models_mode`)
 

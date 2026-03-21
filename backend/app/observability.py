@@ -39,15 +39,28 @@ def setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(level)
 
+    log_format = os.getenv("LOG_FORMAT", "text").lower()
+
     if any(isinstance(h, logging.StreamHandler) for h in root.handlers):
         for handler in root.handlers:
             handler.addFilter(TraceIdFilter())
+            # Ensure formatter matches current format preference
+            if log_format == "json":
+                from pythonjsonlogger import jsonlogger
+                formatter = jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(trace_id)s %(message)s")
+                handler.setFormatter(formatter)
         return
 
     handler = logging.StreamHandler()
     handler.addFilter(TraceIdFilter())
-    formatter = logging.Formatter(
-        fmt="%(asctime)s %(levelname)s %(name)s trace_id=%(trace_id)s %(message)s"
-    )
+    
+    if log_format == "json":
+        from pythonjsonlogger import jsonlogger
+        formatter = jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(trace_id)s %(message)s")
+    else:
+        formatter = logging.Formatter(
+            fmt="%(asctime)s %(levelname)s %(name)s trace_id=%(trace_id)s %(message)s"
+        )
+        
     handler.setFormatter(formatter)
     root.addHandler(handler)

@@ -5,7 +5,7 @@ from openpyxl import Workbook
 from app.services.excel_service import excel_service
 from app.services import doc_retrieval
 
-FIXTURES_DIR = "/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/fixtures/excel"
+FIXTURES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "fixtures/excel"))
 
 def test_excel_profile_basic():
     path = "basic.xlsx"

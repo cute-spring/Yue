@@ -51,9 +51,9 @@
 
 ### **3. 落地动作：已创建报告初稿**
 
-我已为您在 [assessments](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/assessments) 目录下创建了该报告的初稿：
+我已为您在 [assessments](file://./docs/assessments) 目录下创建了该报告的初稿：
 
-**[Project_Status_Audit_20260319.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/assessments/Project_Status_Audit_20260319.md)**
+**[Project_Status_Audit_20260319.md](file://./docs/assessments/Project_Status_Audit_20260319.md)**
 
 该文档记录了我们刚才讨论的所有结论：
 - **Skills 架构**：确认已闭环并勾选完成。
@@ -61,7 +61,7 @@
 - **新优先级**：正式确立了 **多模态增强** 为当前第一优先级。
 
 **下一步建议：**
-如果您审阅该报告无误，我们可以直接进入 **多模态图片问答增强 (Multimodal Image QA)** 的首个任务：[multimodal_service.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/plans/multimodal_image_qa_enhancement_plan_20260317.md#L94-L121) 的实现。是否开始执行？
+如果您审阅该报告无误，我们可以直接进入 **多模态图片问答增强 (Multimodal Image QA)** 的首个任务：[multimodal_service.py](file://./docs/plans/multimodal_image_qa_enhancement_plan_20260317.md#L94-L121) 的实现。是否开始执行？
 
 ---
 
@@ -70,10 +70,10 @@
 为保证“计划-测试-验收”一致性，针对多模态增强请优先查看以下文档：
 
 1. 实施计划与闭环追踪矩阵  
-   [multimodal_image_qa_enhancement_plan_20260317.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/plans/multimodal_image_qa_enhancement_plan_20260317.md)
+   [multimodal_image_qa_enhancement_plan_20260317.md](file://./docs/plans/multimodal_image_qa_enhancement_plan_20260317.md)
 2. 自动化与手工验收执行手册  
-   [TESTING.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/TESTING.md)
+   [TESTING.md](file://./docs/TESTING.md)
 3. 优先级与决策背景  
-   [Project_Status_Audit_20260319.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/assessments/Project_Status_Audit_20260319.md)
+   [Project_Status_Audit_20260319.md](file://./docs/assessments/Project_Status_Audit_20260319.md)
 
 以上三份文档共同构成当前多模态增强的测试闭环基线。

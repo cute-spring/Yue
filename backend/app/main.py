@@ -94,8 +94,9 @@ app.include_router(health.router, prefix="/api/health", tags=["health"])
 app.include_router(export.router, prefix="/api", tags=["export"])
 
 # Mount Uploads & Exports Directory
-uploads_dir = Path(__file__).parent.parent / "data" / "uploads"
-exports_dir = Path(__file__).parent.parent / "data" / "exports"
+data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data")))
+uploads_dir = data_dir / "uploads"
+exports_dir = data_dir / "exports"
 for d in [uploads_dir, exports_dir]:
     if not d.exists():
         d.mkdir(parents=True, exist_ok=True)

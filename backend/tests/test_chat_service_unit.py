@@ -6,17 +6,30 @@ import tempfile
 import shutil
 from datetime import datetime
 from unittest.mock import patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.database import Base
 from app.services.chat_service import ChatService, Message, ChatSession
 
 @pytest.fixture
 def temp_db():
     temp_dir = tempfile.mkdtemp()
     db_file = os.path.join(temp_dir, "test_yue.db")
-    # Patch the module-level constants before creating ChatService
-    with patch("app.services.chat_service.DB_FILE", db_file), \
+    
+    # Create test engine and session
+    test_engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    
+    # Patch dependencies in chat_service
+    with patch("app.services.chat_service.engine", test_engine), \
+         patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
          patch("app.services.chat_service.DATA_DIR", temp_dir):
+        
         service = ChatService()
         yield service, db_file
+        
+    test_engine.dispose()
     shutil.rmtree(temp_dir)
 
 def test_ensure_db_creates_tables(temp_db):
@@ -76,6 +89,36 @@ def test_get_chat_not_found(temp_db):
     service, _ = temp_db
     assert service.get_chat("non-existent") is None
 
+def test_get_session_skill(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    
+    # Init state
+    name, version = service.get_session_skill(chat.id)
+    assert name is None
+    assert version is None
+    
+    # Non-existent session
+    name, version = service.get_session_skill("invalid_id")
+    assert name is None
+    assert version is None
+
+def test_set_and_clear_session_skill(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    
+    # Set skill
+    service.set_session_skill(chat.id, "pdf-skill", "1.0.0")
+    name, version = service.get_session_skill(chat.id)
+    assert name == "pdf-skill"
+    assert version == "1.0.0"
+    
+    # Clear skill
+    service.clear_session_skill(chat.id)
+    name, version = service.get_session_skill(chat.id)
+    assert name is None
+    assert version is None
+
 def test_delete_chat(temp_db):
     service, _ = temp_db
     chat = service.create_chat()
@@ -83,9 +126,25 @@ def test_delete_chat(temp_db):
     assert service.get_chat(chat.id) is None
     assert service.delete_chat(chat.id) is False
 
+def test_update_chat_title_and_summary_not_found(temp_db):
+    service, _ = temp_db
+    assert service.update_chat_title("invalid_id", "New") is False
+    assert service.update_chat_summary("invalid_id", "Summary") is False
+
+def test_add_message_chat_not_found(temp_db):
+    service, _ = temp_db
+    res = service.add_message("invalid_id", "user", "Hello")
+    assert res is None
+
 def test_skill_effectiveness_report(temp_db):
     service, _ = temp_db
     chat = service.create_chat()
+    
+    # Test with no data first to cover empty aggregations
+    report_empty = service.get_skill_effectiveness_report(hours=24)
+    assert report_empty["total_runs"] == 0
+    assert report_empty["skill_hit_rate"] == 0.0
+    
     service.add_skill_effectiveness_event(chat.id, {
         "reason_code": "skill_selected",
         "selection_source": "inferred",
@@ -114,8 +173,12 @@ def test_skill_effectiveness_report(temp_db):
         "system_prompt_tokens_estimate": 80,
         "user_message_tokens_estimate": 20,
     })
+    
+    # Test case where missing keys in event payload
+    service.add_skill_effectiveness_event(chat.id, {})
+    
     report = service.get_skill_effectiveness_report(hours=24)
-    assert report["total_runs"] >= 2
+    assert report["total_runs"] >= 3
     assert report["fallback_rate"] > 0
     assert report["skill_hit_rate"] >= 0
     assert "reason_distribution" in report
@@ -129,15 +192,13 @@ def test_truncate_chat(temp_db):
     service.add_message(chat.id, "user", "msg3")
     
     # Truncate to keep first 1 message
-    # Actually truncate_chat keeps the first keep_count messages and deletes the rest?
-    # Wait, let's look at the code:
-    # to_delete = [row['id'] for row in rows[keep_count:]]
-    # It deletes messages AFTER the keep_count. So it keeps the FIRST keep_count messages.
-    
     assert service.truncate_chat(chat.id, 1) is True
     updated = service.get_chat(chat.id)
     assert len(updated.messages) == 1
     assert updated.messages[0].content == "msg1"
+    
+    # Truncate to keep more messages than exist (should return False)
+    assert service.truncate_chat(chat.id, 5) is False
 
 def test_tool_calls_bound_to_assistant_turn(temp_db):
     service, _ = temp_db
@@ -220,18 +281,47 @@ def test_chat_events_replay_consistency(temp_db):
         event_id_finished="evt_finish_replay",
         finished_sequence=3
     )
+    
+    # Also add an uncompleted tool call and a tool call with no run_id
+    service.add_tool_call(
+        session_id=chat.id,
+        call_id="call_uncompleted",
+        tool_name="test_tool",
+        assistant_turn_id="turn_replay",
+        run_id="run_replay",
+        started_sequence=4
+    )
+    
+    service.add_tool_call(
+        session_id=chat.id,
+        call_id="call_norunid",
+        tool_name="test_tool"
+    )
+    
     events = service.get_chat_events(chat.id)
     event_names = [item["event"] for item in events]
     assert "meta" in event_names
     assert "tool.call.started" in event_names
     assert "tool.call.finished" in event_names
     assert "content.final" in event_names
+    
+    # Test after_sequence filter
+    events_after = service.get_chat_events(chat.id, after_sequence=2)
+    assert len(events_after) < len(events)
+    
+    # Test get_chat_events with specific assistant_turn_id
+    events_turn = service.get_chat_events(chat.id, assistant_turn_id="turn_replay")
+    assert len(events_turn) > 0
 
 def test_migrate_from_json(temp_dir_with_json):
     temp_dir, json_file = temp_dir_with_json
-    db_file = os.path.join(temp_dir, "yue.db")
+    db_file = os.path.join(temp_dir, "test_yue.db")
     
-    with patch("app.services.chat_service.DB_FILE", db_file), \
+    test_engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    
+    with patch("app.services.chat_service.engine", test_engine), \
+         patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
          patch("app.services.chat_service.DATA_DIR", temp_dir), \
          patch("app.services.chat_service.OLD_CHATS_FILE", json_file):
         service = ChatService()
@@ -243,6 +333,15 @@ def test_migrate_from_json(temp_dir_with_json):
         # Original file should be renamed
         assert not os.path.exists(json_file)
         assert os.path.exists(json_file + ".bak")
+        
+        # Test migration skips existing session
+        # Restore json file to test the skip path
+        shutil.copy(json_file + ".bak", json_file)
+        service._migrate_from_json()
+        chats_after = service.list_chats()
+        assert len(chats_after) == 1 # still 1
+        
+    test_engine.dispose()
 
 @pytest.fixture
 def temp_dir_with_json():

@@ -43,6 +43,18 @@ class TestModelFactoryRegistry(unittest.TestCase):
         self._prev_env_enabled_providers = os.environ.get("ENABLED_PROVIDERS")
         if "ENABLED_PROVIDERS" in os.environ:
             os.environ.pop("ENABLED_PROVIDERS")
+        
+        # force re-load config from app settings so enabled_providers are accurately read
+        from app.core.settings import AppSettings
+        import app.core.settings
+        import app.services.config_service
+        app.core.settings.settings = AppSettings()
+        # In test we must also mock the internal provider method which reads AppSettings if we use AppSettings
+        # But wait, config_service._config["llm"] is modified above
+        # Since AppSettings parses enabled_providers from environment and from json, we need to explicitly pass it
+        os.environ["ENABLED_PROVIDERS"] = "openai,deepseek,ollama,zhipu,azure_openai,dummy"
+        app.core.settings.settings = AppSettings()
+        
         unregister_provider("dummy")
         register_provider(DummyProvider())
 
@@ -58,6 +70,11 @@ class TestModelFactoryRegistry(unittest.TestCase):
             os.environ.pop("ENABLED_PROVIDERS", None)
         else:
             os.environ["ENABLED_PROVIDERS"] = self._prev_env_enabled_providers
+        
+        # force re-load config from app settings so enabled_providers are accurately read
+        from app.core.settings import AppSettings
+        import app.core.settings
+        app.core.settings.settings = AppSettings()
 
     def test_dynamic_provider_listed(self):
         providers = asyncio.run(list_providers(refresh=True))

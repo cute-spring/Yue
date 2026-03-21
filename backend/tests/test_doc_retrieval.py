@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -421,7 +422,7 @@ class TestDocRetrieval(unittest.TestCase):
     def test_is_under_value_error(self):
         from app.services.doc_retrieval import _is_under
         # On some systems, commonpath raises ValueError if paths are on different drives
-        with unittest.mock.patch("os.path.commonpath", side_effect=ValueError):
+        with patch("os.path.commonpath", side_effect=ValueError):
             self.assertFalse(_is_under("/a", "/b"))
 
     def test_resolve_docs_root_non_abs(self):
@@ -490,7 +491,7 @@ class TestDocRetrieval(unittest.TestCase):
 
     def test_matches_file_patterns_relpath_error(self):
         from app.services.doc_retrieval import _matches_file_patterns
-        with unittest.mock.patch("os.path.relpath", side_effect=Exception):
+        with patch("os.path.relpath", side_effect=Exception):
             self.assertFalse(_matches_file_patterns("/root", "/path", ["*"]))
 
     def test_read_text_lines_validation(self):

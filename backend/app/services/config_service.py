@@ -21,12 +21,11 @@ class ConfigService:
     def __init__(self, config_path: str = None):
         """
         初始化配置服务
-        :param config_path: 配置文件存储路径，默认为 backend/data/global_config.json
+        :param config_path: 配置文件存储路径，默认为 ~/.yue/data/global_config.json
         """
         if config_path is None:
-            # 默认使用 backend/data/global_config.json，相对于本项目结构
-            base_dir = Path(__file__).parent.parent.parent
-            config_path = base_dir / "data" / "global_config.json"
+            data_dir = os.getenv("YUE_DATA_DIR", "~/.yue/data")
+            config_path = Path(os.path.expanduser(data_dir)) / "global_config.json"
         
         self.config_path = Path(config_path)
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,53 +107,54 @@ class ConfigService:
         获取 LLM 相关配置 (向后兼容的扁平化结构)
         """
         from app.services.llm.config_strategies import STRATEGIES
+        from app.core.settings import AppSettings
         
         llm_section = self._config.get("llm", {})
-        config = {}
+        json_kwargs = {}
         
         # 1. 基础字段
-        provider_env = os.getenv("LLM_PROVIDER")
-        enabled_env = os.getenv("ENABLED_PROVIDERS")
-        config_provider = llm_section.get("provider")
-        config_enabled = llm_section.get("enabled_providers")
-        config["provider"] = config_provider if config_provider is not None else provider_env
-        config["enabled_providers"] = config_enabled if config_enabled is not None else enabled_env
+        if "provider" in llm_section: json_kwargs["llm_provider"] = llm_section["provider"]
+        if "enabled_providers" in llm_section: json_kwargs["enabled_providers"] = llm_section["enabled_providers"]
         
         # 2. 通用设置 (settings 子树)
         settings = llm_section.get("settings", {})
-        config["llm_request_timeout"] = os.getenv("LLM_REQUEST_TIMEOUT") or settings.get("request_timeout")
-        meta_enabled_raw = os.getenv("META_ENABLED")
-        if meta_enabled_raw is None:
-            meta_enabled_raw = settings.get("meta_enabled", True)
-        if isinstance(meta_enabled_raw, str):
-            config["meta_enabled"] = meta_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
-        else:
-            config["meta_enabled"] = bool(meta_enabled_raw)
-        config["meta_provider"] = os.getenv("META_PROVIDER") or settings.get("meta_provider")
-        config["meta_model"] = os.getenv("META_MODEL") or settings.get("meta_model")
-        config["meta_timeout_ms"] = os.getenv("META_TIMEOUT_MS") or settings.get("meta_timeout_ms")
-        config["meta_max_tokens"] = os.getenv("META_MAX_TOKENS") or settings.get("meta_max_tokens")
-        meta_use_runtime_raw = os.getenv("META_USE_RUNTIME_MODEL_FOR_TITLE")
-        if meta_use_runtime_raw is None:
-            meta_use_runtime_raw = settings.get("meta_use_runtime_model_for_title", False)
-        if isinstance(meta_use_runtime_raw, str):
-            config["meta_use_runtime_model_for_title"] = meta_use_runtime_raw.strip().lower() in {"1", "true", "yes", "on"}
-        else:
-            config["meta_use_runtime_model_for_title"] = bool(meta_use_runtime_raw)
+        if "request_timeout" in settings: json_kwargs["llm_request_timeout"] = settings["request_timeout"]
+        if "meta_enabled" in settings: json_kwargs["meta_enabled"] = settings["meta_enabled"]
+        if "meta_provider" in settings: json_kwargs["meta_provider"] = settings["meta_provider"]
+        if "meta_model" in settings: json_kwargs["meta_model"] = settings["meta_model"]
+        if "meta_timeout_ms" in settings: json_kwargs["meta_timeout_ms"] = settings["meta_timeout_ms"]
+        if "meta_max_tokens" in settings: json_kwargs["meta_max_tokens"] = settings["meta_max_tokens"]
+        if "meta_use_runtime_model_for_title" in settings: json_kwargs["meta_use_runtime_model_for_title"] = settings["meta_use_runtime_model_for_title"]
 
         # 3. 各 Provider 策略化加载 (providers 子树)
         for provider_name, strategy in STRATEGIES.items():
             provider_cfg = strategy.get_config(llm_section)
-            # 扁平化回旧格式，例如 openai -> openai_api_key
             for k, v in provider_cfg.items():
                 flat_key = f"{provider_name}_{k}" if k != "model" else f"{provider_name}_model"
-                # 特殊处理，有些 key 在旧格式中不带下划线
                 if provider_name == "azure_openai" and k == "token":
                     flat_key = "azure_openai_token"
-                config[flat_key] = v
+                json_kwargs[flat_key] = v
+
+        # 实例化 AppSettings (Env > JSON)
+        app_settings = AppSettings(**json_kwargs)
+        
+        config = {}
+        config["provider"] = app_settings.llm_provider
+        config["enabled_providers"] = app_settings.enabled_providers
+        config["llm_request_timeout"] = app_settings.llm_request_timeout
+        config["meta_enabled"] = app_settings.meta_enabled
+        config["meta_provider"] = app_settings.meta_provider
+        config["meta_model"] = app_settings.meta_model
+        config["meta_timeout_ms"] = app_settings.meta_timeout_ms
+        config["meta_max_tokens"] = app_settings.meta_max_tokens
+        config["meta_use_runtime_model_for_title"] = app_settings.meta_use_runtime_model_for_title
+
+        # 将额外字段 (Providers) 放回 config
+        for k, v in app_settings.model_extra.items() if app_settings.model_extra else {}:
+            config[k] = v
 
         # 4. 列表字段兼容性补全
-        config["custom_models" ] = llm_section.get("custom_models", [])
+        config["custom_models"] = llm_section.get("custom_models", [])
         config["models"] = llm_section.get("models", {})
         for k, v in llm_section.items():
             if not isinstance(k, str):
@@ -164,31 +164,10 @@ class ConfigService:
                     config[k] = v
 
         # 默认配置增强
-        if not config.get('llm_request_timeout'):
-            config['llm_request_timeout'] = 300
-        else:
-            try:
-                config['llm_request_timeout'] = int(config['llm_request_timeout'])
-            except (ValueError, TypeError):
-                config['llm_request_timeout'] = 300
         if config.get("meta_provider") is None:
             config["meta_provider"] = config.get("provider")
         if config.get("meta_model") is None and isinstance(config.get("meta_provider"), str):
             config["meta_model"] = config.get(f"{config['meta_provider']}_model")
-        if not config.get("meta_timeout_ms"):
-            config["meta_timeout_ms"] = config["llm_request_timeout"] * 1000
-        else:
-            try:
-                config["meta_timeout_ms"] = int(config["meta_timeout_ms"])
-            except (ValueError, TypeError):
-                config["meta_timeout_ms"] = config["llm_request_timeout"] * 1000
-        if not config.get("meta_max_tokens"):
-            config["meta_max_tokens"] = 96
-        else:
-            try:
-                config["meta_max_tokens"] = int(config["meta_max_tokens"])
-            except (ValueError, TypeError):
-                config["meta_max_tokens"] = 96
                 
         return config
 
@@ -491,41 +470,18 @@ class ConfigService:
         })
 
     def get_doc_access(self) -> Dict[str, Any]:
-        def _normalize_roots(values: Any) -> List[str]:
-            if not isinstance(values, list):
-                return []
-            return [r for r in values if isinstance(r, str) and r.strip()]
-
-        def _parse_roots_env(var_name: str) -> Optional[List[str]]:
-            raw = os.getenv(var_name)
-            if raw is None:
-                return None
-            text = raw.strip()
-            if not text:
-                return []
-            if text.startswith("["):
-                try:
-                    parsed = json.loads(text)
-                    return _normalize_roots(parsed)
-                except Exception:
-                    pass
-            normalized = text.replace("\n", ",").replace(";", ",").replace(os.pathsep, ",")
-            parts = [p.strip() for p in normalized.split(",")]
-            return [p for p in parts if p]
-
+        from app.core.settings import AppSettings
         doc_access = self._config.get("doc_access", {})
-        allow_roots = doc_access.get("allow_roots") if isinstance(doc_access, dict) else []
-        deny_roots = doc_access.get("deny_roots") if isinstance(doc_access, dict) else []
-        allow = _normalize_roots(allow_roots)
-        deny = _normalize_roots(deny_roots)
-
-        env_allow = _parse_roots_env("DOC_ACCESS_ALLOW_ROOTS")
-        env_deny = _parse_roots_env("DOC_ACCESS_DENY_ROOTS")
-        if env_allow is not None:
-            allow = env_allow
-        if env_deny is not None:
-            deny = env_deny
-        return {"allow_roots": allow, "deny_roots": deny}
+        
+        json_kwargs = {}
+        if "allow_roots" in doc_access: json_kwargs["doc_access_allow_roots"] = doc_access["allow_roots"]
+        if "deny_roots" in doc_access: json_kwargs["doc_access_deny_roots"] = doc_access["deny_roots"]
+        
+        app_settings = AppSettings(**json_kwargs)
+        return {
+            "allow_roots": app_settings.doc_access_allow_roots,
+            "deny_roots": app_settings.doc_access_deny_roots
+        }
 
     def get_exec_tool_config(self) -> Dict[str, Any]:
         exec_cfg = self._config.get("exec_tool", {})
@@ -534,55 +490,22 @@ class ConfigService:
         return exec_cfg
 
     def get_tool_call_mismatch_config(self) -> Dict[str, Any]:
+        from app.core.settings import AppSettings
         cfg = self._config.get("tool_call_mismatch", {})
         if not isinstance(cfg, dict):
             cfg = {}
-        def _parse_model_candidates(value: Any) -> list[str]:
-            if value is None:
-                return []
-            if isinstance(value, list):
-                return [str(v).strip() for v in value if str(v).strip()]
-            text = str(value).strip()
-            if not text:
-                return []
-            return [part.strip() for part in text.replace(";", ",").split(",") if part.strip()]
-
-        auto_retry_enabled = cfg.get("auto_retry_enabled", True)
-        if isinstance(auto_retry_enabled, str):
-            auto_retry_enabled = auto_retry_enabled.strip().lower() in {"1", "true", "yes", "on"}
-        else:
-            auto_retry_enabled = bool(auto_retry_enabled)
-
-        fallback_model = cfg.get("fallback_model", "gpt-4o-mini")
-        if fallback_model is None:
-            fallback_model = ""
-        elif isinstance(fallback_model, str):
-            fallback_model = fallback_model.strip()
-        else:
-            fallback_model = str(fallback_model).strip()
-        fallback_models = _parse_model_candidates(cfg.get("fallback_models"))
-        if not fallback_models and fallback_model:
-            fallback_models = [fallback_model]
-
-        env_auto_retry = os.getenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED")
-        if env_auto_retry is not None:
-            auto_retry_enabled = env_auto_retry.strip().lower() in {"1", "true", "yes", "on"}
-
-        env_fallback_model = os.getenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL")
-        if env_fallback_model is not None:
-            fallback_model = env_fallback_model.strip()
-            fallback_models = [fallback_model] if fallback_model else []
-        env_fallback_models = os.getenv("TOOL_CALL_MISMATCH_FALLBACK_MODELS")
-        if env_fallback_models is not None:
-            fallback_models = _parse_model_candidates(env_fallback_models)
-            fallback_model = fallback_models[0] if fallback_models else ""
-        elif fallback_models:
-            fallback_model = fallback_models[0]
-
+            
+        json_kwargs = {}
+        if "auto_retry_enabled" in cfg: json_kwargs["tool_call_mismatch_auto_retry_enabled"] = cfg["auto_retry_enabled"]
+        if "fallback_model" in cfg: json_kwargs["tool_call_mismatch_fallback_model"] = cfg["fallback_model"]
+        if "fallback_models" in cfg: json_kwargs["tool_call_mismatch_fallback_models"] = cfg["fallback_models"]
+        
+        app_settings = AppSettings(**json_kwargs)
+        
         return {
-            "auto_retry_enabled": auto_retry_enabled,
-            "fallback_model": fallback_model,
-            "fallback_models": fallback_models
+            "auto_retry_enabled": app_settings.tool_call_mismatch_auto_retry_enabled,
+            "fallback_model": app_settings.tool_call_mismatch_fallback_model,
+            "fallback_models": app_settings.tool_call_mismatch_fallback_models
         }
 
     def update_doc_access(self, doc_access: Dict[str, Any]) -> Dict[str, Any]:

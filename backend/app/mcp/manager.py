@@ -35,7 +35,7 @@ class McpManager:
     def __init__(self):
         if self.initialized:
             return
-        self.config_path = os.path.join(os.path.dirname(__file__), "../../data/mcp_configs.json")
+        self.config_path = os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data") + "/mcp_configs.json")
         self.exit_stack = AsyncExitStack()
         self._lock = asyncio.Lock()
         self.sessions: Dict[str, ClientSession] = {}
