@@ -43,7 +43,11 @@
 
 ## ⚪ Done (已完成)
 - [x] **架构演进可行性与依赖关系分析** (完成了日志、数据库、文件管理的拆解与评估)
-- [x] **建立 AI 驱动的工程管理最佳实践** (见 [AI_Driven_Project_Management_Best_Practices.md](./AI_Driven_Project_Management_Best_Practices.md))
+- [x] **建立 AI 驱动的工程管理最佳实践** (见 [archive/AI_Driven_Project_Management_Best_Practices.md](./archive/AI_Driven_Project_Management_Best_Practices.md))
+- [x] **Agent 种类与技能组重构** (见 [archive/agent_classification_and_skill_group_plan_20260319.md](./archive/agent_classification_and_skill_group_plan_20260319.md))
+- [x] **内置工具架构重构** (见 [archive/builtin_tools_refactor_plan.md](./archive/builtin_tools_refactor_plan.md))
+- [x] **Markdown 技能系统实现 (Phase 6.2)** (见 [archive/markdown_defined_skills_plan.md](./archive/markdown_defined_skills_plan.md))
+- [x] **技能架构长线演进与清理** (见 [archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md](./archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md))
 
 ---
 
