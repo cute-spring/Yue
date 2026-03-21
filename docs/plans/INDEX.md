@@ -7,20 +7,38 @@
 ---
 
 ## 🟢 In Progress (进行中)
-*(暂无)*
+
+### Epic 4: 可观测性与执行透明化 (Observability & Transparency)
+> **状态**: 推进中 (约 90%)
+> **详情文档**: [observability_transparency_plan.md](./observability_transparency_plan.md)
+> **目标**: 建立工具调用面板、任务思维链可视化和实时耗时统计，提升 Agent 执行的可信度。
+- [x] **Phase 1: 事件契约标准化** (建立统一的 Event Envelope)
+- [x] **Phase 2: 助手回合 (Turn) 绑定** (解决历史回放错位问题)
+- [ ] **Phase 3: 前端幂等状态机** (重连场景去重与稳定排序)
+- [ ] **Phase 4: 历史回放接口闭环** (流式与回放完全同构)
+
+### Epic 5: 消息交互与多模态增强 (Interaction & Multimodal)
+> **状态**: 推进中 (约 60%)
+> **详情文档**: [multimodal_image_qa_enhancement_plan_20260317.md](./multimodal_image_qa_enhancement_plan_20260317.md)
+> **目标**: 升级图片问答体验，支持仅图片提问、视觉能力门禁与消息导出。
+- [x] **Phase 1: 后端治理内核** (图片校验、标准化与 vision 判定)
+- [x] **Phase 2: 流式 meta 契约扩展** (透传 vision_enabled 状态)
+- [ ] **Phase 3: 仅图片发送支持** (前端发送逻辑重构)
+- [ ] **Phase 4: 消息导出功能** (见 [2026-03-20-message-export-plan.md](./2026-03-20-message-export-plan.md))
+
+### Epic 6: 发布质量与工程门禁 (Quality & Release Gates)
+> **状态**: 推进中 (约 85%)
+> **详情文档**: [release_readiness_gate_execution_plan_20260314.md](./release_readiness_gate_execution_plan_20260314.md)
+> **目标**: 建立标准化的 go/no-go 审计流程，包含风险评分与强制回滚演练。
+- [x] **Phase 1: 手动审计基线** (完成首批 3 份 Gate Report)
+- [x] **Phase 2: 自动化脚本集成** (实现 `check_gate_completeness.py`)
+- [ ] **Phase 3: 统一契约门禁 (Contract Gate)** (见 [unified_contract_gate_execution_plan_20260314.md](./unified_contract_gate_execution_plan_20260314.md))
 
 ---
 
 ## 🟡 Todo (待办架构演进)
 
 *建议按照以下顺序（从易到难、从底层到上层）逐步实施：*
-
-### Epic 1: 配置与日志的云端演进 (基础建设)
-> **状态**: 待启动
-> **详情文档**: [Logging_Config_Evolution_Plan.md](./Logging_Config_Evolution_Plan.md)
-> **目标**: 彻底解耦本地配置和日志文件，为容器化和多实例部署扫清障碍。
-- [ ] **Phase 1: 环境变量注入改造** (将硬编码和本地配置文件读取，重构为优先读取 `os.environ`)
-- [ ] **Phase 2: 日志流式改造** (停止写本地 `.log` 文件，改为结构化输出到 `stdout/stderr`)
 
 ### Epic 2: 数据库架构演进 (核心数据层)
 > **状态**: 待启动
@@ -39,9 +57,33 @@
 - [ ] **Phase 3: 数据库路径虚拟化改造** (将 DB 中的物理路径替换为 `yue://` 协议)
 - [ ] **Phase 4: Agent 工具重构** (改造 CLI 工具与 Tool-use，适配虚拟路径解析)
 
+### Epic 7: 记忆与模型能力精细化管理 (Memory & Capabilities)
+> **状态**: 待启动
+> **详情文档**: [hierarchical_memory_foundation_plan_20260315.md](./hierarchical_memory_foundation_plan_20260315.md)
+> **目标**: 建立层级记忆系统 (STM/LTM)，并优化模型能力判定与 UI 展示。
+- [ ] **Phase 1: 短期滚动摘要 (STM) MVP** (缓解长会话上下文丢失)
+- [ ] **Phase 2: 模型能力精细化管理 (UI)** (见 [ui_capability_management_plan_plan.md](./ui_capability_management_plan_plan.md))
+- [ ] **Phase 3: Providers API 重构** (见 [llm_providers_api_refactoring_plan.md](./llm_providers_api_refactoring_plan.md))
+
+### Epic 8: 技能系统深度增强 (Skills Deep Dive)
+> **状态**: 待启动
+> **详情文档**: [skill_creator_implementation_plan_20260319.md](./skill_creator_implementation_plan_20260319.md)
+> **目标**: 建立 Skill Creator 内置 Agent，并补齐 PPT/Nanobot 等领域技能差距。
+- [ ] **Phase 1: Skill Creator 实现** (AI 驱动的技能生成工作流)
+- [ ] **Phase 2: PPT 技能加固** (见 [ppt_skill_gap_enhancement_plan_20260307.md](./ppt_skill_gap_enhancement_plan_20260307.md))
+- [ ] **Phase 3: Nanobot 技能演进** (见 [nanobot_skill_gap_plan_20260307.md](./nanobot_skill_gap_plan_20260307.md))
+
+### Epic 9: 代码库健康与 God Object 重构 (Refactoring)
+> **状态**: 待启动
+> **详情文档**: [codebase_refactor_plan_20260319.md](./codebase_refactor_plan_20260319.md)
+> **目标**: 拆解 `chat.py` 和 `Settings.tsx` 等超过 500 行的庞大组件。
+- [ ] **Phase 1: 后端重构 (chat/doc)** (模块化拆解核心服务)
+- [ ] **Phase 2: 前端重构 (Settings/MessageItem)** (组件级解耦)
+
 ---
 
 ## ⚪ Done (已完成)
+- [x] **Epic 1: 配置与日志的云端演进** (见 [archive/Logging_Config_Evolution_Plan.md](./archive/Logging_Config_Evolution_Plan.md))
 - [x] **架构演进可行性与依赖关系分析** (完成了日志、数据库、文件管理的拆解与评估)
 - [x] **建立 AI 驱动的工程管理最佳实践** (见 [archive/AI_Driven_Project_Management_Best_Practices.md](./archive/AI_Driven_Project_Management_Best_Practices.md))
 - [x] **Agent 种类与技能组重构** (见 [archive/agent_classification_and_skill_group_plan_20260319.md](./archive/agent_classification_and_skill_group_plan_20260319.md))
