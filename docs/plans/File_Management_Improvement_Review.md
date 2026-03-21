@@ -65,39 +65,14 @@
 ### 4.2 解决方案：引入存储抽象层（Storage Abstraction Layer）
 引入存储接口层（Storage Provider），定义 `save`, `get`, `delete` 等标准接口。通过 `LocalStorageProvider` 和 `S3StorageProvider` 分别适配本地和生产环境。
 
-### 4.4 全局应用数据（日志、配置、数据库）的云端演进
-
-除了用户上传的文件（Uploads）之外，系统级的数据（Logs, Config, Database）在从“单机本地”走向“服务器多人部署”时，也需要进行相应的架构演进。我们在第 3.1 节中定义的完美本地结构（`~/.yue/`）在云端需要被拆解和重定向：
-
-#### 4.4.1 配置文件 (Config) 的演进
-*   **本地模式 (`~/.yue/config/`)**：使用本地的 `config.yaml` 或 `.env` 文件。
-*   **云端模式**：
-    *   **问题**：多台服务器如果各自读取本地文件，会导致配置不一致。如果修改配置，需要重启所有服务器。
-    *   **建议方案**：配置应当**“代码化”或“环境化”**。
-        *   **基础方案**：通过系统的环境变量（Environment Variables）注入。
-        *   **进阶方案**：引入统一配置中心（如 Nacos, Apollo, 或是 AWS Parameter Store / Secrets Manager）。应用启动时从远端拉取配置。
-
-#### 4.4.2 数据库 (Database) 的演进
-*   **本地模式 (`~/.yue/data/database/yue.db`)**：SQLite 是完美的单机选择，零配置、轻量级，非常适合本地客户端。
-*   **云端模式**：
-    *   **问题**：SQLite 是文件型数据库，不支持多台服务器（多个应用实例）同时高并发读写，容易产生锁冲突 (Database is locked)；且容器化部署（如 Docker）重启时，如果不挂载外部卷，SQLite 数据会丢失。
-    *   **建议方案**：通过 ORM（如 SQLAlchemy, Prisma 等）实现**数据库方言（Dialect）解耦**。
-        *   代码层只写标准的 ORM 模型，不写原生 SQL。
-        *   当 `ENV=local` 时，ORM 连接字符串为 `sqlite:////Users/gavin/.yue/data/database/yue.db`。
-        *   当 `ENV=production` 时，ORM 连接字符串切换为托管的云数据库（如 PostgreSQL, MySQL），如 `postgresql://user:pass@db-host:5432/yuedb`。
-
-#### 4.4.3 日志 (Logs) 的演进
-*   **本地模式 (`~/.yue/logs/`)**：写入本地磁盘的 `.log` 文件，并配置按天或按大小轮转（Log Rotation）。
-*   **云端模式**：
-    *   **问题**：多台服务器的日志散落在各自的磁盘上，发生线上问题时，开发人员无法高效排查（总不能逐台 SSH 上去 `tail -f`）。
-    *   **建议方案**：遵循“十二要素应用 (12-Factor App)”的日志规范。
-        *   应用**不再将日志写入文件**，而是统一输出到标准输出流（`stdout` / `stderr`）。
-        *   由云端基础设施（如 Docker/Kubernetes 的日志驱动，或 Fluentd / Filebeat 等守护进程）负责捕获这些流，并统一转发到中央日志平台（如 ELK 栈 - Elasticsearch, Logstash, Kibana，或云厂商的 AWS CloudWatch, 阿里云 SLS）。
-
-### 4.5 最终架构建议总结
+### 4.4 最终架构建议总结
 1.  **代码解耦**：适配器模式切换存储后端。
 2.  **路径虚拟化 (URI 化)**：数据库存储 `yue://...` 格式的统一资源标识符。
 3.  **安全基线**：保留 UUID 和 user/session 物理隔离策略。
+
+*注：关于全局应用数据（日志、配置、数据库）在多环境（本地/云端）下的架构演进方案，由于其专业性及后续实施步骤的独立性，已拆分为独立的演进计划文档进行跟踪：*
+*   *[Database_Evolution_Plan.md](./Database_Evolution_Plan.md)*
+*   *[Logging_Config_Evolution_Plan.md](./Logging_Config_Evolution_Plan.md)*
 
 ---
 
