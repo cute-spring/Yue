@@ -13,14 +13,14 @@
 
 ### 1.2 演进方案：彻底的“环境化”与“动态中心化”
 
-#### Phase 1: 强化环境变量注入 (Environment Variables)
-*   **现状评估**：当前 `ConfigService.get_llm_config()` 中已经硬编码了诸如 `os.getenv("LLM_PROVIDER")` 的逻辑。
-*   **演进动作**：
-    *   **无需重构** `ConfigService` 的基础架构。
-    *   **规范化配置管理**：在云端部署（如 Docker/K8s）时，**禁止挂载** `global_config.json`，强制要求所有配置（尤其是数据库连接、S3 密钥等新增配置）必须通过操作系统的环境变量（`os.environ`）注入。
-    *   **引入 `pydantic-settings` (推荐)**：未来可以考虑使用 `pydantic.BaseSettings` 替换手写的 `ConfigService` 解析逻辑，它能更健壮地处理类型转换和环境变量映射。
+#### Phase 1: 引入 `pydantic-settings` 重构配置解析 (核心动作)
+*   **现状痛点**：当前 `ConfigService` 内部存在大量的 `os.getenv("XXX") or settings.get("xxx")`，并且充斥着手动类型转换（如将字符串 `"true"` 转换为布尔值 `True`）。这种手写逻辑容易遗漏，且缺乏全局的 Schema 校验。
+*   **演进动作**：引入 `pydantic-settings` 库来彻底替换现有的手写解析逻辑。
+    *   **强类型校验**：通过 Pydantic Model 定义配置结构，应用启动时即可发现类型错误或必填项缺失，避免在运行时报错。
+    *   **多数据源合并 (Settings Source)**：`pydantic-settings` 原生支持按优先级合并配置。我们可以配置它的加载顺序为：`环境变量 > .env 文件 > global_config.json`。
+    *   **平滑过渡**：重构后的 `Settings` 类可以依然暴露 `get_llm_config()` 等方法，以保证上层业务代码（如 `model_factory.py`）无需大量修改即可兼容。
 
-#### Phase 2: 动态配置中心 (Centralized Configuration)
+#### Phase 2: 规范化配置管理与云端注入
 *   随着系统变大，建议引入专业的配置中心（如 **Nacos, Apollo**, 或云原生的 **AWS Parameter Store / Secrets Manager**）。
 *   应用启动时，只需知道配置中心的地址和鉴权 Token，核心业务配置全部从远端拉取。
 *   **红利**：支持配置热更新（Hot Reload）。运营人员在后台修改了 LLM 的 Prompt 模板或限流阈值，所有业务节点可实时生效，无需重启。
