@@ -2,18 +2,23 @@
 
 ## 1. 配置文件 (Config) 的演进
 
-### 1.1 核心挑战
-*   **本地模式**：读取 `~/.yue/config/config.yaml` 或 `.env`，简单直观。
+### 1.1 核心挑战（结合现有代码 `ConfigService`）
+*   **当前代码现状 (`backend/app/services/config_service.py`)**：
+    *   目前系统使用了一个非常强大的 `ConfigService`，它已经具备了**“环境变量 > JSON 文件 (`global_config.json`)”**的优先级回退策略。
+    *   这说明系统**已经完成了一半的云端化准备**！这非常棒！
 *   **云端多实例挑战**：
-    *   **配置漂移（脑裂）**：多台服务器如果各自读本地文件，极易出现某些机器配置更新了，而其他机器没更新的情况。
-    *   **重启成本**：修改本地文件通常需要通过 SSH 逐台登录，并手动重启服务。
-    *   **敏感信息泄露**：将 API Keys 等敏感信息打包在镜像中或散落在各台服务器磁盘上是非常危险的。
+    *   **配置漂移（脑裂）**：多台服务器如果各自读本地的 `global_config.json`，极易出现某些机器配置更新了，而其他机器没更新的情况。
+    *   **重启成本**：虽然现在支持 JSON 动态加载，但在分布式环境下，你无法同时向 10 台机器下发 JSON 文件。
+    *   **敏感信息泄露**：将 API Keys 等敏感信息保存在 `global_config.json` 中并随容器分发是非常危险的。
 
-### 1.2 演进方案：配置的“代码化”与“环境化”
+### 1.2 演进方案：彻底的“环境化”与“动态中心化”
 
-#### Phase 1: 环境变量注入 (Environment Variables)
-*   **原则**：遵循 12-Factor App 的规范，将所有可能会随环境变化的配置（如数据库密码、外部 API 地址等）从代码或静态文件中抽离，改为从操作系统的环境变量（`os.environ`）读取。
-*   **实施**：在 Docker 启动或 Kubernetes 部署清单中统一注入这些变量。这保证了同一套镜像（Image）可以在开发、测试、生产环境中无缝流转。
+#### Phase 1: 强化环境变量注入 (Environment Variables)
+*   **现状评估**：当前 `ConfigService.get_llm_config()` 中已经硬编码了诸如 `os.getenv("LLM_PROVIDER")` 的逻辑。
+*   **演进动作**：
+    *   **无需重构** `ConfigService` 的基础架构。
+    *   **规范化配置管理**：在云端部署（如 Docker/K8s）时，**禁止挂载** `global_config.json`，强制要求所有配置（尤其是数据库连接、S3 密钥等新增配置）必须通过操作系统的环境变量（`os.environ`）注入。
+    *   **引入 `pydantic-settings` (推荐)**：未来可以考虑使用 `pydantic.BaseSettings` 替换手写的 `ConfigService` 解析逻辑，它能更健壮地处理类型转换和环境变量映射。
 
 #### Phase 2: 动态配置中心 (Centralized Configuration)
 *   随着系统变大，建议引入专业的配置中心（如 **Nacos, Apollo**, 或云原生的 **AWS Parameter Store / Secrets Manager**）。
@@ -24,17 +29,19 @@
 
 ## 2. 日志 (Logs) 的演进
 
-### 2.1 核心挑战
-*   **本地模式**：将日志写入 `~/.yue/logs/app.log`，并配置按天轮转。对于单机排查这非常完美。
+### 2.1 核心挑战（结合现有代码 `observability.py`）
+*   **当前代码现状 (`backend/app/observability.py`)**：
+    *   目前的日志系统已经非常现代化！已经通过 `setup_logging()` 配置了 `StreamHandler`，并且引入了 `ContextVar` 来传递 `trace_id` (`X-Request-Id`)。
+    *   **这意味着在日志层面，系统几乎不需要做“破除写文件”的改造，因为它本来就在正确地向 `stdout` 输出！**
 *   **云端多实例挑战**：
-    *   **排查地狱**：如果部署了 5 台服务器，发生报错时，开发人员需要逐台 SSH 登录去 `grep` 找日志，效率极低。
-    *   **日志丢失**：如果采用 Docker 容器化部署，一旦容器崩溃被调度器销毁，其内部写入的 `.log` 文件会随之灰飞烟灭，导致“死无对证”。
+    *   目前的挑战不在于“应用怎么写日志”，而在于**“写出来的日志去哪了”**。
+    *   如果部署了 5 台服务器，发生报错时，开发人员需要逐台 SSH 登录去 `docker logs` 找日志，效率极低。
 
 ### 2.2 演进方案：流式日志与集中式收集
 
-#### 核心规范：日志即事件流 (Logs as Event Streams)
-*   **禁止写文件**：在生产环境中，应用**不再主动将日志写入任何物理文件**。
-*   **标准输出**：应用应该将所有日志（无论 Info 还是 Error）直接打印到标准输出流 (`stdout`) 和标准错误流 (`stderr`)。
+#### 保持现状：日志即事件流 (Logs as Event Streams)
+*   继续保持当前 `observability.py` 中的 `StreamHandler` 设计。这是完全符合 12-Factor App 规范的。
+*   **小优化**：在生产环境中，建议将 `Formatter` 从纯文本（Plain Text）改为 **JSON 格式（如使用 `python-json-logger` 或 `structlog`）**。这样包含 `trace_id` 的日志在发往云端时，更容易被 ElasticSearch 等引擎结构化解析。
 
 #### 基础设施层收集架构
 将日志管理的职责从“应用层”剥离到“基础设施层”：
