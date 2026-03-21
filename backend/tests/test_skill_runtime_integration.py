@@ -418,15 +418,19 @@ HOT RELOAD
 
 def test_source_layer_metrics():
     import app.services.chat_service as chat_service_module
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from unittest.mock import patch
 
     with tempfile.TemporaryDirectory() as td:
-        old_data_dir = chat_service_module.DATA_DIR
-        old_db_file = chat_service_module.DB_FILE
-        old_chats_file = chat_service_module.OLD_CHATS_FILE
-        chat_service_module.DATA_DIR = td
-        chat_service_module.DB_FILE = os.path.join(td, "yue.db")
-        chat_service_module.OLD_CHATS_FILE = os.path.join(td, "chats.json")
-        try:
+        db_file = os.path.join(td, "yue.db")
+        test_engine = create_engine(f"sqlite:///{db_file}")
+        TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+        
+        with patch("app.services.chat_service.engine", test_engine), \
+             patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
+             patch("app.services.chat_service.DATA_DIR", td):
+             
             service = chat_service_module.ChatService()
             chat = service.create_chat()
             service.add_skill_effectiveness_event(chat.id, {
@@ -437,7 +441,7 @@ def test_source_layer_metrics():
                 "selected_skill_source_layer": "user",
                 "override_hit": True,
             })
-            conn = sqlite3.connect(chat_service_module.DB_FILE)
+            conn = sqlite3.connect(db_file)
             try:
                 row = conn.execute(
                     "SELECT selected_skill_source_layer, override_hit FROM skill_effectiveness_events ORDER BY id DESC LIMIT 1"
@@ -447,10 +451,8 @@ def test_source_layer_metrics():
             assert row is not None
             assert row[0] == "user"
             assert row[1] == 1
-        finally:
-            chat_service_module.DATA_DIR = old_data_dir
-            chat_service_module.DB_FILE = old_db_file
-            chat_service_module.OLD_CHATS_FILE = old_chats_file
+            
+        test_engine.dispose()
 
 
 def test_visible_skills_resolve_from_groups_and_extra_with_dedupe():

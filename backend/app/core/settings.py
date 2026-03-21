@@ -23,6 +23,9 @@ def parse_string_list(v: Any) -> List[str]:
     return []
 
 class AppSettings(BaseSettings):
+    # Database Settings
+    database_url: Optional[str] = None
+
     # LLM Settings
     llm_provider: Optional[str] = None
     enabled_providers: Optional[str] = None

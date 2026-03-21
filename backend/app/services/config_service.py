@@ -21,12 +21,11 @@ class ConfigService:
     def __init__(self, config_path: str = None):
         """
         初始化配置服务
-        :param config_path: 配置文件存储路径，默认为 backend/data/global_config.json
+        :param config_path: 配置文件存储路径，默认为 ~/.yue/data/global_config.json
         """
         if config_path is None:
-            # 默认使用 backend/data/global_config.json，相对于本项目结构
-            base_dir = Path(__file__).parent.parent.parent
-            config_path = base_dir / "data" / "global_config.json"
+            data_dir = os.getenv("YUE_DATA_DIR", "~/.yue/data")
+            config_path = Path(os.path.expanduser(data_dir)) / "global_config.json"
         
         self.config_path = Path(config_path)
         self.config_path.parent.mkdir(parents=True, exist_ok=True)

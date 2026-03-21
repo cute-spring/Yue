@@ -153,13 +153,13 @@ rg "<query_tokens>" <docs_root> \
 - **资源消耗**：大幅降低 Python 进程的内存占用，因为文件 I/O 由 Rust 层的 `rg` 处理。
 - **功能增强**：天然支持正则表达式搜索、多编码自动检测及 `.gitignore` 过滤。
 
-- **核心逻辑**: [doc_retrieval.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/doc_retrieval.py)
+- **核心逻辑**: [doc_retrieval.py](file://./backend/app/services/doc_retrieval.py)
   - `_make_smart_snippets`: 实现多点采样与密度评分。
   - `read_text_lines`: 实现 `target_line` 居中窗口扩展。
   - `inspect_doc`: 实现文档结构探测。
-- **工具接口**: [manager.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/manager.py)
+- **工具接口**: [manager.py](file://./backend/app/mcp/manager.py)
   - 暴露 `docs_inspect` 并在 `docs_read`/`docs_search` 中应用新功能。
-- **测试用例**: [test_smart_doc_retrieval.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_smart_doc_retrieval.py)
+- **测试用例**: [test_smart_doc_retrieval.py](file://./backend/tests/test_smart_doc_retrieval.py)
 
 ---
 

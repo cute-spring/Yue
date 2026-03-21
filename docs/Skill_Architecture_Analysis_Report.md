@@ -254,7 +254,7 @@ The key architectural shift is moving from **configuring individual agents** to 
 
 ## References
 
-- [Existing Agent Documentation](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/agents.md)
-- [MCP Integration Code](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/mcp.py)
-- [Agent Store Implementation](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/agent_store.py)
-- [Skill Creator Guidelines](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/.trae/skills/skill-creator/SKILL.md)
+- [Existing Agent Documentation](file://./docs/agents.md)
+- [MCP Integration Code](file://./backend/app/api/mcp.py)
+- [Agent Store Implementation](file://./backend/app/services/agent_store.py)
+- [Skill Creator Guidelines](file://./.trae/skills/skill-creator/SKILL.md)

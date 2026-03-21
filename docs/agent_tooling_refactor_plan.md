@@ -63,11 +63,11 @@
 - 已知限制：部分 HTTP/集成测试需要后端运行；TestClient 版本不兼容时会跳过
 - 运行约束：测试需 `PYTHONPATH=backend`
 - 重要文件路径：
-  - [schema_translator.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/schema_translator.py)
-  - [base.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/base.py)
-  - [registry.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/registry.py)
-  - [chat.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat.py)
-  - [agent_tooling_refactor_plan.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/agent_tooling_refactor_plan.md)
+  - [schema_translator.py](file://./backend/app/mcp/schema_translator.py)
+  - [base.py](file://./backend/app/mcp/base.py)
+  - [registry.py](file://./backend/app/mcp/registry.py)
+  - [chat.py](file://./backend/app/api/chat.py)
+  - [agent_tooling_refactor_plan.md](file://./docs/agent_tooling_refactor_plan.md)
 
 ### 如果要新开绘画的最简交接模板
 “我已完成 Provider Schema 翻译器并接入链路，进入 Step 3。请参考 agent_tooling_refactor_plan.md 的 4.2 Step 3 详细计划；测试需 PYTHONPATH=backend。当前基线测试已通过，后端未启动的集成测试会跳过。请从注册表层错误分流与 Hint 规范化开始实现。”

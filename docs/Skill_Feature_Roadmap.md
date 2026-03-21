@@ -574,7 +574,7 @@ description: |
 4. **Backward Compatibility** → Maintain support for legacy agent format
 
 ### D. References
-- [Skill Architecture Analysis Report](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/Skill_Architecture_Analysis_Report.md)
-- [Skill Creator Documentation](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/.trae/skills/skill-creator/SKILL.md)
-- [MCP Integration Code](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/mcp.py)
-- [Agent Store Implementation](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/agent_store.py)
+- [Skill Architecture Analysis Report](file://./docs/Skill_Architecture_Analysis_Report.md)
+- [Skill Creator Documentation](file://./.trae/skills/skill-creator/SKILL.md)
+- [MCP Integration Code](file://./backend/app/api/mcp.py)
+- [Agent Store Implementation](file://./backend/app/services/agent_store.py)

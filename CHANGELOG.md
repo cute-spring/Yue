@@ -23,7 +23,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **API Stability**:
-  - Resolved 500 Internal Server Error and JSON parsing issues by disabling unstable test MCP servers in `backend/data/mcp_configs.json`.
+  - Resolved 500 Internal Server Error and JSON parsing issues by disabling unstable test MCP servers in `~/.yue/data/mcp_configs.json`.
   - Fixed `NameError: name 'asyncio' is not defined` in `backend/app/main.py` lifespan hook.
   - Resolved import conflicts in `backend/app/api/models.py` by unifying LLM provider imports.
 - **Uvicorn Lifecycle**:

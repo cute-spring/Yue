@@ -3,7 +3,7 @@
 ## 1. 审核概览 (Audit Overview)
 
 本报告是对 2026 年 3 月中旬项目增强计划执行情况的审计与偏差分析。
-审计基线：[planned_enhancement_execution_order_20260314_zh.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/plans/planned_enhancement_execution_order_20260314_zh.md)
+审计基线：[planned_enhancement_execution_order_20260314_zh.md](file://./docs/plans/planned_enhancement_execution_order_20260314_zh.md)
 
 ### 核心结论
 - **Skills 架构升级**：超前完成。后端核心逻辑（三层目录、热重载、Legacy 清理）已 100% 落地。
@@ -27,7 +27,7 @@
 ## 3. 偏差与调整分析 (Deviation & Adjustment Analysis)
 
 ### 3.1 关于 Skills 架构的超前完成
-- **现状**：[skill_service.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skill_service.py) 已完全支持三层目录覆盖逻辑。
+- **现状**：[skill_service.py](file://./backend/app/services/skill_service.py) 已完全支持三层目录覆盖逻辑。
 - **影响**：这为自定义 Skill 开发提供了坚实底座，用户可以安全地在 `user` 层扩展功能而无需改动内核。
 
 ### 3.2 延后分层记忆 (STM MVP) 的合理性

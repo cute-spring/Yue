@@ -26,7 +26,7 @@ bash "$PROJECT_ROOT/install_deps.sh"
 
 # 3. Create initial data directories if needed
 echo -e "\n${YELLOW}--- [3/3] Setting Up Data Directories ---${NC}"
-mkdir -p "$PROJECT_ROOT/backend/data/uploads"
+mkdir -p "$PROJECT_ROOT/data/uploads"
 echo -e "${GREEN}✅ Data directories ready.${NC}"
 
 echo -e "\n------------------------------------"

@@ -117,7 +117,7 @@ PYTHONPATH=backend pytest backend/tests/test_config_service_unit.py::test_config
 - 覆盖“日志脱敏”“开关开启时透传 runtime model”“开关关闭时忽略 runtime model”。
 
 #### 手工验证（最有体感）
-1. 在 `backend/data/global_config.json` 设置：
+1. 在 `~/.yue/data/global_config.json` 设置：
    - `meta_provider` 与 `meta_model` 为固定值（例如 `openai/gpt-4o-mini`）；
    - 分别测试 `meta_use_runtime_model_for_title=false` 与 `true`。
 2. 前端新建会话，使用同样的首轮问题，但切换不同聊天模型发送。

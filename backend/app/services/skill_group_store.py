@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 def _default_data_dir() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data"))
+    return os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))
 
 
 def _timestamp_tag() -> str:

@@ -138,7 +138,7 @@ Todos updated: 4 items
           
 这是一个非常高阶的问题！如何把“宏大的架构演进想法”变成**“能让 AI 无缝接手并持续推进的 Backlog”**，这是很多人在使用 AI 辅助编程时都会遇到的瓶颈（因为 AI 跨会话会遗忘上下文）。
 
-为了方便你未来查阅，我把这套**“AI 驱动的工程管理最佳实践”**整理成了一份标准文档，你可以随时参考：[AI_Driven_Project_Management_Best_Practices.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/plans/AI_Driven_Project_Management_Best_Practices.md)（已提交到 git）。
+为了方便你未来查阅，我把这套**“AI 驱动的工程管理最佳实践”**整理成了一份标准文档，你可以随时参考：[AI_Driven_Project_Management_Best_Practices.md](file://./docs/plans/AI_Driven_Project_Management_Best_Practices.md)（已提交到 git）。
 
 下面我为你提炼这套方案的核心玩法：
 

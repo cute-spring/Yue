@@ -28,7 +28,7 @@
 ## 3. 解决方案 (Solution)
 
 ### 3.1 配置层优化
-在 [global_config.json](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/data/global_config.json) 中进行如下调整：
+在 [global_config.json](file://~/.yue/data/global_config.json) 中进行如下调整：
 - 将 `deepseek-reasoner` 的 `max_output_tokens` 设定为 **8192**（这是 DeepSeek API 当前支持的最大硬限制）。
 - 修正之前尝试设置 32768 导致 API 返回 400 错误（`Invalid max_tokens value`）的问题。
 
@@ -68,12 +68,12 @@
 ### 8.1 根因分析 (Root Cause)
 
 1.  **SSE 解析器的脆弱性 (Brittle SSE Parsing)**：
-    -   **现象**：在 [useChatState.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/hooks/useChatState.ts) 中，解析逻辑假设每个数据块 (chunk) 都是完整的 JSON 行。
+    -   **现象**：在 [useChatState.ts](file://./frontend/src/hooks/useChatState.ts) 中，解析逻辑假设每个数据块 (chunk) 都是完整的 JSON 行。
     -   **问题**：当网络传输导致 JSON 字符串被切断（跨 chunk）或多字节字符（如中文）被截断时，`JSON.parse` 会抛出异常，导致后续的 UI 更新逻辑被跳过。
 2.  **多字节字符编码问题**：
     -   直接解码单个 chunk 可能会导致字符截断。
 3.  **渲染性能瓶颈 (Rendering Bottleneck)**：
-    -   **现象**：在 [useMermaid.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/hooks/useMermaid.ts) 中，防抖定时器是局部作用域的。
+    -   **现象**：在 [useMermaid.ts](file://./frontend/src/hooks/useMermaid.ts) 中，防抖定时器是局部作用域的。
     -   **问题**：高频流式输出触发了大量并发的 Mermaid 渲染尝试，抢占了浏览器主线程，导致 UI 响应迟缓甚至冻结。
 
 ### 8.2 修复方案 (Solutions)

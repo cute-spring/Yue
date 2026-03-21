@@ -1,8 +1,8 @@
 # PPT Skill Gap 逐步增强设计与测试计划
 
 ## 背景与现状
-- 当前 skill 以 `ppt-expert.md` 为核心，主要负责从 outline 到 slide JSON 并调用 `generate_pptx`（见 [ppt-expert.md:L1-L27](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/data/skills/ppt-expert.md#L1-L27)）。
-- 生成能力由 `GeneratePptxTool` 与 `generate_pptx.py` 驱动，支持多种 slide type 与默认 theme（见 [ppt.py:L1-L35](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/builtin/ppt.py#L1-L35)，[generate_pptx.py:L1-L935](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/data/skills/ppt-expert/scripts/generate_pptx.py#L1-L935)）。
+- 当前 skill 以 `ppt-expert.md` 为核心，主要负责从 outline 到 slide JSON 并调用 `generate_pptx`（见 [ppt-expert.md:L1-L27](file://./backend/data/skills/ppt-expert.md#L1-L27)）。
+- 生成能力由 `GeneratePptxTool` 与 `generate_pptx.py` 驱动，支持多种 slide type 与默认 theme（见 [ppt.py:L1-L35](file://./backend/app/mcp/builtin/ppt.py#L1-L35)，[generate_pptx.py:L1-L935](file://./backend/data/skills/ppt-expert/scripts/generate_pptx.py#L1-L935)）。
 - 与 Anthropic 的 `pptx` skill 相比，当前流程偏向“生成”而缺少“template editing + QA loop + design system + pitfall control”的完整工作流。
 
 ## 主要 Gap（对标 Anthropic `pptx` skill）

@@ -7,7 +7,7 @@ The current codebase has several files exceeding 500 lines, with some reaching o
 
 ## **Priority 1: Backend God Objects**
 
-### 1. [chat.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat.py) (~1392 lines)
+### 1. [chat.py](file://./backend/app/api/chat.py) (~1392 lines)
 - **Current Role**: Handles everything related to the `/api/chat` endpoint, including SSE streaming, token management, logging, image handling, and skill routing.
 - **Refactor Strategy**:
   - **Move Token Utilities**: Create `backend/app/utils/token_manager.py` for `estimate_tokens` and related constants.
@@ -15,7 +15,7 @@ The current codebase has several files exceeding 500 lines, with some reaching o
   - **Move SSE Logic**: Extract complex SSE generator logic into a dedicated service `backend/app/services/chat/stream_generator.py`.
   - **Modularize Endpoints**: Split into `chat_session.py` (CRUD) and `chat_stream.py` (Execution).
 
-### 2. [doc_retrieval.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/doc_retrieval.py) (~1324 lines)
+### 2. [doc_retrieval.py](file://./backend/app/services/doc_retrieval.py) (~1324 lines)
 - **Current Role**: Path resolution, recursive file walking, content extraction (PDF/Text), and snippet scoring.
 - **Refactor Strategy**:
   - **Extract Path Resolver**: Create `backend/app/services/doc/path_resolver.py` for safe path handling and root resolution.
@@ -23,7 +23,7 @@ The current codebase has several files exceeding 500 lines, with some reaching o
   - **Extract Search Engine**: Move snippet extraction and scoring to `backend/app/services/doc/search_engine.py`.
   - **Simplify Main Service**: `doc_retrieval.py` should only orchestrate these modules.
 
-### 3. [skill_service.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skill_service.py) (~684 lines)
+### 3. [skill_service.py](file://./backend/app/services/skill_service.py) (~684 lines)
 - **Current Role**: Registry, router, policy gate, and multiple adapters.
 - **Refactor Strategy**:
   - **Split Registry**: Move registration logic to `backend/app/services/skill/registry.py`.
@@ -34,7 +34,7 @@ The current codebase has several files exceeding 500 lines, with some reaching o
 
 ## **Priority 2: Frontend God Components**
 
-### 1. [Settings.tsx](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/pages/Settings.tsx) (~1285 lines)
+### 1. [Settings.tsx](file://./frontend/src/pages/Settings.tsx) (~1285 lines)
 - **Current Role**: Manages General, MCP, and LLM settings in one file.
 - **Refactor Strategy**:
   - **Component Extraction**: Create `frontend/src/components/settings/` directory.
@@ -43,13 +43,13 @@ The current codebase has several files exceeding 500 lines, with some reaching o
   - **LlmTab**: Move LLM provider configuration and custom model management.
   - **Simplify Settings.tsx**: Keep it as a shell for tab navigation and global state orchestration.
 
-### 2. [useChatState.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/hooks/useChatState.ts) (~767 lines)
+### 2. [useChatState.ts](file://./frontend/src/hooks/useChatState.ts) (~767 lines)
 - **Current Role**: Giant hook managing message history, streaming state, tool calls, and multi-modal data.
 - **Refactor Strategy**:
   - **Sub-hooks Pattern**: Split into `useMessageHistory`, `useStreamingResponse`, and `useToolExecution`.
   - **State Reducer**: Move complex state transitions to a dedicated reducer in `frontend/src/hooks/chat/chatReducer.ts`.
 
-### 3. [MessageItem.tsx](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/components/MessageItem.tsx) (~730 lines)
+### 3. [MessageItem.tsx](file://./frontend/src/components/MessageItem.tsx) (~730 lines)
 - **Current Role**: Renders all types of messages (User, Assistant, Error) and their sub-components (Tool calls, Images, Mermaid).
 - **Refactor Strategy**:
   - **Extract Sub-components**: Create `MessageContent`, `MessageHeader`, `ToolCallList`, and `ImageAttachment` as standalone components.

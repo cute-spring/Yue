@@ -3,9 +3,10 @@ import json
 from pydantic_ai import RunContext
 from app.mcp.builtin.excel import ExcelProfileTool, ExcelLogicExtractTool, ExcelScriptScanTool, ExcelReadTool, ExcelQueryTool
 from app.mcp.builtin.registry import builtin_tool_registry
+import os
 from unittest.mock import MagicMock, patch
 
-FIXTURES_DIR = "/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/fixtures/excel"
+FIXTURES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "fixtures/excel"))
 
 @pytest.fixture
 def mock_ctx():

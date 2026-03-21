@@ -107,7 +107,7 @@ This document serves as a structured task list for AI development. Each phase is
 
 - ### Status Snapshot — Phase 3 (2026-02-26)
   - Completed
-    - **Dependency Management Modernization**: Migrated from `requirements.txt` to `uv` ([pyproject.toml](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/pyproject.toml) + [uv.lock](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/uv.lock)).
+    - **Dependency Management Modernization**: Migrated from `requirements.txt` to `uv` ([pyproject.toml](file://./backend/pyproject.toml) + [uv.lock](file://./backend/uv.lock)).
     - **Unified Project Configuration**: Centralized metadata and dependency groups (production vs dev) in `pyproject.toml`.
     - **Workflow Optimization**: Updated `setup.sh`, `install_deps.sh`, `dev.sh`, and `start.sh` to support `uv run` and `uv sync`, ensuring near-instant environment synchronization.
     - **Build System Integration**: Configured `hatchling` as the build backend for the backend package.

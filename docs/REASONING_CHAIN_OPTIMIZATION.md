@@ -49,9 +49,9 @@
 - **打字机效果**：优化了前端显示逻辑，思维链随生成过程平滑展示。
 
 ### ✅ 中期：结构化协议引入 (Completed)
-- **Prompt 优化**：在 [chat.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat.py) 中引入了 `[目标]` -> `[已知条件]` -> `[计划]` -> `[反思]` 的结构化协议。
-- **可视化标注**：前端 [Chat.tsx](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/pages/Chat.tsx) 引入了图标（🎯, 📋, 🗺️, 🔄）和背景色高亮，显著提升了推理链的可读性。
-- **自动化验证**：增加了单元测试 [test_reasoning_protocol.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_reasoning_protocol.py)，确保协议在非推理模型上正确注入。
+- **Prompt 优化**：在 [chat.py](file://./backend/app/api/chat.py) 中引入了 `[目标]` -> `[已知条件]` -> `[计划]` -> `[反思]` 的结构化协议。
+- **可视化标注**：前端 [Chat.tsx](file://./frontend/src/pages/Chat.tsx) 引入了图标（🎯, 📋, 🗺️, 🔄）和背景色高亮，显著提升了推理链的可读性。
+- **自动化验证**：增加了单元测试 [test_reasoning_protocol.py](file://./backend/tests/test_reasoning_protocol.py)，确保协议在非推理模型上正确注入。
 
 ### ⏳ 长期：工具调用深度耦合 (In Progress)
 

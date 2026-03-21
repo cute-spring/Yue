@@ -1,31 +1,44 @@
 import os
 import sys
 import unittest
+import tempfile
+import shutil
 from datetime import datetime
+from unittest.mock import patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # Add the backend directory to sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.chat_service import ChatService, DB_FILE
+from app.services.chat_service import ChatService
 
 class TestChatService(unittest.TestCase):
     def setUp(self):
         # Use a temporary test database
-        self.test_db = "test_yue.db"
-        # Temporarily override the DB_FILE in the module
-        import app.services.chat_service
-        self.original_db = app.services.chat_service.DB_FILE
-        app.services.chat_service.DB_FILE = self.test_db
+        self.temp_dir = tempfile.mkdtemp()
+        self.test_db = os.path.join(self.temp_dir, "test_yue.db")
+        
+        self.test_engine = create_engine(f"sqlite:///{self.test_db}")
+        self.TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.test_engine)
+        
+        # Set up patches
+        self.engine_patcher = patch("app.services.chat_service.engine", self.test_engine)
+        self.session_patcher = patch("app.services.chat_service.SessionLocal", self.TestingSessionLocal)
+        
+        self.engine_patcher.start()
+        self.session_patcher.start()
         
         self.service = ChatService()
 
     def tearDown(self):
+        # Stop patches
+        self.engine_patcher.stop()
+        self.session_patcher.stop()
+        
         # Clean up test database
-        if os.path.exists(self.test_db):
-            os.remove(self.test_db)
-        # Restore original DB_FILE
-        import app.services.chat_service
-        app.services.chat_service.DB_FILE = self.original_db
+        self.test_engine.dispose()
+        shutil.rmtree(self.temp_dir)
 
     def test_create_and_list_chats(self):
         # Create a new chat

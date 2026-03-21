@@ -148,7 +148,7 @@
 ```json
 {
   "path": "docs/fixtures/excel/sales_irregular.xlsx",
-  "root_dir": "/Users/gavinzhang/ws-ai-recharge-2026/Yue"
+  "root_dir": "."
 }
 ```
 
@@ -179,7 +179,7 @@
 {
   "path": "docs/fixtures/excel/sales_irregular.xlsx",
   "sheet_name": "Q1",
-  "root_dir": "/Users/gavinzhang/ws-ai-recharge-2026/Yue"
+  "root_dir": "."
 }
 ```
 
@@ -213,7 +213,7 @@
 ```json
 {
   "path": "docs/fixtures/excel/macro_enabled_sample.xlsm",
-  "root_dir": "/Users/gavinzhang/ws-ai-recharge-2026/Yue"
+  "root_dir": "."
 }
 ```
 

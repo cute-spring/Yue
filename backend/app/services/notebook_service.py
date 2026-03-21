@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 import uuid
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "../../data")
+DATA_DIR = os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))
 NOTES_FILE = os.path.join(DATA_DIR, "notes.json")
 
 class Note(BaseModel):

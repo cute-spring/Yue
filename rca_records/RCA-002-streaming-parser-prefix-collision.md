@@ -14,7 +14,7 @@
 经过对前端解析逻辑的深度排查，确定该问题是由 `thoughtParser.ts` 中的**流式状态机前缀碰撞**导致的。
 
 ### 2.1 碰撞触发机制
-在 [thoughtParser.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/utils/thoughtParser.ts) 中，为了处理 DeepSeek 的思维链（Reasoning Chain），引入了前缀检测逻辑：
+在 [thoughtParser.ts](file://./frontend/src/utils/thoughtParser.ts) 中，为了处理 DeepSeek 的思维链（Reasoning Chain），引入了前缀检测逻辑：
 ```typescript
 // 潜在的标签前缀，用于避免在流式传输时内容闪烁
 const tagPrefixes = ["<t", "<th", "<thi", "<thin", "<think", "<thou", "<thoug", "<thought"];
@@ -42,7 +42,7 @@ const tagPrefixes = ["<t", "<th", "<thi", "<thin", "<think", "<thou", "<thoug", 
 ## 4. 修复方案 (Implementation)
 
 ### 4.1 精确前缀匹配 (Precise Prefix Matching)
-修改 [thoughtParser.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/utils/thoughtParser.ts)，将原有的宽泛匹配（如 `"<t"`）替换为基于合法思维标签的严格前缀检查：
+修改 [thoughtParser.ts](file://./frontend/src/utils/thoughtParser.ts)，将原有的宽泛匹配（如 `"<t"`）替换为基于合法思维标签的严格前缀检查：
 
 ```typescript
 // 仅检查是否为合法思维标签的前缀

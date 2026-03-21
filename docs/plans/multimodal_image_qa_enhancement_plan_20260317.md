@@ -239,7 +239,7 @@ Expected: PASS
 
 ## 6. 数据与配置设计
 
-### 6.1 配置项（建议新增到 `backend/data/global_config.json.example`）
+### 6.1 配置项（建议新增到 `~/.yue/data/global_config.json.example`）
 
 1. `feature_flags.multimodal_enabled`（默认 true）
 2. `feature_flags.multimodal_image_only_submit_enabled`（默认 true）
