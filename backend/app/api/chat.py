@@ -3,7 +3,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.exceptions import UsageLimitExceeded
-from pydantic_ai.messages import ImageUrl
 from app.mcp.registry import tool_registry
 from app.services.agent_store import agent_store
 from app.services.model_factory import get_model, fetch_ollama_models
@@ -51,6 +50,15 @@ from app.services.chat_postprocess import (
     append_citation_suffix_if_needed,
     persist_assistant_message,
 )
+from app.services.chat_retry_service import (
+    should_handle_tool_call_mismatch,
+    resolve_retry_targets,
+    build_tool_call_retry_event,
+    build_tool_call_retry_success_event,
+    build_tool_call_retry_failed_event,
+    build_tool_call_mismatch_event,
+    build_tool_call_mismatch_message,
+)
 from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
 import asyncio
@@ -58,7 +66,8 @@ import uuid
 import json
 import logging
 from collections import defaultdict
-from typing import List, Optional, Dict, Any, Tuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any, Tuple, AsyncIterator
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -66,6 +75,46 @@ logger = logging.getLogger(__name__)
 SKILL_BIND_MIN_SCORE = 2
 SKILL_SWITCH_DELTA = 2
 _TITLE_REFINEMENT_REASON_COUNTS: Dict[str, int] = defaultdict(int)
+
+
+@dataclass
+class StreamRunContext:
+    chat_id: str
+    request: "ChatRequest"
+    history: List[Any]
+    validated_images: List[str]
+    feature_flags: Dict[str, Any]
+    run_id: str
+    assistant_turn_id: str
+    event_v2_enabled: bool
+    turn_binding_enabled: bool
+    reasoning_display_gated_enabled: bool
+    provider: Optional[str]
+    model_name: Optional[str]
+    system_prompt: Optional[str]
+    stream_state: StreamState = field(default_factory=StreamState)
+    tool_event_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    agent_config: Any = None
+    deps: Any = None
+    model_settings: Dict[str, Any] = field(default_factory=dict)
+    parser: Any = None
+    usage_limits: Optional[UsageLimits] = None
+    result: Any = None
+
+
+@dataclass
+class StreamRunMetrics:
+    thought_duration: Optional[float] = None
+    ttft: Optional[float] = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    finish_reason: Optional[str] = None
+    total_duration: Optional[float] = None
+    stream_error_message: Optional[str] = None
+    current_exception: Optional[BaseException] = None
+    supports_reasoning: bool = False
+    reasoning_enabled: bool = False
 
 def _build_chat_request_log_payload(chat_id: str, request: "ChatRequest") -> Dict[str, Any]:
     return runtime_build_chat_request_log_payload(
@@ -138,6 +187,223 @@ def _persist_validated_images(validated_images: List[str]) -> List[str]:
     return persist_validated_images(validated_images, save_base64_image=save_base64_image, logger=logger)
 
 
+def _resolve_reasoning_state(
+    *,
+    supports_reasoning: bool,
+    deep_thinking_enabled: bool,
+    reasoning_display_gated_enabled: bool,
+) -> Tuple[bool, Optional[str]]:
+    reasoning_disabled_reason_code = None
+    if reasoning_display_gated_enabled:
+        reasoning_enabled = bool(supports_reasoning and deep_thinking_enabled)
+        if not reasoning_enabled:
+            if deep_thinking_enabled and not supports_reasoning:
+                reasoning_disabled_reason_code = "MODEL_CAPABILITY_MISSING"
+            elif not deep_thinking_enabled:
+                reasoning_disabled_reason_code = "DEEP_THINKING_DISABLED"
+    else:
+        reasoning_enabled = bool(supports_reasoning or deep_thinking_enabled)
+        if not reasoning_enabled:
+            reasoning_disabled_reason_code = "LEGACY_DISABLED"
+    return reasoning_enabled, reasoning_disabled_reason_code
+
+
+async def _yield_stream_chunks(
+    *,
+    result: Any,
+    parser: Any,
+    tool_event_queue: asyncio.Queue,
+    emitter: StreamEventEmitter,
+    stream_state: StreamState,
+    log_label: str,
+) -> AsyncIterator[str]:
+    async for payload in stream_result_chunks(
+        result=result,
+        parser=parser,
+        tool_event_queue=tool_event_queue,
+        emitter=emitter,
+        stream_state=stream_state,
+        serialize_payload=_serialize_sse_payload,
+        logger=logger,
+        log_label=log_label,
+    ):
+        yield payload
+
+
+async def _run_agent_stream(
+    *,
+    agent: Agent,
+    user_input: Any,
+    history: List[Any],
+    deps: Any,
+    model_settings: Dict[str, Any],
+    parser: Any,
+    tool_event_queue: asyncio.Queue,
+    emitter: StreamEventEmitter,
+    stream_state: StreamState,
+    log_label: str,
+    result_holder: Dict[str, Any],
+    usage_limits: Optional[UsageLimits] = None,
+) -> AsyncIterator[str]:
+    run_kwargs: Dict[str, Any] = {
+        "message_history": history,
+        "deps": deps,
+        "model_settings": model_settings,
+    }
+    if usage_limits is not None:
+        run_kwargs["usage_limits"] = usage_limits
+
+    async with agent.run_stream(user_input, **run_kwargs) as stream_result:
+        result_holder["result"] = stream_result
+        async for payload in _yield_stream_chunks(
+            result=stream_result,
+            parser=parser,
+            tool_event_queue=tool_event_queue,
+            emitter=emitter,
+            stream_state=stream_state,
+            log_label=log_label,
+        ):
+            yield payload
+
+
+def _emit_skill_effectiveness_event(
+    *,
+    chat_id: str,
+    emitter: StreamEventEmitter,
+    selection_reason_code: str,
+    selection_source: str,
+    selection_score: int,
+    selected_skill_spec: Any,
+    visible_skill_count: int,
+    available_skill_count: int,
+    always_injected_count: int,
+    selected_group_ids: List[str],
+    resolved_skill_count: int,
+    summary_injected: bool,
+    scope_summary_injected: bool,
+    effective_scope_count: int,
+    feature_flags: Dict[str, Any],
+    system_prompt: str,
+    request_message: str,
+) -> str:
+    skill_effectiveness_payload = build_skill_effectiveness_payload(
+        selection_reason_code=selection_reason_code,
+        selection_source=selection_source,
+        selection_score=selection_score,
+        selected_skill_spec=selected_skill_spec,
+        visible_skill_count=visible_skill_count,
+        available_skill_count=available_skill_count,
+        always_injected_count=always_injected_count,
+        selected_group_ids=selected_group_ids,
+        resolved_skill_count=resolved_skill_count,
+        summary_injected=summary_injected,
+        scope_summary_injected=scope_summary_injected,
+        effective_scope_count=effective_scope_count,
+        feature_flags=feature_flags,
+        system_prompt=system_prompt,
+        request_message=request_message,
+        estimate_tokens=estimate_tokens,
+    )
+    try:
+        chat_service.add_skill_effectiveness_event(chat_id, skill_effectiveness_payload)
+    except Exception:
+        logger.exception("Failed to persist skill_effectiveness event")
+    return emitter.emit(skill_effectiveness_payload)
+
+
+def _build_runtime_meta_payload(
+    *,
+    provider: Optional[str],
+    model_name: Optional[str],
+    tool_names: List[str],
+    chat_id: str,
+    agent_id: Optional[str],
+    run_id: str,
+    assistant_turn_id: str,
+    turn_binding_enabled: bool,
+    supports_reasoning: bool,
+    deep_thinking_enabled: bool,
+    reasoning_enabled: bool,
+    reasoning_disabled_reason_code: Optional[str],
+    supports_vision: bool,
+    vision_enabled: bool,
+    validated_images: List[str],
+    fallback_mode: str,
+) -> Dict[str, Any]:
+    return {
+        "meta": {
+            "provider": provider,
+            "model": model_name,
+            "tools": tool_names,
+            "context_id": chat_id,
+            "agent_id": agent_id,
+            "run_id": run_id,
+            "assistant_turn_id": assistant_turn_id if turn_binding_enabled else None,
+            "supports_reasoning": supports_reasoning,
+            "deep_thinking_enabled": deep_thinking_enabled,
+            "reasoning_enabled": reasoning_enabled,
+            "reasoning_disabled_reason_code": reasoning_disabled_reason_code,
+            "supports_vision": supports_vision,
+            "vision_enabled": vision_enabled,
+            "image_count": len(validated_images),
+            "vision_fallback_mode": fallback_mode,
+        }
+    }
+
+
+class ToolEventTracker:
+    def __init__(
+        self,
+        *,
+        chat_id: str,
+        assistant_turn_id: str,
+        run_id: str,
+        turn_binding_enabled: bool,
+        emitter: StreamEventEmitter,
+        tool_event_queue: asyncio.Queue,
+    ) -> None:
+        self.chat_id = chat_id
+        self.assistant_turn_id = assistant_turn_id
+        self.run_id = run_id
+        self.turn_binding_enabled = turn_binding_enabled
+        self.emitter = emitter
+        self.tool_event_queue = tool_event_queue
+        self.counts = {"started": 0, "finished": 0}
+
+    async def on_tool_event(self, event: Dict[str, Any]):
+        try:
+            event_payload = self.emitter.event_payload(event)
+            await self.tool_event_queue.put(event_payload)
+            event_type = event_payload.get("event")
+            if event_type == "tool.call.started":
+                self.counts["started"] += 1
+                chat_service.add_tool_call(
+                    session_id=self.chat_id,
+                    call_id=event_payload.get("call_id"),
+                    tool_name=event_payload.get("tool_name"),
+                    args=event_payload.get("args"),
+                    assistant_turn_id=self.assistant_turn_id if self.turn_binding_enabled else None,
+                    run_id=self.run_id if self.turn_binding_enabled else None,
+                    event_id_started=event_payload.get("event_id"),
+                    started_sequence=event_payload.get("sequence"),
+                    started_ts=normalize_finished_ts(event_payload.get("ts"))
+                )
+            elif event_type == "tool.call.finished":
+                self.counts["finished"] += 1
+                chat_service.update_tool_call(
+                    call_id=event_payload.get("call_id"),
+                    status="error" if "error" in event_payload else "success",
+                    result=event_payload.get("result"),
+                    error=event_payload.get("error"),
+                    duration_ms=event_payload.get("duration_ms"),
+                    event_id_finished=event_payload.get("event_id"),
+                    finished_sequence=event_payload.get("sequence"),
+                    finished_ts=normalize_finished_ts(event_payload.get("ts"))
+                )
+        except Exception:
+            logger.exception("Error in on_tool_event (streaming + persistence)")
+
+
 def _resolve_skill_runtime_state(
     *,
     agent_config: Any,
@@ -165,11 +431,14 @@ def _iso_utc_now() -> str:
 def _title_refinement_reason_distribution() -> Dict[str, Any]:
     return title_refinement_reason_distribution(_TITLE_REFINEMENT_REASON_COUNTS)
 
+
 def _record_title_refinement_reason(reason: str) -> Dict[str, Any]:
     return record_title_refinement_reason(reason, _TITLE_REFINEMENT_REASON_COUNTS)
 
+
 def _is_placeholder_title(chat: ChatSession) -> bool:
     return is_placeholder_title(chat)
+
 
 async def _refine_title_once(
     chat_id: str,
@@ -298,82 +567,50 @@ async def chat_stream(request: ChatRequest):
         reasoning_display_gated_enabled = bool(feature_flags.get("reasoning_display_gated_enabled", True))
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         assistant_turn_id = f"turn_{uuid.uuid4().hex[:12]}"
-        emitter = StreamEventEmitter(
-            event_v2_enabled=event_v2_enabled,
+        ctx = StreamRunContext(
+            chat_id=chat_id,
+            request=request,
+            history=history,
+            validated_images=validated_images,
+            feature_flags=feature_flags,
             run_id=run_id,
             assistant_turn_id=assistant_turn_id,
+            event_v2_enabled=event_v2_enabled,
+            turn_binding_enabled=turn_binding_enabled,
+            reasoning_display_gated_enabled=reasoning_display_gated_enabled,
+            provider=request.provider,
+            model_name=request.model,
+            system_prompt=request.system_prompt,
+        )
+        metrics = StreamRunMetrics()
+        emitter = StreamEventEmitter(
+            event_v2_enabled=ctx.event_v2_enabled,
+            run_id=ctx.run_id,
+            assistant_turn_id=ctx.assistant_turn_id,
             serialize_payload=_serialize_sse_payload,
             iso_utc_now=_iso_utc_now,
         )
 
-        yield emitter.emit({"chat_id": chat_id})
+        yield emitter.emit({"chat_id": ctx.chat_id})
 
-        tool_event_queue = asyncio.Queue()
-        tool_call_started_count = 0
-        tool_call_finished_count = 0
-
-        async def on_tool_event(event: Dict[str, Any]):
-            nonlocal tool_call_started_count, tool_call_finished_count
-            try:
-                event_payload = emitter.event_payload(event)
-                await tool_event_queue.put(event_payload)
-                event_type = event_payload.get("event")
-                if event_type == "tool.call.started":
-                    tool_call_started_count += 1
-                    chat_service.add_tool_call(
-                        session_id=chat_id,
-                        call_id=event_payload.get("call_id"),
-                        tool_name=event_payload.get("tool_name"),
-                        args=event_payload.get("args"),
-                        assistant_turn_id=assistant_turn_id if turn_binding_enabled else None,
-                        run_id=run_id if turn_binding_enabled else None,
-                        event_id_started=event_payload.get("event_id"),
-                        started_sequence=event_payload.get("sequence"),
-                        started_ts=normalize_finished_ts(event_payload.get("ts"))
-                    )
-                elif event_type == "tool.call.finished":
-                    tool_call_finished_count += 1
-                    chat_service.update_tool_call(
-                        call_id=event_payload.get("call_id"),
-                        status="error" if "error" in event_payload else "success",
-                        result=event_payload.get("result"),
-                        error=event_payload.get("error"),
-                        duration_ms=event_payload.get("duration_ms"),
-                        event_id_finished=event_payload.get("event_id"),
-                        finished_sequence=event_payload.get("sequence"),
-                        finished_ts=normalize_finished_ts(event_payload.get("ts"))
-                    )
-            except Exception:
-                logger.exception("Error in on_tool_event (streaming + persistence)")
-
-        stream_state = StreamState()
-        thought_duration = None
-        ttft = None
-        prompt_tokens = 0
-        completion_tokens = 0
-        total_tokens = 0
-        finish_reason = None
-        total_duration = None
-        stream_error_message = None
-        provider = request.provider
-        model_name = request.model
-        supports_reasoning = False
-        reasoning_enabled = False
+        tool_tracker = ToolEventTracker(
+            chat_id=ctx.chat_id,
+            assistant_turn_id=ctx.assistant_turn_id,
+            run_id=ctx.run_id,
+            turn_binding_enabled=ctx.turn_binding_enabled,
+            emitter=emitter,
+            tool_event_queue=ctx.tool_event_queue,
+        )
 
         try:
             # Get agent config if provided
-            agent_config = None
+            ctx.agent_config = None
             if request.agent_id:
-                agent_config = agent_store.get_agent(request.agent_id)
-            
-            # Determine model and system prompt
-            provider = request.provider
-            model_name = request.model
-            system_prompt = request.system_prompt
+                ctx.agent_config = agent_store.get_agent(request.agent_id)
             
             # --- Markdown-Defined Skills (Phase 6.2) ---
             skill_runtime_state = _resolve_skill_runtime_state(
-                agent_config=agent_config,
+                agent_config=ctx.agent_config,
                 feature_flags=feature_flags,
                 chat_id=chat_id,
                 request_message=request.message,
@@ -392,11 +629,11 @@ async def chat_stream(request: ChatRequest):
             summary_block = skill_runtime_state["summary_block"]
                 
             prompt_result = assemble_runtime_prompt(
-                agent_config=agent_config,
-                request_system_prompt=system_prompt,
+                agent_config=ctx.agent_config,
+                request_system_prompt=ctx.system_prompt,
                 request_message=request.message,
-                provider=provider,
-                model_name=model_name,
+                provider=ctx.provider,
+                model_name=ctx.model_name,
                 selected_skill_spec=selected_skill_spec,
                 always_skill_specs=always_skill_specs,
                 summary_block=summary_block,
@@ -407,9 +644,9 @@ async def chat_stream(request: ChatRequest):
                 build_scope_summary_block=_build_scope_summary_block,
             )
             selected_skill_spec = prompt_result.selected_skill_spec
-            provider = prompt_result.provider
-            model_name = prompt_result.model_name
-            system_prompt = prompt_result.system_prompt
+            ctx.provider = prompt_result.provider
+            ctx.model_name = prompt_result.model_name
+            ctx.system_prompt = prompt_result.system_prompt
             final_tools_list = prompt_result.final_tools_list
             always_injected_count = prompt_result.always_injected_count
             summary_injected = prompt_result.summary_injected
@@ -419,7 +656,9 @@ async def chat_stream(request: ChatRequest):
                 logger.info("Skill %s selected. Tool intersection: %s", selected_skill_spec.name, final_tools_list)
                 yield emitter.emit(prompt_result.emitted_event)
 
-            skill_effectiveness_payload = build_skill_effectiveness_payload(
+            yield _emit_skill_effectiveness_event(
+                chat_id=chat_id,
+                emitter=emitter,
                 selection_reason_code=selection_reason_code,
                 selection_source=selection_source,
                 selection_score=selection_score,
@@ -433,19 +672,13 @@ async def chat_stream(request: ChatRequest):
                 scope_summary_injected=scope_summary_injected,
                 effective_scope_count=effective_scope_count,
                 feature_flags=feature_flags,
-                system_prompt=system_prompt,
+                system_prompt=ctx.system_prompt,
                 request_message=request.message,
-                estimate_tokens=estimate_tokens,
             )
-            try:
-                chat_service.add_skill_effectiveness_event(chat_id, skill_effectiveness_payload)
-            except Exception:
-                logger.exception("Failed to persist skill_effectiveness event")
-            yield emitter.emit(skill_effectiveness_payload)
 
-            model_name, ollama_error = await ensure_ollama_model_available(
-                provider=provider,
-                model_name=model_name,
+            ctx.model_name, ollama_error = await ensure_ollama_model_available(
+                provider=ctx.provider,
+                model_name=ctx.model_name,
                 fetch_ollama_models=fetch_ollama_models,
             )
             if ollama_error:
@@ -454,18 +687,18 @@ async def chat_stream(request: ChatRequest):
 
             tools = await tool_registry.get_pydantic_ai_tools_for_agent(
                 request.agent_id, 
-                provider,
-                on_event=on_tool_event,
+                ctx.provider,
+                on_event=tool_tracker.on_tool_event,
                 event_context=lambda: {
-                    "run_id": run_id,
-                    "assistant_turn_id": assistant_turn_id
+                    "run_id": ctx.run_id,
+                    "assistant_turn_id": ctx.assistant_turn_id
                 },
                 enabled_tools=final_tools_list
             )
 
             tool_names = collect_tool_names(tools)
 
-            model_capabilities = config_service.get_model_capabilities(provider, model_name)
+            model_capabilities = config_service.get_model_capabilities(ctx.provider, ctx.model_name)
             vision_decision = multimodal_service.decide_vision(
                 model_capabilities=model_capabilities,
                 request_has_images=bool(validated_images),
@@ -482,55 +715,47 @@ async def chat_stream(request: ChatRequest):
                     "vision_enabled": vision_enabled,
                 })
                 return
-            supports_reasoning = "reasoning" in model_capabilities
-            reasoning_disabled_reason_code = None
-            if reasoning_display_gated_enabled:
-                reasoning_enabled = bool(supports_reasoning and request.deep_thinking_enabled)
-                if not reasoning_enabled:
-                    if request.deep_thinking_enabled and not supports_reasoning:
-                        reasoning_disabled_reason_code = "MODEL_CAPABILITY_MISSING"
-                    elif not request.deep_thinking_enabled:
-                        reasoning_disabled_reason_code = "DEEP_THINKING_DISABLED"
-            else:
-                reasoning_enabled = bool(supports_reasoning or request.deep_thinking_enabled)
-                if not reasoning_enabled:
-                    reasoning_disabled_reason_code = "LEGACY_DISABLED"
-            meta_payload = {
-                "meta": {
-                    "provider": provider,
-                    "model": model_name,
-                    "tools": tool_names,
-                    "context_id": chat_id,
-                    "agent_id": request.agent_id,
-                    "run_id": run_id,
-                    "assistant_turn_id": assistant_turn_id if turn_binding_enabled else None,
-                    "supports_reasoning": supports_reasoning,
-                    "deep_thinking_enabled": bool(request.deep_thinking_enabled),
-                    "reasoning_enabled": reasoning_enabled,
-                    "reasoning_disabled_reason_code": reasoning_disabled_reason_code,
-                    "supports_vision": supports_vision,
-                    "vision_enabled": vision_enabled,
-                    "image_count": len(validated_images),
-                    "vision_fallback_mode": fallback_mode,
-                }
-            }
+            metrics.supports_reasoning = "reasoning" in model_capabilities
+            metrics.reasoning_enabled, reasoning_disabled_reason_code = _resolve_reasoning_state(
+                supports_reasoning=metrics.supports_reasoning,
+                deep_thinking_enabled=bool(request.deep_thinking_enabled),
+                reasoning_display_gated_enabled=ctx.reasoning_display_gated_enabled,
+            )
+            meta_payload = _build_runtime_meta_payload(
+                provider=ctx.provider,
+                model_name=ctx.model_name,
+                tool_names=tool_names,
+                chat_id=ctx.chat_id,
+                agent_id=request.agent_id,
+                run_id=ctx.run_id,
+                assistant_turn_id=ctx.assistant_turn_id,
+                turn_binding_enabled=ctx.turn_binding_enabled,
+                supports_reasoning=metrics.supports_reasoning,
+                deep_thinking_enabled=bool(request.deep_thinking_enabled),
+                reasoning_enabled=metrics.reasoning_enabled,
+                reasoning_disabled_reason_code=reasoning_disabled_reason_code,
+                supports_vision=supports_vision,
+                vision_enabled=vision_enabled,
+                validated_images=validated_images,
+                fallback_mode=fallback_mode,
+            )
             yield emitter.emit(meta_payload)
-            if request.deep_thinking_enabled and not reasoning_enabled and reasoning_disabled_reason_code:
+            if request.deep_thinking_enabled and not metrics.reasoning_enabled and reasoning_disabled_reason_code:
                 yield emitter.emit({
                     "event": "reasoning_toggle_ignored",
                     "reason_code": reasoning_disabled_reason_code
                 })
             
-            system_prompt = build_system_prompt(
-                base_prompt=system_prompt,
-                provider=provider,
-                model_name=model_name,
+            ctx.system_prompt = build_system_prompt(
+                base_prompt=ctx.system_prompt,
+                provider=ctx.provider,
+                model_name=ctx.model_name,
                 user_message=request.message,
-                deep_thinking_enabled=reasoning_enabled
+                deep_thinking_enabled=metrics.reasoning_enabled
             )
 
             try:
-                model = get_model(provider, model_name)
+                model = get_model(ctx.provider, ctx.model_name)
             except Exception as model_err:
                 if env_flag("PYTEST_CURRENT_TEST", False):
                     model = object()
@@ -540,26 +765,27 @@ async def chat_stream(request: ChatRequest):
             # Create Pydantic AI Agent
             agent = Agent(
                 model,
-                system_prompt=system_prompt,
+                system_prompt=ctx.system_prompt,
                 tools=tools
             )
-            deps = build_agent_deps(agent_config)
+            ctx.deps = build_agent_deps(ctx.agent_config)
             
             # Retrieve model settings (max_tokens etc)
-            model_settings = patch_model_settings(config_service.get_model_settings(provider, model_name))
+            ctx.model_settings = patch_model_settings(config_service.get_model_settings(ctx.provider, ctx.model_name))
             
             # Retrieve usage limits policy
             tier = "default"
-            if agent_config and getattr(agent_config, "tier", None):
-                tier = agent_config.tier
+            if ctx.agent_config and getattr(ctx.agent_config, "tier", None):
+                tier = ctx.agent_config.tier
             usage_policy = config_service.get_usage_limits(tier)
-            usage_limits = UsageLimits(
+            ctx.usage_limits = UsageLimits(
                 request_limit=usage_policy.get("request_limit"),
                 tool_calls_limit=usage_policy.get("tool_calls_limit")
             )
 
             # Prepare Parser (Adapter Pattern)
-            parser = get_parser(provider, model_name, model_capabilities)
+            ctx.parser = get_parser(ctx.provider, ctx.model_name, model_capabilities)
+            ctx.result = None
             
             start_time = time.time()
             
@@ -571,18 +797,23 @@ async def chat_stream(request: ChatRequest):
                 )
 
                 # Run with history and model settings
-                async with agent.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings, usage_limits=usage_limits) as result:
-                    async for payload in stream_result_chunks(
-                        result=result,
-                        parser=parser,
-                        tool_event_queue=tool_event_queue,
-                        emitter=emitter,
-                        stream_state=stream_state,
-                        serialize_payload=_serialize_sse_payload,
-                        logger=logger,
-                        log_label="stream_iter",
-                    ):
-                        yield payload
+                result_holder: Dict[str, Any] = {}
+                async for payload in _run_agent_stream(
+                    agent=agent,
+                    user_input=user_input,
+                    history=ctx.history,
+                    deps=ctx.deps,
+                    model_settings=ctx.model_settings,
+                    parser=ctx.parser,
+                    tool_event_queue=ctx.tool_event_queue,
+                    emitter=emitter,
+                    stream_state=ctx.stream_state,
+                    log_label="stream_iter",
+                    result_holder=result_holder,
+                    usage_limits=ctx.usage_limits,
+                ):
+                    yield payload
+                ctx.result = result_holder.get("result")
 
             except UsageLimitExceeded as limit_err:
                 logger.warning(f"Usage limit exceeded for run {chat_id}: {limit_err}")
@@ -594,8 +825,8 @@ async def chat_stream(request: ChatRequest):
                 }
                 # Try to get usage snapshot from the result if it was already partially through
                 try:
-                    if 'result' in locals() and hasattr(result, "usage"):
-                        raw_usage = result.usage()
+                    if ctx.result is not None and hasattr(ctx.result, "usage"):
+                        raw_usage = ctx.result.usage()
                         if asyncio.iscoroutine(raw_usage):
                             raw_usage = await raw_usage
                         limit_info["snapshot"] = raw_usage.model_dump() if hasattr(raw_usage, "model_dump") else str(raw_usage)
@@ -606,12 +837,12 @@ async def chat_stream(request: ChatRequest):
                 
                 # Provide a friendly user message
                 friendly_msg = f"\n\n> ⚠️ **[系统提示]** 已触达策略上限（{limit_err}）。为了您的账户安全和成本控制，本轮执行已自动停止。您可以根据已有信息继续，或尝试缩小问题范围。"
-                stream_state.full_response += friendly_msg
+                ctx.stream_state.full_response += friendly_msg
                 yield emitter.emit({"content": friendly_msg})
 
             except Exception as stream_err:
                 err_str = str(stream_err)
-                if "status_code: 502" in err_str and provider == "ollama":
+                if "status_code: 502" in err_str and ctx.provider == "ollama":
                     yield emitter.emit({"error": "Ollama 返回 502，请检查模型是否已拉取且服务正常运行"})
                     return
                 
@@ -622,224 +853,242 @@ async def chat_stream(request: ChatRequest):
                     return
 
                 if "does not support tools" in err_str or "Tool use is not supported" in err_str:
-                    logger.info("Model %s does not support tools, falling back to pure chat.", model_name)
+                    logger.info("Model %s does not support tools, falling back to pure chat.", ctx.model_name)
                     # Re-create agent without tools
-                    agent_no_tools = Agent(model, system_prompt=system_prompt)
+                    agent_no_tools = Agent(model, system_prompt=ctx.system_prompt)
                     # Reset parser and response tracking for second attempt
-                    parser = get_parser(provider, model_name, model_capabilities)
-                    stream_state = StreamState()
+                    ctx.parser = get_parser(ctx.provider, ctx.model_name, model_capabilities)
+                    ctx.stream_state = StreamState()
                     
                     # Prepare input
-                    user_input = request.message
-                    if vision_enabled:
-                        user_input = [request.message]
-                        for img in validated_images:
-                            user_input.append(ImageUrl(url=img))
+                    user_input = multimodal_service.build_user_input(
+                        message=request.message,
+                        validated_images=validated_images,
+                        vision_enabled=vision_enabled,
+                    )
 
-                    async with agent_no_tools.run_stream(user_input, message_history=history, deps=deps, model_settings=model_settings) as result:
-                        async for payload in stream_result_chunks(
-                            result=result,
-                            parser=parser,
-                            tool_event_queue=tool_event_queue,
-                            emitter=emitter,
-                            stream_state=stream_state,
-                            serialize_payload=_serialize_sse_payload,
-                            logger=logger,
-                            log_label="stream_iter (fallback)",
-                        ):
-                            yield payload
+                    result_holder = {}
+                    async for payload in _run_agent_stream(
+                        agent=agent_no_tools,
+                        user_input=user_input,
+                        history=ctx.history,
+                        deps=ctx.deps,
+                        model_settings=ctx.model_settings,
+                        parser=ctx.parser,
+                        tool_event_queue=ctx.tool_event_queue,
+                        emitter=emitter,
+                        stream_state=ctx.stream_state,
+                        log_label="stream_iter (fallback)",
+                        result_holder=result_holder,
+                    ):
+                        yield payload
+                    ctx.result = result_holder.get("result")
                 else:
                     raise stream_err
             
             # Calculate duration
             total_end_time = time.time()
-            total_duration = total_end_time - start_time
-            if stream_state.first_token_time:
-                ttft = stream_state.first_token_time - start_time
+            metrics.total_duration = total_end_time - start_time
+            if ctx.stream_state.first_token_time:
+                metrics.ttft = ctx.stream_state.first_token_time - start_time
 
-            if parser.thought_start_time:
-                if parser.thought_end_time:
-                    thought_duration = parser.thought_end_time - parser.thought_start_time
+            if ctx.parser and ctx.parser.thought_start_time:
+                if ctx.parser.thought_end_time:
+                    metrics.thought_duration = ctx.parser.thought_end_time - ctx.parser.thought_start_time
                 else:
-                    thought_duration = time.time() - parser.thought_start_time
+                    metrics.thought_duration = time.time() - ctx.parser.thought_start_time
 
-            if thought_duration is not None:
-                yield emitter.emit({"thought_duration": thought_duration})
+            if metrics.thought_duration is not None:
+                yield emitter.emit({"thought_duration": metrics.thought_duration})
 
-            if ttft is not None:
-                yield emitter.emit({"ttft": ttft})
+            if metrics.ttft is not None:
+                yield emitter.emit({"ttft": metrics.ttft})
             
-            yield emitter.emit({"total_duration": total_duration})
+            yield emitter.emit({"total_duration": metrics.total_duration})
 
             # Capture Usage and Finish Reason using UsageAdapter (Adapter Pattern)
             try:
-                finish_reason_val = getattr(getattr(result, "response", None), "finish_reason", None)
+                finish_reason_val = getattr(getattr(ctx.result, "response", None), "finish_reason", None)
                 if not isinstance(finish_reason_val, str):
                     finish_reason_val = None
-                raw_usage = result.usage()
+                raw_usage = ctx.result.usage()
                 if asyncio.iscoroutine(raw_usage):
                     raw_usage = await raw_usage
                 usage_stats = calculate_usage(
-                    provider=provider,
+                    provider=ctx.provider,
                     raw_usage=raw_usage,
-                    duration=total_duration,
+                    duration=metrics.total_duration,
                     finish_reason=finish_reason_val
                 )
                 
                 # Update local variables for chat_service.add_message
-                prompt_tokens = usage_stats.prompt_tokens
-                completion_tokens = usage_stats.completion_tokens
-                total_tokens = usage_stats.total_tokens
-                finish_reason = usage_stats.finish_reason
+                metrics.prompt_tokens = usage_stats.prompt_tokens
+                metrics.completion_tokens = usage_stats.completion_tokens
+                metrics.total_tokens = usage_stats.total_tokens
+                metrics.finish_reason = usage_stats.finish_reason
                 
                 yield emitter.emit(usage_stats.model_dump())
 
                 # Manual continuation guidance logic
                 continue_payload = append_continue_message_if_needed(
-                    finish_reason=finish_reason,
-                    stream_state=stream_state,
+                    finish_reason=metrics.finish_reason,
+                    stream_state=ctx.stream_state,
                 )
                 if continue_payload:
                     yield emitter.emit(continue_payload)
-                elif finish_reason == "tool_call" and tool_call_started_count == 0:
+                elif should_handle_tool_call_mismatch(
+                    finish_reason=metrics.finish_reason,
+                    tool_call_started_count=tool_tracker.counts["started"],
+                ):
                     mismatch_resolved = False
                     mismatch_config = config_service.get_tool_call_mismatch_config()
-                    if mismatch_config.get("auto_retry_enabled", True):
-                        retry_candidates_raw = mismatch_config.get("fallback_models") or [mismatch_config.get("fallback_model", "")]
-                        retry_candidates = [str(item).strip() for item in retry_candidates_raw if str(item).strip()]
-                        seen_retry_targets = set()
-                        current_target = f"{provider}/{model_name}".strip().lower()
-                        for retry_target in retry_candidates:
-                            retry_provider = provider
-                            retry_model_name = retry_target
-                            if "/" in retry_target:
-                                maybe_provider, maybe_model = retry_target.split("/", 1)
-                                if maybe_provider.strip() and maybe_model.strip():
-                                    retry_provider = maybe_provider.strip()
-                                    retry_model_name = maybe_model.strip()
-                            normalized_target = f"{retry_provider}/{retry_model_name}".strip().lower()
-                            if not retry_model_name or normalized_target == current_target or normalized_target in seen_retry_targets:
-                                continue
-                            seen_retry_targets.add(normalized_target)
-                            try:
-                                yield emitter.emit({"event": "tool_call_retry", "from_provider": provider, "from_model": model_name, "to_provider": retry_provider, "to_model": retry_model_name})
-                                retry_model = get_model(retry_provider, retry_model_name)
-                                retry_model_settings = patch_model_settings(config_service.get_model_settings(retry_provider, retry_model_name))
-                                retry_capabilities = config_service.get_model_capabilities(retry_provider, retry_model_name)
-                                retry_parser = get_parser(retry_provider, retry_model_name, retry_capabilities)
-                                retry_agent = Agent(
-                                    retry_model,
-                                    system_prompt=system_prompt,
-                                    tools=tools
+                    retry_targets = resolve_retry_targets(
+                        mismatch_config=mismatch_config,
+                        provider=ctx.provider,
+                        model_name=ctx.model_name,
+                    )
+                    for retry_target in retry_targets:
+                        retry_provider = retry_target.provider
+                        retry_model_name = retry_target.model_name
+                        try:
+                            yield emitter.emit(
+                                build_tool_call_retry_event(
+                                    from_provider=ctx.provider,
+                                    from_model=ctx.model_name,
+                                    to_provider=retry_provider,
+                                    to_model=retry_model_name,
                                 )
-                                retry_input = multimodal_service.build_user_input(
-                                    message=request.message,
-                                    validated_images=validated_images,
-                                    vision_enabled=vision_enabled,
+                            )
+                            retry_model = get_model(retry_provider, retry_model_name)
+                            retry_model_settings = patch_model_settings(config_service.get_model_settings(retry_provider, retry_model_name))
+                            retry_capabilities = config_service.get_model_capabilities(retry_provider, retry_model_name)
+                            retry_parser = get_parser(retry_provider, retry_model_name, retry_capabilities)
+                            retry_agent = Agent(
+                                retry_model,
+                                system_prompt=ctx.system_prompt,
+                                tools=tools
+                            )
+                            retry_input = multimodal_service.build_user_input(
+                                message=request.message,
+                                validated_images=validated_images,
+                                vision_enabled=vision_enabled,
+                            )
+                            retry_result_holder = {}
+                            async for payload in _run_agent_stream(
+                                agent=retry_agent,
+                                user_input=retry_input,
+                                history=ctx.history,
+                                deps=ctx.deps,
+                                model_settings=retry_model_settings,
+                                parser=retry_parser,
+                                tool_event_queue=ctx.tool_event_queue,
+                                emitter=emitter,
+                                stream_state=ctx.stream_state,
+                                log_label="retry stream_iter",
+                                result_holder=retry_result_holder,
+                                usage_limits=ctx.usage_limits,
+                            ):
+                                yield payload
+                            retry_result = retry_result_holder.get("result")
+                            retry_finish_reason = getattr(getattr(retry_result, "response", None), "finish_reason", None)
+                            if tool_tracker.counts["started"] > 0 or retry_finish_reason != "tool_call":
+                                mismatch_resolved = True
+                            if mismatch_resolved:
+                                yield emitter.emit(
+                                    build_tool_call_retry_success_event(
+                                        provider=retry_provider,
+                                        model=retry_model_name,
+                                        started=tool_tracker.counts["started"],
+                                        finished=tool_tracker.counts["finished"],
+                                    )
                                 )
-                                async with retry_agent.run_stream(
-                                    retry_input,
-                                    message_history=history,
-                                    deps=deps,
-                                    model_settings=retry_model_settings,
-                                    usage_limits=usage_limits
-                                ) as retry_result:
-                                    async for payload in stream_result_chunks(
-                                        result=retry_result,
-                                        parser=retry_parser,
-                                        tool_event_queue=tool_event_queue,
-                                        emitter=emitter,
-                                        stream_state=stream_state,
-                                        serialize_payload=_serialize_sse_payload,
-                                        logger=logger,
-                                        log_label="retry stream_iter",
-                                    ):
-                                        yield payload
-                                    retry_finish_reason = getattr(getattr(retry_result, "response", None), "finish_reason", None)
-                                    if tool_call_started_count > 0 or retry_finish_reason != "tool_call":
-                                        mismatch_resolved = True
-                                if mismatch_resolved:
-                                    yield emitter.emit({"event": "tool_call_retry_success", "provider": retry_provider, "model": retry_model_name, "started": tool_call_started_count, "finished": tool_call_finished_count})
-                                    break
-                            except Exception as retry_err:
-                                logger.exception("Auto retry after tool_call mismatch failed")
-                                yield emitter.emit({"event": "tool_call_retry_failed", "provider": retry_provider, "model": retry_model_name, "error": str(retry_err)})
+                                break
+                        except Exception as retry_err:
+                            logger.exception("Auto retry after tool_call mismatch failed")
+                            yield emitter.emit(
+                                build_tool_call_retry_failed_event(
+                                    provider=retry_provider,
+                                    model=retry_model_name,
+                                    error=str(retry_err),
+                                )
+                            )
                     if not mismatch_resolved:
-                        tool_msg = (
-                            "\n\n> ⚠️ **[系统提示]** 模型返回了 `tool_call` 结束信号，但未产生可执行工具调用。"
-                            "这通常是当前模型与工具调用协议兼容性问题。"
-                            "建议切换到已验证支持工具调用的模型（例如 `gpt-4o`/`gpt-4o-mini`），"
-                            "或重试并明确要求“立即调用工具后再回答”。"
+                        tool_msg = build_tool_call_mismatch_message()
+                        ctx.stream_state.full_response += tool_msg
+                        yield emitter.emit(
+                            build_tool_call_mismatch_event(
+                                started=tool_tracker.counts["started"],
+                                finished=tool_tracker.counts["finished"],
+                            )
                         )
-                        stream_state.full_response += tool_msg
-                        yield emitter.emit({"event": "tool_call_mismatch", "started": tool_call_started_count, "finished": tool_call_finished_count})
                         yield emitter.emit({"content": tool_msg})
             except Exception as usage_err:
                 logger.error(f"Failed to get usage via adapter: {usage_err}")
 
-            citations = deps.get("citations") if isinstance(deps, dict) else None
+            citations = ctx.deps.get("citations") if isinstance(ctx.deps, dict) else None
             if isinstance(citations, list) and citations:
                 yield emitter.emit({"citations": citations})
 
-            require_citations = bool(getattr(agent_config, "require_citations", False)) if agent_config else False
+            require_citations = bool(getattr(ctx.agent_config, "require_citations", False)) if ctx.agent_config else False
             citation_payload = append_citation_suffix_if_needed(
                 citations=citations,
                 require_citations=require_citations,
                 format_citations_suffix=format_citations_suffix,
-                stream_state=stream_state,
+                stream_state=ctx.stream_state,
             )
             if citation_payload:
                 yield emitter.emit(citation_payload)
 
         except (Exception, GeneratorExit, asyncio.CancelledError) as e:
+            metrics.current_exception = e
             if isinstance(e, (GeneratorExit, asyncio.CancelledError)):
                 logger.info("Chat stream cancelled by client")
-                stream_error_message = e.__class__.__name__
+                metrics.stream_error_message = e.__class__.__name__
             else:
-                stream_error_message = str(e)
+                metrics.stream_error_message = str(e)
                 logger.exception("Chat error")
                 yield emitter.emit({"error": handle_llm_exception(e)})
         finally:
             # Save Assistant Message after completion
             saved = persist_assistant_message(
                 chat_service=chat_service,
-                chat_id=chat_id,
-                stream_state=stream_state,
-                thought_duration=thought_duration,
-                ttft=ttft,
-                total_duration=total_duration,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                finish_reason=finish_reason,
-                current_exception=e if 'e' in locals() else None,
-                assistant_turn_id=assistant_turn_id,
-                run_id=run_id,
-                turn_binding_enabled=turn_binding_enabled,
-                supports_reasoning=supports_reasoning,
+                chat_id=ctx.chat_id,
+                stream_state=ctx.stream_state,
+                thought_duration=metrics.thought_duration,
+                ttft=metrics.ttft,
+                total_duration=metrics.total_duration,
+                prompt_tokens=metrics.prompt_tokens,
+                completion_tokens=metrics.completion_tokens,
+                total_tokens=metrics.total_tokens,
+                finish_reason=metrics.finish_reason,
+                current_exception=metrics.current_exception,
+                assistant_turn_id=ctx.assistant_turn_id,
+                run_id=ctx.run_id,
+                turn_binding_enabled=ctx.turn_binding_enabled,
+                supports_reasoning=metrics.supports_reasoning,
                 deep_thinking_enabled=bool(request.deep_thinking_enabled),
-                reasoning_enabled=reasoning_enabled,
+                reasoning_enabled=metrics.reasoning_enabled,
             )
             if saved:
-                asyncio.create_task(_refine_title_once(chat_id, provider_override=provider, model_override=model_name))
+                asyncio.create_task(_refine_title_once(ctx.chat_id, provider_override=ctx.provider, model_override=ctx.model_name))
             if env_flag_with_fallback("LLM_VERBOSE_LOG_ENABLED", "BACKLOG_VERBOSE_LOG_ENABLED", True):
                 logger.info(
                     "BACKLOG_CHAT_RESPONSE %s",
                     _safe_json_log(
                         _build_chat_response_log_payload(
-                            chat_id=chat_id,
-                            provider=provider,
-                            model_name=model_name,
-                            finish_reason=finish_reason or (e.__class__.__name__ if 'e' in locals() and isinstance(e, (GeneratorExit, asyncio.CancelledError)) else None),
-                            prompt_tokens=prompt_tokens,
-                            completion_tokens=completion_tokens,
-                            total_tokens=total_tokens,
-                            ttft=ttft,
-                            total_duration=total_duration,
-                            tool_call_started_count=tool_call_started_count,
-                            tool_call_finished_count=tool_call_finished_count,
-                            full_response=stream_state.full_response,
-                            error=stream_error_message,
+                            chat_id=ctx.chat_id,
+                            provider=ctx.provider,
+                            model_name=ctx.model_name,
+                            finish_reason=metrics.finish_reason or (metrics.current_exception.__class__.__name__ if isinstance(metrics.current_exception, (GeneratorExit, asyncio.CancelledError)) else None),
+                            prompt_tokens=metrics.prompt_tokens,
+                            completion_tokens=metrics.completion_tokens,
+                            total_tokens=metrics.total_tokens,
+                            ttft=metrics.ttft,
+                            total_duration=metrics.total_duration,
+                            tool_call_started_count=tool_tracker.counts["started"],
+                            tool_call_finished_count=tool_tracker.counts["finished"],
+                            full_response=ctx.stream_state.full_response,
+                            error=metrics.stream_error_message,
                         )
                     ),
                 )
