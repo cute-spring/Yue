@@ -253,6 +253,68 @@ def test_estimate_tokens():
     assert estimate_tokens("") == 0
     assert estimate_tokens("abcdef") == 2
 
+def test_build_history_from_chat_preserves_order_and_images():
+    from app.api import chat as chat_api
+
+    chat_obj = MagicMock()
+    chat_obj.messages = [
+        Message(role="user", content="first", timestamp=datetime.now()),
+        Message(role="assistant", content="reply", timestamp=datetime.now()),
+        Message(role="user", content="with image", images=["/tmp/example.png"], timestamp=datetime.now()),
+    ]
+
+    with patch("app.api.chat.load_image_to_base64", return_value="base64data"):
+        history = chat_api._build_history_from_chat(chat_obj)
+
+    assert len(history) == 3
+    assert history[0].parts[0].content == "first"
+    assert history[1].parts[0].content == "reply"
+    last_parts = history[2].parts[0].content
+    assert last_parts[0] == "with image"
+    assert getattr(last_parts[1], "url", None) == "base64data"
+
+def test_resolve_skill_runtime_state_manual_explicit_selection(mock_chat_service):
+    from app.api import chat as chat_api
+
+    fake_agent = AgentConfig(
+        id="skill-agent",
+        name="Skill Agent",
+        system_prompt="persona",
+        provider="openai",
+        model="gpt-4o",
+        enabled_tools=["builtin:docs_read"],
+        skill_mode="manual",
+        visible_skills=["pdf-insight-extractor:1.0.0"],
+    )
+    fake_skill = SkillSpec(
+        name="pdf-insight-extractor",
+        version="1.0.0",
+        description="pdf",
+        capabilities=["pdf-analysis"],
+        entrypoint="system_prompt",
+        system_prompt="YOU ARE A PDF SKILL.",
+    )
+
+    with patch("app.api.chat.skill_router.resolve_visible_skill_refs", return_value=["pdf-insight-extractor:1.0.0"]), \
+         patch("app.api.chat.skill_router.get_visible_skills", return_value=[fake_skill]), \
+         patch("app.api.chat.skill_router.infer_requested_skill", return_value=None), \
+         patch("app.api.chat.skill_router.route_with_score", return_value=(fake_skill, 8)):
+        state = chat_api._resolve_skill_runtime_state(
+            agent_config=fake_agent,
+            feature_flags={"skill_runtime_enabled": True, "skill_summary_prompt_enabled": True},
+            chat_id="chat-id",
+            request_message="please analyze this pdf",
+            requested_skill="pdf-insight-extractor:1.0.0",
+        )
+
+    assert state["selected_skill_spec"] == fake_skill
+    assert state["selection_reason_code"] == "skill_selected"
+    assert state["selection_source"] == "explicit"
+    assert state["visible_skill_count"] == 1
+    assert state["available_skill_count"] == 1
+    assert "### Skill Summaries" in state["summary_block"]
+    mock_chat_service.set_session_skill.assert_called_once_with("chat-id", "pdf-insight-extractor", "1.0.0")
+
 @pytest.mark.asyncio
 async def test_chat_stream_ollama_502(client, mock_chat_service):
     with patch("app.api.chat.agent_store"), \
