@@ -179,7 +179,7 @@ async def test_chat_stream_validates_sse_contract(client, mock_chat_service):
          patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls, \
-         patch("app.api.chat.validate_sse_payload") as mock_validate:
+         patch("app.api.chat_helpers.validate_sse_payload") as mock_validate:
         mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
         mock_chat_service.get_chat.return_value = None
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -211,7 +211,7 @@ async def test_chat_stream_contract_violation_fails_open(client, mock_chat_servi
          patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls, \
-         patch("app.api.chat.validate_sse_payload") as mock_validate:
+         patch("app.api.chat_helpers.validate_sse_payload") as mock_validate:
         mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
         mock_chat_service.get_chat.return_value = None
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])

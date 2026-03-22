@@ -8,7 +8,7 @@ from app.services.contract_gate import (
     should_ignore_unknown_event,
     validate_event_payload,
 )
-from app.api.chat import _serialize_sse_payload
+from app.api.chat_helpers import serialize_sse_payload
 
 
 def test_classify_sse_event_kind():
@@ -40,14 +40,14 @@ def test_should_ignore_unknown_event():
 
 
 def test_serialize_sse_payload_valid():
-    serialized = _serialize_sse_payload({"content": "ok"})
+    serialized = serialize_sse_payload({"content": "ok"})
     assert serialized.startswith("data: ")
     payload = json.loads(serialized[6:].strip())
     assert payload["content"] == "ok"
 
 
 def test_serialize_sse_payload_contract_violation_fails_open():
-    with patch("app.api.chat.validate_sse_payload", side_effect=ValueError("bad_contract")):
-        serialized = _serialize_sse_payload({"meta": {"provider": "openai"}})
+    with patch("app.api.chat_helpers.validate_sse_payload", side_effect=ValueError("bad_contract")):
+        serialized = serialize_sse_payload({"meta": {"provider": "openai"}})
     payload = json.loads(serialized[6:].strip())
     assert "stream_contract_violation" in payload["error"]

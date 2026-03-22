@@ -1,8 +1,16 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.exceptions import UsageLimitExceeded
+from app.api.chat_helpers import (
+    build_runtime_meta_payload,
+    iso_utc_now,
+    resolve_reasoning_state,
+    serialize_sse_payload,
+)
+from app.api.chat_schemas import ChatRequest, SummaryGenerateRequest, TruncateRequest
+from app.api.chat_stream_types import StreamRunContext, StreamRunMetrics
+from app.api.chat_tool_events import ToolEventTracker
 from app.mcp.registry import tool_registry
 from app.services.agent_store import agent_store
 from app.services.model_factory import get_model, fetch_ollama_models
@@ -10,7 +18,6 @@ from app.services.chat_service import chat_service, ChatSession
 from app.services.config_service import config_service
 from app.services.prompt_service import build_system_prompt
 from app.services.response_parser_service import get_parser
-from app.services.contract_gate import validate_sse_payload
 from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.services.multimodal_service import MultimodalService, MultimodalValidationError
@@ -63,58 +70,15 @@ from app.utils.image_handler import save_base64_image, load_image_to_base64
 import time
 import asyncio
 import uuid
-import json
 import logging
 from collections import defaultdict
-from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple, AsyncIterator
-from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
 SKILL_BIND_MIN_SCORE = 2
 SKILL_SWITCH_DELTA = 2
 _TITLE_REFINEMENT_REASON_COUNTS: Dict[str, int] = defaultdict(int)
-
-
-@dataclass
-class StreamRunContext:
-    chat_id: str
-    request: "ChatRequest"
-    history: List[Any]
-    validated_images: List[str]
-    feature_flags: Dict[str, Any]
-    run_id: str
-    assistant_turn_id: str
-    event_v2_enabled: bool
-    turn_binding_enabled: bool
-    reasoning_display_gated_enabled: bool
-    provider: Optional[str]
-    model_name: Optional[str]
-    system_prompt: Optional[str]
-    stream_state: StreamState = field(default_factory=StreamState)
-    tool_event_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
-    agent_config: Any = None
-    deps: Any = None
-    model_settings: Dict[str, Any] = field(default_factory=dict)
-    parser: Any = None
-    usage_limits: Optional[UsageLimits] = None
-    result: Any = None
-
-
-@dataclass
-class StreamRunMetrics:
-    thought_duration: Optional[float] = None
-    ttft: Optional[float] = None
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-    finish_reason: Optional[str] = None
-    total_duration: Optional[float] = None
-    stream_error_message: Optional[str] = None
-    current_exception: Optional[BaseException] = None
-    supports_reasoning: bool = False
-    reasoning_enabled: bool = False
 
 def _build_chat_request_log_payload(chat_id: str, request: "ChatRequest") -> Dict[str, Any]:
     return runtime_build_chat_request_log_payload(
@@ -159,18 +123,6 @@ def _build_chat_response_log_payload(
 def _safe_json_log(payload: Dict[str, Any]) -> str:
     return safe_json_log(payload)
 
-
-def _serialize_sse_payload(payload: Dict[str, Any]) -> str:
-    try:
-        validate_sse_payload(payload)
-        return f"data: {json.dumps(payload)}\n\n"
-    except Exception as err:
-        logger.exception("SSE contract validation failed")
-        safe_payload = {
-            "error": f"stream_contract_violation: {err.__class__.__name__}"
-        }
-        return f"data: {json.dumps(safe_payload)}\n\n"
-
 def _build_scope_summary_block(agent_config: Any) -> Tuple[Optional[str], int]:
     return prompting_build_scope_summary_block(
         agent_config,
@@ -185,27 +137,6 @@ def _build_history_from_chat(existing_chat: Optional[ChatSession]) -> List[Any]:
 
 def _persist_validated_images(validated_images: List[str]) -> List[str]:
     return persist_validated_images(validated_images, save_base64_image=save_base64_image, logger=logger)
-
-
-def _resolve_reasoning_state(
-    *,
-    supports_reasoning: bool,
-    deep_thinking_enabled: bool,
-    reasoning_display_gated_enabled: bool,
-) -> Tuple[bool, Optional[str]]:
-    reasoning_disabled_reason_code = None
-    if reasoning_display_gated_enabled:
-        reasoning_enabled = bool(supports_reasoning and deep_thinking_enabled)
-        if not reasoning_enabled:
-            if deep_thinking_enabled and not supports_reasoning:
-                reasoning_disabled_reason_code = "MODEL_CAPABILITY_MISSING"
-            elif not deep_thinking_enabled:
-                reasoning_disabled_reason_code = "DEEP_THINKING_DISABLED"
-    else:
-        reasoning_enabled = bool(supports_reasoning or deep_thinking_enabled)
-        if not reasoning_enabled:
-            reasoning_disabled_reason_code = "LEGACY_DISABLED"
-    return reasoning_enabled, reasoning_disabled_reason_code
 
 
 async def _yield_stream_chunks(
@@ -223,7 +154,7 @@ async def _yield_stream_chunks(
         tool_event_queue=tool_event_queue,
         emitter=emitter,
         stream_state=stream_state,
-        serialize_payload=_serialize_sse_payload,
+        serialize_payload=serialize_sse_payload,
         logger=logger,
         log_label=log_label,
     ):
@@ -311,99 +242,6 @@ def _emit_skill_effectiveness_event(
     return emitter.emit(skill_effectiveness_payload)
 
 
-def _build_runtime_meta_payload(
-    *,
-    provider: Optional[str],
-    model_name: Optional[str],
-    tool_names: List[str],
-    chat_id: str,
-    agent_id: Optional[str],
-    run_id: str,
-    assistant_turn_id: str,
-    turn_binding_enabled: bool,
-    supports_reasoning: bool,
-    deep_thinking_enabled: bool,
-    reasoning_enabled: bool,
-    reasoning_disabled_reason_code: Optional[str],
-    supports_vision: bool,
-    vision_enabled: bool,
-    validated_images: List[str],
-    fallback_mode: str,
-) -> Dict[str, Any]:
-    return {
-        "meta": {
-            "provider": provider,
-            "model": model_name,
-            "tools": tool_names,
-            "context_id": chat_id,
-            "agent_id": agent_id,
-            "run_id": run_id,
-            "assistant_turn_id": assistant_turn_id if turn_binding_enabled else None,
-            "supports_reasoning": supports_reasoning,
-            "deep_thinking_enabled": deep_thinking_enabled,
-            "reasoning_enabled": reasoning_enabled,
-            "reasoning_disabled_reason_code": reasoning_disabled_reason_code,
-            "supports_vision": supports_vision,
-            "vision_enabled": vision_enabled,
-            "image_count": len(validated_images),
-            "vision_fallback_mode": fallback_mode,
-        }
-    }
-
-
-class ToolEventTracker:
-    def __init__(
-        self,
-        *,
-        chat_id: str,
-        assistant_turn_id: str,
-        run_id: str,
-        turn_binding_enabled: bool,
-        emitter: StreamEventEmitter,
-        tool_event_queue: asyncio.Queue,
-    ) -> None:
-        self.chat_id = chat_id
-        self.assistant_turn_id = assistant_turn_id
-        self.run_id = run_id
-        self.turn_binding_enabled = turn_binding_enabled
-        self.emitter = emitter
-        self.tool_event_queue = tool_event_queue
-        self.counts = {"started": 0, "finished": 0}
-
-    async def on_tool_event(self, event: Dict[str, Any]):
-        try:
-            event_payload = self.emitter.event_payload(event)
-            await self.tool_event_queue.put(event_payload)
-            event_type = event_payload.get("event")
-            if event_type == "tool.call.started":
-                self.counts["started"] += 1
-                chat_service.add_tool_call(
-                    session_id=self.chat_id,
-                    call_id=event_payload.get("call_id"),
-                    tool_name=event_payload.get("tool_name"),
-                    args=event_payload.get("args"),
-                    assistant_turn_id=self.assistant_turn_id if self.turn_binding_enabled else None,
-                    run_id=self.run_id if self.turn_binding_enabled else None,
-                    event_id_started=event_payload.get("event_id"),
-                    started_sequence=event_payload.get("sequence"),
-                    started_ts=normalize_finished_ts(event_payload.get("ts"))
-                )
-            elif event_type == "tool.call.finished":
-                self.counts["finished"] += 1
-                chat_service.update_tool_call(
-                    call_id=event_payload.get("call_id"),
-                    status="error" if "error" in event_payload else "success",
-                    result=event_payload.get("result"),
-                    error=event_payload.get("error"),
-                    duration_ms=event_payload.get("duration_ms"),
-                    event_id_finished=event_payload.get("event_id"),
-                    finished_sequence=event_payload.get("sequence"),
-                    finished_ts=normalize_finished_ts(event_payload.get("ts"))
-                )
-        except Exception:
-            logger.exception("Error in on_tool_event (streaming + persistence)")
-
-
 def _resolve_skill_runtime_state(
     *,
     agent_config: Any,
@@ -424,9 +262,6 @@ def _resolve_skill_runtime_state(
         skill_bind_min_score=SKILL_BIND_MIN_SCORE,
         skill_switch_delta=SKILL_SWITCH_DELTA,
     ).__dict__
-
-def _iso_utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 def _title_refinement_reason_distribution() -> Dict[str, Any]:
     return title_refinement_reason_distribution(_TITLE_REFINEMENT_REASON_COUNTS)
@@ -458,17 +293,6 @@ async def _refine_title_once(
 
 router = APIRouter()
 
-class ChatRequest(BaseModel):
-    message: str
-    images: list[str] | None = None
-    agent_id: str | None = None
-    requested_skill: str | None = None
-    chat_id: str | None = None
-    system_prompt: str | None = None
-    provider: str | None = None
-    model: str | None = None
-    deep_thinking_enabled: bool = False
-
 @router.get("/history", response_model=list[ChatSession])
 async def list_chats():
     return chat_service.list_chats()
@@ -492,12 +316,6 @@ async def delete_chat(chat_id: str):
     if not chat_service.delete_chat(chat_id):
         raise HTTPException(status_code=404, detail="Chat not found")
     return {"status": "success"}
-
-class TruncateRequest(BaseModel):
-    keep_count: int
-
-class SummaryGenerateRequest(BaseModel):
-    force: bool = False
 
 @router.post("/{chat_id}/truncate")
 async def truncate_chat(chat_id: str, request: TruncateRequest):
@@ -587,8 +405,8 @@ async def chat_stream(request: ChatRequest):
             event_v2_enabled=ctx.event_v2_enabled,
             run_id=ctx.run_id,
             assistant_turn_id=ctx.assistant_turn_id,
-            serialize_payload=_serialize_sse_payload,
-            iso_utc_now=_iso_utc_now,
+            serialize_payload=serialize_sse_payload,
+            iso_utc_now=iso_utc_now,
         )
 
         yield emitter.emit({"chat_id": ctx.chat_id})
@@ -600,6 +418,8 @@ async def chat_stream(request: ChatRequest):
             turn_binding_enabled=ctx.turn_binding_enabled,
             emitter=emitter,
             tool_event_queue=ctx.tool_event_queue,
+            chat_service=chat_service,
+            normalize_finished_ts=normalize_finished_ts,
         )
 
         try:
@@ -716,12 +536,12 @@ async def chat_stream(request: ChatRequest):
                 })
                 return
             metrics.supports_reasoning = "reasoning" in model_capabilities
-            metrics.reasoning_enabled, reasoning_disabled_reason_code = _resolve_reasoning_state(
+            metrics.reasoning_enabled, reasoning_disabled_reason_code = resolve_reasoning_state(
                 supports_reasoning=metrics.supports_reasoning,
                 deep_thinking_enabled=bool(request.deep_thinking_enabled),
                 reasoning_display_gated_enabled=ctx.reasoning_display_gated_enabled,
             )
-            meta_payload = _build_runtime_meta_payload(
+            meta_payload = build_runtime_meta_payload(
                 provider=ctx.provider,
                 model_name=ctx.model_name,
                 tool_names=tool_names,
