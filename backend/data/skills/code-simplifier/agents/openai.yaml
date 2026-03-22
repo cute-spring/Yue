@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Simplifier"
+  short_description: "Refine changed code without behavior drift"
+  default_prompt: "Use $code-simplifier to simplify the code I just changed without altering behavior."
