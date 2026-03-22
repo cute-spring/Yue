@@ -68,6 +68,7 @@
 ### Epic 9: 代码库健康与 God Object 重构 (Refactoring)
 > **状态**: 待启动
 > **详情文档**: [codebase_refactor_plan_20260319.md](./codebase_refactor_plan_20260319.md)
+> **子计划（chat.py 专项）**: [chat_api_stream_simplification_plan_20260322.md](./chat_api_stream_simplification_plan_20260322.md)
 > **目标**: 拆解 `chat.py` 和 `Settings.tsx` 等超过 500 行的庞大组件。
 - [ ] **Phase 1: 后端重构 (chat/doc)** (模块化拆解核心服务)
 - [ ] **Phase 2: 前端重构 (Settings/MessageItem)** (组件级解耦)
