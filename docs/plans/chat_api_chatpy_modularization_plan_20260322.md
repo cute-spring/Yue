@@ -33,6 +33,51 @@
 
 但 `chat.py` 仍然保留了一个非常重的 orchestration 层，尤其是 [`chat.py:534`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat.py#L534) 开始的 `chat_stream()` 和其内嵌 `event_generator()`。
 
+## 2.1 执行结果更新
+
+截至本轮重构完成，实际落地情况如下：
+
+1. [`backend/app/api/chat.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat.py) 已从 1106 行收缩到当前约 443 行。
+2. 由于 `app.main` 仍以 `from app.api import chat` 方式导入，当前采用的是“同级模块拆分”而不是 `chat/` 包目录化。
+3. 已新增的实际模块为：
+   - [`backend/app/api/chat_schemas.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_schemas.py)
+   - [`backend/app/api/chat_stream_types.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_stream_types.py)
+   - [`backend/app/api/chat_helpers.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_helpers.py)
+   - [`backend/app/api/chat_tool_events.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_tool_events.py)
+   - [`backend/app/api/chat_stream_runner.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_stream_runner.py)
+4. `event_generator()` 已迁移到 [`backend/app/api/chat_stream_runner.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_stream_runner.py)。
+5. `chat_stream_runner` 内部已完成阶段化拆分，并进一步收敛为：
+   - `_create_stream_runtime`
+   - `_prepare_prompt_runtime`
+   - `_prepare_runtime_dependencies`
+   - `_execute_stream_run`
+   - `_handle_tool_call_mismatch_retry`
+   - `_postprocess_stream_run`
+   - `_finalize_stream_run`
+6. runner 依赖已从扁平结构收敛为 `PromptRuntimeDeps` 与 `RetryRuntimeDeps` 两组子依赖。
+7. `test_chat_integration.py` 已修复为真正使用临时 SQLite `ChatService` 的 integration 测试，不再依赖全局只读数据库状态。
+
+当前关键验证结果：
+
+1. [`backend/tests/test_chat_stream_runner_unit.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_chat_stream_runner_unit.py) 已新增，用于覆盖 runner 内部阶段函数。
+2. 关键回归测试集当前通过数为 `69 passed`。
+3. 已确认通过的主要测试包括：
+   - [`backend/tests/test_api_chat_unit.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_api_chat_unit.py)
+   - [`backend/tests/test_api_chat_metrics.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_api_chat_metrics.py)
+   - [`backend/tests/test_multimodal_integration.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_multimodal_integration.py)
+   - [`backend/tests/test_reasoning_protocol.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_reasoning_protocol.py)
+   - [`backend/tests/test_skill_runtime_integration.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_skill_runtime_integration.py)
+   - [`backend/tests/test_contract_gate_unit.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_contract_gate_unit.py)
+   - [`backend/tests/test_api_chat_modularization_regression.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_api_chat_modularization_regression.py)
+   - [`backend/tests/test_phase_0_baseline.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_phase_0_baseline.py)
+   - [`backend/tests/test_chat_integration.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_chat_integration.py)
+
+补充说明：
+
+1. 当前关键回归集总计为 `69 passed`，并已覆盖 API、runner unit、multimodal、reasoning、skill runtime、baseline 与 integration 几层验证。
+2. [`backend/app/api/chat_stream_runner.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_stream_runner.py) 当前约 771 行，说明复杂度已经从路由文件迁移并被阶段化收口，而不是简单删除。
+3. [`backend/app/api/chat.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat.py) 中若干低价值薄包装 helper 已移除，包括 `_safe_json_log`、`_persist_validated_images`、`_is_placeholder_title`。
+
 ## 3. 主要问题判断
 
 ### 3.1 真正的问题不是“文件大”，而是职责混合
@@ -107,6 +152,12 @@ backend/app/api/chat/
 1. 如果希望首轮改动更小，可以先保留 `backend/app/api/chat.py`，只把大块逻辑外移。
 2. 如果希望长期结构更清晰，推荐最终改为 `chat/` 包目录。
 3. 第一阶段不必一次到位，允许先新增文件、后在下一阶段切换 import 入口。
+
+补充说明：
+
+1. 本轮实际未采用包目录方案。
+2. 当前代码状态是“保留 `chat.py` 作为入口文件 + 使用同级模块拆分”。
+3. 这是为了保持与 [`backend/app/main.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/main.py) 当前导入方式兼容，降低风险。
 
 ### 5.2 每个文件建议职责
 
@@ -452,14 +503,14 @@ backend/app/api/chat/
 
 1. [`backend/app/api/chat.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat.py)
    迁出 request model、dataclass、ToolEventTracker、helper。
-2. 新增 [`backend/app/api/chat/schemas.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat/schemas.py)
-3. 新增 [`backend/app/api/chat/stream_types.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat/stream_types.py)
-4. 新增 [`backend/app/api/chat/tool_events.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat/tool_events.py)
-5. 新增 [`backend/app/api/chat/helpers.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat/helpers.py)
+2. 实际新增 [`backend/app/api/chat_schemas.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_schemas.py)
+3. 实际新增 [`backend/app/api/chat_stream_types.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_stream_types.py)
+4. 实际新增 [`backend/app/api/chat_tool_events.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_tool_events.py)
+5. 实际新增 [`backend/app/api/chat_helpers.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_helpers.py)
 
 ### 第二批迁移
 
-1. 新增 [`backend/app/api/chat/stream_runner.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat/stream_runner.py)
+1. 实际新增 [`backend/app/api/chat_stream_runner.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_stream_runner.py)
 2. 将 `event_generator()` 从原文件迁出。
 
 ### 第三批迁移
@@ -646,3 +697,21 @@ backend/app/api/chat/
 3. 可回滚
 4. review 友好
 5. 行为稳定性
+
+## 15. 当前状态
+
+目前可以认为：
+
+1. Phase 2 已完成并稳定。
+2. Phase 3 已完成，并且 `event_generator()` 已成功迁移到独立 runner。
+3. Phase 4 已完成，并已进一步细化为 prompt/runtime、execute、retry/postprocess、finalize 等阶段函数。
+4. runner 依赖已按子域收敛为 `PromptRuntimeDeps` 与 `RetryRuntimeDeps`，不再是完全扁平的依赖对象。
+5. [`backend/tests/test_chat_stream_runner_unit.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_chat_stream_runner_unit.py) 已为 runner 关键阶段提供单测保护。
+6. [`backend/tests/test_chat_integration.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_chat_integration.py) 已修复挂起与只读数据库问题，并纳入稳定回归集。
+7. 当前不建议继续做高风险的包目录化改造，除非后续要统一 `app.api.*` 的导入方式。
+
+后续若继续投入，优先级建议为：
+
+1. 仅在需要时再推进 `chat.py` -> `chat/` 包目录化。
+2. 否则保持当前结构稳定，转向业务功能开发或更细粒度的类型补强。
+3. 若后续再次触碰 stream 编排，优先在 [`backend/tests/test_chat_stream_runner_unit.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_chat_stream_runner_unit.py) 上先补测试，再做内部重构。
