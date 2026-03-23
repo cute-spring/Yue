@@ -21,7 +21,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, export
 from app.mcp.manager import mcp_manager
-from app.services.skill_service import skill_registry, SkillDirectoryResolver
+from app.services.skill_service import skill_registry
+from app.services.skills import SkillDirectoryResolver
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
 # Load .env from backend directory

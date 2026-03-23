@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Body, Query
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, SkillSpec, SkillSummary
+from app.services.skill_service import skill_registry, skill_router
+from app.services.skills import SkillPolicyGate, SkillSpec, SkillSummary
 from app.services.agent_store import agent_store
 from app.services.config_service import config_service
 import logging
