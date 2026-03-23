@@ -1,29 +1,31 @@
 import { createSignal, onMount, onCleanup, For, Show } from 'solid-js';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { GeneralSettingsTab } from './settings/components/GeneralSettingsTab';
+import { LlmSettingsTab } from './settings/components/LlmSettingsTab';
+import { McpSettingsTab } from './settings/components/McpSettingsTab';
+import { useSettingsData } from './settings/useSettingsData';
+import {
+  buildManagedModelsConfig,
+  buildRevertedManagedModelsConfig,
+  parseMcpManualText,
+  splitRootsText,
+} from './settings/settingsUtils';
+import type {
+  Agent,
+  CustomModel,
+  DocAccess,
+  LLMProvider,
+  LlmForm,
+  McpStatus,
+  McpTool,
+  NewCustomModelDraft,
+  Preferences,
+} from './settings/types';
 
 type Tab = 'general' | 'mcp' | 'llm';
 
-type Agent = {
-  id: string;
-  name: string;
-  system_prompt: string;
-  provider: string;
-  model: string;
-  enabled_tools: string[];
-};
-
-type LLMProvider = {
-    name: string;
-    configured: boolean;
-    requirements: string[];
-    current_model?: string;
-    available_models?: string[];
-    models?: string[];
-    model_capabilities?: Record<string, string[]>;
-    explicit_model_capabilities?: Record<string, string[]>;
-  };
-
   export default function Settings() {
+    const { fetchSettingsData } = useSettingsData();
     const [activeTab, setActiveTab] = createSignal<Tab>('general');
     const TAB_LABEL: Record<Tab, string> = {
       general: 'General',
@@ -33,8 +35,8 @@ type LLMProvider = {
     
     // MCP State
     const [mcpConfig, setMcpConfig] = createSignal("");
-    const [mcpStatus, setMcpStatus] = createSignal<{name:string;enabled:boolean;connected:boolean;transport:string;last_error?:string}[]>([]);
-    const [mcpTools, setMcpTools] = createSignal<{id:string;name:string;description:string;server:string}[]>([]);
+    const [mcpStatus, setMcpStatus] = createSignal<McpStatus[]>([]);
+    const [mcpTools, setMcpTools] = createSignal<McpTool[]>([]);
     const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
     const [showManual, setShowManual] = createSignal(false);
     const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-server\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    }\n  }\n}`);
@@ -45,10 +47,10 @@ type LLMProvider = {
     
     // LLM State
   const [providers, setProviders] = createSignal<LLMProvider[]>([]);
-  const [llmForm, setLlmForm] = createSignal<Record<string, any>>({});
-  const [customModels, setCustomModels] = createSignal<{name:string;base_url?:string;api_key?:string;model?:string;capabilities?:string[]}[]>([]);
+  const [llmForm, setLlmForm] = createSignal<LlmForm>({});
+  const [customModels, setCustomModels] = createSignal<CustomModel[]>([]);
     const [showAddCustom, setShowAddCustom] = createSignal(false);
-    const [newCM, setNewCM] = createSignal<{name:string;provider:string;model:string;base_url?:string;api_key?:string;capabilities?:string[]}>({name:"",provider:"openai",model:"",capabilities:[]});
+    const [newCM, setNewCM] = createSignal<NewCustomModelDraft>({name:"",provider:"openai",model:"",capabilities:[]});
     const [newCMStatus, setNewCMStatus] = createSignal<string>("");
   const [showEditProvider, setShowEditProvider] = createSignal(false);
   const [editingProvider, setEditingProvider] = createSignal<string>("");
@@ -77,12 +79,12 @@ type LLMProvider = {
     const [agents, setAgents] = createSignal<Agent[]>([]);
   
   // General Preferences State
-  const [prefs, setPrefs] = createSignal({
+  const [prefs, setPrefs] = createSignal<Preferences>({
     theme: 'light',
     language: 'en',
     default_agent: 'default'
   });
-  const [docAccess, setDocAccess] = createSignal<{ allow_roots: string[]; deny_roots: string[] }>({
+  const [docAccess, setDocAccess] = createSignal<DocAccess>({
     allow_roots: [],
     deny_roots: []
   });
@@ -92,37 +94,18 @@ type LLMProvider = {
 
   const fetchData = async () => {
     try {
-      // Fetch MCP
-      const mcpRes = await fetch('/api/mcp/');
-      setMcpConfig(JSON.stringify(await mcpRes.json(), null, 2));
-      const mcpStatusRes = await fetch('/api/mcp/status');
-      setMcpStatus(await mcpStatusRes.json());
-      const toolsRes = await fetch('/api/mcp/tools');
-      setMcpTools(await toolsRes.json());
-      
-      // Fetch LLM Providers
-      const providersRes = await fetch('/api/models/providers');
-      setProviders(await providersRes.json());
-      
-      // Fetch LLM Config (API Keys etc)
-      const llmConfigRes = await fetch('/api/config/llm');
-      setLlmForm(await llmConfigRes.json());
-      const cmRes = await fetch('/api/models/custom');
-      setCustomModels(await cmRes.json());
-      
-      // Fetch Agents
-      const agentsRes = await fetch('/api/agents/');
-      setAgents(await agentsRes.json());
-      
-      // Fetch Preferences
-      const prefsRes = await fetch('/api/config/preferences');
-      setPrefs(await prefsRes.json());
-
-      const docAccessRes = await fetch('/api/config/doc_access');
-      const da = await docAccessRes.json();
-      setDocAccess(da);
-      setDocAllowText((da.allow_roots || []).join("\n"));
-      setDocDenyText((da.deny_roots || []).join("\n"));
+      const snapshot = await fetchSettingsData();
+      setMcpConfig(snapshot.mcpConfigText);
+      setMcpStatus(snapshot.mcpStatus);
+      setMcpTools(snapshot.mcpTools);
+      setProviders(snapshot.providers);
+      setLlmForm(snapshot.llmForm);
+      setCustomModels(snapshot.customModels);
+      setAgents(snapshot.agents);
+      setPrefs(snapshot.prefs);
+      setDocAccess(snapshot.docAccess);
+      setDocAllowText(snapshot.docAllowText);
+      setDocDenyText(snapshot.docDenyText);
     } catch (e) {
       console.error("Failed to load settings", e);
     }
@@ -153,20 +136,40 @@ type LLMProvider = {
   };
 
   const saveLlmConfig = async () => {
+    await postLlmConfig(llmForm());
+    showToast('success', 'LLM settings saved');
+  };
+
+  const postLlmConfig = async (nextConfig: LlmForm) => {
+    setLlmForm(nextConfig);
     await fetch('/api/config/llm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(llmForm())
+      body: JSON.stringify(nextConfig)
     });
-    showToast('success', 'LLM settings saved');
-    fetchData();
+    await fetchData();
   };
 
-  const savePrefs = async () => {
+  const refreshProviders = async () => {
+    setIsRefreshingProviders(true);
+    try {
+      const providersRes = await fetch('/api/models/providers?refresh=1');
+      setProviders(await providersRes.json());
+      showToast('success', 'Models refreshed from providers');
+    } catch (e) {
+      showToast('error', 'Failed to refresh models');
+    } finally {
+      setIsRefreshingProviders(false);
+    }
+  };
+
+  const savePrefs = async (nextPrefs?: Preferences) => {
+    const payload = nextPrefs ?? prefs();
+    setPrefs(payload);
     await fetch('/api/config/preferences', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(prefs())
+      body: JSON.stringify(payload)
     });
     showToast('success', 'Preferences saved');
   };
@@ -174,14 +177,8 @@ type LLMProvider = {
   const saveDocAccess = async () => {
     setIsSavingDocAccess(true);
     try {
-      const allow = docAllowText()
-        .split("\n")
-        .map(s => s.trim())
-        .filter(Boolean);
-      const deny = docDenyText()
-        .split("\n")
-        .map(s => s.trim())
-        .filter(Boolean);
+      const allow = splitRootsText(docAllowText());
+      const deny = splitRootsText(docDenyText());
       const res = await fetch('/api/config/doc_access', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -244,13 +241,8 @@ type LLMProvider = {
     setShowEditProvider(true);
   };
   const saveProviderEditor = async () => {
-    await fetch('/api/config/llm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(llmForm())
-    });
+    await postLlmConfig(llmForm());
     setShowEditProvider(false);
-    fetchData();
   };
 
   const saveManagedModels = async () => {
@@ -261,52 +253,29 @@ type LLMProvider = {
     try {
       const previous = new Set(enabledModels());
       const previousOverrides = { ...capabilityOverrides() };
-      const key = `${providerName}_enabled_models`;
-      const modeKey = `${providerName}_enabled_models_mode`;
       const currentConfig = llmForm();
-      const previousMode = currentConfig[modeKey];
-      
-      const modelsDict = { ...(currentConfig.models || {}) };
-      managedModels().forEach(m => {
-        const fullId = `${providerName}/${m}`;
-        const overrides = capabilityOverrides()[m];
-        if (overrides) {
-          modelsDict[fullId] = { ...(modelsDict[fullId] || {}), capabilities: overrides };
-        } else if (modelsDict[fullId]) {
-          delete modelsDict[fullId].capabilities;
-        }
-      });
-      
-      const newConfig = { ...currentConfig, [key]: Array.from(enabledModels()), [modeKey]: "allowlist", models: modelsDict };
-      setLlmForm(newConfig);
-      
-      await fetch('/api/config/llm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newConfig)
-      });
+      const { modelsDict, nextConfig: newConfig, previousMode } = buildManagedModelsConfig(
+        currentConfig,
+        providerName,
+        enabledModels(),
+        managedModels(),
+        capabilityOverrides(),
+      );
+      await postLlmConfig(newConfig);
       setShowModelManager(false);
       showToast('success', `Models for ${providerName} updated`, 'Undo', async () => {
-        const revertModelsDict = { ...modelsDict };
-        managedModels().forEach(m => {
-          const fullId = `${providerName}/${m}`;
-          if (previousOverrides[m]) {
-            revertModelsDict[fullId] = { ...(revertModelsDict[fullId] || {}), capabilities: previousOverrides[m] };
-          } else if (revertModelsDict[fullId]) {
-            delete revertModelsDict[fullId].capabilities;
-          }
-        });
-        const revertConfig = { ...currentConfig, [key]: Array.from(previous), [modeKey]: previousMode, models: revertModelsDict };
-        setLlmForm(revertConfig);
-        await fetch('/api/config/llm', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(revertConfig)
-        });
+        const revertConfig = buildRevertedManagedModelsConfig(
+          currentConfig,
+          providerName,
+          previous,
+          previousMode,
+          modelsDict,
+          managedModels(),
+          previousOverrides,
+        );
+        await postLlmConfig(revertConfig);
         showToast('success', `Reverted ${providerName} models`);
-        fetchData();
       });
-      fetchData();
     } finally {
       setIsSavingModels(false);
     }
@@ -352,54 +321,17 @@ type LLMProvider = {
   };
   const confirmManual = async () => {
     try {
-      const text = manualText().trim();
-      if (!text) return;
-      
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch (e) {
+      const parsed = parseMcpManualText(manualText());
+      if (parsed.kind === 'empty') return;
+      if (parsed.kind === 'invalid_json') {
         showToast('error', 'Invalid JSON format');
         return;
       }
-
-      let arr: any[] = [];
-      
-      // Handle Claude desktop format: { "mcpServers": { "name": { "command": "...", "args": [] } } }
-      if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
-        arr = Object.entries(parsed.mcpServers).map(([name, config]: [string, any]) => ({
-          name,
-          command: config.command,
-          args: config.args || [],
-          env: config.env || {},
-          enabled: true
-        }));
-      } 
-      // Handle array format: [{ "name": "...", "command": "...", "args": [] }]
-      else if (Array.isArray(parsed)) {
-        arr = parsed.map(item => ({
-          name: item.name,
-          command: item.command,
-          args: item.args || [],
-          env: item.env || {},
-          enabled: item.enabled !== undefined ? item.enabled : true
-        }));
-      }
-      // Handle single object format (not recommended but supported)
-      else if (parsed.name && parsed.command) {
-        arr = [{
-          name: parsed.name,
-          command: parsed.command,
-          args: parsed.args || [],
-          env: parsed.env || {},
-          enabled: true
-        }];
-      }
-
-      if (arr.length === 0) {
+      if (parsed.kind === 'no_valid_servers') {
         showToast('error', 'No valid MCP server configuration found in JSON');
         return;
       }
+      const arr = parsed.servers;
 
       const res = await fetch('/api/mcp/', { 
         method: 'POST', 
@@ -497,921 +429,90 @@ type LLMProvider = {
       <div class="flex-1 bg-white rounded-xl border shadow-sm overflow-y-auto p-6">
         {/* General Tab */}
         <Show when={activeTab() === 'general'}>
-          <div class="max-w-2xl space-y-6">
-            <h3 class="text-xl font-semibold border-b pb-2">User Preferences</h3>
-            <div class="grid gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Theme</label>
-                <select 
-                  class="w-full border rounded-lg p-2 bg-gray-50"
-                  value={prefs().theme}
-                  onChange={e => setPrefs({...prefs(), theme: e.currentTarget.value})}
-                >
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                  <option value="system">System</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Language</label>
-                <select 
-                  class="w-full border rounded-lg p-2 bg-gray-50"
-                  value={prefs().language}
-                  onChange={e => setPrefs({...prefs(), language: e.currentTarget.value})}
-                >
-                  <option value="en">English</option>
-                  <option value="zh">Chinese</option>
-                </select>
-              </div>
-              <div>
-                <div class="flex items-center justify-between gap-3 mb-1">
-                  <label class="block text-sm font-medium text-gray-700">Default Agent</label>
-                  <a href="/agents" class="text-emerald-600 hover:underline text-sm font-medium">
-                    Manage agents →
-                  </a>
-                </div>
-                <select 
-                  class="w-full border rounded-lg p-2 bg-gray-50"
-                  value={prefs().default_agent}
-                  onChange={e => setPrefs({...prefs(), default_agent: e.currentTarget.value})}
-                >
-                  <For each={agents()}>
-                    {a => <option value={a.id}>{a.name}</option>}
-                  </For>
-                </select>
-              </div>
-            </div>
-            <button 
-              onClick={savePrefs}
-              class="bg-emerald-600 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 transition-colors shadow-md"
-            >
-              Save Preferences
-            </button>
-
-            <div class="pt-6 border-t">
-              <h3 class="text-xl font-semibold border-b pb-2">Document Access</h3>
-              <p class="text-sm text-gray-500 mt-2">
-                Configure allow/deny roots for local document read/search tools.
-              </p>
-              <div class="grid gap-4 mt-4">
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Allow Roots (one per line)</label>
-                  <textarea
-                    class="w-full border rounded-lg p-3 bg-gray-50 font-mono text-xs h-32"
-                    value={docAllowText()}
-                    onInput={e => setDocAllowText(e.currentTarget.value)}
-                  />
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Deny Roots (one per line)</label>
-                  <textarea
-                    class="w-full border rounded-lg p-3 bg-gray-50 font-mono text-xs h-24"
-                    value={docDenyText()}
-                    onInput={e => setDocDenyText(e.currentTarget.value)}
-                  />
-                </div>
-              </div>
-              <div class="mt-4 flex items-center justify-between gap-3">
-                <div class="text-xs text-gray-500">
-                  Active allow roots: {docAccess().allow_roots.length} • deny roots: {docAccess().deny_roots.length}
-                </div>
-                <button
-                  onClick={saveDocAccess}
-                  disabled={isSavingDocAccess()}
-                  class={`px-6 py-2 rounded-lg transition-colors shadow-md ${
-                    isSavingDocAccess() ? 'bg-gray-300 text-gray-600' : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                  }`}
-                >
-                  {isSavingDocAccess() ? 'Saving...' : 'Save Document Access'}
-                </button>
-              </div>
-            </div>
-          </div>
+          <GeneralSettingsTab
+            prefs={prefs}
+            setPrefs={setPrefs}
+            agents={agents}
+            savePrefs={savePrefs}
+            docAccess={docAccess}
+            docAllowText={docAllowText}
+            setDocAllowText={setDocAllowText}
+            docDenyText={docDenyText}
+            setDocDenyText={setDocDenyText}
+            isSavingDocAccess={isSavingDocAccess}
+            saveDocAccess={saveDocAccess}
+          />
         </Show>
 
         {/* MCP Tab */}
         <Show when={activeTab() === 'mcp'}>
-          <div class="h-full flex flex-col space-y-4">
-            <div class="flex justify-between items-center">
-              <div class="flex items-center gap-2">
-                <h3 class="text-xl font-semibold">MCP</h3>
-              </div>
-              <div class="flex items-center gap-2">
-                <button onClick={reloadMcp} class="p-2 rounded-md border bg-white hover:bg-gray-50">↻</button>
-                <div class="relative">
-                  <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(v => !v); }} class="px-3 py-1.5 rounded-md bg-blue-700 text-white flex items-center gap-2">
-                    <span>+ Add</span>
-                    <span>▾</span>
-                  </button>
-                  <Show when={showAddMenu()}>
-                    <div class="absolute right-0 mt-2 w-56 bg-white border rounded-lg shadow-xl z-50">
-                      <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); setShowMarketplace(true); }} class="block w-full text-left px-3 py-2 hover:bg-gray-50">
-                        Add from Marketplace
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); setShowManual(true); }} class="block w-full text-left px-3 py-2 hover:bg-gray-50">
-                        Add Manually
-                      </button>
-                    </div>
-                  </Show>
-                </div>
-              </div>
-            </div>
-            <div class="border rounded-xl bg-white">
-              <For each={mcpStatus()}>
-                {(s) => (
-                  <div class="border-b last:border-b-0">
-                    <div class="px-4 py-3 flex items-center justify-between relative">
-                      <div class="flex items-center gap-3">
-                        <button onClick={() => setExpanded(prev => ({ ...prev, [s.name]: !prev[s.name] }))} class="text-gray-500">▸</button>
-                        <div class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center font-bold text-emerald-700">
-                          {s.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div class="flex items-center gap-2">
-                          <span class="font-semibold underline cursor-pointer" onMouseEnter={() => setHoveredServer(s.name)} onMouseLeave={() => setHoveredServer(null)}>{s.name}</span>
-                          <Show when={s.connected}><span class="text-emerald-600">✓</span></Show>
-                          <Show when={!s.connected}>
-                            <span class="text-red-600">Failed to start</span>
-                            <button onClick={reloadMcp} class="text-blue-600 underline">Retry</button>
-                          </Show>
-                        </div>
-                        <Show when={hoveredServer() === s.name}>
-                          <div class="absolute left-20 top-full mt-2 bg-white border rounded-xl shadow-xl w-[420px] z-50">
-                            <div class="px-4 py-3 border-b">
-                              <div class="font-semibold">{s.name} • From TRAE</div>
-                              <div class="text-xs text-gray-500">Update on {new Date().toISOString().slice(0,10)}</div>
-                              <div class="text-xs text-gray-600 mt-1">
-                                MCP Server — Tools for this integration
-                              </div>
-                            </div>
-                            <div class="py-2">
-                              <For each={mcpTools().filter(t => t.server === s.name).slice(0, 2)}>
-                                {(t) => (
-                                  <div class="px-4 py-2">
-                                    <div class="text-sm font-medium">{t.name}</div>
-                                    <div class="text-xs text-gray-500">
-                                      {t.description?.length ? t.description : 'Tool provided by this server.'}
-                                    </div>
-                                  </div>
-                                )}
-                              </For>
-                              <Show when={mcpTools().filter(t => t.server === s.name).length === 0}>
-                                <div class="px-4 py-3 text-xs text-gray-500">No tools</div>
-                              </Show>
-                            </div>
-                          </div>
-                        </Show>
-                      </div>
-                      <div class="flex items-center gap-3">
-                        <input type="checkbox" checked={s.enabled} onChange={e => toggleMcpEnabled(s.name, e.currentTarget.checked)} class="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" />
-                        <button 
-                          onClick={() => deleteMcpServer(s.name)}
-                          class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete MCP Server"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                    <Show when={expanded()[s.name]}>
-                      <div class="px-12 pb-4">
-                        <div class="text-xs text-gray-500 mb-2">Tools</div>
-                        <div class="grid md:grid-cols-2 gap-2">
-                          <For each={mcpTools().filter(t => t.server === s.name)}>
-                            {(t) => (
-                              <div class="p-2 border rounded-lg">
-                                <div class="text-sm font-medium">{t.name}</div>
-                                <div class="text-xs text-gray-500">{t.description}</div>
-                              </div>
-                            )}
-                          </For>
-                          <Show when={mcpTools().filter(t => t.server === s.name).length === 0}>
-                            <div class="text-xs text-gray-500">No tools</div>
-                          </Show>
-                        </div>
-                      </div>
-                    </Show>
-                  </div>
-                )}
-              </For>
-            </div>
-            <Show when={showManual()}>
-              <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
-                <div class="w-[640px] bg-white rounded-xl border shadow-lg">
-                  <div class="px-4 py-2 border-b flex justify-between items-center">
-                    <div class="font-semibold">Configure Manually</div>
-                    <button onClick={() => setShowManual(false)}>✕</button>
-                  </div>
-                  <div class="p-4">
-                    <textarea class="w-full h-64 font-mono border rounded-lg p-3 bg-gray-50" value={manualText()} onInput={e => setManualText(e.currentTarget.value)} />
-                    <div class="text-xs text-gray-500 mt-2">Please confirm the source and identify risks before configuration.</div>
-                  </div>
-                  <div class="px-4 py-3 flex justify-end gap-2 border-t">
-                    <button onClick={() => setShowManual(false)} class="px-3 py-1.5 rounded-md border">Cancel</button>
-                    <button onClick={confirmManual} class="px-3 py-1.5 rounded-md bg-emerald-600 text-white">Confirm</button>
-                  </div>
-                </div>
-              </div>
-            </Show>
-            <Show when={showMarketplace()}>
-              <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
-                <div class="w-[680px] bg-white rounded-xl border shadow-lg">
-                  <div class="px-4 py-2 border-b flex justify-between items-center">
-                    <div class="font-semibold">Add from Marketplace</div>
-                    <button onClick={() => setShowMarketplace(false)}>✕</button>
-                  </div>
-                  <div class="p-6">
-                    <p class="text-sm text-gray-600">Marketplace integration is coming soon. This is a mock dialog.</p>
-                    <div class="mt-4 grid grid-cols-2 gap-3">
-                      <div class="p-3 border rounded-lg">
-                        <div class="font-semibold">Playwright MCP</div>
-                        <div class="text-xs text-gray-500">Browser automation tools</div>
-                      </div>
-                      <div class="p-3 border rounded-lg">
-                        <div class="font-semibold">Filesystem MCP</div>
-                        <div class="text-xs text-gray-500">File operations</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="px-4 py-3 flex justify-end gap-2 border-t">
-                    <button onClick={() => setShowMarketplace(false)} class="px-3 py-1.5 rounded-md border">Close</button>
-                  </div>
-                </div>
-              </div>
-            </Show>
-            <Show when={showRaw()}>
-              <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
-                <div class="w-[800px] bg-white rounded-xl border shadow-lg">
-                  <div class="px-4 py-2 border-b flex justify-between items-center">
-                    <div class="font-semibold">Raw Config (JSON)</div>
-                    <button onClick={() => setShowRaw(false)}>✕</button>
-                  </div>
-                  <div class="p-4">
-                    <textarea class="w-full h-80 font-mono border rounded-lg p-3 bg-gray-50" value={mcpConfig()} onInput={e => setMcpConfig(e.currentTarget.value)} />
-                  </div>
-                  <div class="px-4 py-3 flex justify-end gap-2 border-t">
-                    <button onClick={() => setShowRaw(false)} class="px-3 py-1.5 rounded-md border">Cancel</button>
-                    <button onClick={async () => { await saveMcp(); setShowRaw(false); }} class="px-3 py-1.5 rounded-md bg-emerald-600 text-white">Confirm</button>
-                  </div>
-                </div>
-              </div>
-            </Show>
-          </div>
+          <McpSettingsTab
+            mcpStatus={mcpStatus}
+            mcpTools={mcpTools}
+            expanded={expanded}
+            setExpanded={setExpanded}
+            hoveredServer={hoveredServer}
+            setHoveredServer={setHoveredServer}
+            showAddMenu={showAddMenu}
+            setShowAddMenu={setShowAddMenu}
+            showManual={showManual}
+            setShowManual={setShowManual}
+            manualText={manualText}
+            setManualText={setManualText}
+            showRaw={showRaw}
+            setShowRaw={setShowRaw}
+            showMarketplace={showMarketplace}
+            setShowMarketplace={setShowMarketplace}
+            mcpConfig={mcpConfig}
+            setMcpConfig={setMcpConfig}
+            reloadMcp={reloadMcp}
+            toggleMcpEnabled={toggleMcpEnabled}
+            deleteMcpServer={deleteMcpServer}
+            confirmManual={confirmManual}
+            saveMcp={saveMcp}
+          />
         </Show>
 
         {/* LLM Tab */}
         <Show when={activeTab() === 'llm'}>
-          <div class="space-y-8 max-w-4xl">
-            <div class="border-b pb-2">
-              <h3 class="text-xl font-semibold">LLM Provider Configurations</h3>
-              <p class="text-sm text-gray-500">Configure API keys and default models</p>
-              <div class="mt-2">
-                <button 
-                  onClick={async () => {
-                    setIsRefreshingProviders(true);
-                    try {
-                      const providersRes = await fetch('/api/models/providers?refresh=1');
-                      setProviders(await providersRes.json());
-                      showToast('success', 'Models refreshed from providers');
-                    } catch (e) {
-                      showToast('error', 'Failed to refresh models');
-                    } finally {
-                      setIsRefreshingProviders(false);
-                    }
-                  }}
-                  disabled={isRefreshingProviders()}
-                  class={`text-xs px-3 py-1.5 rounded-md border flex items-center gap-2 transition-colors ${
-                    isRefreshingProviders() 
-                    ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                    : 'bg-white hover:bg-gray-50 text-gray-700'
-                  }`}
-                >
-                  <Show when={isRefreshingProviders()}>
-                    <div class="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
-                  </Show>
-                  {isRefreshingProviders() ? 'Refreshing...' : 'Refresh Available Models'}
-                </button>
-                <button 
-                  onClick={() => { 
-                    setNewCM({ name: "", provider: "openai", model: "", base_url: "", api_key: "" });
-                    setNewCMStatus("");
-                    setShowAddCustom(true);
-                  }}
-                  class="ml-2 text-xs px-3 py-1.5 rounded-lg bg-blue-700 text-white hover:bg-blue-800 shadow-sm inline-flex items-center gap-1"
-                >
-                  <span>+</span><span>Add Custom (Overlay)</span>
-                </button>
-              </div>
-            </div>
-            
-            <div class="overflow-x-auto border rounded-xl bg-white">
-              <table class="min-w-full text-sm">
-                <thead class="bg-gray-50">
-                  <tr>
-                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Provider</th>
-                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Model</th>
-                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Status</th>
-                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Available Models</th>
-                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Requirements</th>
-                    <th class="text-left px-4 py-2 font-semibold text-gray-700">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={providers()}>
-                    {(p) => (
-                      <tr class="border-t">
-                        <td class="px-4 py-2 font-medium text-gray-800 uppercase">{p.name}</td>
-                        <td class="px-4 py-2 text-gray-700">
-                          {llmForm()[`${p.name}_model`] || p.current_model || '-'}
-                        </td>
-                        <td class="px-4 py-2">
-                          <span class={`text-xs px-2 py-1 rounded-full font-bold uppercase ${p.configured ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                            {p.configured ? 'Connected' : 'Missing Config'}
-                          </span>
-                        </td>
-                        <td class="px-4 py-2 text-gray-700">
-                          {p.available_models && p.available_models.length > 0 ? `${p.available_models.length}` : '—'}
-                        </td>
-                        <td class="px-4 py-2 text-gray-700">
-                          {p.requirements.join(', ')}
-                        </td>
-                        <td class="px-4 py-2">
-                          <div class="flex items-center gap-2">
-                            <button 
-                              onClick={() => testProvider(p.name)}
-                              class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
-                            >
-                              Test
-                            </button>
-                            <button 
-                              onClick={() => openProviderEditor(p.name)}
-                              class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
-                            >
-                              Edit
-                            </button>
-                            <button 
-                              onClick={() => openModelManager(p)}
-                              class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
-                              disabled={!p.models || p.models.length === 0}
-                              title={(!p.models || p.models.length === 0) ? "No models discovered" : "Manage available models"}
-                            >
-                              Manage
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Custom Models */}
-            <div class="border-t pt-6">
-              <h4 class="text-lg font-bold mb-3">Custom Models</h4>
-              <div class="space-y-3">
-                <div class="space-y-2">
-                  <For each={customModels()}>
-                    {(m) => (
-                      <div class="p-3 border rounded-lg flex items-center justify-between">
-                        <div>
-                          <div class="font-bold">{m.name}</div>
-                          <div class="text-xs text-gray-500">{m.base_url || ''}</div>
-                          <div class="text-xs text-gray-500">{m.model || ''}</div>
-                          <Show when={m.capabilities && m.capabilities.length > 0}>
-                            <div class="flex gap-1 mt-1">
-                              <For each={m.capabilities}>
-                                {(cap) => (
-                                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100">
-                                    {cap === 'function_calling' ? 'Tools' : cap.charAt(0).toUpperCase() + cap.slice(1)}
-                                  </span>
-                                )}
-                              </For>
-                            </div>
-                          </Show>
-                        </div>
-                        <div class="flex gap-2">
-                          <button onClick={()=>testCustomModel(m)} class="text-xs px-2 py-1 rounded border">Test</button>
-                          <button onClick={()=>deleteCustomModel(m.name)} class="text-xs px-2 py-1 rounded border text-red-600">Delete</button>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                  <Show when={customModels().length === 0}>
-                    <div class="text-sm text-gray-500">No custom models. Add one above.</div>
-                  </Show>
-                </div>
-              </div>
-            </div>
-            <Show when={showAddCustom()}>
-              <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-                <div class="w-[720px] bg-white rounded-2xl border shadow-xl overflow-hidden">
-                  <div class="px-6 py-4 border-b flex justify-between items-center">
-                    <div class="font-bold text-lg">Add Custom Model</div>
-                    <button onClick={() => setShowAddCustom(false)} class="text-gray-500">✕</button>
-                  </div>
-                  <div class="p-6 space-y-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <div class="text-xs font-bold text-gray-600 mb-1">Name</div>
-                        <input class="w-full border rounded-lg p-2" placeholder="my-custom" value={newCM().name} onInput={e => setNewCM({...newCM(), name: e.currentTarget.value})}/>
-                      </div>
-                      <div>
-                        <div class="text-xs font-bold text-gray-600 mb-1">Provider</div>
-                        <select class="w-full border rounded-lg p-2" value={newCM().provider} onChange={e => setNewCM({...newCM(), provider: e.currentTarget.value})}>
-                          <option value="openai">OpenAI</option>
-                          <option value="deepseek">DeepSeek</option>
-                          <option value="gemini">Gemini</option>
-                          <option value="ollama">Ollama</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <div class="text-xs font-bold text-gray-600 mb-1">Model</div>
-                        <input class="w-full border rounded-lg p-2" placeholder="gpt-4o" value={newCM().model} onInput={e => setNewCM({...newCM(), model: e.currentTarget.value})}/>
-                      </div>
-                      <div>
-                        <div class="text-xs font-bold text-gray-600 mb-1">Base URL (Optional)</div>
-                        <input class="w-full border rounded-lg p-2" placeholder="https://..." value={newCM().base_url || ''} onInput={e => setNewCM({...newCM(), base_url: e.currentTarget.value})}/>
-                      </div>
-                    </div>
-                    <div>
-                      <div class="text-xs font-bold text-gray-600 mb-1">API Key</div>
-                      <input class="w-full border rounded-lg p-2" type="password" placeholder="****" value={newCM().api_key || ''} onInput={e => setNewCM({...newCM(), api_key: e.currentTarget.value})}/>
-                    </div>
-                    <div>
-                      <div class="text-xs font-bold text-gray-600 mb-2">Model Capabilities</div>
-                      <div class="flex flex-col gap-2">
-                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                          <input type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-500" 
-                            checked={newCM().capabilities?.includes('vision')}
-                            onChange={(e) => {
-                              const caps = new Set(newCM().capabilities || []);
-                              if (e.currentTarget.checked) caps.add('vision');
-                              else caps.delete('vision');
-                              setNewCM({...newCM(), capabilities: Array.from(caps)});
-                            }}
-                          />
-                          Supports Vision (Image input)
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                          <input type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-500" 
-                            checked={newCM().capabilities?.includes('reasoning')}
-                            onChange={(e) => {
-                              const caps = new Set(newCM().capabilities || []);
-                              if (e.currentTarget.checked) caps.add('reasoning');
-                              else caps.delete('reasoning');
-                              setNewCM({...newCM(), capabilities: Array.from(caps)});
-                            }}
-                          />
-                          Supports Deep Thinking (Reasoning)
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                          <input type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-500" 
-                            checked={newCM().capabilities?.includes('function_calling')}
-                            onChange={(e) => {
-                              const caps = new Set(newCM().capabilities || []);
-                              if (e.currentTarget.checked) caps.add('function_calling');
-                              else caps.delete('function_calling');
-                              setNewCM({...newCM(), capabilities: Array.from(caps)});
-                            }}
-                          />
-                          Supports Function Calling (Tools)
-                        </label>
-                      </div>
-                    </div>
-                    <div class="text-xs text-gray-600">{newCMStatus()}</div>
-                  </div>
-                  <div class="px-6 py-4 border-t flex justify-end gap-2">
-                    <button onClick={() => setShowAddCustom(false)} class="px-3 py-1.5 rounded-lg border">Cancel</button>
-                    <button 
-                      onClick={async () => {
-                        setNewCMStatus("Testing...")
-                        const res = await fetch('/api/models/test/custom', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ base_url: newCM().base_url, api_key: newCM().api_key, model: newCM().model })
-                        });
-                        const data = await res.json();
-                        setNewCMStatus(data.ok ? "Connection OK" : `Failed: ${data.error || 'Unknown error'}`)
-                      }} 
-                      class="px-3 py-1.5 rounded-lg border bg-white"
-                    >
-                      Test
-                    </button>
-                    <button 
-                      onClick={async () => {
-                        if (!newCM().name) { setNewCMStatus("Name is required"); return; }
-                        await fetch('/api/models/custom', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ name: newCM().name, base_url: newCM().base_url, api_key: newCM().api_key, model: newCM().model, capabilities: newCM().capabilities })
-                        });
-                        const cmRes = await fetch('/api/models/custom');
-                        setCustomModels(await cmRes.json());
-                        setShowAddCustom(false);
-                        setNewCM({name:"",provider:"openai",model:"",capabilities:[]});
-                        setNewCMStatus("");
-                      }} 
-                      class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </Show>
-
-            {/* Model Manager Modal */}
-            <Show when={showModelManager()}>
-              <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-                <div class="w-[600px] bg-white rounded-2xl border shadow-xl overflow-hidden flex flex-col max-h-[80vh]">
-                  <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
-                    <div class="font-bold text-lg">Manage Models: {managingProvider()}</div>
-                    <button onClick={() => setShowModelManager(false)} class="text-gray-500 hover:text-gray-700">✕</button>
-                  </div>
-                  
-                  <div class="p-4 border-b bg-white flex justify-between items-center">
-                    <div class="text-sm text-gray-500">
-                      Select models to make available in the chat interface.
-                    </div>
-                    <div class="flex gap-2">
-                      <button 
-                        onClick={() => setEnabledModels(new Set(managedModels()))}
-                        class="text-xs px-2 py-1 text-emerald-600 hover:bg-emerald-50 rounded"
-                      >
-                        Select All
-                      </button>
-                      <button 
-                        onClick={() => setEnabledModels(new Set())}
-                        class="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded"
-                      >
-                        Deselect All
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="flex-1 overflow-y-auto p-2">
-                    <Show when={!isLoadingModels()} fallback={
-                      <div class="flex justify-center items-center py-10">
-                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
-                      </div>
-                    }>
-                      <div class="grid grid-cols-1 gap-1">
-                        <For each={managedModels()}>
-                          {(model) => {
-                            const inferredCaps = () => adminModelCapabilities()[model] || [];
-                            const explicitCaps = () => capabilityOverrides()[model];
-                            const hasOverride = () => explicitCaps() !== undefined;
-                            const activeCaps = () => explicitCaps() ?? inferredCaps();
-
-                          const toggleCap = (cap: string, e: Event) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const currentActive = new Set(activeCaps());
-                            if (currentActive.has(cap)) {
-                              currentActive.delete(cap);
-                            } else {
-                              currentActive.add(cap);
-                            }
-                            setCapabilityOverrides({
-                              ...capabilityOverrides(),
-                              [model]: Array.from(currentActive)
-                            });
-                          };
-
-                          const resetCaps = (e: Event) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const newOverrides = { ...capabilityOverrides() };
-                            delete newOverrides[model];
-                            setCapabilityOverrides(newOverrides);
-                          };
-
-                          return (
-                            <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors group">
-                              <label class="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
-                                <input 
-                                  type="checkbox" 
-                                  class="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300"
-                                  checked={enabledModels().has(model)} 
-                                  onChange={(e) => {
-                                    const newSet = new Set(enabledModels());
-                                    if (e.currentTarget.checked) {
-                                      newSet.add(model);
-                                    } else {
-                                      newSet.delete(model);
-                                    }
-                                    setEnabledModels(newSet);
-                                  }}
-                                />
-                                <span class={`text-sm truncate ${enabledModels().has(model) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
-                                  {model}
-                                </span>
-                              </label>
-                              <div class="flex items-center gap-1.5 ml-4">
-                                <For each={['vision', 'reasoning', 'function_calling']}>
-                                  {(cap) => {
-                                    const isActive = () => activeCaps().includes(cap);
-                                    const label = cap === 'function_calling' ? 'Tools' : cap.charAt(0).toUpperCase() + cap.slice(1);
-                                    
-                                    return (
-                                      <button
-                                        onClick={(e) => toggleCap(cap, e)}
-                                        class={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                                          isActive() 
-                                            ? hasOverride() 
-                                              ? 'bg-emerald-100 border-emerald-300 text-emerald-700 font-medium' 
-                                              : 'bg-gray-100 border-gray-200 text-gray-600'
-                                            : 'bg-transparent border-gray-100 text-gray-400 hover:border-gray-300'
-                                        }`}
-                                        title={isActive() ? `Supports ${label}` : `Does not support ${label}`}
-                                      >
-                                        {label}
-                                      </button>
-                                    );
-                                  }}
-                                </For>
-                                <Show when={hasOverride()}>
-                                  <button
-                                    onClick={resetCaps}
-                                    class="ml-1 text-[10px] text-gray-400 hover:text-red-500"
-                                    title="Reset to auto-inferred capabilities"
-                                  >
-                                    ↺ Reset
-                                  </button>
-                                </Show>
-                              </div>
-                            </div>
-                          );
-                        }}
-                      </For>
-                      <Show when={managedModels().length === 0}>
-                        <div class="p-8 text-center text-gray-500">
-                          No models found for this provider.
-                        </div>
-                      </Show>
-                    </div>
-                  </Show>
-                  </div>
-
-                  <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2">
-                    <button 
-                      onClick={() => setShowModelManager(false)} 
-                      class="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-sm font-medium"
-                      disabled={isSavingModels()}
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      onClick={saveManagedModels} 
-                      class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={isSavingModels()}
-                    >
-                      {isSavingModels() ? 'Saving...' : 'Save Changes'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </Show>
-
-            {/* Network Settings */}
-            <div class="border-t pt-6">
-              <h4 class="text-lg font-bold mb-3 flex items-center gap-2">
-                <span class="p-1 bg-emerald-100 text-emerald-600 rounded">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" />
-                  </svg>
-                </span>
-                Global Network & Timeout
-              </h4>
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                  <div>
-                    <div class="text-xs font-bold text-gray-600 mb-1">PROXY_URL</div>
-                    <input 
-                      class="w-full border rounded-lg p-2 bg-white" 
-                      placeholder="http://127.0.0.1:7890" 
-                      value={llmForm().proxy_url || ''} 
-                      onInput={e => setLlmForm({ ...llmForm(), proxy_url: e.currentTarget.value })}
-                    />
-                    <div class="text-[10px] text-gray-400 mt-1">HTTP/HTTPS proxy for LLM requests</div>
-                  </div>
-                  <div>
-                    <div class="text-xs font-bold text-gray-600 mb-1">NO_PROXY</div>
-                    <input 
-                      class="w-full border rounded-lg p-2 bg-white" 
-                      placeholder="e.g. *.openai.azure.com" 
-                      value={llmForm().no_proxy || ''} 
-                      onInput={e => setLlmForm({ ...llmForm(), no_proxy: e.currentTarget.value })}
-                    />
-                    <div class="text-[10px] text-gray-400 mt-1">Bypass list (loopback included by default)</div>
-                  </div>
-                  <div>
-                    <div class="text-xs font-bold text-gray-600 mb-1">SSL_CERT_FILE</div>
-                    <input 
-                      class="w-full border rounded-lg p-2 bg-white" 
-                      placeholder="/path/to/cert.pem" 
-                      value={llmForm().ssl_cert_file || ''} 
-                      onInput={e => setLlmForm({ ...llmForm(), ssl_cert_file: e.currentTarget.value })}
-                    />
-                    <div class="text-[10px] text-gray-400 mt-1">Custom CA certificate bundle path</div>
-                  </div>
-                  <div>
-                    <div class="text-xs font-bold text-gray-600 mb-1">REQUEST_TIMEOUT (s)</div>
-                    <input 
-                      type="number"
-                      class="w-full border rounded-lg p-2 bg-white" 
-                      placeholder="60" 
-                      value={llmForm().llm_request_timeout || ''} 
-                      onInput={e => setLlmForm({ ...llmForm(), llm_request_timeout: e.currentTarget.value })}
-                    />
-                    <div class="text-[10px] text-gray-400 mt-1">Timeout in seconds (default: 60)</div>
-                  </div>
-                </div>
-            </div>
-
-            <div class="border-t pt-6">
-              <h4 class="text-lg font-bold mb-3 flex items-center gap-2">
-                <span class="p-1 bg-blue-100 text-blue-600 rounded">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10 2a1 1 0 00-1 1v1.07A7.002 7.002 0 003 10a7 7 0 0014 0 7.002 7.002 0 00-6-6.93V3a1 1 0 00-1-1z" />
-                  </svg>
-                </span>
-                Session Meta Behavior
-              </h4>
-              <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                <label class="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    checked={Boolean(llmForm().meta_use_runtime_model_for_title)}
-                    onChange={e => setLlmForm({ ...llmForm(), meta_use_runtime_model_for_title: e.currentTarget.checked })}
-                  />
-                  <div>
-                    <div class="text-sm font-semibold text-gray-800">meta_use_runtime_model_for_title</div>
-                    <div class="text-xs text-gray-600 mt-1">
-                      开启后，标题生成会优先使用当前会话运行时所选模型；关闭后，标题与摘要都优先走 Meta 固定模型配置。
-                    </div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <div class="pt-4 sticky bottom-0 bg-white pb-4">
-              <button 
-                onClick={saveLlmConfig}
-                class="bg-emerald-600 text-white px-10 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg hover:shadow-emerald-200"
-              >
-                Save All LLM Settings
-              </button>
-            </div>
-            <Show when={showEditProvider()}>
-              <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-                <div class="w-[680px] bg-white rounded-2xl border shadow-xl overflow-hidden">
-                  <div class="px-6 py-4 border-b flex justify-between items-center">
-                    <div class="font-bold text-lg">Edit Provider: {editingProvider()}</div>
-                    <button onClick={() => setShowEditProvider(false)} class="text-gray-500">✕</button>
-                  </div>
-                  <div class="p-6 space-y-4">
-                    <Show when={editingProvider() === 'openai'}>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">OPENAI_API_KEY</div>
-                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().openai_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), openai_api_key: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">OPENAI_BASE_URL (Optional)</div>
-                          <input class="w-full border rounded-lg p-2" placeholder="https://openrouter.ai/api/v1" value={llmForm().openai_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), openai_base_url: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">openai_model</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().openai_model || ''} onInput={e => setLlmForm({ ...llmForm(), openai_model: e.currentTarget.value })}/>
-                        </div>
-                      </div>
-                    </Show>
-                    <Show when={editingProvider() === 'deepseek'}>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">DEEPSEEK_API_KEY</div>
-                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().deepseek_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), deepseek_api_key: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">deepseek_model</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().deepseek_model || ''} onInput={e => setLlmForm({ ...llmForm(), deepseek_model: e.currentTarget.value })}/>
-                        </div>
-                      </div>
-                    </Show>
-                    <Show when={editingProvider() === 'gemini'}>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">GEMINI_API_KEY</div>
-                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().gemini_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), gemini_api_key: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">GEMINI_BASE_URL</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().gemini_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), gemini_base_url: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">gemini_model</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().gemini_model || ''} onInput={e => setLlmForm({ ...llmForm(), gemini_model: e.currentTarget.value })}/>
-                        </div>
-                      </div>
-                    </Show>
-                    <Show when={editingProvider() === 'ollama'}>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">OLLAMA_BASE_URL</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().ollama_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), ollama_base_url: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">ollama_model</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().ollama_model || ''} onInput={e => setLlmForm({ ...llmForm(), ollama_model: e.currentTarget.value })}/>
-                        </div>
-                      </div>
-                    </Show>
-                    <Show when={editingProvider() === 'zhipu'}>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">ZHIPU_API_KEY</div>
-                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().zhipu_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), zhipu_api_key: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">ZHIPU_BASE_URL</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().zhipu_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), zhipu_base_url: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">zhipu_model</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().zhipu_model || ''} onInput={e => setLlmForm({ ...llmForm(), zhipu_model: e.currentTarget.value })}/>
-                        </div>
-                      </div>
-                    </Show>
-                    <Show when={editingProvider() === 'azure_openai'}>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_ENDPOINT</div>
-                          <input class="w-full border rounded-lg p-2" placeholder="https://xxx.openai.azure.com" value={llmForm().azure_openai_endpoint || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_endpoint: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_BASE_URL (Resource Path)</div>
-                          <input class="w-full border rounded-lg p-2" placeholder="https://xxx.openai.azure.com/openai" value={llmForm().azure_openai_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_base_url: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_DEPLOYMENT (Chat)</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_deployment || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_deployment: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_EMBEDDING_DEPLOYMENT</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_embedding_deployment || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_embedding_deployment: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_API_VERSION</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_openai_api_version || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_api_version: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_TENANT_ID</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_tenant_id || ''} onInput={e => setLlmForm({ ...llmForm(), azure_tenant_id: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_CLIENT_ID</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().azure_client_id || ''} onInput={e => setLlmForm({ ...llmForm(), azure_client_id: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_CLIENT_SECRET</div>
-                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().azure_client_secret || ''} onInput={e => setLlmForm({ ...llmForm(), azure_client_secret: e.currentTarget.value })}/>
-                        </div>
-                        <div class="md:col-span-2">
-                          <div class="text-xs font-bold text-gray-600 mb-1">AZURE_OPENAI_TOKEN (Optional)</div>
-                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().azure_openai_token || ''} onInput={e => setLlmForm({ ...llmForm(), azure_openai_token: e.currentTarget.value })}/>
-                        </div>
-                      </div>
-                    </Show>
-                    <Show when={editingProvider() === 'litellm'}>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">LITELLM_BASE_URL</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().litellm_base_url || ''} onInput={e => setLlmForm({ ...llmForm(), litellm_base_url: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">LITELLM_API_KEY</div>
-                          <input class="w-full border rounded-lg p-2" type="password" value={llmForm().litellm_api_key || ''} onInput={e => setLlmForm({ ...llmForm(), litellm_api_key: e.currentTarget.value })}/>
-                        </div>
-                        <div>
-                          <div class="text-xs font-bold text-gray-600 mb-1">litellm_model</div>
-                          <input class="w-full border rounded-lg p-2" value={llmForm().litellm_model || ''} onInput={e => setLlmForm({ ...llmForm(), litellm_model: e.currentTarget.value })}/>
-                        </div>
-                      </div>
-                    </Show>
-                  </div>
-                  <div class="px-6 py-4 border-t flex justify-end gap-2">
-                    <button onClick={() => setShowEditProvider(false)} class="px-3 py-1.5 rounded-lg border">Cancel</button>
-                    <button onClick={saveProviderEditor} class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white">Save</button>
-                  </div>
-                </div>
-              </div>
-            </Show>
-          </div>
+          <LlmSettingsTab
+            providers={providers}
+            llmForm={llmForm}
+            setLlmForm={setLlmForm}
+            customModels={customModels}
+            setCustomModels={setCustomModels}
+            isRefreshingProviders={isRefreshingProviders}
+            setIsRefreshingProviders={setIsRefreshingProviders}
+            showAddCustom={showAddCustom}
+            setShowAddCustom={setShowAddCustom}
+            newCM={newCM}
+            setNewCM={setNewCM}
+            newCMStatus={newCMStatus}
+            setNewCMStatus={setNewCMStatus}
+            showEditProvider={showEditProvider}
+            setShowEditProvider={setShowEditProvider}
+            editingProvider={editingProvider}
+            showModelManager={showModelManager}
+            setShowModelManager={setShowModelManager}
+            managingProvider={managingProvider}
+            managedModels={managedModels}
+            enabledModels={enabledModels}
+            setEnabledModels={setEnabledModels}
+            capabilityOverrides={capabilityOverrides}
+            setCapabilityOverrides={setCapabilityOverrides}
+            adminModelCapabilities={adminModelCapabilities}
+            isLoadingModels={isLoadingModels}
+            isSavingModels={isSavingModels}
+            refreshProviders={refreshProviders}
+            saveLlmConfig={saveLlmConfig}
+            testProvider={testProvider}
+            openProviderEditor={openProviderEditor}
+            saveProviderEditor={saveProviderEditor}
+            openModelManager={openModelManager}
+            saveManagedModels={saveManagedModels}
+            deleteCustomModel={deleteCustomModel}
+            testCustomModel={testCustomModel}
+          />
         </Show>
       <Show when={toast()}>
         <div class="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300" role="status" aria-live="polite">

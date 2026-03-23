@@ -69,9 +69,11 @@
 > **状态**: 待启动
 > **详情文档**: [codebase_refactor_plan_20260319.md](./codebase_refactor_plan_20260319.md)
 > **子计划（chat.py 专项）**: [chat_api_stream_simplification_plan_20260322.md](./chat_api_stream_simplification_plan_20260322.md)
+> **子计划（Settings.tsx 专项）**: [settings_tsx_modularization_plan_20260323.md](./settings_tsx_modularization_plan_20260323.md)
 > **目标**: 拆解 `chat.py` 和 `Settings.tsx` 等超过 500 行的庞大组件。
 - [ ] **Phase 1: 后端重构 (chat/doc)** (模块化拆解核心服务)
-- [ ] **Phase 2: 前端重构 (Settings/MessageItem)** (组件级解耦)
+- [ ] **Phase 2a: 前端重构 (Settings.tsx 专项)** (拆解 settings 页面 tabs、modals、hooks)
+- [ ] **Phase 2b: 前端重构 (MessageItem 专项)** (消息项组件解耦)
 
 ---
 
