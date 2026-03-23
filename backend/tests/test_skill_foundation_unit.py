@@ -2,7 +2,15 @@ import pytest
 import os
 import tempfile
 import platform
-from app.services.skill_service import SkillLoader, SkillValidator, SkillSpec, SkillRegistry, SkillRouter
+from app.services.skill_service import (
+    MarkdownSkillAdapter,
+    SkillConstraints,
+    SkillLoader,
+    SkillRegistry,
+    SkillRouter,
+    SkillSpec,
+    SkillValidator,
+)
 
 def test_skill_loader_parse_markdown():
     content = """---
@@ -404,6 +412,66 @@ def test_skill_router_offline_replay_hit_rate():
             hit += 1
     hit_rate = hit / valid
     assert hit_rate >= 0.8
+
+
+def test_skill_router_uses_injected_skill_group_store():
+    registry = SkillRegistry()
+    registry.register(
+        SkillSpec(
+            name="group-skill",
+            version="1.0.0",
+            description="group skill",
+            capabilities=["group"],
+            entrypoint="system_prompt",
+            system_prompt="group",
+            os=[platform.system().lower()],
+        )
+    )
+    fake_group_store = type(
+        "FakeGroupStore",
+        (),
+        {"get_skill_refs_by_group_ids": lambda self, group_ids: ["group-skill:1.0.0"] if group_ids == ["g1"] else []},
+    )()
+    router = SkillRouter(registry, skill_group_store=fake_group_store)
+    agent = type(
+        "Agent",
+        (),
+        {
+            "skill_groups": ["g1"],
+            "resolved_visible_skills": [],
+            "extra_visible_skills": [],
+            "visible_skills": [],
+        },
+    )()
+
+    visible = router.get_visible_skills(agent)
+
+    assert len(visible) == 1
+    assert visible[0].name == "group-skill"
+
+
+def test_markdown_skill_adapter_descriptor_includes_prompt_blocks_and_constraints():
+    skill = SkillSpec(
+        name="adapter-skill",
+        version="1.0.0",
+        description="adapter",
+        capabilities=["adapter"],
+        entrypoint="system_prompt",
+        system_prompt="System prompt",
+        instructions="Follow instructions",
+        examples="Example block",
+        failure_handling="Retry safely",
+        constraints=SkillConstraints(allowed_tools=["builtin:docs_read"], timeout=30),
+    )
+
+    descriptor = MarkdownSkillAdapter.to_descriptor(skill)
+
+    assert descriptor.prompt_blocks["system_prompt"] == "System prompt"
+    assert descriptor.prompt_blocks["instructions"] == "Follow instructions"
+    assert descriptor.prompt_blocks["examples"] == "Example block"
+    assert descriptor.prompt_blocks["failure_handling"] == "Retry safely"
+    assert descriptor.tool_policy["allowed_tools"] == ["builtin:docs_read"]
+    assert descriptor.constraints["timeout"] == 30
 
 if __name__ == "__main__":
     pytest.main([__file__])

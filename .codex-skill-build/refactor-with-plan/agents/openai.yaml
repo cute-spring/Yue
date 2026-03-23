@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refactor With Plan"
+  short_description: "Plan-first modular refactors"
+  default_prompt: "Use $refactor-with-plan to analyze this module, write a plan under docs/plans, and then execute a phased low-risk refactor."

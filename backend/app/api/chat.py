@@ -26,7 +26,8 @@ from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.services.multimodal_service import MultimodalService, MultimodalValidationError
 from app.services.session_meta_service import session_meta_service
-from app.services.skill_service import skill_registry, skill_router, SkillPolicyGate, MarkdownSkillAdapter
+from app.services.skill_service import skill_registry, skill_router
+from app.services.skills import SkillPolicyGate, MarkdownSkillAdapter
 from app.services import doc_retrieval
 from app.services.chat_prompting import (
     estimate_tokens,
