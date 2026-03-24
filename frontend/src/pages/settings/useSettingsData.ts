@@ -8,6 +8,7 @@ import type {
   McpTool,
   Preferences,
 } from './types';
+import { DEFAULT_PREFERENCES, normalizePreferences } from './types';
 
 export type SettingsDataSnapshot = {
   mcpConfigText: string;
@@ -21,12 +22,6 @@ export type SettingsDataSnapshot = {
   docAccess: DocAccess;
   docAllowText: string;
   docDenyText: string;
-};
-
-const defaultPrefs: Preferences = {
-  theme: 'light',
-  language: 'en',
-  default_agent: 'default',
 };
 
 const normalizeDocAccess = (value: any): DocAccess => ({
@@ -58,7 +53,7 @@ export function useSettingsData() {
     const agents = (await agentsRes.json()) as Agent[];
 
     const prefsRes = await fetch('/api/config/preferences');
-    const prefs = (await prefsRes.json()) as Preferences;
+    const prefsRaw = (await prefsRes.json()) as Preferences;
 
     const docAccessRes = await fetch('/api/config/doc_access');
     const rawDocAccess = await docAccessRes.json();
@@ -72,7 +67,7 @@ export function useSettingsData() {
       llmForm,
       customModels,
       agents,
-      prefs: prefs || defaultPrefs,
+      prefs: normalizePreferences(prefsRaw || DEFAULT_PREFERENCES),
       docAccess,
       docAllowText: docAccess.allow_roots.join('\n'),
       docDenyText: docAccess.deny_roots.join('\n'),

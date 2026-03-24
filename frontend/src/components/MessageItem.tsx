@@ -4,6 +4,9 @@ import { renderMarkdown } from '../utils/markdown';
 import { getAdaptedThought } from "../utils/thoughtParser";
 import ToolCallItem from './ToolCallItem';
 import MessageExportMenu from './MessageExportMenu';
+import SpeechControl from './SpeechControl';
+import { getSpeechMessageId } from '../utils/speech';
+import { useMaybeSpeechController } from '../context/SpeechControllerContext';
 
 interface MessageItemProps {
   msg: Message;
@@ -65,6 +68,7 @@ export const getVisionFeedbackText = (
 };
 
 export default function MessageItem(props: MessageItemProps) {
+  const speechController = useMaybeSpeechController();
   const [waitSecs, setWaitSecs] = createSignal(0);
   let timer: any;
 
@@ -148,6 +152,19 @@ export default function MessageItem(props: MessageItemProps) {
   };
   const visionBadge = () => getVisionBadge(props.msg);
   const visionFeedbackText = () => getVisionFeedbackText(props.msg);
+  const speechMessageId = () => getSpeechMessageId(props.msg, props.index);
+  const speechState = () => speechController?.getMessageState(speechMessageId()) || 'idle';
+  const handleSpeechShortcut = (e: KeyboardEvent) => {
+    if (props.msg.role !== 'assistant') return;
+    if (!speechController?.supported()) return;
+    if (e.defaultPrevented) return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key.toLowerCase() !== 'r') return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button, input, textarea, select, [contenteditable="true"]')) return;
+    e.preventDefault();
+    speechController.toggleMessage(speechMessageId(), props.msg.content);
+  };
 
   const renderThought = (thought: string | null) => {
     if (!thought) return null;
@@ -343,11 +360,17 @@ export default function MessageItem(props: MessageItemProps) {
           {props.msg.role === 'user' ? 'You' : props.activeAgentName}
         </span>
       </div>
-      <div id={`message-container-${props.index}`} class={`group relative max-w-[85%] lg:max-w-[75%] ${
+      <div
+        id={`message-container-${props.index}`}
+        tabIndex={props.msg.role === 'assistant' ? 0 : -1}
+        onKeyDown={handleSpeechShortcut}
+        aria-label={props.msg.role === 'assistant' ? 'Assistant message. Press R to read aloud or stop.' : undefined}
+        class={`group relative max-w-[85%] lg:max-w-[75%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
         props.msg.role === 'user' 
           ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-primary/20 rounded-[26px] rounded-br-none overflow-hidden' 
           : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none'
-      }`}>
+      }`}
+      >
         {props.msg.role === 'user' ? (
            <>
              <div class="absolute inset-0 pointer-events-none overflow-hidden">
@@ -687,7 +710,7 @@ export default function MessageItem(props: MessageItemProps) {
         </Show>
 
         <Show when={props.msg.role === 'assistant' && !props.isTyping}>
-          <div class="export-exclude flex items-center gap-1 mt-3 -ml-2">
+          <div class="export-exclude flex items-center gap-1.5 mt-3 -ml-2">
             <button 
               class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
               title="Copy" 
@@ -697,11 +720,13 @@ export default function MessageItem(props: MessageItemProps) {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
               </svg>
             </button>
-            <button class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" title="Read Aloud">
-               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 14.142M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-               </svg>
-            </button>
+            <SpeechControl messageId={speechMessageId()} content={props.msg.content} />
+            <Show when={speechState() === 'speaking' || speechState() === 'paused'}>
+              <div class="px-2 py-1 rounded-md border border-primary/20 bg-primary/5 text-[10px] font-semibold text-primary flex items-center gap-1.5">
+                <span class={`w-1.5 h-1.5 rounded-full ${speechState() === 'speaking' ? 'bg-primary animate-pulse' : 'bg-primary/60'}`}></span>
+                {speechState() === 'speaking' ? 'Speaking now' : 'Paused'}
+              </div>
+            </Show>
              <button 
                class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
                title="Download/Export"

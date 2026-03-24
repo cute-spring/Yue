@@ -466,7 +466,14 @@ class ConfigService:
         return self._config.get("preferences", {
             "theme": "light",
             "language": "en",
-            "default_agent": "default"
+            "default_agent": "default",
+            "auto_speech_enabled": False,
+            "speech_voice": "",
+            "speech_rate": 1.0,
+            "speech_volume": 1.0,
+            "speech_engine": "browser",
+            "speech_openai_voice": "alloy",
+            "speech_openai_model": "gpt-4o-mini-tts",
         })
 
     def get_doc_access(self) -> Dict[str, Any]:

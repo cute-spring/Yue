@@ -221,6 +221,18 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
     assert result["allow_roots"] == ["/env/a", "/env/b"]
     assert result["deny_roots"] == ["/env/x", "/env/y"]
 
+
+def test_preferences_include_speech_defaults(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+    prefs = service.get_preferences()
+    assert prefs["auto_speech_enabled"] is False
+    assert prefs["speech_voice"] == ""
+    assert prefs["speech_rate"] == 1.0
+    assert prefs["speech_volume"] == 1.0
+    assert prefs["speech_engine"] == "browser"
+    assert prefs["speech_openai_voice"] == "alloy"
+    assert prefs["speech_openai_model"] == "gpt-4o-mini-tts"
+
 def test_tool_call_mismatch_config_defaults(temp_config_file, monkeypatch):
     monkeypatch.delenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", raising=False)
     monkeypatch.delenv("TOOL_CALL_MISMATCH_FALLBACK_MODEL", raising=False)

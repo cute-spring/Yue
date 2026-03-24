@@ -25,11 +25,21 @@ import { modelSupportsVision, useLLMProviders } from '../hooks/useLLMProviders';
 import { useAgents } from '../hooks/useAgents';
 import { canSubmitChatRequest, getAgentVisibleSkills, useChatState } from '../hooks/useChatState';
 import { useMermaid } from '../hooks/useMermaid';
+import { SpeechControllerProvider, useSpeechController } from '../context/SpeechControllerContext';
+import { DEFAULT_PREFERENCES, Preferences, normalizePreferences } from './settings/types';
+import { getSpeechMessageId } from '../utils/speech';
 
-export default function Chat() {
+function ChatContent(props: { speechPrefs: () => Preferences }) {
   const toast = useToast();
+  const speech = useSpeechController();
   const [requestedSkill, setRequestedSkill] = createSignal<string | null>(null);
   const [skills, setSkills] = createSignal<SkillSpec[]>([]);
+  const speechStatusText = createMemo(() => {
+    if (!speech.supported()) return 'Read aloud is unavailable in this browser.';
+    if (speech.isPaused()) return 'Read aloud paused.';
+    if (speech.isSpeaking()) return 'Read aloud started.';
+    return 'Read aloud stopped.';
+  });
   
   // History & Knowledge State
   const [showHistory, setShowHistory] = createSignal(true); // Default to true on desktop
@@ -109,8 +119,10 @@ export default function Chat() {
     copyUserMessage,
     quoteUserMessage,
     handleRegenerate,
+    lastGenerationOutcome,
     handleSubmit: originalHandleSubmit,
   } = chatState;
+  const [lastAutoSpokenKey, setLastAutoSpokenKey] = createSignal('');
 
   const loadSkills = async () => {
     try {
@@ -142,6 +154,7 @@ export default function Chat() {
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
+    speech.stopCurrent();
 
     if (isTyping()) {
       originalHandleSubmit(e);
@@ -191,6 +204,7 @@ export default function Chat() {
 
   const handleContinue = (msg: Message) => {
     void msg;
+    speech.stopCurrent();
     setInput("继续");
     setTimeout(() => {
       handleSubmit(new Event('submit'));
@@ -198,6 +212,7 @@ export default function Chat() {
   };
 
   const handleGenerateSummary = async (chatId: string) => {
+    speech.stopCurrent();
     const summary = await generateSummary(chatId, true);
     if (summary) {
       toast.success('Summary updated');
@@ -239,6 +254,25 @@ export default function Chat() {
       if (isThinking && !expandedThoughts()[lastIdx]) {
         setExpandedThoughts(prev => ({ ...prev, [lastIdx]: true }));
       }
+    }
+  });
+
+  createEffect(() => {
+    const outcome = lastGenerationOutcome();
+    const typing = isTyping();
+    const prefs = props.speechPrefs();
+    const msgs = messages();
+    if (typing || outcome !== 'success' || !prefs.auto_speech_enabled) return;
+    const lastIndex = msgs.length - 1;
+    if (lastIndex < 0) return;
+    const msg = msgs[lastIndex];
+    if (msg.role !== 'assistant') return;
+    if (!msg.content?.trim() || msg.error || msg.content.startsWith('Error:')) return;
+    const messageId = getSpeechMessageId(msg, lastIndex);
+    const messageKey = `${messageId}:${msg.content.length}:${msg.total_duration ?? 0}`;
+    if (messageKey === lastAutoSpokenKey()) return;
+    if (speech.speakMessage(messageId, msg.content)) {
+      setLastAutoSpokenKey(messageKey);
     }
   });
   
@@ -445,12 +479,21 @@ export default function Chat() {
 
   return (
     <div class="flex h-full bg-background overflow-hidden relative">
+      <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {speechStatusText()}
+      </div>
       <ChatSidebar 
         showHistory={showHistory()} 
         chats={chats()} 
         currentChatId={currentChatId()} 
-        onNewChat={() => startNewChat(isMobile(), setShowHistory)} 
-        onLoadChat={(id) => loadChat(id, isMobile(), setShowHistory, setSelectedAgent)} 
+        onNewChat={() => {
+          speech.stopCurrent();
+          startNewChat(isMobile(), setShowHistory);
+        }} 
+        onLoadChat={(id) => {
+          speech.stopCurrent();
+          loadChat(id, isMobile(), setShowHistory, setSelectedAgent);
+        }} 
         onDeleteChat={(id) => setConfirmDeleteId(id)} 
         onGenerateSummary={handleGenerateSummary}
       />
@@ -601,6 +644,7 @@ export default function Chat() {
         onConfirm={() => {
           const id = confirmDeleteId();
           if (id) {
+            speech.stopCurrent();
             deleteChat(id);
             setConfirmDeleteId(null);
           }
@@ -608,5 +652,25 @@ export default function Chat() {
         onCancel={() => setConfirmDeleteId(null)}
       />
     </div>
+  );
+}
+
+export default function Chat() {
+  const [speechPrefs, setSpeechPrefs] = createSignal<Preferences>(DEFAULT_PREFERENCES);
+
+  onMount(async () => {
+    try {
+      const res = await fetch('/api/config/preferences');
+      const raw = await res.json();
+      setSpeechPrefs(normalizePreferences(raw));
+    } catch (e) {
+      console.warn('Failed to load speech preferences', e);
+    }
+  });
+
+  return (
+    <SpeechControllerProvider prefs={speechPrefs}>
+      <ChatContent speechPrefs={speechPrefs} />
+    </SpeechControllerProvider>
   );
 }
