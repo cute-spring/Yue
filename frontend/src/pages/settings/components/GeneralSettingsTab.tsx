@@ -1,5 +1,6 @@
-import { For, type Accessor, type Setter } from 'solid-js';
+import { For, Show, createSignal, onCleanup, type Accessor, type Setter } from 'solid-js';
 import type { Agent, DocAccess, Preferences } from '../types';
+import { useSpeechSynthesis } from '../../../hooks/useSpeechSynthesis';
 
 type GeneralSettingsTabProps = {
   prefs: Accessor<Preferences>;
@@ -16,14 +17,125 @@ type GeneralSettingsTabProps = {
 };
 
 export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
+  const speech = useSpeechSynthesis();
+  const [isPreviewing, setIsPreviewing] = createSignal(false);
+  const [previewError, setPreviewError] = createSignal('');
+  let formRef: HTMLFormElement | undefined;
+  let previewAudio: HTMLAudioElement | null = null;
+  let previewAudioUrl: string | null = null;
+
+  const clearPreviewAudio = () => {
+    if (previewAudio) {
+      previewAudio.pause();
+      previewAudio.onended = null;
+      previewAudio.onerror = null;
+      previewAudio = null;
+    }
+    if (previewAudioUrl) {
+      URL.revokeObjectURL(previewAudioUrl);
+      previewAudioUrl = null;
+    }
+    setIsPreviewing(false);
+  };
+
+  const stopPreview = () => {
+    clearPreviewAudio();
+    speech.stop();
+    setPreviewError('');
+  };
+
+  const previewSample = async () => {
+    if (!formRef) return;
+    if (isPreviewing()) {
+      stopPreview();
+      return;
+    }
+    setPreviewError('');
+    const formData = new FormData(formRef);
+    const engine = formData.get('speech_engine') === 'openai' ? 'openai' : 'browser';
+    const rate = Number(formData.get('speech_rate') ?? props.prefs().speech_rate);
+    const volume = Number(formData.get('speech_volume') ?? props.prefs().speech_volume);
+    const previewText = '你好，这是一段语音试听。This is a voice preview for mixed Chinese and English.';
+
+    if (engine === 'browser') {
+      if (!speech.supported()) {
+        setPreviewError('Current browser does not support speech synthesis preview.');
+        return;
+      }
+      const voiceUri = String(formData.get('speech_voice') || '');
+      const voice = speech.voices().find(v => v.voiceURI === voiceUri) || null;
+      setIsPreviewing(true);
+      const ok = speech.speak(previewText, {
+        rate: Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1.0,
+        volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1.0,
+        voice,
+        onEnd: () => setIsPreviewing(false),
+        onError: () => {
+          setIsPreviewing(false);
+          setPreviewError('Browser voice preview failed.');
+        },
+      });
+      if (!ok) {
+        setIsPreviewing(false);
+        setPreviewError('Browser voice preview failed.');
+      }
+      return;
+    }
+
+    try {
+      setIsPreviewing(true);
+      const response = await fetch('/api/speech/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: previewText,
+          engine: 'openai',
+          voice: String(formData.get('speech_openai_voice') || 'alloy'),
+          model: String(formData.get('speech_openai_model') || 'gpt-4o-mini-tts'),
+          format: 'mp3',
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('empty audio');
+      previewAudioUrl = URL.createObjectURL(blob);
+      previewAudio = new Audio(previewAudioUrl);
+      previewAudio.onended = () => clearPreviewAudio();
+      previewAudio.onerror = () => {
+        clearPreviewAudio();
+        setPreviewError('OpenAI voice preview playback failed.');
+      };
+      await previewAudio.play();
+    } catch (e: any) {
+      clearPreviewAudio();
+      setPreviewError(`OpenAI voice preview failed: ${e?.message || 'Unknown error'}`);
+    }
+  };
+
+  onCleanup(() => {
+    stopPreview();
+  });
+
   const savePreferences = (event: SubmitEvent) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const formData = new FormData(form);
+    const rate = Number(formData.get('speech_rate') ?? props.prefs().speech_rate);
+    const volume = Number(formData.get('speech_volume') ?? props.prefs().speech_volume);
     const next: Preferences = {
       theme: String(formData.get('theme') || props.prefs().theme),
       language: String(formData.get('language') || props.prefs().language),
       default_agent: String(formData.get('default_agent') || props.prefs().default_agent),
+      auto_speech_enabled: formData.get('auto_speech_enabled') !== null,
+      speech_voice: String(formData.get('speech_voice') || ''),
+      speech_rate: Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1.0,
+      speech_volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1.0,
+      speech_engine: formData.get('speech_engine') === 'openai' ? 'openai' : 'browser',
+      speech_openai_voice: String(formData.get('speech_openai_voice') || 'alloy'),
+      speech_openai_model: String(formData.get('speech_openai_model') || 'gpt-4o-mini-tts'),
     };
 
     props.setPrefs(next);
@@ -32,7 +144,7 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
 
   return (
     <div class="max-w-2xl space-y-6">
-      <form class="grid gap-4" onSubmit={savePreferences}>
+      <form ref={formRef} class="grid gap-4" onSubmit={savePreferences}>
         <h3 class="text-xl font-semibold border-b pb-2">User Preferences</h3>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Theme</label>
@@ -87,6 +199,121 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
               )}
             </For>
           </select>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
+          <h4 class="text-sm font-semibold text-gray-800">Speech Synthesis</h4>
+          <label class="flex items-center justify-between gap-3">
+            <span class="text-sm font-medium text-gray-700">Auto-read assistant replies</span>
+            <input
+              type="checkbox"
+              name="auto_speech_enabled"
+              class="h-4 w-4 accent-emerald-600"
+              checked={props.prefs().auto_speech_enabled}
+            />
+          </label>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Speech Engine</label>
+            <select name="speech_engine" class="w-full border rounded-lg p-2 bg-white">
+              <option value="browser" selected={props.prefs().speech_engine === 'browser'}>
+                Browser (Free)
+              </option>
+              <option value="openai" selected={props.prefs().speech_engine === 'openai'}>
+                OpenAI (High Quality)
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Speech Rate ({props.prefs().speech_rate.toFixed(1)}x)
+            </label>
+            <input
+              type="range"
+              name="speech_rate"
+              min="0.5"
+              max="2"
+              step="0.1"
+              value={props.prefs().speech_rate}
+              class="w-full"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Volume ({Math.round(props.prefs().speech_volume * 100)}%)
+            </label>
+            <input
+              type="range"
+              name="speech_volume"
+              min="0"
+              max="1"
+              step="0.1"
+              value={props.prefs().speech_volume}
+              class="w-full"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Browser Voice</label>
+            <select
+              name="speech_voice"
+              class="w-full border rounded-lg p-2 bg-white disabled:opacity-60"
+              disabled={!speech.supported()}
+            >
+              <option value="" selected={props.prefs().speech_voice === ''}>
+                Browser Default
+              </option>
+              <For each={speech.voices()}>
+                {(voice) => (
+                  <option value={voice.voiceURI} selected={props.prefs().speech_voice === voice.voiceURI}>
+                    {voice.name} ({voice.lang})
+                  </option>
+                )}
+              </For>
+            </select>
+          </div>
+          <div class="grid gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">OpenAI Voice</label>
+              <select name="speech_openai_voice" class="w-full border rounded-lg p-2 bg-white">
+                <option value="alloy" selected={props.prefs().speech_openai_voice === 'alloy'}>Alloy</option>
+                <option value="ash" selected={props.prefs().speech_openai_voice === 'ash'}>Ash</option>
+                <option value="coral" selected={props.prefs().speech_openai_voice === 'coral'}>Coral</option>
+                <option value="echo" selected={props.prefs().speech_openai_voice === 'echo'}>Echo</option>
+                <option value="fable" selected={props.prefs().speech_openai_voice === 'fable'}>Fable</option>
+                <option value="onyx" selected={props.prefs().speech_openai_voice === 'onyx'}>Onyx</option>
+                <option value="nova" selected={props.prefs().speech_openai_voice === 'nova'}>Nova</option>
+                <option value="sage" selected={props.prefs().speech_openai_voice === 'sage'}>Sage</option>
+                <option value="shimmer" selected={props.prefs().speech_openai_voice === 'shimmer'}>Shimmer</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">OpenAI TTS Model</label>
+              <select name="speech_openai_model" class="w-full border rounded-lg p-2 bg-white">
+                <option value="gpt-4o-mini-tts" selected={props.prefs().speech_openai_model === 'gpt-4o-mini-tts'}>gpt-4o-mini-tts</option>
+                <option value="gpt-4o-tts" selected={props.prefs().speech_openai_model === 'gpt-4o-tts'}>gpt-4o-tts</option>
+                <option value="tts-1" selected={props.prefs().speech_openai_model === 'tts-1'}>tts-1</option>
+                <option value="tts-1-hd" selected={props.prefs().speech_openai_model === 'tts-1-hd'}>tts-1-hd</option>
+              </select>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500">
+            Browser engine is free but quality depends on OS/browser voices. OpenAI usually sounds more natural.
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => { void previewSample(); }}
+              class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isPreviewing() ? 'bg-rose-600 hover:bg-rose-700 text-white' : 'bg-sky-600 hover:bg-sky-700 text-white'
+              }`}
+            >
+              {isPreviewing() ? 'Stop Preview' : 'Preview Voice'}
+            </button>
+            <span class="text-xs text-gray-500">Uses current form values, no need to save first.</span>
+          </div>
+          <Show when={previewError()}>
+            <div class="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">
+              {previewError()}
+            </div>
+          </Show>
         </div>
         <div>
           <button

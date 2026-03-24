@@ -21,6 +21,7 @@ import type {
   NewCustomModelDraft,
   Preferences,
 } from './settings/types';
+import { DEFAULT_PREFERENCES, normalizePreferences } from './settings/types';
 
 type Tab = 'general' | 'mcp' | 'llm';
 
@@ -80,9 +81,7 @@ type Tab = 'general' | 'mcp' | 'llm';
   
   // General Preferences State
   const [prefs, setPrefs] = createSignal<Preferences>({
-    theme: 'light',
-    language: 'en',
-    default_agent: 'default'
+    ...DEFAULT_PREFERENCES
   });
   const [docAccess, setDocAccess] = createSignal<DocAccess>({
     allow_roots: [],
@@ -164,7 +163,7 @@ type Tab = 'general' | 'mcp' | 'llm';
   };
 
   const savePrefs = async (nextPrefs?: Preferences) => {
-    const payload = nextPrefs ?? prefs();
+    const payload = normalizePreferences(nextPrefs ?? prefs());
     setPrefs(payload);
     await fetch('/api/config/preferences', {
       method: 'POST',

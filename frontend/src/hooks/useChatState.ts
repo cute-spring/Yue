@@ -136,6 +136,7 @@ export function useChatState(
   const [imageAttachments, setImageAttachments] = createSignal<File[]>([]);
   const [copiedMessageIndex, setCopiedMessageIndex] = createSignal<number | null>(null);
   const [activeSkill, setActiveSkill] = createSignal<{ name: string; version: string } | null>(null);
+  const [lastGenerationOutcome, setLastGenerationOutcome] = createSignal<'success' | 'aborted' | 'error' | null>(null);
   
   let abortController: AbortController | null = null;
   let timerInterval: any = null;
@@ -387,6 +388,7 @@ export function useChatState(
     setInput("");
     setImageAttachments([]);
     setIsTyping(true);
+    setLastGenerationOutcome(null);
     setActiveSkill(null);
     setElapsedTime(0);
     const startTime = Date.now();
@@ -408,6 +410,7 @@ export function useChatState(
     abortController = new AbortController();
 
     try {
+      let assistantHadError = false;
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -619,6 +622,7 @@ export function useChatState(
               return newMsgs;
             });
           } else if (data.error) {
+            assistantHadError = true;
             const errorCode = typeof data.error_code === 'string' ? data.error_code : undefined;
             const visionFeedback = getVisionStreamFeedback(
               {
@@ -664,12 +668,19 @@ export function useChatState(
         }
         return newMsgs;
       });
+      if (assistantHadError) {
+        setLastGenerationOutcome('error');
+      } else {
+        setLastGenerationOutcome('success');
+      }
     } catch (err: any) {
       if (err.name === 'AbortError') {
         console.log('Generation stopped by user');
+        setLastGenerationOutcome('aborted');
       } else {
         console.error("Chat error:", err);
         toast.error("Connection error: " + (err.message || "Unknown error"));
+        setLastGenerationOutcome('error');
       }
     } finally {
       setIsTyping(false);
@@ -757,6 +768,7 @@ export function useChatState(
     setCopiedMessageIndex,
     activeSkill,
     setActiveSkill,
+    lastGenerationOutcome,
     loadHistory,
     loadChat,
     startNewChat,
