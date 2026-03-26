@@ -54,6 +54,11 @@
 - **[Skill Architecture Analysis](architecture/Skill_Architecture_Analysis_Report.md)** - 技能系统架构分析
 - **[Architecture Decisions](architecture/decisions/)** - 架构决策记录 (ADR)
 
+### 3.5 💾 实现文档 ([implementation/](implementation/))
+已完成的功能实现与技术演进记录。
+
+- **[Vector Search with sqlite-vec](implementation/VECTOR_SEARCH_SQLITE_VEC_IMPLEMENTATION.md)** - 向量搜索实现（2026-03-27）
+
 ### 4. 📝 执行计划 ([plans/](plans/))
 架构演进与功能开发的详细执行计划。
 

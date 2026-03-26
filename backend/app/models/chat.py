@@ -40,6 +40,7 @@ class Message(Base):
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
     finish_reason = Column(String, nullable=True)
+    embedding = Column(Text, nullable=True)
 
     session = relationship("Session", back_populates="messages")
     tool_calls = relationship("ToolCall", back_populates="message", cascade="all, delete-orphan")
