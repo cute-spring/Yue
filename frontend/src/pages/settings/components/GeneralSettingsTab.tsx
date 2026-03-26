@@ -129,6 +129,10 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
       theme: String(formData.get('theme') || props.prefs().theme),
       language: String(formData.get('language') || props.prefs().language),
       default_agent: String(formData.get('default_agent') || props.prefs().default_agent),
+      voice_input_enabled: formData.get('voice_input_enabled') !== null,
+      voice_input_provider: formData.get('voice_input_provider') === 'azure' ? 'azure' : 'browser',
+      voice_input_language: String(formData.get('voice_input_language') || 'auto'),
+      voice_input_show_interim: formData.get('voice_input_show_interim') !== null,
       auto_speech_enabled: formData.get('auto_speech_enabled') !== null,
       speech_voice: String(formData.get('speech_voice') || ''),
       speech_rate: Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1.0,
@@ -199,6 +203,58 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
               )}
             </For>
           </select>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
+          <h4 class="text-sm font-semibold text-gray-800">Voice Input</h4>
+          <div class="text-xs text-gray-500">
+            Voice input now works in two steps: listen first, then review a voice draft and insert it into the composer when it looks right.
+          </div>
+          <label class="flex items-center justify-between gap-3">
+            <span class="text-sm font-medium text-gray-700">Enable voice input</span>
+            <input
+              type="checkbox"
+              name="voice_input_enabled"
+              class="h-4 w-4 accent-emerald-600"
+              checked={props.prefs().voice_input_enabled}
+            />
+          </label>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Default Voice Provider</label>
+            <select name="voice_input_provider" class="w-full border rounded-lg p-2 bg-white">
+              <option value="browser" selected={props.prefs().voice_input_provider === 'browser'}>
+                Browser Speech API
+              </option>
+              <option value="azure" selected={props.prefs().voice_input_provider === 'azure'}>
+                Azure Speech (when current agent is configured)
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Recognition Language</label>
+            <select name="voice_input_language" class="w-full border rounded-lg p-2 bg-white">
+              <option value="auto" selected={props.prefs().voice_input_language === 'auto'}>
+                Auto (Follow app language, then browser language)
+              </option>
+              <option value="zh-CN" selected={props.prefs().voice_input_language === 'zh-CN'}>
+                Chinese (Simplified)
+              </option>
+              <option value="en-US" selected={props.prefs().voice_input_language === 'en-US'}>
+                English (US)
+              </option>
+            </select>
+          </div>
+          <label class="flex items-center justify-between gap-3">
+            <span class="text-sm font-medium text-gray-700">Show live voice preview while listening</span>
+            <input
+              type="checkbox"
+              name="voice_input_show_interim"
+              class="h-4 w-4 accent-emerald-600"
+              checked={props.prefs().voice_input_show_interim}
+            />
+          </label>
+          <div class="text-xs text-gray-500">
+            Auto mode follows the app language first. For Chinese input, choose Chinese explicitly or keep the app in Chinese. The live preview appears in the voice status card, not directly in the message box.
+          </div>
         </div>
         <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
           <h4 class="text-sm font-semibold text-gray-800">Speech Synthesis</h4>

@@ -114,6 +114,15 @@
       "."
     ]
   },
+  "preferences": {
+    "theme": "light",
+    "language": "en",
+    "default_agent": "default",
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_input_language": "auto",
+    "voice_input_show_interim": true
+  },
   "tool_call_mismatch": {
     "auto_retry_enabled": true,
     "fallback_model": "gpt-4o-mini"

@@ -5,6 +5,14 @@ export type Agent = {
   provider: string;
   model: string;
   enabled_tools: string[];
+  voice_input_enabled?: boolean;
+  voice_input_provider?: 'browser' | 'azure';
+  voice_azure_config?: {
+    region?: string;
+    endpoint_id?: string;
+    api_key?: string;
+    api_key_configured?: boolean;
+  } | null;
   skill_mode?: SkillMode;
   visible_skills?: string[];
   agent_kind?: 'traditional' | 'universal';

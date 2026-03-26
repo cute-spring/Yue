@@ -5,6 +5,14 @@ export type Agent = {
   provider: string;
   model: string;
   enabled_tools: string[];
+  voice_input_enabled?: boolean;
+  voice_input_provider?: 'browser' | 'azure';
+  voice_azure_config?: {
+    region?: string;
+    endpoint_id?: string;
+    api_key?: string;
+    api_key_configured?: boolean;
+  } | null;
 };
 
 export type LLMProvider = {
@@ -54,6 +62,10 @@ export type Preferences = {
   theme: string;
   language: string;
   default_agent: string;
+  voice_input_enabled: boolean;
+  voice_input_provider: 'browser' | 'azure';
+  voice_input_language: string;
+  voice_input_show_interim: boolean;
   auto_speech_enabled: boolean;
   speech_voice: string;
   speech_rate: number;
@@ -67,6 +79,10 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'light',
   language: 'en',
   default_agent: 'default',
+  voice_input_enabled: true,
+  voice_input_provider: 'browser',
+  voice_input_language: 'auto',
+  voice_input_show_interim: true,
   auto_speech_enabled: false,
   speech_voice: '',
   speech_rate: 1.0,
@@ -85,6 +101,16 @@ export const normalizePreferences = (value: any): Preferences => {
     theme: typeof value?.theme === 'string' ? value.theme : DEFAULT_PREFERENCES.theme,
     language: typeof value?.language === 'string' ? value.language : DEFAULT_PREFERENCES.language,
     default_agent: typeof value?.default_agent === 'string' ? value.default_agent : DEFAULT_PREFERENCES.default_agent,
+    voice_input_enabled: typeof value?.voice_input_enabled === 'boolean'
+      ? value.voice_input_enabled
+      : DEFAULT_PREFERENCES.voice_input_enabled,
+    voice_input_provider: value?.voice_input_provider === 'azure' ? 'azure' : 'browser',
+    voice_input_language: typeof value?.voice_input_language === 'string' && value.voice_input_language.trim()
+      ? value.voice_input_language
+      : DEFAULT_PREFERENCES.voice_input_language,
+    voice_input_show_interim: typeof value?.voice_input_show_interim === 'boolean'
+      ? value.voice_input_show_interim
+      : DEFAULT_PREFERENCES.voice_input_show_interim,
     auto_speech_enabled: typeof value?.auto_speech_enabled === 'boolean' ? value.auto_speech_enabled : DEFAULT_PREFERENCES.auto_speech_enabled,
     speech_voice: typeof value?.speech_voice === 'string' ? value.speech_voice : DEFAULT_PREFERENCES.speech_voice,
     speech_rate: Number.isFinite(rate) ? clamp(rate, 0.5, 2.0) : DEFAULT_PREFERENCES.speech_rate,

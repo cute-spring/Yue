@@ -14,6 +14,88 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+class AzureSpeechConfigPublic(BaseModel):
+    region: str = ""
+    endpoint_id: str = ""
+    api_key_configured: bool = False
+
+
+class AgentConfigPublic(BaseModel):
+    id: str
+    name: str
+    system_prompt: str
+    provider: str = "openai"
+    model: str = "gpt-4o"
+    enabled_tools: list[str] = []
+    doc_roots: list[str] = []
+    doc_file_patterns: list[str] = []
+    require_citations: bool = False
+    skill_mode: str = "off"
+    visible_skills: list[str] = []
+    agent_kind: str = "traditional"
+    skill_groups: list[str] = []
+    extra_visible_skills: list[str] = []
+    resolved_visible_skills: list[str] = []
+    voice_input_enabled: bool = True
+    voice_input_provider: str = "browser"
+    voice_azure_config: AzureSpeechConfigPublic | None = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+def _to_public_agent(agent: AgentConfig) -> AgentConfigPublic:
+    payload = agent.model_dump(mode="json")
+    raw_cfg = payload.get("voice_azure_config") or {}
+    if not isinstance(raw_cfg, dict):
+        raw_cfg = {}
+    payload["voice_azure_config"] = AzureSpeechConfigPublic(
+        region=str(raw_cfg.get("region") or ""),
+        endpoint_id=str(raw_cfg.get("endpoint_id") or ""),
+        api_key_configured=bool(str(raw_cfg.get("api_key") or "").strip()),
+    ).model_dump()
+    return AgentConfigPublic.model_validate(payload)
+
+
+def _normalize_voice_input_provider(value: object) -> str:
+    raw = str(value or "browser").strip().lower()
+    return "azure" if raw == "azure" else "browser"
+
+
+def _merge_voice_config(existing: Optional[dict], incoming: object) -> Optional[dict]:
+    if incoming is None:
+        return existing if isinstance(existing, dict) else None
+    if not isinstance(incoming, dict):
+        return existing if isinstance(existing, dict) else None
+
+    region = str(incoming.get("region") or "").strip()
+    endpoint_id = str(incoming.get("endpoint_id") or "").strip()
+    api_key = str(incoming.get("api_key") or "").strip()
+    prev = existing if isinstance(existing, dict) else {}
+    if not api_key:
+        api_key = str(prev.get("api_key") or "").strip()
+
+    next_cfg = {
+        "region": region,
+        "endpoint_id": endpoint_id,
+        "api_key": api_key,
+    }
+    if not region and not endpoint_id and not api_key:
+        return None
+    return next_cfg
+
+
+def _prepare_agent_payload(existing: Optional[AgentConfig], payload: dict) -> dict:
+    normalized = dict(payload)
+    normalized["voice_input_provider"] = _normalize_voice_input_provider(payload.get("voice_input_provider"))
+    if "voice_input_enabled" in normalized:
+        normalized["voice_input_enabled"] = bool(normalized["voice_input_enabled"])
+    normalized["voice_azure_config"] = _merge_voice_config(
+        existing.voice_azure_config if existing else None,
+        payload.get("voice_azure_config"),
+    )
+    return normalized
+
+
 def _normalize_enabled_tools(raw: list[str], available_tools: list[dict]) -> list[str]:
     name_to_ids: dict[str, list[str]] = {}
     for t in available_tools:
@@ -144,9 +226,9 @@ class GenerateAgentResponse(BaseModel):
     tool_reasons: dict[str, str] = {}
     tool_risks: dict[str, str] = {}
 
-@router.get("/", response_model=List[AgentConfig])
+@router.get("/", response_model=List[AgentConfigPublic])
 async def list_agents():
-    return agent_store.list_agents()
+    return [_to_public_agent(agent) for agent in agent_store.list_agents()]
 
 @router.post("/generate", response_model=GenerateAgentResponse)
 async def generate_agent(req: GenerateAgentRequest):
@@ -245,28 +327,34 @@ async def generate_agent(req: GenerateAgentRequest):
     parsed.enabled_tools = _normalize_enabled_tools(tools, available_tools)
     return parsed
 
-@router.get("/{agent_id}", response_model=AgentConfig)
+@router.get("/{agent_id}", response_model=AgentConfigPublic)
 async def get_agent(agent_id: str):
     agent = agent_store.get_agent(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return agent
+    return _to_public_agent(agent)
 
-@router.post("/", response_model=AgentConfig)
+@router.post("/", response_model=AgentConfigPublic)
 async def create_agent(agent: AgentConfig):
     tools = await mcp_manager.get_available_tools()
     agent.enabled_tools = _normalize_enabled_tools(agent.enabled_tools, tools)
-    return agent_store.create_agent(agent)
+    raw_payload = _prepare_agent_payload(None, agent.model_dump())
+    created = agent_store.create_agent(AgentConfig(**raw_payload))
+    return _to_public_agent(created)
 
-@router.put("/{agent_id}", response_model=AgentConfig)
+@router.put("/{agent_id}", response_model=AgentConfigPublic)
 async def update_agent(agent_id: str, updates: dict = Body(...)):
     if "enabled_tools" in updates and isinstance(updates["enabled_tools"], list):
         tools = await mcp_manager.get_available_tools()
         updates["enabled_tools"] = _normalize_enabled_tools(updates["enabled_tools"], tools)
-    agent = agent_store.update_agent(agent_id, updates)
+    existing = agent_store.get_agent(agent_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    prepared = _prepare_agent_payload(existing, updates)
+    agent = agent_store.update_agent(agent_id, prepared)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return agent
+    return _to_public_agent(agent)
 
 @router.delete("/{agent_id}")
 async def delete_agent(agent_id: str):

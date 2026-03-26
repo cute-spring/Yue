@@ -9,13 +9,44 @@ NC='\033[0m' # No Color
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FAILED=0
 MODE="${1:-full}"
+FRONTEND_DEV_PID=""
+FRONTEND_DEV_LOG=""
 
 echo -e "${GREEN}🔍 Starting Full Stack Quality Check...${NC}"
 
 fail_and_exit() {
+    cleanup_frontend_dev_server
     echo -e "\n------------------------------------"
     echo -e "${RED}🚩 Some checks failed. Please review the logs above.${NC}"
     exit 1
+}
+
+cleanup_frontend_dev_server() {
+    if [ -n "$FRONTEND_DEV_PID" ] && kill -0 "$FRONTEND_DEV_PID" >/dev/null 2>&1; then
+        kill "$FRONTEND_DEV_PID" >/dev/null 2>&1 || true
+        wait "$FRONTEND_DEV_PID" >/dev/null 2>&1 || true
+    fi
+    FRONTEND_DEV_PID=""
+}
+
+start_frontend_dev_server() {
+    FRONTEND_DEV_LOG="$(mktemp)"
+    npm run dev -- --host 127.0.0.1 --port 3000 >"$FRONTEND_DEV_LOG" 2>&1 &
+    FRONTEND_DEV_PID=$!
+
+    for _ in $(seq 1 20); do
+        if curl -sf "http://127.0.0.1:3000/" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo -e "${RED}❌ Frontend dev server failed to start for Playwright.${NC}"
+    if [ -f "$FRONTEND_DEV_LOG" ]; then
+        cat "$FRONTEND_DEV_LOG"
+    fi
+    cleanup_frontend_dev_server
+    return 1
 }
 
 run_env_precheck() {
@@ -85,7 +116,7 @@ else
 fi
 
 # 4. Frontend: Unit Tests
-echo -e "\n${YELLOW}--- [4/4] Frontend: Vitest ---${NC}"
+echo -e "\n${YELLOW}--- [4/5] Frontend: Vitest ---${NC}"
 if [ -d "node_modules" ]; then
     if npm run test; then
         echo -e "${GREEN}✅ Frontend unit tests passed.${NC}"
@@ -98,6 +129,22 @@ else
     fail_and_exit
 fi
 
+# 5. Frontend: Voice Input E2E Regression
+echo -e "\n${YELLOW}--- [5/5] Frontend: Playwright Voice Input Regression ---${NC}"
+if [ -d "node_modules" ]; then
+    if start_frontend_dev_server && npx playwright test e2e/voice-input.spec.ts; then
+        echo -e "${GREEN}✅ Frontend voice input Playwright regression passed.${NC}"
+        cleanup_frontend_dev_server
+    else
+        echo -e "${RED}❌ Frontend voice input Playwright regression failed.${NC}"
+        fail_and_exit
+    fi
+else
+    echo -e "${RED}⚠️  Frontend node_modules not found. Skipping Playwright regression.${NC}"
+    fail_and_exit
+fi
+
 echo -e "\n------------------------------------"
 echo -e "${GREEN}✨ All checks passed! Ready to commit.${NC}"
+cleanup_frontend_dev_server
 exit 0

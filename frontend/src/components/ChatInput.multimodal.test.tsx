@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canSubmitFromInput, getUploadButtonClass, getVisionCapabilityHint, mergeImageAttachments, removeImageAttachmentAt } from './ChatInput';
+import { canSubmitFromInput, getUploadButtonClass, getVisionCapabilityHint, getVoiceInputButtonClass, getVoiceInputProviderLabel, mergeImageAttachments, removeImageAttachmentAt } from './ChatInput';
 
 const makeFile = (name: string, size: number): File => {
   const content = new Array(size).fill('a').join('');
@@ -44,5 +44,18 @@ describe('ChatInput multimodal helpers', () => {
     expect(getVisionCapabilityHint(true, false, 2)).toBe('当前模型不支持视觉能力，图片请求将被拒绝或降级为纯文本。');
     expect(getVisionCapabilityHint(true, true, 2)).toBe('');
     expect(getVisionCapabilityHint(false, false, 2)).toBe('');
+  });
+
+  it('returns voice input button states for idle, recording, processing, and unavailable modes', () => {
+    expect(getVoiceInputButtonClass(true, true, false, false)).toContain('text-slate-500');
+    expect(getVoiceInputButtonClass(true, true, true, false)).toContain('bg-rose-500');
+    expect(getVoiceInputButtonClass(true, true, false, true)).toContain('bg-sky-500');
+    expect(getVoiceInputButtonClass(false, true, false, false)).toContain('cursor-not-allowed');
+    expect(getVoiceInputButtonClass(true, false, false, false)).toContain('cursor-not-allowed');
+  });
+
+  it('returns readable labels for voice input providers', () => {
+    expect(getVoiceInputProviderLabel('azure')).toBe('Azure Speech');
+    expect(getVoiceInputProviderLabel('browser')).toBe('Browser dictation');
   });
 });

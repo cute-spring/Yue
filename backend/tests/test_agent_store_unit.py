@@ -151,6 +151,9 @@ def test_agent_config_defaults_include_agent_kind():
     assert cfg.agent_kind == "traditional"
     assert cfg.skill_groups == []
     assert cfg.extra_visible_skills == []
+    assert cfg.voice_input_enabled is True
+    assert cfg.voice_input_provider == "browser"
+    assert cfg.voice_azure_config is None
 
 
 def test_agent_store_loads_legacy_record_with_new_defaults(temp_dirs):
@@ -179,3 +182,6 @@ def test_agent_store_loads_legacy_record_with_new_defaults(temp_dirs):
     assert loaded.agent_kind == "traditional"
     assert loaded.skill_groups == []
     assert loaded.extra_visible_skills == []
+    assert loaded.voice_input_enabled is True
+    assert loaded.voice_input_provider == "browser"
+    assert loaded.voice_azure_config is None

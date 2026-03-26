@@ -23,6 +23,10 @@
 ```bash
 ./check.sh
 ```
+当前 `./check.sh` 也会自动启动前端开发服务器，并执行语音输入专项 Playwright 回归：
+```bash
+cd frontend && npx playwright test e2e/voice-input.spec.ts
+```
 
 ### 1) Backend Integration Suite
 - **Location**: `backend/tests/test_comprehensive_api.py`
@@ -72,6 +76,12 @@ cd frontend && npm run test:e2e -- skills-runtime-ui.spec.ts
 - **Command**: `cd frontend && npx playwright test`
 - **Scope**: Navigation, Agent Creation, Settings, Chat Workflow, MCP Toggles.
 - **Key File**: `frontend/e2e/comprehensive-workflow.spec.ts` (Validates full user journey).
+
+### 2.1) Voice Input Regression (Mandatory)
+- **Location**: `frontend/e2e/voice-input.spec.ts`
+- **Command**: `cd frontend && npx playwright test e2e/voice-input.spec.ts`
+- **Scope**: Browser dictation writes into composer, Azure Speech cloud STT commit, Azure failure fallback to Browser dictation.
+- **Gate**: Included in root `./check.sh`.
 
 ## Phase 3 Verification Results (2026-02-09)
 
