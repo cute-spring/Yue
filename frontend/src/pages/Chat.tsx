@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show, createEffect, createMemo } from 'solid-js';
+import { createSignal, onMount, onCleanup, Show, createEffect, createMemo } from 'solid-js';
 import { Message, SkillSpec, VisibleSkillChip } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
@@ -28,12 +28,15 @@ import { useMermaid } from '../hooks/useMermaid';
 import { SpeechControllerProvider, useSpeechController } from '../context/SpeechControllerContext';
 import { DEFAULT_PREFERENCES, Preferences, normalizePreferences } from './settings/types';
 import { getSpeechMessageId } from '../utils/speech';
+import { composeVoiceInputText, useVoiceInput } from '../hooks/useVoiceInput';
 
 function ChatContent(props: { speechPrefs: () => Preferences }) {
   const toast = useToast();
   const speech = useSpeechController();
   const [requestedSkill, setRequestedSkill] = createSignal<string | null>(null);
   const [skills, setSkills] = createSignal<SkillSpec[]>([]);
+  const [voiceCommitLockText, setVoiceCommitLockText] = createSignal<string | null>(null);
+  const [composerKey, setComposerKey] = createSignal(1);
   const speechStatusText = createMemo(() => {
     if (!speech.supported()) return 'Read aloud is unavailable in this browser.';
     if (speech.isPaused()) return 'Read aloud paused.';
@@ -54,6 +57,8 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
   let chatContainerRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let imageInputRef: HTMLInputElement | undefined;
+  let voiceCommitLockTimer: ReturnType<typeof setTimeout> | null = null;
+  let voiceCommitReplayTimers: ReturnType<typeof setTimeout>[] = [];
 
   const {
     providers,
@@ -84,6 +89,7 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
     filteredAgents,
     selectAgent
   } = useAgents(() => textareaRef);
+  const currentAgent = () => agents().find(a => a.id === selectedAgent());
 
   const chatState = useChatState(
     selectedProvider,
@@ -120,8 +126,74 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
     quoteUserMessage,
     handleRegenerate,
     lastGenerationOutcome,
+    submitText,
     handleSubmit: originalHandleSubmit,
   } = chatState;
+  const voiceInput = useVoiceInput(() => ({
+    language: props.speechPrefs().voice_input_language,
+    appLanguage: props.speechPrefs().language,
+    provider: currentAgent()?.voice_input_provider === 'azure' && currentAgent()?.voice_azure_config?.api_key_configured
+      ? 'azure'
+      : (props.speechPrefs().voice_input_provider === 'azure' && currentAgent()?.voice_azure_config?.api_key_configured
+        ? 'azure'
+        : 'browser'),
+    agentId: currentAgent()?.id || null,
+  }));
+
+  const focusTextareaToEnd = () => {
+    if (!textareaRef) return;
+    textareaRef.focus();
+    const next = textareaRef.value.length;
+    textareaRef.setSelectionRange(next, next);
+  };
+
+  const applyVoiceCommittedText = (next: string) => {
+    setInput(next);
+    if (textareaRef && textareaRef.value !== next) {
+      textareaRef.value = next;
+    }
+  };
+
+  const lockVoiceCommittedText = (next: string) => {
+    if (voiceCommitLockTimer) clearTimeout(voiceCommitLockTimer);
+    voiceCommitReplayTimers.forEach(clearTimeout);
+    voiceCommitReplayTimers = [];
+    setVoiceCommitLockText(next);
+    voiceCommitLockTimer = setTimeout(() => {
+      voiceCommitLockTimer = null;
+      setVoiceCommitLockText(null);
+    }, 5000);
+    for (const delay of [0, 30, 80, 160, 320, 640, 1000, 1800, 3000, 4500]) {
+      const timer = setTimeout(() => {
+        applyVoiceCommittedText(next);
+      }, delay);
+      voiceCommitReplayTimers.push(timer);
+    }
+  };
+
+  const clearVoiceCommitLock = () => {
+    setVoiceCommitLockText(null);
+    if (voiceCommitLockTimer) {
+      clearTimeout(voiceCommitLockTimer);
+      voiceCommitLockTimer = null;
+    }
+    voiceCommitReplayTimers.forEach(clearTimeout);
+    voiceCommitReplayTimers = [];
+  };
+
+  createEffect(() => {
+    if (props.speechPrefs().voice_input_enabled && currentAgent()?.voice_input_enabled !== false) return;
+    if (voiceInput.isRecording() || voiceInput.isProcessing()) {
+      voiceInput.cancelRecording();
+    }
+    voiceInput.clearDraft();
+  });
+
+  createEffect(() => {
+    const lockedText = voiceCommitLockText();
+    if (lockedText === null) return;
+    applyVoiceCommittedText(lockedText);
+  });
   const [lastAutoSpokenKey, setLastAutoSpokenKey] = createSignal('');
 
   const loadSkills = async () => {
@@ -155,6 +227,16 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
   const handleSubmit = (e: Event) => {
     e.preventDefault();
     speech.stopCurrent();
+
+    if (voiceInput.isRecording() || voiceInput.isProcessing()) {
+      voiceInput.stopRecording();
+      return;
+    }
+
+    if (voiceInput.phase() === 'ready') {
+      handleInsertVoiceInput();
+      return;
+    }
 
     if (isTyping()) {
       originalHandleSubmit(e);
@@ -365,7 +447,6 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
     return agent ? agent.name : 'AI Assistant';
   };
 
-  const currentAgent = () => agents().find(a => a.id === selectedAgent());
   const versionKey = (value: string) => value.split(/(\d+)/).map(token => (token.match(/^\d+$/) ? Number(token) : token));
   const compareVersion = (a: string, b: string) => {
     const ka = versionKey(a);
@@ -441,6 +522,36 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
   const handleInput = (e: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
     const target = e.currentTarget;
     const value = target.value;
+    voiceInput.clearError();
+
+    const lockedText = voiceCommitLockText();
+    if (lockedText !== null && value !== lockedText) {
+      target.value = lockedText;
+      setInput(lockedText);
+      return;
+    }
+    if (lockedText !== null && value === lockedText) {
+      clearVoiceCommitLock();
+    }
+
+    if (voiceInput.phase() !== 'idle') {
+      const voiceOnlyPreview = composeVoiceInputText(
+        voiceInput.baseText(),
+        voiceInput.transcript(),
+        voiceInput.interimTranscript(),
+        true,
+      );
+      const voiceCommittedPreview = composeVoiceInputText(
+        voiceInput.baseText(),
+        voiceInput.transcript(),
+        '',
+        false,
+      );
+      if (value === voiceOnlyPreview || value === voiceCommittedPreview) {
+        target.value = input();
+        return;
+      }
+    }
     
     const pos = target.selectionStart || 0;
     const textBefore = value.substring(0, pos);
@@ -456,7 +567,100 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
     setInput(value);
   };
 
+  const handleToggleVoiceInput = async () => {
+    voiceInput.clearError();
+    if (voiceInput.isRecording() || voiceInput.isProcessing()) {
+      voiceInput.stopRecording();
+      return;
+    }
+    setComposerKey((key) => key + 1);
+    await voiceInput.startRecording(input());
+  };
+
+  const handleCancelVoiceInput = () => {
+    if (voiceInput.isRecording() || voiceInput.isProcessing()) {
+      voiceInput.cancelRecording();
+      setComposerKey((key) => key + 1);
+      return;
+    }
+    voiceInput.clearDraft();
+    setComposerKey((key) => key + 1);
+  };
+
+  const handleInsertVoiceInput = (options?: { lock?: boolean; focus?: boolean }) => {
+    const shouldLock = options?.lock ?? true;
+    const shouldFocus = options?.focus ?? true;
+    const next = voiceInput.consumeDraft();
+    if (shouldLock) {
+      lockVoiceCommittedText(next);
+    } else {
+      clearVoiceCommitLock();
+    }
+    applyVoiceCommittedText(next);
+    setComposerKey((key) => key + 1);
+    if (shouldFocus) {
+      queueMicrotask(() => focusTextareaToEnd());
+    }
+  };
+
+  const handleInsertAndSubmitVoiceInput = () => {
+    const next = voiceInput.consumeDraft();
+    clearVoiceCommitLock();
+    setComposerKey((key) => key + 1);
+    speech.stopCurrent();
+    void submitText(next);
+  };
+
+  const handleVoiceDraftShortcut = (e: KeyboardEvent): boolean => {
+    if (voiceInput.phase() !== 'ready') return false;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleInsertAndSubmitVoiceInput();
+      return true;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleInsertVoiceInput();
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancelVoiceInput();
+      return true;
+    }
+    return false;
+  };
+
+  createEffect(() => {
+    if (voiceInput.phase() !== 'ready') return;
+    queueMicrotask(() => focusTextareaToEnd());
+  });
+
+  onMount(() => {
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      handleVoiceDraftShortcut(event);
+    };
+    window.addEventListener('keydown', onWindowKeyDown);
+    onCleanup(() => {
+      window.removeEventListener('keydown', onWindowKeyDown);
+    });
+  });
+
   const handleKeyDown = (e: KeyboardEvent & { currentTarget: HTMLTextAreaElement }) => {
+    if (voiceCommitLockText() !== null && voiceInput.phase() === 'idle') {
+      const isModifier = e.metaKey || e.ctrlKey || e.altKey;
+      const editableKey =
+        e.key.length === 1 ||
+        e.key === 'Backspace' ||
+        e.key === 'Delete' ||
+        e.key === 'Enter' ||
+        e.key === 'Tab';
+      if (!isModifier && editableKey) {
+        clearVoiceCommitLock();
+      }
+    }
+    if (handleVoiceDraftShortcut(e)) return;
     if (showAgentSelector()) {
       const list = filteredAgents();
       if (e.key === 'ArrowDown') {
@@ -590,6 +794,8 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
           isTyping={isTyping()}
           activeAgentName={activeAgentName()}
           textareaRef={el => textareaRef = el}
+          inputReadOnly={voiceInput.phase() !== 'idle'}
+          composerKey={composerKey()}
           showLLMSelector={showLLMSelector()}
           setShowLLMSelector={setShowLLMSelector}
           selectedModel={selectedModel()}
@@ -610,6 +816,22 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
           requestedSkill={requestedSkill()}
           onSelectSkill={setRequestedSkill}
           skillMode={currentAgent()?.skill_mode}
+          voiceInputEnabled={props.speechPrefs().voice_input_enabled && currentAgent()?.voice_input_enabled !== false}
+          voiceInputSupported={voiceInput.supported()}
+          voiceInputProvider={voiceInput.provider()}
+          voiceInputPreferredProvider={voiceInput.preferredProvider()}
+          voiceInputIsRecording={voiceInput.isRecording()}
+          voiceInputIsProcessing={voiceInput.isProcessing()}
+          voiceInputHasDraft={voiceInput.hasDraft()}
+          voiceInputPhase={voiceInput.phase()}
+          voiceInputPreviewText={props.speechPrefs().voice_input_show_interim ? voiceInput.previewText() : ''}
+          voiceInputInterimTranscript={voiceInput.interimTranscript()}
+          voiceInputError={voiceInput.error()}
+          voiceInputFallbackMessage={voiceInput.fallbackMessage()}
+          onToggleVoiceInput={() => { void handleToggleVoiceInput(); }}
+          onCancelVoiceInput={handleCancelVoiceInput}
+          onInsertVoiceInput={handleInsertVoiceInput}
+          onSendVoiceInput={handleInsertAndSubmitVoiceInput}
         />
       </div>
 

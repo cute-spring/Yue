@@ -126,6 +126,25 @@ export function AgentCard(props: AgentCardProps) {
           </div>
         </div>
       </Show>
+      <Show when={props.agent.voice_input_enabled !== false}>
+        <div class="flex items-center gap-2 mt-2 overflow-hidden">
+          <span class="text-xs font-semibold text-gray-400 shrink-0">VOICE</span>
+          <div class="flex flex-wrap gap-1">
+            <span class={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${
+              props.agent.voice_input_provider === 'azure'
+                ? 'bg-sky-50 text-sky-700 border-sky-100'
+                : 'bg-gray-100 text-gray-600 border-gray-200'
+            }`}>
+              {props.agent.voice_input_provider === 'azure' ? 'Azure STT' : 'Browser'}
+            </span>
+            <Show when={props.agent.voice_input_provider === 'azure'}>
+              <span class="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-100">
+                {props.agent.voice_azure_config?.api_key_configured ? 'Token ready' : 'Needs key'}
+              </span>
+            </Show>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }

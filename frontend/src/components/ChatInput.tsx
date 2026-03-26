@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js';
 import { Agent, Provider, SkillMode, VisibleSkillChip } from '../types';
 import LLMSelector from './LLMSelector';
 import AgentSelector from './AgentSelector';
+import VoiceDraftCard from './chat-input/VoiceDraftCard';
 import { useToast } from '../context/ToastContext';
 import { modelSupportsVision } from '../hooks/useLLMProviders';
 
@@ -20,6 +21,8 @@ interface ChatInputProps {
   isTyping: boolean;
   activeAgentName: string;
   textareaRef: (el: HTMLTextAreaElement) => void;
+  inputReadOnly?: boolean;
+  composerKey: number;
   
   // LLM Selector Props
   showLLMSelector: boolean;
@@ -48,6 +51,24 @@ interface ChatInputProps {
   requestedSkill: string | null;
   onSelectSkill: (skillId: string | null) => void;
   skillMode?: SkillMode;
+
+  // Voice Input
+  voiceInputEnabled: boolean;
+  voiceInputSupported: boolean;
+  voiceInputProvider: 'browser' | 'azure';
+  voiceInputPreferredProvider: 'browser' | 'azure';
+  voiceInputPhase: 'idle' | 'recording' | 'finalizing' | 'ready' | 'error';
+  voiceInputIsRecording: boolean;
+  voiceInputIsProcessing: boolean;
+  voiceInputHasDraft: boolean;
+  voiceInputPreviewText: string;
+  voiceInputInterimTranscript: string;
+  voiceInputError: string | null;
+  voiceInputFallbackMessage: string | null;
+  onToggleVoiceInput: () => void;
+  onCancelVoiceInput: () => void;
+  onInsertVoiceInput: () => void;
+  onSendVoiceInput: () => void;
 }
 
 export const canSubmitFromInput = (inputText: string, imageCount: number): boolean => {
@@ -88,9 +109,32 @@ export const getVisionCapabilityHint = (
   return '当前模型不支持视觉能力，图片请求将被拒绝或降级为纯文本。';
 };
 
+export const getVoiceInputButtonClass = (
+  enabled: boolean,
+  supported: boolean,
+  isRecording: boolean,
+  isProcessing: boolean,
+): string => {
+  if (!enabled || !supported) {
+    return 'p-2.5 text-slate-300 bg-slate-100 rounded-2xl cursor-not-allowed';
+  }
+  if (isRecording) {
+    return 'p-2.5 text-white bg-rose-500 hover:bg-rose-600 rounded-2xl transition-all active:scale-90 animate-pulse shadow-sm shadow-rose-500/30';
+  }
+  if (isProcessing) {
+    return 'p-2.5 text-white bg-sky-500 hover:bg-sky-600 rounded-2xl transition-all active:scale-90 animate-pulse shadow-sm shadow-sky-500/30';
+  }
+  return 'p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90';
+};
+
+export const getVoiceInputProviderLabel = (provider: 'browser' | 'azure'): string => {
+  return provider === 'azure' ? 'Azure Speech' : 'Browser dictation';
+};
+
 export default function ChatInput(props: ChatInputProps) {
   const toast = useToast();
   const canSubmit = () => canSubmitFromInput(props.input, props.imageAttachments.length);
+  const inputLocked = () => !!props.inputReadOnly;
   const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(2)}MB`;
   const supportsVision = () => modelSupportsVision(props.providers, props.selectedProvider, props.selectedModel);
   const [previewUrls, setPreviewUrls] = createSignal<string[]>([]);
@@ -107,6 +151,23 @@ export default function ChatInput(props: ChatInputProps) {
     trackedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
   });
   const visionCapabilityHint = () => getVisionCapabilityHint(!!props.selectedModel, supportsVision(), props.imageAttachments.length);
+  const voiceInputLabel = () => {
+    if (!props.voiceInputEnabled) return 'Voice input disabled in settings';
+    if (!props.voiceInputSupported) return 'Voice input unavailable in this browser';
+    if (props.voiceInputPhase === 'ready') return `Start new voice input (${getVoiceInputProviderLabel(props.voiceInputPreferredProvider)})`;
+    if (props.voiceInputIsRecording) return `Stop voice input (${getVoiceInputProviderLabel(props.voiceInputProvider)})`;
+    if (props.voiceInputIsProcessing) return `Finishing voice input (${getVoiceInputProviderLabel(props.voiceInputProvider)})`;
+    return `Start voice input (${getVoiceInputProviderLabel(props.voiceInputPreferredProvider)})`;
+  };
+  const voiceInputTooltip = () => {
+    if (!props.voiceInputEnabled) return 'Enable browser dictation in Settings';
+    if (!props.voiceInputSupported) return 'Browser voice input unavailable';
+    if (props.voiceInputFallbackMessage) return `${getVoiceInputProviderLabel(props.voiceInputProvider)} active`;
+    if (props.voiceInputPhase === 'ready') return `Voice draft ready from ${getVoiceInputProviderLabel(props.voiceInputProvider)}`;
+    if (props.voiceInputIsRecording) return `Listening with ${getVoiceInputProviderLabel(props.voiceInputProvider)}... pause to finish or tap to stop`;
+    if (props.voiceInputIsProcessing) return `Processing speech with ${getVoiceInputProviderLabel(props.voiceInputProvider)}...`;
+    return `Voice input via ${getVoiceInputProviderLabel(props.voiceInputPreferredProvider)}`;
+  };
 
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
@@ -160,15 +221,21 @@ export default function ChatInput(props: ChatInputProps) {
             relative bg-surface/80 backdrop-blur-xl border-2 rounded-[28px] transition-all duration-500 p-1.5 shadow-2xl
             ${props.isTyping ? 'border-primary/40 ring-8 ring-primary/5 shadow-primary/10' : 'border-border focus-within:border-primary/40 focus-within:ring-8 focus-within:ring-primary/5'}
           `}>
-            <textarea
-              ref={props.textareaRef}
-              value={props.input}
-              onInput={props.onInput}
-              onKeyDown={props.onKeyDown}
-              placeholder={`You are chatting with ${props.activeAgentName} now`}
-              class="w-full bg-transparent px-6 pt-3.5 pb-14 focus:outline-none resize-none min-h-[72px] max-h-[400px] overflow-y-auto text-text-primary leading-relaxed text-lg font-medium placeholder:text-text-secondary/30"
-              rows={1}
-            />
+            <Show when={props.composerKey} keyed>
+              {(composerKey) => (
+                <textarea
+                  data-composer-key={composerKey}
+                  ref={props.textareaRef}
+                  value={props.input}
+                  onInput={props.onInput}
+                  onKeyDown={props.onKeyDown}
+                  readOnly={inputLocked()}
+                  placeholder={`You are chatting with ${props.activeAgentName} now`}
+                  class={`w-full bg-transparent px-6 pt-3.5 pb-14 focus:outline-none resize-none min-h-[72px] max-h-[400px] overflow-y-auto text-text-primary leading-relaxed text-lg font-medium placeholder:text-text-secondary/30 ${inputLocked() ? 'cursor-default opacity-90' : ''}`}
+                  rows={1}
+                />
+              )}
+            </Show>
             
             {/* Unified Action Bar */}
             <div class="absolute bottom-3 left-4 right-4 flex items-center justify-between">
@@ -256,13 +323,25 @@ export default function ChatInput(props: ChatInputProps) {
                     </div>
                   </Show>
                   <div class="relative group/tooltip">
-                    <button type="button" class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Voice input">
+                    <button
+                      type="button"
+                      class={getVoiceInputButtonClass(
+                        props.voiceInputEnabled,
+                        props.voiceInputSupported,
+                        props.voiceInputIsRecording,
+                        props.voiceInputIsProcessing,
+                      )}
+                      aria-label={voiceInputLabel()}
+                      aria-pressed={props.voiceInputIsRecording || props.voiceInputIsProcessing}
+                      disabled={!props.voiceInputEnabled || !props.voiceInputSupported}
+                      onClick={() => props.onToggleVoiceInput()}
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </button>
                     <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                      <span class="font-bold text-white/90">Voice Input (Beta)</span>
+                      <span class="font-bold text-white/90">{voiceInputTooltip()}</span>
                       <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
                     </div>
                   </div>
@@ -337,6 +416,19 @@ export default function ChatInput(props: ChatInputProps) {
             {visionCapabilityHint()}
           </div>
         </Show>
+        <VoiceDraftCard
+          visible={props.voiceInputPhase !== 'idle' || !!props.voiceInputFallbackMessage}
+          providerLabel={getVoiceInputProviderLabel(props.voiceInputProvider)}
+          phase={props.voiceInputPhase}
+          isRecording={props.voiceInputIsRecording}
+          isProcessing={props.voiceInputIsProcessing}
+          error={props.voiceInputError}
+          fallbackMessage={props.voiceInputFallbackMessage}
+          previewText={props.voiceInputPreviewText}
+          onInsert={props.onInsertVoiceInput}
+          onSend={props.onSendVoiceInput}
+          onCancel={props.onCancelVoiceInput}
+        />
 
         <Show when={!props.selectedModel}>
           <div class="mt-3 flex items-center justify-center">

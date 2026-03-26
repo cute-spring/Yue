@@ -10,6 +10,20 @@ interface AgentFormProps {
   setFormProvider: (provider: string) => void;
   formModel: () => string;
   setFormModel: (model: string) => void;
+  formVoiceInputEnabled: () => boolean;
+  setFormVoiceInputEnabled: (enabled: boolean) => void;
+  formVoiceInputProvider: () => 'browser' | 'azure';
+  setFormVoiceInputProvider: (provider: 'browser' | 'azure') => void;
+  formVoiceAzureRegion: () => string;
+  setFormVoiceAzureRegion: (region: string) => void;
+  formVoiceAzureEndpointId: () => string;
+  setFormVoiceAzureEndpointId: (value: string) => void;
+  formVoiceAzureApiKey: () => string;
+  setFormVoiceAzureApiKey: (value: string) => void;
+  formVoiceAzureApiKeyConfigured: () => boolean;
+  isTestingVoiceAzure: () => boolean;
+  voiceAzureTestResult: () => { type: 'success' | 'error'; message: string } | null;
+  testVoiceAzureConfig: () => Promise<void>;
   formPrompt: () => string;
   setFormPrompt: (prompt: string) => void;
   formTools: () => string[];
@@ -253,6 +267,99 @@ export function AgentForm(props: AgentFormProps) {
               </div>
             </Show>
           </div>
+        </div>
+
+        <div class="rounded-2xl border border-sky-100 bg-sky-50/70 p-4 space-y-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-[10px] font-black text-sky-700 uppercase tracking-[0.2em]">Voice Input</div>
+              <div class="text-xs text-sky-700/80 mt-1">Browser dictation is available by default. Switch to Azure Speech only when this agent has cloud STT configured.</div>
+            </div>
+            <input
+              type="checkbox"
+              class="h-4 w-4 accent-sky-600"
+              checked={props.formVoiceInputEnabled()}
+              onInput={(e) => props.setFormVoiceInputEnabled(e.currentTarget.checked)}
+            />
+          </div>
+          <Show when={props.formVoiceInputEnabled()}>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Voice Provider</label>
+                <select
+                  class="w-full border rounded-lg px-3 py-2.5 bg-white"
+                  value={props.formVoiceInputProvider()}
+                  onInput={(e) => props.setFormVoiceInputProvider(e.currentTarget.value === 'azure' ? 'azure' : 'browser')}
+                >
+                  <option value="browser">Browser Speech API</option>
+                  <option value="azure">Azure Speech (Token Broker)</option>
+                </select>
+              </div>
+              <Show when={props.formVoiceInputProvider() === 'azure'}>
+                <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Azure Region</label>
+                    <input
+                      class="w-full border rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-sky-500 outline-none transition-all"
+                      value={props.formVoiceAzureRegion()}
+                      onInput={(e) => props.setFormVoiceAzureRegion(e.currentTarget.value)}
+                      placeholder="e.g. eastus"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Endpoint ID (Optional)</label>
+                    <input
+                      class="w-full border rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-sky-500 outline-none transition-all"
+                      value={props.formVoiceAzureEndpointId()}
+                      onInput={(e) => props.setFormVoiceAzureEndpointId(e.currentTarget.value)}
+                      placeholder="Custom speech endpoint"
+                    />
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Azure Speech Key</label>
+                    <input
+                      type="password"
+                      class="w-full border rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-sky-500 outline-none transition-all"
+                      value={props.formVoiceAzureApiKey()}
+                      onInput={(e) => props.setFormVoiceAzureApiKey(e.currentTarget.value)}
+                      placeholder={props.formVoiceAzureApiKeyConfigured() ? 'Configured in backend. Leave blank to keep current key.' : 'Paste Azure Speech key'}
+                    />
+                    <div class="text-xs text-gray-500 mt-2">
+                      {props.formVoiceAzureApiKeyConfigured()
+                        ? 'Leaving this blank keeps the existing backend secret. The key is never returned to the browser.'
+                        : 'Stored server-side only and exchanged for short-lived STT tokens.'}
+                    </div>
+                  </div>
+                  <div class="md:col-span-2 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { void props.testVoiceAzureConfig(); }}
+                      disabled={props.isTestingVoiceAzure()}
+                      class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        props.isTestingVoiceAzure()
+                          ? 'bg-gray-300 text-white cursor-not-allowed'
+                          : 'bg-sky-600 hover:bg-sky-700 text-white'
+                      }`}
+                    >
+                      {props.isTestingVoiceAzure() ? 'Testing...' : 'Test Azure STT'}
+                    </button>
+                    <span class="text-xs text-gray-500">Validates the current form values through the backend token path.</span>
+                  </div>
+                  <Show when={props.voiceAzureTestResult()}>
+                    {(result) => (
+                      <div class={`md:col-span-2 text-xs rounded-md px-3 py-2 border ${
+                        result().type === 'success'
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : 'text-rose-700 bg-rose-50 border-rose-200'
+                      }`}>
+                        {result().message}
+                      </div>
+                    )}
+                  </Show>
+                </div>
+              </Show>
+            </div>
+          </Show>
         </div>
 
         <div>

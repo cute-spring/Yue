@@ -21,12 +21,20 @@ def mock_mcp_manager():
 
 def test_list_agents(client, mock_agent_store):
     mock_agent_store.list_agents.return_value = [
-        AgentConfig(id="1", name="Agent 1", system_prompt="Prompt 1")
+        AgentConfig(
+            id="1",
+            name="Agent 1",
+            system_prompt="Prompt 1",
+            voice_input_provider="azure",
+            voice_azure_config={"region": "eastus", "api_key": "secret", "endpoint_id": "endpoint-1"},
+        )
     ]
     response = client.get("/api/agents/")
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["id"] == "1"
+    assert response.json()[0]["voice_azure_config"]["api_key_configured"] is True
+    assert "api_key" not in response.json()[0]["voice_azure_config"]
 
 def test_get_agent_success(client, mock_agent_store):
     mock_agent_store.get_agent.return_value = AgentConfig(id="1", name="Agent 1", system_prompt="Prompt 1")
@@ -42,12 +50,47 @@ def test_get_agent_not_found(client, mock_agent_store):
 @pytest.mark.asyncio
 async def test_create_agent(client, mock_agent_store, mock_mcp_manager):
     mock_mcp_manager.get_available_tools = AsyncMock(return_value=[])
-    agent_data = {"name": "New Agent", "system_prompt": "Test Prompt", "enabled_tools": []}
+    agent_data = {
+        "name": "New Agent",
+        "system_prompt": "Test Prompt",
+        "enabled_tools": [],
+        "voice_input_provider": "azure",
+        "voice_azure_config": {"region": "eastus", "api_key": "secret"},
+    }
     mock_agent_store.create_agent.return_value = AgentConfig(id="new-id", **agent_data)
     
     response = client.post("/api/agents/", json=agent_data)
     assert response.status_code == 200
     assert response.json()["id"] == "new-id"
+    assert response.json()["voice_azure_config"]["api_key_configured"] is True
+
+
+def test_update_agent_preserves_existing_azure_key_when_blank(client, mock_agent_store, mock_mcp_manager):
+    existing = AgentConfig(
+        id="1",
+        name="Agent 1",
+        system_prompt="Prompt 1",
+        voice_input_provider="azure",
+        voice_azure_config={"region": "eastus", "api_key": "existing-key", "endpoint_id": "ep"},
+    )
+    updated = AgentConfig(
+        id="1",
+        name="Agent 1",
+        system_prompt="Prompt 1",
+        voice_input_provider="azure",
+        voice_azure_config={"region": "eastus2", "api_key": "existing-key", "endpoint_id": "ep2"},
+    )
+    mock_agent_store.get_agent.return_value = existing
+    mock_agent_store.update_agent.return_value = updated
+    mock_mcp_manager.get_available_tools = AsyncMock(return_value=[])
+
+    response = client.put(
+        "/api/agents/1",
+        json={"voice_input_provider": "azure", "voice_azure_config": {"region": "eastus2", "api_key": "", "endpoint_id": "ep2"}},
+    )
+    assert response.status_code == 200
+    args = mock_agent_store.update_agent.call_args[0]
+    assert args[1]["voice_azure_config"]["api_key"] == "existing-key"
 
 def test_delete_agent_success(client, mock_agent_store):
     mock_agent_store.delete_agent.return_value = True

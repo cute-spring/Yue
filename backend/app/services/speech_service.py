@@ -42,5 +42,32 @@ class SpeechService:
             response.raise_for_status()
             return response.content
 
+    async def issue_azure_stt_token(
+        self,
+        *,
+        region: str,
+        api_key: str,
+    ) -> str:
+        cleaned_region = (region or "").strip()
+        cleaned_key = (api_key or "").strip()
+        if not cleaned_region:
+            raise ValueError("AZURE_SPEECH_REGION is not configured")
+        if not cleaned_key:
+            raise ValueError("AZURE_SPEECH_API_KEY is not configured")
+
+        verify = get_ssl_verify()
+        async with build_async_client(timeout=20.0, verify=verify, llm_config=config_service.get_llm_config()) as client:
+            response = await client.post(
+                f"https://{cleaned_region}.api.cognitive.microsoft.com/sts/v1.0/issueToken",
+                headers={
+                    "Ocp-Apim-Subscription-Key": cleaned_key,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Content-Length": "0",
+                },
+                content=b"",
+            )
+            response.raise_for_status()
+            return response.text.strip()
+
 
 speech_service = SpeechService()

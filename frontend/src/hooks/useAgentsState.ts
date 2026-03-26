@@ -7,6 +7,11 @@ type BuildAgentPayloadInput = {
   provider: string;
   model: string;
   enabledTools: string[];
+  voiceInputEnabled: boolean;
+  voiceInputProvider: 'browser' | 'azure';
+  voiceAzureRegion: string;
+  voiceAzureEndpointId: string;
+  voiceAzureApiKey: string;
   skillMode: 'off' | 'manual' | 'auto';
   visibleSkills: string[];
   agentKind: 'traditional' | 'universal';
@@ -28,6 +33,15 @@ export const buildAgentPayload = (input: BuildAgentPayloadInput) => {
     provider: input.provider,
     model: input.model,
     enabled_tools: input.enabledTools,
+    voice_input_enabled: input.voiceInputEnabled,
+    voice_input_provider: input.voiceInputProvider,
+    voice_azure_config: input.voiceInputProvider === 'azure'
+      ? {
+          region: input.voiceAzureRegion.trim(),
+          endpoint_id: input.voiceAzureEndpointId.trim(),
+          api_key: input.voiceAzureApiKey,
+        }
+      : null,
     skill_mode: input.skillMode,
     visible_skills: input.visibleSkills,
     agent_kind: input.agentKind,
@@ -80,6 +94,14 @@ export function useAgentsState() {
   const [formProvider, setFormProvider] = createSignal("openai");
   const [formModel, setFormModel] = createSignal("gpt-4o");
   const [formTools, setFormTools] = createSignal<string[]>([]);
+  const [formVoiceInputEnabled, setFormVoiceInputEnabled] = createSignal(true);
+  const [formVoiceInputProvider, setFormVoiceInputProvider] = createSignal<'browser' | 'azure'>('browser');
+  const [formVoiceAzureRegion, setFormVoiceAzureRegion] = createSignal("");
+  const [formVoiceAzureEndpointId, setFormVoiceAzureEndpointId] = createSignal("");
+  const [formVoiceAzureApiKey, setFormVoiceAzureApiKey] = createSignal("");
+  const [formVoiceAzureApiKeyConfigured, setFormVoiceAzureApiKeyConfigured] = createSignal(false);
+  const [isTestingVoiceAzure, setIsTestingVoiceAzure] = createSignal(false);
+  const [voiceAzureTestResult, setVoiceAzureTestResult] = createSignal<{ type: 'success' | 'error'; message: string } | null>(null);
   const [formSkillMode, setFormSkillMode] = createSignal<'off' | 'manual' | 'auto'>('off');
   const [formVisibleSkills, setFormVisibleSkills] = createSignal<string[]>([]);
   const [formAgentKind, setFormAgentKind] = createSignal<'traditional' | 'universal'>('traditional');
@@ -202,6 +224,13 @@ export function useAgentsState() {
     setFormProvider("openai");
     setFormModel("gpt-4o");
     setFormTools([]);
+    setFormVoiceInputEnabled(true);
+    setFormVoiceInputProvider('browser');
+    setFormVoiceAzureRegion("");
+    setFormVoiceAzureEndpointId("");
+    setFormVoiceAzureApiKey("");
+    setFormVoiceAzureApiKeyConfigured(false);
+    setVoiceAzureTestResult(null);
     setFormSkillMode("off");
     setFormVisibleSkills([]);
     setFormAgentKind("traditional");
@@ -223,6 +252,13 @@ export function useAgentsState() {
     setFormProvider(agent.provider);
     setFormModel(agent.model);
     setFormTools(agent.enabled_tools);
+    setFormVoiceInputEnabled(agent.voice_input_enabled ?? true);
+    setFormVoiceInputProvider(agent.voice_input_provider === 'azure' ? 'azure' : 'browser');
+    setFormVoiceAzureRegion(agent.voice_azure_config?.region || "");
+    setFormVoiceAzureEndpointId(agent.voice_azure_config?.endpoint_id || "");
+    setFormVoiceAzureApiKey("");
+    setFormVoiceAzureApiKeyConfigured(!!agent.voice_azure_config?.api_key_configured);
+    setVoiceAzureTestResult(null);
     setFormSkillMode((agent.skill_mode as 'off' | 'manual' | 'auto') || "off");
     setFormVisibleSkills(agent.visible_skills || []);
     setFormAgentKind((agent.agent_kind as 'traditional' | 'universal') || "traditional");
@@ -332,6 +368,11 @@ export function useAgentsState() {
       provider: formProvider(),
       model: formModel(),
       enabledTools: formTools(),
+      voiceInputEnabled: formVoiceInputEnabled(),
+      voiceInputProvider: formVoiceInputProvider(),
+      voiceAzureRegion: formVoiceAzureRegion(),
+      voiceAzureEndpointId: formVoiceAzureEndpointId(),
+      voiceAzureApiKey: formVoiceAzureApiKey(),
       skillMode: formSkillMode(),
       visibleSkills: formVisibleSkills(),
       agentKind: formAgentKind(),
@@ -404,6 +445,40 @@ export function useAgentsState() {
     setFormDocRoots(formDocRoots().filter(r => r !== root));
   };
 
+  const testVoiceAzureConfig = async () => {
+    setVoiceAzureTestResult(null);
+    setIsTestingVoiceAzure(true);
+    try {
+      const apiKey = formVoiceAzureApiKey().trim();
+      if (!formVoiceAzureRegion().trim()) {
+        throw new Error('Azure region is required.');
+      }
+      if (!apiKey && !formVoiceAzureApiKeyConfigured()) {
+        throw new Error('Azure Speech key is required.');
+      }
+
+      const response = await fetch('/api/speech/stt/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'azure',
+          region: formVoiceAzureRegion().trim(),
+          api_key: apiKey,
+          endpoint_id: formVoiceAzureEndpointId().trim(),
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `HTTP ${response.status}`);
+      }
+      setVoiceAzureTestResult({ type: 'success', message: 'Azure Speech STT connection succeeded.' });
+    } catch (e: any) {
+      setVoiceAzureTestResult({ type: 'error', message: e?.message || 'Azure Speech STT connection failed.' });
+    } finally {
+      setIsTestingVoiceAzure(false);
+    }
+  };
+
   return {
     agents, availableTools, groupedTools, isEditing, editingId, providers,
     skills,
@@ -411,7 +486,7 @@ export function useAgentsState() {
     showLLMSelector, isRefreshingModels, isRefreshingTools, showAllModels, showSmartGenerate,
     smartDescription, smartUpdateTools, smartIsGenerating, smartError, smartDraft,
     smartApplyName, smartApplyPrompt, smartApplyTools, formName, formPrompt,
-    formProvider, formModel, formTools, formSkillMode, formVisibleSkills, formAgentKind, formSkillGroups, formExtraVisibleSkills, formDocRoots, formDocRootInput,
+    formProvider, formModel, formTools, formVoiceInputEnabled, formVoiceInputProvider, formVoiceAzureRegion, formVoiceAzureEndpointId, formVoiceAzureApiKey, formVoiceAzureApiKeyConfigured, isTestingVoiceAzure, voiceAzureTestResult, formSkillMode, formVisibleSkills, formAgentKind, formSkillGroups, formExtraVisibleSkills, formDocRoots, formDocRootInput,
     formDocFilePatternsText, expandedGroups, allowDocRoots, denyDocRoots,
     setAgents, setAvailableTools, setIsEditing, setEditingId, setProviders,
     setSkills,
@@ -419,12 +494,12 @@ export function useAgentsState() {
     setShowLLMSelector, setIsRefreshingModels, setIsRefreshingTools, setShowAllModels, setShowSmartGenerate,
     setSmartDescription, setSmartUpdateTools, setSmartIsGenerating, setSmartError,
     setSmartDraft, setSmartApplyName, setSmartApplyPrompt, setSmartApplyTools,
-    setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools, setFormSkillMode, setFormVisibleSkills, setFormAgentKind, setFormSkillGroups, setFormExtraVisibleSkills,
+    setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools, setFormVoiceInputEnabled, setFormVoiceInputProvider, setFormVoiceAzureRegion, setFormVoiceAzureEndpointId, setFormVoiceAzureApiKey, setFormVoiceAzureApiKeyConfigured, setFormSkillMode, setFormVisibleSkills, setFormAgentKind, setFormSkillGroups, setFormExtraVisibleSkills,
     setFormDocRoots, setFormDocRootInput, setFormDocFilePatternsText,
     setExpandedGroups, setAllowDocRoots, setDenyDocRoots,
     toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess, loadSkills, loadSkillGroups,
     openCreate, openEdit, openSmartGenerate, applySmartDraft, smartPromptLint,
-    smartRiskSummary, runSmartGenerate, handleSubmit, handleDelete, toggleTool,
+    smartRiskSummary, runSmartGenerate, handleSubmit, handleDelete, toggleTool, testVoiceAzureConfig,
     supportsDocScope, addDocRoot, addDocRootValue, removeDocRoot
   };
 }

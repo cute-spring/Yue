@@ -225,6 +225,10 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
 def test_preferences_include_speech_defaults(temp_config_file):
     service = ConfigService(str(temp_config_file))
     prefs = service.get_preferences()
+    assert prefs["voice_input_enabled"] is True
+    assert prefs["voice_input_provider"] == "browser"
+    assert prefs["voice_input_language"] == "auto"
+    assert prefs["voice_input_show_interim"] is True
     assert prefs["auto_speech_enabled"] is False
     assert prefs["speech_voice"] == ""
     assert prefs["speech_rate"] == 1.0

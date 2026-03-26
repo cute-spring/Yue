@@ -87,6 +87,7 @@
 - [x] **Markdown 技能系统实现 (Phase 6.2)** (见 [archive/markdown_defined_skills_plan.md](./archive/markdown_defined_skills_plan.md))
 - [x] **技能架构长线演进与清理** (见 [archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md](./archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md))
 - [x] **语音合成与自动朗读功能** (见 [archive/2026-03-24-auto-speech-synthesis.md](./archive/2026-03-24-auto-speech-synthesis.md))
+- [x] **语音输入功能（Azure Speech + Browser Fallback）** (见 [Voice_Input_Feature_Design.md](./Voice_Input_Feature_Design.md), [Voice_Input_Implementation_Plan.md](./Voice_Input_Implementation_Plan.md), [Voice_Input_Release_Checklist.md](./Voice_Input_Release_Checklist.md))
 
 ---
 
