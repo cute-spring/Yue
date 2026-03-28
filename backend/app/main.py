@@ -99,6 +99,7 @@ app.include_router(export.router, prefix="/api", tags=["export"])
 data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data")))
 uploads_dir = data_dir / "uploads"
 exports_dir = data_dir / "exports"
+legacy_exports_dir = Path(__file__).parent.parent / "data" / "exports"
 for d in [uploads_dir, exports_dir]:
     if not d.exists():
         d.mkdir(parents=True, exist_ok=True)
@@ -109,10 +110,22 @@ app.mount("/files", StaticFiles(directory=str(uploads_dir)), name="uploads")
 async def get_export_file(file_path: str):
     if not file_path or file_path.startswith(("/", "\\")) or ".." in file_path:
         raise HTTPException(status_code=400, detail="invalid_path")
-    exports_root = exports_dir.resolve()
-    candidate = (exports_root / file_path).resolve()
-    if str(candidate).startswith(str(exports_root)) and candidate.is_file():
-        return FileResponse(str(candidate))
+
+    export_roots = [exports_dir.resolve()]
+    if legacy_exports_dir.exists():
+        export_roots.append(legacy_exports_dir.resolve())
+
+    def resolve_export_candidate(root: Path, relative_path: str) -> Path | None:
+        candidate = (root / relative_path).resolve()
+        if str(candidate).startswith(str(root)) and candidate.is_file():
+            return candidate
+        return None
+
+    for root in export_roots:
+        direct_match = resolve_export_candidate(root, file_path)
+        if direct_match is not None:
+            return FileResponse(str(direct_match))
+
     requested_name = Path(file_path).name
     if requested_name:
         def normalize_name(name: str) -> str:
@@ -120,15 +133,19 @@ async def get_export_file(file_path: str):
             return re.sub(r"[^a-zA-Z0-9]+", "", base).lower()
         requested_norm = normalize_name(requested_name)
         if requested_norm:
-            for child in exports_root.iterdir():
-                if child.is_file() and normalize_name(child.name) == requested_norm:
-                    return FileResponse(str(child))
+            for root in export_roots:
+                if not root.exists():
+                    continue
+                for child in root.iterdir():
+                    if child.is_file() and normalize_name(child.name) == requested_norm:
+                        return FileResponse(str(child))
     fallback_root = Path("/mnt/data")
     fallback_name = Path(file_path).name
     fallback = (fallback_root / fallback_name).resolve()
     if fallback_root.exists() and fallback.is_file():
-        exports_root.mkdir(parents=True, exist_ok=True)
-        dest = exports_root / fallback_name
+        primary_exports_root = export_roots[0]
+        primary_exports_root.mkdir(parents=True, exist_ok=True)
+        dest = primary_exports_root / fallback_name
         try:
             shutil.copy2(str(fallback), str(dest))
         except Exception:

@@ -116,6 +116,7 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
     setImageAttachments,
     copiedMessageIndex,
     activeSkill,
+    actionStates,
     setActiveSkill,
     loadChat,
     startNewChat,
@@ -127,6 +128,7 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
     handleRegenerate,
     lastGenerationOutcome,
     submitText,
+    submitActionDecision,
     handleSubmit: originalHandleSubmit,
   } = chatState;
   const voiceInput = useVoiceInput(() => ({
@@ -846,6 +848,9 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
         previewContent={previewContent()}
         lastMessage={[...messages()].reverse().find(m => m.role === 'assistant')}
         isMobile={isMobile()}
+        actionStates={actionStates()}
+        isTyping={isTyping()}
+        onResolveAction={(state, approved) => { void submitActionDecision(state, approved); }}
       />
       
       {/* Mobile Overlays */}

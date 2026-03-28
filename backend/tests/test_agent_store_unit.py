@@ -39,9 +39,12 @@ def test_no_legacy_path_uses_runtime_data_only(temp_dirs):
 
 def test_list_agents(agent_store):
     agents = agent_store.list_agents()
-    assert len(agents) >= 4
+    assert len(agents) >= 7
     assert agents[0].id == "builtin-docs"
     assert any(a.id == "builtin-excel-analyst" for a in agents)
+    assert any(a.id == "builtin-pdf-research" for a in agents)
+    assert any(a.id == "builtin-ppt-builder" for a in agents)
+    assert any(a.id == "builtin-action-lab" for a in agents)
 
 def test_create_agent(agent_store):
     new_agent = AgentConfig(name="New Agent", system_prompt="You are a helper")
@@ -102,7 +105,7 @@ def test_recover_corrupt_file(temp_dirs):
     store = AgentStore(data_dir=data_dir)
     # list_agents should trigger recovery
     agents = store.list_agents()
-    assert len(agents) >= 4
+    assert len(agents) >= 7
     assert any(a.id == "builtin-docs" for a in agents)
     assert any(a.id == "builtin-excel-analyst" for a in agents)
     # Should have created a corrupt file
@@ -118,6 +121,28 @@ def test_builtin_docs_prompt_root_dir_rules(agent_store):
     assert "第一步必须调用 `docs_list` 且不传 `root_dir`" in prompt
     assert "仅在用户明确指定目录时才传 `root_dir`" in prompt
     assert "必须显式指定 `root_dir`" not in prompt
+
+def test_builtin_agents_expose_skill_friendly_defaults(agent_store):
+    docs_agent = agent_store.get_agent("builtin-docs")
+    assert docs_agent is not None
+    assert docs_agent.skill_mode == "auto"
+    assert docs_agent.visible_skills == ["pdf-insight-extractor:1.0.0"]
+
+    excel_agent = agent_store.get_agent("builtin-excel-analyst")
+    assert excel_agent is not None
+    assert excel_agent.skill_mode == "manual"
+    assert excel_agent.visible_skills == ["excel-metric-explorer:1.0.0"]
+
+    ppt_agent = agent_store.get_agent("builtin-ppt-builder")
+    assert ppt_agent is not None
+    assert ppt_agent.enabled_tools == ["builtin:generate_pptx"]
+    assert ppt_agent.visible_skills == ["ppt-expert:1.0.0"]
+
+    action_lab = agent_store.get_agent("builtin-action-lab")
+    assert action_lab is not None
+    assert action_lab.skill_mode == "manual"
+    assert "system-ops-expert:1.0.0" in action_lab.visible_skills
+    assert "ppt-expert:1.0.0" in action_lab.visible_skills
 
 def test_migrate_agents_script_dry_run(temp_dirs):
     data_dir, legacy_dir = temp_dirs

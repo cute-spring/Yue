@@ -18,6 +18,8 @@ class Session(Base):
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
     tool_calls = relationship("ToolCall", back_populates="session", cascade="all, delete-orphan")
     skill_events = relationship("SkillEffectivenessEvent", back_populates="session", cascade="all, delete-orphan")
+    action_events = relationship("ActionEvent", back_populates="session", cascade="all, delete-orphan")
+    action_states = relationship("ActionState", back_populates="session", cascade="all, delete-orphan")
 
 class Message(Base):
     __tablename__ = "messages"
@@ -112,4 +114,57 @@ class SkillEffectivenessEvent(Base):
     __table_args__ = (
         Index("idx_skill_effectiveness_session_id", "session_id"),
         Index("idx_skill_effectiveness_created_at", "created_at"),
+    )
+
+
+class ActionEvent(Base):
+    __tablename__ = "action_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String, ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    assistant_turn_id = Column(String, nullable=True)
+    run_id = Column(String, nullable=True)
+    event_name = Column(String, nullable=False)
+    event_id = Column(String, nullable=True)
+    sequence = Column(Integer, nullable=True)
+    ts = Column(String, nullable=True)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("Session", back_populates="action_events")
+
+    __table_args__ = (
+        Index("idx_action_events_session_id", "session_id"),
+        Index("idx_action_events_turn_id", "assistant_turn_id"),
+        Index("idx_action_events_run_sequence", "run_id", "sequence"),
+    )
+
+
+class ActionState(Base):
+    __tablename__ = "action_states"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String, ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    skill_name = Column(String, nullable=False)
+    skill_version = Column(String, nullable=True)
+    action_id = Column(String, nullable=False)
+    invocation_id = Column(String, nullable=True)
+    approval_token = Column(String, nullable=True)
+    request_id = Column(String, nullable=True)
+    run_id = Column(String, nullable=True)
+    assistant_turn_id = Column(String, nullable=True)
+    lifecycle_phase = Column(String, nullable=True)
+    lifecycle_status = Column(String, nullable=False)
+    status = Column(String, nullable=True)
+    payload_json = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("Session", back_populates="action_states")
+
+    __table_args__ = (
+        Index("idx_action_states_session_id", "session_id"),
+        Index("idx_action_states_lookup", "session_id", "skill_name", "action_id"),
+        Index("idx_action_states_invocation", "session_id", "invocation_id"),
+        Index("idx_action_states_approval_token", "approval_token"),
     )

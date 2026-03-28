@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.api.chat_stream_runner import (
     PromptRuntimeDeps,
@@ -13,6 +13,7 @@ from app.api.chat_stream_runner import (
     _handle_tool_call_mismatch_retry,
     _prepare_prompt_runtime,
 )
+from app.api.chat_tool_events import ToolEventTracker
 
 
 def _make_deps() -> StreamRunnerDeps:
@@ -30,12 +31,16 @@ def _make_deps() -> StreamRunnerDeps:
         handle_llm_exception=MagicMock(side_effect=lambda err: str(err)),
         prompt=PromptRuntimeDeps(
             skill_registry=MagicMock(),
+            skill_action_execution_service=MagicMock(),
             markdown_skill_adapter=MagicMock(),
             skill_policy_gate=MagicMock(),
             assemble_runtime_prompt=MagicMock(),
             build_scope_summary_block=MagicMock(),
             emit_skill_effectiveness_event=MagicMock(),
             resolve_skill_runtime_state=MagicMock(),
+            action_preflight_message_builder=MagicMock(return_value="preflight summary"),
+            action_approval_message_builder=MagicMock(return_value="approval summary"),
+            action_execution_message_builder=MagicMock(return_value="execution summary"),
         ),
         retry=RetryRuntimeDeps(
             resolve_retry_targets=MagicMock(),
@@ -79,6 +84,10 @@ def _make_request(**overrides):
         "system_prompt": "system",
         "agent_id": "agent-1",
         "requested_skill": None,
+        "requested_action": None,
+        "requested_action_arguments": None,
+        "requested_action_approved": None,
+        "requested_action_approval_token": None,
         "deep_thinking_enabled": False,
     }
     base.update(overrides)
@@ -173,6 +182,218 @@ def test_prepare_prompt_runtime_emits_events_and_updates_context():
         assert ctx.provider == "deepseek"
         assert ctx.model_name == "deepseek-chat"
         assert ctx.system_prompt == "assembled prompt"
+
+    asyncio.run(run_test())
+
+
+def test_prepare_runtime_dependencies_requested_action_resume_after_approval():
+    async def run_test():
+        deps = _make_deps()
+        deps.tool_event_tracker_cls = ToolEventTracker
+        deps.build_agent_deps.return_value = {}
+        deps.config_service.get_feature_flags.return_value = {}
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": SimpleNamespace(name="skill-a", version="1.0.0"),
+            "always_skill_specs": [],
+            "selection_reason_code": "skill_selected",
+            "selection_source": "explicit",
+            "selection_score": 9,
+            "visible_skill_count": 2,
+            "available_skill_count": 2,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 1,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=SimpleNamespace(name="skill-a", version="1.0.0"),
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=["builtin:exec"],
+            always_injected_count=0,
+            selected_group_ids=[],
+            resolved_skill_count=1,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+            emitted_event=None,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        invocation = SimpleNamespace(
+            action_id="generate",
+            skill_name="skill-a",
+            skill_version="1.0.0",
+            mapped_tool="builtin:exec",
+        )
+        deps.prompt.skill_action_execution_service.preflight.return_value = SimpleNamespace(
+            event_payloads=[
+                {"event": "skill.action.preflight", "action_id": "generate", "lifecycle_phase": "preflight", "lifecycle_status": "preflight_evaluated"},
+                {"event": "skill.action.result", "action_id": "generate", "status": "approval_required", "lifecycle_phase": "preflight", "lifecycle_status": "preflight_approval_required"},
+            ],
+            lifecycle_status="preflight_approval_required",
+            invocation=invocation,
+            request_id=None,
+            metadata={"validated_arguments": {}},
+        )
+        deps.prompt.skill_action_execution_service.build_approval_result.return_value = SimpleNamespace(
+            event_payloads=[
+                {"event": "skill.action.approval", "action_id": "generate", "lifecycle_phase": "approval", "lifecycle_status": "approved"}
+            ],
+            lifecycle_status="approved",
+            approval_token="approval:skill-a:1.0.0:generate:manual",
+        )
+        deps.prompt.skill_action_execution_service.build_transition_result.side_effect = (
+            lambda *, invocation, status, request_id=None, lifecycle_phase="execution", lifecycle_status=None, metadata=None:
+                SimpleNamespace(
+                    event_payloads=[
+                        {
+                            "event": "skill.action.result",
+                            "action_id": invocation.action_id,
+                            "status": status,
+                            "lifecycle_phase": lifecycle_phase,
+                            "lifecycle_status": lifecycle_status or status,
+                        }
+                    ],
+                    lifecycle_status=lifecycle_status or status,
+                    metadata=metadata or {},
+                    invocation=invocation,
+                )
+        )
+        fake_tool = SimpleNamespace(
+            name="exec",
+            validate_params=lambda args: args,
+            execute=AsyncMock(return_value="tool execution output"),
+        )
+        deps.tool_registry.get_tools_for_agent = AsyncMock(return_value=[fake_tool])
+        ctx, metrics, emitter, tool_tracker = _create_stream_runtime(
+            chat_id="chat-1",
+            request=_make_request(
+                requested_action="generate",
+                requested_action_arguments={"command": "pwd", "cwd": "/workspace"},
+                requested_action_approved=True,
+                requested_action_approval_token="approval:skill-a:1.0.0:generate:manual",
+            ),
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        from app.api.chat_stream_runner import _prepare_runtime_dependencies
+
+        async for step in _prepare_runtime_dependencies(
+            ctx=ctx,
+            metrics=metrics,
+            emitter=emitter,
+            tool_tracker=tool_tracker,
+            multimodal_service=MagicMock(),
+            validated_images=[],
+            request=_make_request(
+                requested_action="generate",
+                requested_action_arguments={"command": "pwd", "cwd": "/workspace"},
+                requested_action_approved=True,
+                requested_action_approval_token="approval:skill-a:1.0.0:generate:manual",
+            ),
+            deps=deps,
+        ):
+            outputs.append(step)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert outputs[1]["event"] == "skill.action.preflight"
+        assert outputs[2]["event"] == "skill.action.result"
+        assert outputs[3]["event"] == "skill.action.approval"
+        assert outputs[4]["lifecycle_status"] == "queued"
+        assert outputs[5]["lifecycle_status"] == "running"
+        queued_call = deps.prompt.skill_action_execution_service.build_transition_result.call_args_list[0]
+        assert queued_call.kwargs["metadata"]["tool_args"] == {"command": "pwd", "cwd": "/workspace"}
+        assert any(isinstance(item, dict) and item.get("lifecycle_status") == "succeeded" for item in outputs)
+        assert any(isinstance(item, dict) and item.get("content") == "preflight summary" for item in outputs)
+        assert any(isinstance(item, dict) and item.get("content") == "approval summary" for item in outputs)
+        assert any(isinstance(item, dict) and item.get("content") == "execution summary" for item in outputs)
+        assert any(isinstance(item, dict) and "tool execution output" in str(item.get("content")) for item in outputs)
+
+    asyncio.run(run_test())
+
+
+def test_prepare_runtime_dependencies_short_circuits_for_requested_action():
+    async def run_test():
+        deps = _make_deps()
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": SimpleNamespace(name="skill-a", version="1.0.0"),
+            "always_skill_specs": [],
+            "selection_reason_code": "skill_selected",
+            "selection_source": "explicit",
+            "selection_score": 9,
+            "visible_skill_count": 2,
+            "available_skill_count": 2,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 1,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=SimpleNamespace(name="skill-a", version="1.0.0"),
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=["builtin:exec"],
+            always_injected_count=0,
+            selected_group_ids=[],
+            resolved_skill_count=1,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+            emitted_event=None,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.prompt.skill_action_execution_service.preflight.return_value = SimpleNamespace(
+            event_payloads=[
+                {"event": "skill.action.preflight", "action_id": "generate", "lifecycle_phase": "preflight", "lifecycle_status": "preflight_evaluated"},
+                {"event": "skill.action.result", "action_id": "generate", "status": "approval_required", "lifecycle_phase": "preflight", "lifecycle_status": "preflight_approval_required"},
+            ],
+            lifecycle_status="preflight_approval_required",
+        )
+        deps.prompt.skill_action_execution_service.build_stub_execution_results.return_value = [
+            SimpleNamespace(
+                event_payloads=[
+                    {"event": "skill.action.result", "action_id": "generate", "status": "awaiting_approval", "lifecycle_phase": "execution", "lifecycle_status": "awaiting_approval"}
+                ]
+            )
+        ]
+        ctx, metrics, emitter, tool_tracker = _create_stream_runtime(
+            chat_id="chat-1",
+            request=_make_request(requested_action="generate"),
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        from app.api.chat_stream_runner import _prepare_runtime_dependencies
+
+        async for step in _prepare_runtime_dependencies(
+            ctx=ctx,
+            metrics=metrics,
+            emitter=emitter,
+            tool_tracker=tool_tracker,
+            multimodal_service=MagicMock(),
+            validated_images=[],
+            request=_make_request(requested_action="generate"),
+            deps=deps,
+        ):
+            outputs.append(step)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert outputs[1]["event"] == "skill.action.preflight"
+        assert outputs[2]["event"] == "skill.action.result"
+        assert outputs[2]["lifecycle_status"] == "preflight_approval_required"
+        assert outputs[3]["event"] == "skill.action.result"
+        assert outputs[3]["lifecycle_status"] == "awaiting_approval"
+        assert outputs[4]["content"] == "preflight summary"
+        assert outputs[5]["content"] == "execution summary"
+        deps.tool_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
+        deps.get_model.assert_not_called()
 
     asyncio.run(run_test())
 

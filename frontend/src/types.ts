@@ -124,6 +124,27 @@ export type ToolCall = {
   ts?: string;
 };
 
+export type ActionState = {
+  id?: number | null;
+  session_id?: string;
+  skill_name: string;
+  skill_version?: string | null;
+  action_id: string;
+  invocation_id?: string | null;
+  approval_token?: string | null;
+  request_id?: string | null;
+  run_id?: string | null;
+  assistant_turn_id?: string | null;
+  lifecycle_phase?: string | null;
+  lifecycle_status: string;
+  status?: string | null;
+  payload?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+  sequence?: number;
+  ts?: string;
+};
+
 export type ChatEventEnvelope = {
   version?: string;
   event?: string;

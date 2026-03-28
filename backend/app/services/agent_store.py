@@ -53,12 +53,7 @@ class AgentStore:
 
         self._atomic_write_json(
             self.agents_file,
-            [
-                self._builtin_docs_agent().model_dump(mode="json"),
-                self._builtin_local_docs_agent().model_dump(mode="json"),
-                self._builtin_architect_agent().model_dump(mode="json"),
-                self._builtin_excel_analyst_agent().model_dump(mode="json"),
-            ],
+            [agent.model_dump(mode="json") for agent in self._builtin_agents()],
         )
 
     def _atomic_write_json(self, path: str, data) -> None:
@@ -109,14 +104,20 @@ class AgentStore:
 
         self._atomic_write_json(
             self.agents_file,
-            [
-                self._builtin_docs_agent().model_dump(mode="json"),
-                self._builtin_local_docs_agent().model_dump(mode="json"),
-                self._builtin_architect_agent().model_dump(mode="json"),
-                self._builtin_excel_analyst_agent().model_dump(mode="json"),
-            ],
+            [agent.model_dump(mode="json") for agent in self._builtin_agents()],
         )
         return True
+
+    def _builtin_agents(self) -> List[AgentConfig]:
+        return [
+            self._builtin_docs_agent(),
+            self._builtin_local_docs_agent(),
+            self._builtin_architect_agent(),
+            self._builtin_excel_analyst_agent(),
+            self._builtin_pdf_research_agent(),
+            self._builtin_ppt_builder_agent(),
+            self._builtin_action_lab_agent(),
+        ]
 
     def _builtin_docs_agent(self) -> AgentConfig:
         return AgentConfig(
@@ -149,6 +150,8 @@ class AgentStore:
             ],
             doc_file_patterns=["**/*.md", "**/*.yaml", "**/*.yml", "**/*.pdf"],
             require_citations=True,
+            skill_mode="auto",
+            visible_skills=["pdf-insight-extractor:1.0.0"],
         )
 
     def _builtin_local_docs_agent(self) -> AgentConfig:
@@ -176,6 +179,8 @@ class AgentStore:
             ],
             doc_file_patterns=["**/*.md", "**/*.txt", "**/*.log", "**/*.json", "**/*.yaml", "**/*.yml"],
             require_citations=True,
+            skill_mode="manual",
+            visible_skills=["project-status-auditor:1.0.0"],
         )
 
     def _builtin_architect_agent(self) -> AgentConfig:
@@ -228,16 +233,86 @@ class AgentStore:
             ],
             doc_file_patterns=["**/*.xlsx", "**/*.xlsm", "**/*.csv"],
             require_citations=True,
+            skill_mode="manual",
+            visible_skills=["excel-metric-explorer:1.0.0"],
+        )
+
+    def _builtin_pdf_research_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-pdf-research",
+            name="PDF Researcher",
+            system_prompt=(
+                "Role: You are a PDF evidence researcher specialized in extracting high-signal findings from reports, filings, and technical PDFs.\n"
+                "Workflow: Use PDF search/navigation tools first to locate relevant pages, then read the exact pages and cite the page ranges you relied on.\n"
+                "Skill behavior: Prefer the pdf-insight-extractor skill when the user asks for keyword-driven extraction, evidence gathering, or page-level summarization.\n"
+                "Output format: Return a concise answer with bulletable findings, exact page references, and any follow-up keyword suggestions if evidence is thin.\n"
+                "Prohibitions: Do not guess missing evidence, and do not cite pages you did not inspect."
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[
+                "builtin:pdf_keyword_page_search",
+                "builtin:pdf_page_text_read",
+                "builtin:pdf_page_table_extract",
+                "builtin:pdf_outline_extract",
+                "builtin:pdf_page_range_filter",
+            ],
+            doc_file_patterns=["**/*.pdf"],
+            require_citations=True,
+            skill_mode="manual",
+            visible_skills=["pdf-insight-extractor:1.0.0"],
+        )
+
+    def _builtin_ppt_builder_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-ppt-builder",
+            name="PPT Builder",
+            system_prompt=(
+                "Role: You are a deck-building assistant for fast validation of Yue's artifact-generation flow.\n"
+                "Workflow: Draft a tight outline, confirm it when needed, then use generate_pptx to produce the file. After generation, surface the filename and download path clearly.\n"
+                "Skill behavior: Prefer the ppt-expert skill for slide planning and artifact generation.\n"
+                "Output format: Keep answers brief, include the generated artifact summary, and return the Markdown download link after success.\n"
+                "Prohibitions: Do not fabricate download paths or claim a PPT was generated unless the tool returned success."
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=["builtin:generate_pptx"],
+            skill_mode="manual",
+            visible_skills=["ppt-expert:1.0.0"],
+        )
+
+    def _builtin_action_lab_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-action-lab",
+            name="Action Lab",
+            system_prompt=(
+                "Role: You are a verification-focused operator for Yue's tool-backed skill actions.\n"
+                "Workflow: When the user wants to test action flows, explicitly help them exercise validation, approval, execution, and trace inspection. Use the narrowest appropriate skill and tool path.\n"
+                "Skill behavior: Prefer system-ops-expert for exec-backed flows, code-simplifier for cleanup workflows, and ppt-expert for artifact-generation checks.\n"
+                "Testing mindset: Call out which phase is being exercised: preflight, approval, execution, or trace review. If inputs are intentionally invalid, explain the expected blocked outcome before acting.\n"
+                "Prohibitions: Do not use unrelated tools, and do not hide raw tool/action results that are needed for debugging."
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[
+                "builtin:exec",
+                "builtin:docs_search",
+                "builtin:docs_read",
+                "builtin:generate_pptx",
+            ],
+            doc_file_patterns=["**/*.md", "**/*.txt", "**/*.yaml", "**/*.yml", "**/*.json"],
+            skill_mode="manual",
+            visible_skills=[
+                "system-ops-expert:1.0.0",
+                "code-simplifier:1.0.0",
+                "ppt-expert:1.0.0",
+            ],
+            require_citations=False,
         )
 
     def _ensure_builtin_agents(self):
         agents = self.list_agents()
-        builtins = [
-            self._builtin_docs_agent(),
-            self._builtin_local_docs_agent(),
-            self._builtin_architect_agent(),
-            self._builtin_excel_analyst_agent(),
-        ]
+        builtins = self._builtin_agents()
         
         changed_any = False
         for builtin in builtins:
@@ -260,6 +335,12 @@ class AgentStore:
                         changed = True
                     if getattr(a, "require_citations", None) != builtin.require_citations:
                         a.require_citations = builtin.require_citations
+                        changed = True
+                    if getattr(a, "skill_mode", None) != builtin.skill_mode:
+                        a.skill_mode = builtin.skill_mode
+                        changed = True
+                    if getattr(a, "visible_skills", None) != builtin.visible_skills:
+                        a.visible_skills = builtin.visible_skills
                         changed = True
                     if changed:
                         agents[i] = a

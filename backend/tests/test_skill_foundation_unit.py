@@ -4,12 +4,24 @@ import tempfile
 import platform
 from app.services.skill_service import (
     MarkdownSkillAdapter,
+    RuntimeSkillActionApprovalRequest,
+    RuntimeSkillActionDescriptor,
+    RuntimeSkillActionExecutionRequest,
+    RuntimeSkillActionInvocationRequest,
+    SkillActionExecutionService,
+    build_action_approval_message,
+    build_action_execution_transition_event,
+    build_action_execution_stub_message,
     SkillConstraints,
     SkillLoader,
+    SkillPolicyGate,
+    SkillPackageSpec,
     SkillRegistry,
     SkillRouter,
     SkillSpec,
     SkillValidator,
+    build_action_execution_result_event,
+    build_action_invocation_event,
 )
 
 def test_skill_loader_parse_markdown():
@@ -178,6 +190,621 @@ Legacy prompt.
         registry.load_all()
         names = sorted([s.name for s in registry.list_skills()])
         assert names == ["legacy-skill", "package-skill"]
+        package_skill = registry.get_skill("package-skill")
+        assert package_skill is not None
+        assert package_skill.package_format == "package_directory"
+
+def test_skill_loader_generates_minimal_manifest_for_package_without_manifest():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "pkg-skill")
+        os.makedirs(os.path.join(pkg_dir, "references"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: package-skill
+version: 1.0.0
+description: packaged
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Package prompt.
+""")
+        with open(os.path.join(pkg_dir, "references", "guide.md"), "w") as f:
+            f.write("# Guide")
+        with open(os.path.join(pkg_dir, "scripts", "run.py"), "w") as f:
+            f.write("print('hi')")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("interface:\n  display_name: Package Skill\n")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert package is not None
+        assert package.manifest_path is None
+        assert package.metadata.get("generated_manifest") is True
+        assert [ref.path for ref in package.references] == ["references/guide.md"]
+        assert [script.path for script in package.scripts] == ["scripts/run.py"]
+        assert [overlay.path for overlay in package.overlays] == ["agents/openai.yaml"]
+        assert package.overlays[0].provider == "openai"
+
+def test_skill_loader_discovers_model_specific_overlay_from_filename():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "pkg-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: package-skill
+version: 1.0.0
+description: packaged
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Package prompt.
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.gpt-4o.yaml"), "w") as f:
+            f.write("system_prompt: gpt-4o overlay\n")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert package is not None
+        assert len(package.overlays) == 1
+        assert package.overlays[0].provider == "openai"
+        assert package.overlays[0].model == "gpt-4o"
+
+def test_skill_loader_parse_package_manifest_and_normalize_to_skill_spec():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "manifested-skill")
+        os.makedirs(os.path.join(pkg_dir, "references"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: package-skill
+version: 1.0.0
+description: markdown description
+capabilities: ["pkg"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:exec"]
+---
+## System Prompt
+Package prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: package-skill
+version: 1.1.0
+description: manifest description
+entrypoint: system_prompt
+capabilities:
+  - pkg
+  - manifest
+loading:
+  summary_fields:
+    - name
+    - description
+  default_tier: prompt
+resources:
+  references:
+    - path: references/guide.md
+      kind: markdown
+      load_tier: reference
+  scripts:
+    - id: generate
+      path: scripts/run.py
+      runtime: python
+      load_tier: action
+      safety: workspace_write
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+actions:
+  - id: generate
+    tool: builtin:docs_read
+    resource: scripts/run.py
+    runtime: python
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "references", "guide.md"), "w") as f:
+            f.write("# Guide")
+        with open(os.path.join(pkg_dir, "scripts", "run.py"), "w") as f:
+            f.write("print('hi')")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("interface:\n  display_name: Package Skill\n")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert isinstance(package, SkillPackageSpec)
+        assert package.version == "1.1.0"
+        assert package.description == "manifest description"
+        assert package.loading.default_tier == "prompt"
+        assert [ref.path for ref in package.references] == ["references/guide.md"]
+        assert [script.runtime for script in package.scripts] == ["python"]
+        assert [overlay.provider for overlay in package.overlays] == ["openai"]
+        assert [action.id for action in package.actions] == ["generate"]
+
+        normalized = SkillLoader.package_to_skill_spec(package)
+        assert normalized.name == "package-skill"
+        assert normalized.version == "1.1.0"
+        assert normalized.system_prompt == "Package prompt."
+        assert normalized.constraints is not None
+        assert normalized.constraints.allowed_tools == ["builtin:exec"]
+        assert normalized.package_format == "package_directory"
+        assert normalized.manifest_path is not None
+        assert normalized.metadata["package"]["action_count"] == 1
+
+def test_skill_registry_exposes_package_manifest_and_full_skill_compatibility():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "manifested-skill")
+        os.makedirs(os.path.join(pkg_dir, "references"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: package-skill
+version: 1.0.0
+description: markdown description
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Package prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: package-skill
+version: 1.0.0
+description: manifest description
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  references:
+    - path: references/guide.md
+      kind: markdown
+""")
+        with open(os.path.join(pkg_dir, "references", "guide.md"), "w") as f:
+            f.write("# Guide")
+        with open(os.path.join(pkg_dir, "scripts", "run.py"), "w") as f:
+            f.write("print('hi')")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        manifest = registry.get_package_manifest("package-skill")
+        assert manifest is not None
+        assert manifest.description == "manifest description"
+        assert [ref.path for ref in manifest.references] == ["references/guide.md"]
+
+        full = registry.get_full_skill("package-skill")
+        assert full is not None
+        assert full.description == "manifest description"
+        assert full.system_prompt == "Package prompt."
+        assert full.package_format == "package_directory"
+
+def test_skill_loader_validate_package_reports_missing_declared_manifest_paths():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "broken-skill")
+        os.makedirs(pkg_dir, exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: broken-skill
+version: 1.0.0
+description: broken
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Broken prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: broken-skill
+version: 1.0.0
+description: broken
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  references:
+    - path: references/missing.md
+      kind: markdown
+  scripts:
+    - id: run
+      path: scripts/missing.py
+      runtime: python
+overlays:
+  providers:
+    - provider: openai
+      path: agents/missing.yaml
+actions:
+  - id: run
+    resource: scripts/missing.py
+    runtime: python
+""")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert package is not None
+        validation = SkillLoader.validate_package(package)
+        assert validation.is_valid is False
+        assert "Declared reference path does not exist: references/missing.md" in validation.errors
+        assert "Declared script path does not exist: scripts/missing.py" in validation.errors
+        assert "Declared overlay path does not exist: agents/missing.yaml" in validation.errors
+        assert "Declared action path does not exist: scripts/missing.py" in validation.errors
+
+def test_skill_registry_skips_invalid_manifest_package_registration():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "broken-skill")
+        os.makedirs(pkg_dir, exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: broken-skill
+version: 1.0.0
+description: broken
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Broken prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: broken-skill
+version: 1.0.0
+description: broken
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  references:
+    - path: references/missing.md
+      kind: markdown
+""")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        assert registry.get_skill("broken-skill") is None
+        assert registry.get_package_manifest("broken-skill") is None
+
+def test_skill_registry_keeps_manifest_validation_warnings_for_undeclared_files():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "warn-skill")
+        os.makedirs(os.path.join(pkg_dir, "references"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: warn-skill
+version: 1.0.0
+description: warning package
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Warn prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: warn-skill
+version: 1.0.0
+description: warning package
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  references: []
+  scripts: []
+""")
+        with open(os.path.join(pkg_dir, "references", "extra.md"), "w") as f:
+            f.write("# Extra")
+        with open(os.path.join(pkg_dir, "scripts", "extra.py"), "w") as f:
+            f.write("print('extra')")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        skill = registry.get_skill("warn-skill")
+        assert skill is not None
+        warnings = (skill.metadata or {}).get("package_validation_warnings", [])
+        assert any("Undeclared reference files discovered" in warning for warning in warnings)
+        assert any("Undeclared script files discovered" in warning for warning in warnings)
+
+def test_skill_loader_resolves_provider_overlay_into_runtime_skill_view():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "overlay-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: overlay-skill
+version: 1.0.0
+description: base description
+capabilities: ["base"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:docs_read"]
+---
+## System Prompt
+BASE PROMPT
+
+## Instructions
+BASE INSTRUCTIONS
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: overlay-skill
+version: 1.0.0
+description: base description
+entrypoint: system_prompt
+capabilities: ["base"]
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("""system_prompt: OPENAI PROMPT
+instructions: OPENAI INSTRUCTIONS
+capabilities: ["base", "openai"]
+constraints:
+  allowed_tools: ["builtin:exec"]
+metadata:
+  overlay_mode: openai
+interface:
+  display_name: Overlay Skill
+""")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        base = registry.get_full_skill("overlay-skill")
+        assert base is not None
+        assert base.system_prompt == "BASE PROMPT"
+        assert base.constraints is not None
+        assert base.constraints.allowed_tools == ["builtin:docs_read"]
+
+        resolved = registry.get_full_skill("overlay-skill", provider="openai", model_name="gpt-4o")
+        assert resolved is not None
+        assert resolved.system_prompt == "OPENAI PROMPT"
+        assert resolved.instructions == "OPENAI INSTRUCTIONS"
+        assert resolved.capabilities == ["base", "openai"]
+        assert resolved.constraints is not None
+        assert resolved.constraints.allowed_tools == ["builtin:exec"]
+        assert resolved.metadata["overlay_mode"] == "openai"
+        assert resolved.metadata["resolved_overlay"]["provider"] == "openai"
+
+def test_skill_loader_resolves_model_specific_overlay_after_provider_overlay():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "overlay-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: overlay-skill
+version: 1.0.0
+description: base description
+capabilities: ["base"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:docs_read"]
+---
+## System Prompt
+BASE PROMPT
+
+## Instructions
+BASE INSTRUCTIONS
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: overlay-skill
+version: 1.0.0
+description: base description
+entrypoint: system_prompt
+capabilities: ["base"]
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+    - provider: openai
+      model: gpt-4o
+      path: agents/openai.gpt-4o.yaml
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("""system_prompt: OPENAI PROMPT
+metadata:
+  overlay_level: provider
+constraints:
+  allowed_tools: ["builtin:exec"]
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.gpt-4o.yaml"), "w") as f:
+            f.write("""instructions: GPT4O INSTRUCTIONS
+metadata:
+  overlay_level: model
+""")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        resolved = registry.get_full_skill("overlay-skill", provider="openai", model_name="gpt-4o")
+        assert resolved is not None
+        assert resolved.system_prompt == "OPENAI PROMPT"
+        assert resolved.instructions == "GPT4O INSTRUCTIONS"
+        assert resolved.constraints is not None
+        assert resolved.constraints.allowed_tools == ["builtin:exec"]
+        assert resolved.metadata["overlay_level"] == "model"
+        assert len(resolved.metadata["resolved_overlays"]) == 2
+        assert resolved.metadata["resolved_overlays"][0]["path"] == "agents/openai.yaml"
+        assert resolved.metadata["resolved_overlays"][1]["path"] == "agents/openai.gpt-4o.yaml"
+
+def test_skill_loader_normalizes_action_resource_path_to_script_id():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - path: scripts/run.py
+actions:
+  - id: run
+    resource: scripts/run.py
+""")
+        with open(os.path.join(pkg_dir, "scripts", "run.py"), "w") as f:
+            f.write("print('run')")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert package is not None
+        assert len(package.scripts) == 1
+        assert package.scripts[0].id == "scripts-run.py"
+        assert len(package.actions) == 1
+        assert package.actions[0].resource == "scripts-run.py"
+        assert package.actions[0].path == "scripts/run.py"
+        assert package.actions[0].runtime == "python"
+
+def test_skill_loader_validate_package_rejects_duplicate_overlay_and_action_ids():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "dup-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: dup-skill
+version: 1.0.0
+description: dup
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Dup prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: dup-skill
+version: 1.0.0
+description: dup
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: run
+      path: scripts/run.py
+      runtime: python
+    - id: run
+      path: scripts/run_alt.py
+      runtime: python
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+    - provider: openai
+      path: agents/openai_alt.yaml
+actions:
+  - id: run
+    resource: run
+  - id: run
+    resource: run
+""")
+        with open(os.path.join(pkg_dir, "scripts", "run.py"), "w") as f:
+            f.write("print('run')")
+        with open(os.path.join(pkg_dir, "scripts", "run_alt.py"), "w") as f:
+            f.write("print('run alt')")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("system_prompt: hi\n")
+        with open(os.path.join(pkg_dir, "agents", "openai_alt.yaml"), "w") as f:
+            f.write("system_prompt: hi alt\n")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert package is not None
+        validation = SkillLoader.validate_package(package)
+        assert validation.is_valid is False
+        assert "Duplicate script ids declared in manifest" in validation.errors
+        assert "Duplicate action ids declared in manifest" in validation.errors
+        assert "Duplicate overlay providers declared in manifest" in validation.errors
+
+def test_skill_loader_validate_package_allows_same_provider_for_different_models():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "multi-overlay-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: multi-overlay-skill
+version: 1.0.0
+description: multi overlay
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Overlay prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: multi-overlay-skill
+version: 1.0.0
+description: multi overlay
+entrypoint: system_prompt
+capabilities: ["pkg"]
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+    - provider: openai
+      model: gpt-4o
+      path: agents/openai.gpt-4o.yaml
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("system_prompt: provider overlay\n")
+        with open(os.path.join(pkg_dir, "agents", "openai.gpt-4o.yaml"), "w") as f:
+            f.write("instructions: model overlay\n")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert package is not None
+        validation = SkillLoader.validate_package(package)
+        assert validation.is_valid is True
+
+def test_skill_loader_validate_package_rejects_invalid_overlay_yaml():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "yaml-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: yaml-skill
+version: 1.0.0
+description: yaml
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Yaml prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: yaml-skill
+version: 1.0.0
+description: yaml
+entrypoint: system_prompt
+capabilities: ["pkg"]
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("system_prompt: [broken\n")
+
+        package = SkillLoader.parse_package(pkg_dir)
+        assert package is not None
+        validation = SkillLoader.validate_package(package)
+        assert validation.is_valid is False
+        assert "Declared overlay yaml is invalid: agents/openai.yaml" in validation.errors
 
 def test_skill_registry_directory_priority_user_over_workspace_over_builtin():
     with tempfile.TemporaryDirectory() as root_dir:
@@ -472,6 +1099,1049 @@ def test_markdown_skill_adapter_descriptor_includes_prompt_blocks_and_constraint
     assert descriptor.prompt_blocks["failure_handling"] == "Retry safely"
     assert descriptor.tool_policy["allowed_tools"] == ["builtin:docs_read"]
     assert descriptor.constraints["timeout"] == 30
+
+def test_markdown_skill_adapter_descriptor_includes_action_descriptors():
+    skill = SkillSpec(
+        name="action-adapter-skill",
+        version="1.0.0",
+        description="adapter",
+        capabilities=["adapter"],
+        entrypoint="system_prompt",
+        system_prompt="System prompt",
+        metadata={
+            "package_actions": [
+                {
+                    "id": "generate",
+                    "tool": "builtin:docs_read",
+                    "resource": "scripts-generate.py",
+                    "path": "scripts/generate.py",
+                    "runtime": "python",
+                    "load_tier": "action",
+                    "safety": "workspace_write",
+                    "approval_policy": "manual",
+                    "input_schema": {"type": "object"},
+                    "output_schema": {"type": "object"},
+                    "metadata": {"label": "Generate"},
+                }
+            ]
+        },
+    )
+
+    descriptor = MarkdownSkillAdapter.to_descriptor(skill)
+
+    assert len(descriptor.actions) == 1
+    action = descriptor.actions[0]
+    assert action.id == "generate"
+    assert action.name == "action-adapter-skill"
+    assert action.version == "1.0.0"
+    assert action.tool == "builtin:docs_read"
+    assert action.path == "scripts/generate.py"
+    assert action.runtime == "python"
+    assert action.approval_policy == "manual"
+    assert action.metadata["label"] == "Generate"
+
+def test_skill_registry_exposes_runtime_action_descriptors():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:docs_read
+    resource: generate
+    approval_policy: manual
+    input_schema:
+      type: object
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("""metadata:
+  overlay_mode: openai
+""")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        actions = registry.get_action_descriptors("action-skill")
+        assert len(actions) == 1
+        action = actions[0]
+        assert action.id == "generate"
+        assert action.name == "action-skill"
+        assert action.tool == "builtin:docs_read"
+        assert action.path == "scripts/generate.py"
+        assert action.runtime == "python"
+        assert action.safety == "workspace_write"
+        assert action.approval_policy == "manual"
+        assert action.input_schema == {"type": "object"}
+
+        overlaid_actions = registry.get_action_descriptors("action-skill", provider="openai", model_name="gpt-4o")
+        assert len(overlaid_actions) == 1
+        assert overlaid_actions[0].id == "generate"
+
+        full_skill = registry.get_full_skill("action-skill")
+        assert full_skill is not None
+        descriptor = MarkdownSkillAdapter.to_descriptor(full_skill)
+        assert len(descriptor.actions) == 1
+        assert descriptor.actions[0].id == "generate"
+
+def test_skill_policy_gate_validates_action_invocation_tool_only():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        safety="workspace_write",
+        approval_policy="manual",
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+
+    assert result.accepted is True
+    assert result.execution_mode == "tool_only"
+    assert result.approval_required is True
+    assert result.mapped_tool == "builtin:docs_read"
+    assert result.validation_errors == []
+    assert result.missing_requirements == []
+
+def test_skill_policy_gate_rejects_action_invocation_when_required_tool_missing():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        safety="workspace_write",
+        approval_policy="manual",
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_search"])
+
+    assert result.accepted is False
+    assert result.mapped_tool == "builtin:docs_read"
+    assert result.missing_requirements == ["tool:builtin:docs_read"]
+
+def test_skill_policy_gate_allows_builtin_exec_binding_as_platform_tool():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        safety="workspace_write",
+        approval_policy="manual",
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:exec"])
+
+    assert result.accepted is True
+    assert result.mapped_tool == "builtin:exec"
+    assert result.execution_mode == "tool_only"
+    assert result.validation_errors == []
+
+def test_skill_policy_gate_validates_action_arguments_against_input_schema():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "timeout_s": {"type": "integer", "default": 30},
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={"command": "pwd"},
+    )
+
+    assert result.accepted is True
+    assert result.validation_errors == []
+    assert result.metadata["validated_arguments"] == {"command": "pwd", "timeout_s": 30}
+
+def test_skill_policy_gate_rejects_missing_required_action_argument():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={},
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == ["Missing required action argument: command"]
+
+def test_skill_policy_gate_rejects_unexpected_action_argument():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={"command": "pwd", "unsafe": True},
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == ["Unexpected action argument: unsafe"]
+
+def test_skill_policy_gate_validates_nested_action_arguments_and_applies_defaults():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "options": {
+                    "type": "object",
+                    "properties": {
+                        "cwd": {"type": "string"},
+                        "shell": {"type": "string", "default": "bash"},
+                    },
+                    "required": ["cwd"],
+                    "additionalProperties": False,
+                },
+                "targets": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "mode": {"type": "string", "enum": ["read", "write"]},
+                        },
+                        "required": ["path", "mode"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["command", "options"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={
+            "command": "ls",
+            "options": {"cwd": "/workspace"},
+            "targets": [{"path": "docs", "mode": "read"}],
+        },
+    )
+
+    assert result.accepted is True
+    assert result.validation_errors == []
+    assert result.metadata["validated_arguments"] == {
+        "command": "ls",
+        "options": {"cwd": "/workspace", "shell": "bash"},
+        "targets": [{"path": "docs", "mode": "read"}],
+    }
+
+def test_skill_policy_gate_reports_nested_argument_paths():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {
+                        "cwd": {"type": "string"},
+                    },
+                    "required": ["cwd"],
+                    "additionalProperties": False,
+                },
+                "targets": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "mode": {"type": "string", "enum": ["read", "write"]},
+                        },
+                        "required": ["path", "mode"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["options"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={
+            "options": {"extra": True},
+            "targets": [{"path": "docs", "mode": "delete"}],
+        },
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == [
+        "Missing required action argument: options.cwd",
+        "Unexpected action argument: options.extra",
+        "Invalid value for action argument `targets[0].mode`: expected one of ['read', 'write']",
+    ]
+
+def test_skill_policy_gate_accepts_nullable_arguments_and_type_list_null():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "note": {"type": "string", "nullable": True},
+                "metadata": {"type": ["object", "null"]},
+            },
+            "required": ["command", "note"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={"command": "pwd", "note": None, "metadata": None},
+    )
+
+    assert result.accepted is True
+    assert result.validation_errors == []
+    assert result.metadata["validated_arguments"] == {
+        "command": "pwd",
+        "note": None,
+        "metadata": None,
+    }
+
+def test_skill_policy_gate_rejects_null_for_non_nullable_argument():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={"command": None},
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == ["Invalid type for action argument `command`: expected string"]
+
+def test_skill_policy_gate_enforces_string_numeric_and_array_constraints():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 5,
+                    "pattern": "^[a-z]+$",
+                },
+                "timeout_s": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60,
+                },
+                "targets": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "items": {"type": "string", "minLength": 2},
+                },
+            },
+            "required": ["command", "timeout_s", "targets"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={
+            "command": "AB",
+            "timeout_s": 0,
+            "targets": ["x", "ok", "extra"],
+        },
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == [
+        "String action argument `command` must have length >= 3",
+        "String action argument `command` must match pattern `^[a-z]+$`",
+        "Numeric action argument `timeout_s` must be >= 1",
+        "Array action argument `targets` must have at most 2 item(s)",
+        "String action argument `targets[0]` must have length >= 2",
+    ]
+
+def test_skill_policy_gate_applies_constraints_with_nested_paths():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:exec",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {
+                        "cwd": {
+                            "type": "string",
+                            "minLength": 4,
+                            "pattern": "^/",
+                        },
+                    },
+                    "required": ["cwd"],
+                    "additionalProperties": False,
+                },
+                "targets": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "retries": {"type": "integer", "minimum": 1, "maximum": 3},
+                        },
+                        "required": ["retries"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["options", "targets"],
+            "additionalProperties": False,
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:exec"],
+        arguments={
+            "options": {"cwd": "tmp"},
+            "targets": [{"retries": 0}],
+        },
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == [
+        "String action argument `options.cwd` must have length >= 4",
+        "String action argument `options.cwd` must match pattern `^/`",
+        "Numeric action argument `targets[0].retries` must be >= 1",
+    ]
+
+def test_skill_registry_validates_action_invocation_request():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:docs_read
+    resource: generate
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        result = registry.validate_action_invocation(
+            RuntimeSkillActionInvocationRequest(
+                skill_name="action-skill",
+                skill_version="1.0.0",
+                action_id="generate",
+                provider="openai",
+                model_name="gpt-4o",
+                arguments={"topic": "quarterly report"},
+                enabled_tools=["builtin:docs_read"],
+            )
+        )
+
+        assert result.accepted is True
+        assert result.execution_mode == "tool_only"
+        assert result.approval_required is True
+        assert result.mapped_tool == "builtin:docs_read"
+        assert result.metadata["provider"] == "openai"
+        assert result.metadata["model_name"] == "gpt-4o"
+        assert result.metadata["argument_keys"] == ["topic"]
+
+def test_skill_registry_validates_action_invocation_request_for_builtin_exec():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "exec-action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: exec-action-skill
+version: 1.0.0
+description: exec action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Exec action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: exec-action-skill
+version: 1.0.0
+description: exec action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: exec_task
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: exec_task
+    tool: builtin:exec
+    resource: exec_task
+    input_schema:
+      type: object
+      properties:
+        command:
+          type: string
+        working_dir:
+          type: string
+      required: ["command"]
+      additionalProperties: false
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('exec task')")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        result = registry.validate_action_invocation(
+            RuntimeSkillActionInvocationRequest(
+                skill_name="exec-action-skill",
+                skill_version="1.0.0",
+                action_id="exec_task",
+                provider="openai",
+                model_name="gpt-4o",
+                arguments={"command": "pwd"},
+                enabled_tools=["builtin:exec"],
+            )
+        )
+
+        assert result.accepted is True
+        assert result.execution_mode == "tool_only"
+        assert result.approval_required is True
+        assert result.mapped_tool == "builtin:exec"
+        assert result.validation_errors == []
+        assert result.missing_requirements == []
+        assert result.metadata["validated_arguments"] == {"command": "pwd"}
+
+def test_skill_registry_validate_action_invocation_handles_missing_action():
+    registry = SkillRegistry()
+
+    result = registry.validate_action_invocation(
+        RuntimeSkillActionInvocationRequest(
+            skill_name="missing-skill",
+            skill_version="1.0.0",
+            action_id="generate",
+            enabled_tools=["builtin:docs_read"],
+        )
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == ["Action descriptor not found"]
+
+def test_build_action_invocation_event_payload():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+
+    payload = build_action_invocation_event(phase="preflight", result=invocation, request_id="req-1")
+
+    assert payload["event"] == "skill.action.preflight"
+    assert payload["skill_name"] == "action-skill"
+    assert payload["action_id"] == "generate"
+    assert payload["request_id"] == "req-1"
+    assert payload["invocation_id"] is None
+
+def test_build_action_execution_result_event_payload():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+
+    payload = build_action_execution_result_event(status="approval_required", result=invocation, request_id="req-1")
+
+    assert payload["event"] == "skill.action.result"
+    assert payload["status"] == "approval_required"
+    assert payload["lifecycle_phase"] == "preflight"
+    assert payload["lifecycle_status"] == "preflight_approval_required"
+    assert payload["skill_name"] == "action-skill"
+    assert payload["action_id"] == "generate"
+    assert payload["invocation_id"] is None
+
+def test_skill_action_execution_service_preflight_returns_approval_required():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:docs_read
+    resource: generate
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+        service = SkillActionExecutionService(registry)
+
+        result = service.preflight(
+            RuntimeSkillActionExecutionRequest(
+                request_id="req-approval",
+                invocation=RuntimeSkillActionInvocationRequest(
+                    skill_name="action-skill",
+                    skill_version="1.0.0",
+                    action_id="generate",
+                    enabled_tools=["builtin:docs_read"],
+                ),
+            )
+        )
+
+        assert result.status == "approval_required"
+        assert result.lifecycle_phase == "preflight"
+        assert result.lifecycle_status == "preflight_approval_required"
+        assert result.execution_mode == "non_executing"
+        assert result.request_id == "req-approval"
+        assert len(result.event_payloads) == 2
+        assert result.event_payloads[0]["event"] == "skill.action.preflight"
+        assert result.event_payloads[0]["lifecycle_status"] == "preflight_evaluated"
+        assert result.event_payloads[1]["event"] == "skill.action.result"
+        assert result.event_payloads[1]["status"] == "approval_required"
+        assert result.event_payloads[1]["lifecycle_status"] == "preflight_approval_required"
+
+def test_skill_action_execution_service_preflight_returns_blocked_for_missing_tool():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+actions:
+  - id: generate
+    tool: builtin:docs_read
+    resource: generate
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+        service = SkillActionExecutionService(registry)
+
+        result = service.preflight(
+            RuntimeSkillActionExecutionRequest(
+                request_id="req-blocked",
+                invocation=RuntimeSkillActionInvocationRequest(
+                    skill_name="action-skill",
+                    skill_version="1.0.0",
+                    action_id="generate",
+                    enabled_tools=["builtin:docs_search"],
+                ),
+            )
+        )
+
+        assert result.status == "blocked"
+        assert result.lifecycle_status == "preflight_blocked"
+        assert result.invocation.missing_requirements == ["tool:builtin:docs_read"]
+        assert result.event_payloads[1]["status"] == "blocked"
+        assert result.event_payloads[1]["lifecycle_status"] == "preflight_blocked"
+
+def test_skill_action_execution_service_preflight_returns_blocked_for_missing_action():
+    registry = SkillRegistry()
+    service = SkillActionExecutionService(registry)
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-missing",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="missing-skill",
+                skill_version="1.0.0",
+                action_id="generate",
+                enabled_tools=["builtin:docs_read"],
+            ),
+        )
+    )
+
+    assert result.status == "blocked"
+    assert result.lifecycle_status == "preflight_blocked"
+    assert result.invocation.validation_errors == ["Action descriptor not found"]
+    assert result.event_payloads[1]["status"] == "blocked"
+    assert result.event_payloads[1]["lifecycle_status"] == "preflight_blocked"
+
+def test_build_action_execution_transition_event_payload():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+
+    payload = build_action_execution_transition_event(
+        status="queued",
+        result=invocation,
+        request_id="req-queued",
+        lifecycle_phase="execution",
+        metadata={"queue": "default"},
+    )
+
+    assert payload["event"] == "skill.action.result"
+    assert payload["status"] == "queued"
+    assert payload["lifecycle_phase"] == "execution"
+    assert payload["lifecycle_status"] == "queued"
+    assert payload["metadata"] == {"queue": "default"}
+
+def test_skill_action_execution_service_build_transition_result_for_running_state():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+    service = SkillActionExecutionService(SkillRegistry())
+
+    result = service.build_transition_result(
+        invocation=invocation,
+        status="running",
+        request_id="req-running",
+        lifecycle_phase="execution",
+        metadata={"attempt": 1},
+    )
+
+    assert result.status == "running"
+    assert result.lifecycle_phase == "execution"
+    assert result.lifecycle_status == "running"
+    assert result.request_id == "req-running"
+    assert result.metadata["attempt"] == 1
+    assert "invocation_id" in result.metadata
+    assert len(result.event_payloads) == 1
+    assert result.event_payloads[0]["event"] == "skill.action.result"
+    assert result.event_payloads[0]["lifecycle_phase"] == "execution"
+    assert result.event_payloads[0]["lifecycle_status"] == "running"
+    assert result.event_payloads[0]["metadata"]["attempt"] == 1
+    assert "invocation_id" in result.event_payloads[0]["metadata"]
+
+def test_skill_action_execution_service_builds_stub_execution_results_for_ready_preflight():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+    service = SkillActionExecutionService(SkillRegistry())
+    preflight_result = service.build_transition_result(
+        invocation=invocation,
+        status="ready",
+        request_id="req-ready",
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_ready",
+        metadata={"provider": "openai"},
+    )
+
+    results = service.build_stub_execution_results(preflight_result=preflight_result)
+
+    assert [item.lifecycle_status for item in results] == ["queued", "skipped"]
+    assert results[0].event_payloads[0]["metadata"]["reason"] == "non_executing_by_design"
+    assert results[1].event_payloads[0]["lifecycle_phase"] == "execution"
+
+def test_skill_action_execution_service_builds_stub_execution_results_for_approval_preflight():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+    service = SkillActionExecutionService(SkillRegistry())
+    preflight_result = service.build_transition_result(
+        invocation=invocation,
+        status="approval_required",
+        request_id="req-approval",
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        metadata={"provider": "openai"},
+    )
+
+    results = service.build_stub_execution_results(preflight_result=preflight_result)
+
+    assert len(results) == 1
+    assert results[0].status == "awaiting_approval"
+    assert results[0].lifecycle_status == "awaiting_approval"
+    assert results[0].metadata["reason"] == "approval_required"
+    assert "approval_token" in results[0].metadata
+
+def test_build_action_execution_stub_message_for_awaiting_approval():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+    service = SkillActionExecutionService(SkillRegistry())
+    result = service.build_transition_result(
+        invocation=invocation,
+        status="awaiting_approval",
+        request_id="req-skip",
+        lifecycle_phase="execution",
+        lifecycle_status="awaiting_approval",
+        metadata={"reason": "approval_required"},
+    )
+
+    message = build_action_execution_stub_message(result)
+
+    assert "is awaiting approval before any platform-tool continuation can be considered" in message
+
+def test_skill_action_execution_service_builds_approval_result_and_resumes_execution():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+    service = SkillActionExecutionService(SkillRegistry())
+    preflight_result = service.build_transition_result(
+        invocation=invocation,
+        status="approval_required",
+        request_id="req-approval",
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        metadata={"provider": "openai"},
+    )
+    approval_result = service.build_approval_result(
+        preflight_result=preflight_result,
+        approval_request=RuntimeSkillActionApprovalRequest(
+            skill_name="action-skill",
+            skill_version="1.0.0",
+            action_id="generate",
+            approved=True,
+            approval_token="approval:action-skill:1.0.0:generate:req-approval",
+            request_id="req-approval",
+        ),
+    )
+
+    resumed_results = service.build_stub_execution_results(
+        preflight_result=preflight_result,
+        approval_result=approval_result,
+    )
+
+    assert approval_result.approved is True
+    assert approval_result.lifecycle_status == "approved"
+    assert approval_result.approval_token == "approval:action-skill:1.0.0:generate:req-approval"
+    assert build_action_approval_message(approval_result) == "[Action Approval] `action-skill.generate` was approved. Platform-tool action flow can continue."
+    assert [item.lifecycle_status for item in resumed_results] == ["queued", "skipped"]
+    assert resumed_results[0].metadata["reason"] == "approved_resume"
+
+def test_skill_action_execution_service_rejects_invalid_approval_token():
+    action = RuntimeSkillActionDescriptor(
+        id="generate",
+        name="action-skill",
+        version="1.0.0",
+        tool="builtin:docs_read",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(action, enabled_tools=["builtin:docs_read"])
+    service = SkillActionExecutionService(SkillRegistry())
+    preflight_result = service.build_transition_result(
+        invocation=invocation,
+        status="approval_required",
+        request_id="req-approval",
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+    )
+
+    approval_result = service.build_approval_result(
+        preflight_result=preflight_result,
+        approval_request=RuntimeSkillActionApprovalRequest(
+            skill_name="action-skill",
+            skill_version="1.0.0",
+            action_id="generate",
+            approved=True,
+            approval_token="bad-token",
+        ),
+    )
+
+    assert approval_result.approved is False
+    assert approval_result.lifecycle_status == "invalid"
+    assert approval_result.metadata["reason"] == "approval_token_mismatch"
 
 if __name__ == "__main__":
     pytest.main([__file__])

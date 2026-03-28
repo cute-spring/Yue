@@ -1,5 +1,6 @@
-import { ChatEventEnvelope, Message } from '../../types';
+import { ActionState, ChatEventEnvelope, Message } from '../../types';
 import {
+  applyActionEventToStates,
   buildToolCallsFromEvents,
   canSubmitChatRequest,
   getVisionStreamFeedback,
@@ -12,6 +13,7 @@ type Setter<T> = (value: T | ((prev: T) => T)) => unknown;
 
 export type SubmitChatTextOptions = {
   rawText: string;
+  requestOverrides?: Record<string, any>;
   currentImages: File[];
   messages: Accessor<Message[]>;
   currentChatId: Accessor<string | null>;
@@ -28,6 +30,7 @@ export type SubmitChatTextOptions = {
   setActiveSkill: (value: { name: string; version: string } | null) => unknown;
   setElapsedTime: (value: number | ((prev: number) => number)) => unknown;
   setCurrentChatId: (value: string | null) => unknown;
+  setActionStates: Setter<ActionState[]>;
   setShowLLMSelector: (value: boolean) => void;
   refreshChatMeta: (chatId: string) => Promise<boolean>;
   scheduleMetaRefreshForTitle: (chatId: string) => void;
@@ -43,6 +46,7 @@ export type SubmitChatTextOptions = {
 
 export const submitChatText = async ({
   rawText,
+  requestOverrides,
   currentImages,
   messages,
   currentChatId,
@@ -59,6 +63,7 @@ export const submitChatText = async ({
   setActiveSkill,
   setElapsedTime,
   setCurrentChatId,
+  setActionStates,
   setShowLLMSelector,
   refreshChatMeta,
   scheduleMetaRefreshForTitle,
@@ -134,6 +139,7 @@ export const submitChatText = async ({
         provider: selectedProvider(),
         model: selectedModel(),
         deep_thinking_enabled: isDeepThinking(),
+        ...requestOverrides,
       }),
       signal: abortController.signal,
     });
@@ -282,6 +288,8 @@ export const submitChatText = async ({
             }
             return next;
           });
+        } else if (typeof data.event === 'string' && data.event.startsWith('skill.action.')) {
+          setActionStates(prev => applyActionEventToStates(prev, data));
         } else if (data.event === 'run.limited') {
           console.warn('Run limited:', data.reason);
         } else if (data.event === 'skill_selected') {

@@ -3,7 +3,7 @@ import json
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock, AsyncMock
 from app.main import app
-from app.services.skill_service import SkillSpec
+from app.services.skill_service import SkillSpec, skill_registry
 from app.services.agent_store import AgentConfig
 from app.services.chat_service import Message
 
@@ -127,6 +127,148 @@ def test_get_chat_meta_success(client, mock_chat_service):
     assert payload["title"] == "Refined Title"
     assert payload["summary"] == "Summary"
 
+def test_get_action_state_by_skill_and_action(client, mock_chat_service):
+    now = datetime.now()
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_action_state.return_value = {
+        "id": 1,
+        "session_id": "1",
+        "skill_name": "action-skill",
+        "skill_version": "1.0.0",
+        "action_id": "generate",
+        "invocation_id": "invoke:action-skill:1.0.0:generate:req-approval",
+        "approval_token": "approval:action-skill:1.0.0:generate:req-approval",
+        "request_id": "req-approval",
+        "run_id": "run-1",
+        "assistant_turn_id": "turn-1",
+        "lifecycle_phase": "execution",
+        "lifecycle_status": "awaiting_approval",
+        "status": "awaiting_approval",
+        "payload": {"event": "skill.action.result"},
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    response = client.get("/api/chat/1/actions/state?skill_name=action-skill&action_id=generate")
+
+    assert response.status_code == 200
+    assert response.json()["action_id"] == "generate"
+    mock_chat_service.get_action_state.assert_called_once_with(
+        "1",
+        skill_name="action-skill",
+        action_id="generate",
+    )
+
+def test_get_action_state_by_approval_token(client, mock_chat_service):
+    now = datetime.now()
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_action_state_by_approval_token.return_value = {
+        "id": 1,
+        "session_id": "1",
+        "skill_name": "action-skill",
+        "skill_version": "1.0.0",
+        "action_id": "generate",
+        "invocation_id": "invoke:action-skill:1.0.0:generate:req-approval",
+        "approval_token": "approval:action-skill:1.0.0:generate:req-approval",
+        "request_id": "req-approval",
+        "run_id": "run-1",
+        "assistant_turn_id": "turn-1",
+        "lifecycle_phase": "execution",
+        "lifecycle_status": "awaiting_approval",
+        "status": "awaiting_approval",
+        "payload": {"event": "skill.action.result"},
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    response = client.get("/api/chat/1/actions/state?approval_token=approval:action-skill:1.0.0:generate:req-approval")
+
+    assert response.status_code == 200
+    assert response.json()["approval_token"] == "approval:action-skill:1.0.0:generate:req-approval"
+    mock_chat_service.get_action_state_by_approval_token.assert_called_once_with(
+        "1",
+        approval_token="approval:action-skill:1.0.0:generate:req-approval",
+    )
+
+def test_get_action_state_by_invocation_id(client, mock_chat_service):
+    now = datetime.now()
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_action_state_by_invocation_id.return_value = {
+        "id": 1,
+        "session_id": "1",
+        "skill_name": "action-skill",
+        "skill_version": "1.0.0",
+        "action_id": "generate",
+        "invocation_id": "invoke:action-skill:1.0.0:generate:req-approval",
+        "approval_token": "approval:action-skill:1.0.0:generate:req-approval",
+        "request_id": "req-approval",
+        "run_id": "run-1",
+        "assistant_turn_id": "turn-1",
+        "lifecycle_phase": "execution",
+        "lifecycle_status": "awaiting_approval",
+        "status": "awaiting_approval",
+        "payload": {"event": "skill.action.result"},
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    response = client.get("/api/chat/1/actions/state?invocation_id=invoke:action-skill:1.0.0:generate:req-approval")
+
+    assert response.status_code == 200
+    assert response.json()["invocation_id"] == "invoke:action-skill:1.0.0:generate:req-approval"
+    mock_chat_service.get_action_state_by_invocation_id.assert_called_once_with(
+        "1",
+        invocation_id="invoke:action-skill:1.0.0:generate:req-approval",
+    )
+
+def test_get_action_state_rejects_mixed_lookup_modes(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+
+    response = client.get(
+        "/api/chat/1/actions/state?skill_name=action-skill&action_id=generate&approval_token=approval:token"
+    )
+
+    assert response.status_code == 400
+    assert "Use exactly one lookup mode" in response.json()["detail"]
+
+def test_get_action_state_rejects_incomplete_lookup(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+
+    response = client.get("/api/chat/1/actions/state?skill_name=action-skill")
+
+    assert response.status_code == 400
+    assert "required together" in response.json()["detail"]
+
+def test_list_action_states(client, mock_chat_service):
+    now = datetime.now()
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.list_action_states.return_value = [
+        {
+            "id": 1,
+            "session_id": "1",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "invocation_id": "invoke:action-skill:1.0.0:generate:req-approval",
+            "approval_token": "approval:action-skill:1.0.0:generate:req-approval",
+            "request_id": "req-approval",
+            "run_id": "run-1",
+            "assistant_turn_id": "turn-1",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "awaiting_approval",
+            "status": "awaiting_approval",
+            "payload": {"event": "skill.action.result"},
+            "created_at": now,
+            "updated_at": now,
+        }
+    ]
+
+    response = client.get("/api/chat/1/actions/states")
+
+    assert response.status_code == 200
+    assert response.json()[0]["skill_name"] == "action-skill"
+    mock_chat_service.list_action_states.assert_called_once_with("1")
+
 @pytest.mark.asyncio
 async def test_chat_stream_basic(client, mock_chat_service):
     # This is a complex test because of StreamingResponse and many dependencies
@@ -218,6 +360,7 @@ async def test_chat_stream_contract_violation_fails_open(client, mock_chat_servi
 
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
+
         mock_result = MagicMock()
 
         async def mock_stream():
@@ -246,6 +389,575 @@ async def test_chat_stream_contract_violation_fails_open(client, mock_chat_servi
                 break
         assert found_contract_violation
         assert found_hello
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_action_emits_preflight_events_and_skips_model_run(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:exec"]
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:exec
+    resource: generate
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="action-agent",
+                    name="Action Agent",
+                    system_prompt="You are an action agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:exec"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["action-skill:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Run action preflight",
+                        "agent_id": "action-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "action-skill:1.0.0",
+                        "requested_action": "generate",
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"event": "skill.action.preflight"' in line for line in data_lines)
+                assert any('"event": "skill.action.result"' in line for line in data_lines)
+                assert any('"lifecycle_status": "preflight_approval_required"' in line for line in data_lines)
+                assert any('"lifecycle_status": "awaiting_approval"' in line for line in data_lines)
+                assert any('"mapped_tool": "builtin:exec"' in line for line in data_lines)
+                assert any("requires approval before any platform-tool continuation" in line for line in data_lines)
+                assert any("is awaiting approval before any platform-tool continuation can be considered" in line for line in data_lines)
+                assert mock_chat_service.add_action_event.call_count == 3
+                mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_action_resume_after_approval_emits_approval_and_execution_events(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:exec"]
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:exec
+    resource: generate
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_exec_tool = MagicMock()
+                mock_exec_tool.name = "exec"
+                mock_exec_tool.validate_params.side_effect = lambda args: args
+                mock_exec_tool.execute = AsyncMock(return_value="pwd\n/Users/gavinzhang/ws-ai-recharge-2026/Yue")
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[mock_exec_tool])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="action-agent",
+                    name="Action Agent",
+                    system_prompt="You are an action agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:exec"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["action-skill:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Approve and continue",
+                        "agent_id": "action-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "action-skill:1.0.0",
+                        "requested_action": "generate",
+                        "requested_action_arguments": {"command": "pwd", "cwd": "/Users/gavinzhang/ws-ai-recharge-2026/Yue"},
+                        "requested_action_approved": True,
+                        "requested_action_approval_token": "approval:action-skill:1.0.0:generate:manual",
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"event": "skill.action.approval"' in line for line in data_lines)
+                assert any('"lifecycle_status": "approved"' in line for line in data_lines)
+                assert any('"lifecycle_status": "queued"' in line for line in data_lines)
+                assert any('"lifecycle_status": "running"' in line for line in data_lines)
+                assert any('"lifecycle_status": "succeeded"' in line for line in data_lines)
+                assert any('"event": "tool.call.started"' in line for line in data_lines)
+                assert any('"event": "tool.call.finished"' in line for line in data_lines)
+                assert any('"mapped_tool": "builtin:exec"' in line for line in data_lines)
+                assert any('"tool_args": {"command": "pwd", "cwd": "/Users/gavinzhang/ws-ai-recharge-2026/Yue"}' in line for line in data_lines)
+                assert any("was approved. Platform-tool action flow can continue" in line for line in data_lines)
+                assert any("[Tool Result] `builtin:exec` returned:" in line for line in data_lines)
+                assert mock_chat_service.add_action_event.call_count == 6
+                mock_chat_service.add_tool_call.assert_called_once()
+                mock_chat_service.update_tool_call.assert_called_once()
+                mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_action_blocks_on_invalid_action_arguments(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:exec"]
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:exec
+    resource: generate
+    input_schema:
+      type: object
+      properties:
+        command:
+          type: string
+      required: ["command"]
+      additionalProperties: false
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="action-agent",
+                    name="Action Agent",
+                    system_prompt="You are an action agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:exec"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["action-skill:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Run action preflight",
+                        "agent_id": "action-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "action-skill:1.0.0",
+                        "requested_action": "generate",
+                        "requested_action_arguments": {"working_dir": "."},
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "preflight_blocked"' in line for line in data_lines)
+                assert any("Missing required action argument: command" in line for line in data_lines)
+                mock_registry.get_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_action_surfaces_nested_argument_validation_paths(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:exec"]
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:exec
+    resource: generate
+    input_schema:
+      type: object
+      properties:
+        options:
+          type: object
+          properties:
+            cwd:
+              type: string
+          required: ["cwd"]
+          additionalProperties: false
+        targets:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              mode:
+                type: string
+                enum: ["read", "write"]
+            required: ["path", "mode"]
+            additionalProperties: false
+      required: ["options"]
+      additionalProperties: false
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="action-agent",
+                    name="Action Agent",
+                    system_prompt="You are an action agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:exec"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["action-skill:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Run action preflight",
+                        "agent_id": "action-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "action-skill:1.0.0",
+                        "requested_action": "generate",
+                        "requested_action_arguments": {
+                            "options": {"extra": True},
+                            "targets": [{"path": "docs", "mode": "delete"}],
+                        },
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "preflight_blocked"' in line for line in data_lines)
+                assert any("Missing required action argument: options.cwd" in line for line in data_lines)
+                assert any("Unexpected action argument: options.extra" in line for line in data_lines)
+                assert any("Invalid value for action argument `targets[0].mode`" in line for line in data_lines)
+                mock_registry.get_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_action_blocks_on_nested_schema_constraints(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "action-skill")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: action-skill
+version: 1.0.0
+description: action skill
+capabilities: ["pkg"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:exec"]
+---
+## System Prompt
+Action prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: action-skill
+version: 1.0.0
+description: action skill
+entrypoint: system_prompt
+capabilities: ["pkg"]
+resources:
+  scripts:
+    - id: generate
+      path: scripts/generate.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: generate
+    tool: builtin:exec
+    resource: generate
+    input_schema:
+      type: object
+      properties:
+        options:
+          type: object
+          properties:
+            cwd:
+              type: string
+              minLength: 4
+              pattern: "^/"
+          required: ["cwd"]
+          additionalProperties: false
+        retries:
+          type: integer
+          minimum: 1
+          maximum: 3
+      required: ["options", "retries"]
+      additionalProperties: false
+    approval_policy: manual
+""")
+        with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
+            f.write("print('generate')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="action-agent",
+                    name="Action Agent",
+                    system_prompt="You are an action agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:exec"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["action-skill:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Run action preflight",
+                        "agent_id": "action-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "action-skill:1.0.0",
+                        "requested_action": "generate",
+                        "requested_action_arguments": {
+                            "options": {"cwd": "tmp"},
+                            "retries": 0,
+                        },
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "preflight_blocked"' in line for line in data_lines)
+                assert any("String action argument `options.cwd` must have length >= 4" in line for line in data_lines)
+                assert any("String action argument `options.cwd` must match pattern `^/`" in line for line in data_lines)
+                assert any("Numeric action argument `retries` must be >= 1" in line for line in data_lines)
+                mock_registry.get_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
 
 def test_estimate_tokens():
     from app.api.chat import estimate_tokens

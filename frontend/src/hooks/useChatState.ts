@@ -1,7 +1,9 @@
 import { createSignal, onMount } from 'solid-js';
-import { ChatSession, Message, ChatEventEnvelope, Agent } from '../types';
+import { ChatSession, Message, ChatEventEnvelope, Agent, ActionState } from '../types';
 import { useToast } from '../context/ToastContext';
 import {
+  applyActionEventToStates,
+  buildActionStatesFromEvents,
   buildToolCallsFromEvents,
   canSubmitChatRequest,
   getVisionStreamFeedback,
@@ -11,6 +13,8 @@ import {
 import { submitChatText } from './chat/chatSubmission';
 
 export {
+  applyActionEventToStates,
+  buildActionStatesFromEvents,
   normalizeStreamEvent,
   buildToolCallsFromEvents,
   shouldAcceptEvent,
@@ -50,6 +54,7 @@ export function useChatState(
   const [imageAttachments, setImageAttachments] = createSignal<File[]>([]);
   const [copiedMessageIndex, setCopiedMessageIndex] = createSignal<number | null>(null);
   const [activeSkill, setActiveSkill] = createSignal<{ name: string; version: string } | null>(null);
+  const [actionStates, setActionStates] = createSignal<ActionState[]>([]);
   const [lastGenerationOutcome, setLastGenerationOutcome] = createSignal<'success' | 'aborted' | 'error' | null>(null);
   
   let abortController: AbortController | null = null;
@@ -146,12 +151,14 @@ export function useChatState(
       const res = await fetch(`/api/chat/${id}`);
       const data = await res.json();
       let mergedMessages: Message[] = data.messages || [];
+      let replayActionStates: ActionState[] = [];
       try {
         const eventsResp = await fetch(`/api/chat/${id}/events`);
         if (eventsResp.ok) {
           const replayEventsRaw = await eventsResp.json();
           if (Array.isArray(replayEventsRaw) && replayEventsRaw.length > 0) {
             const replayEvents = replayEventsRaw.map(normalizeStreamEvent);
+            replayActionStates = buildActionStatesFromEvents(replayEvents);
             const eventsByTurn = new Map<string, ChatEventEnvelope[]>();
             const metaByTurn = new Map<string, Record<string, any>>();
             for (const ev of replayEvents) {
@@ -177,6 +184,18 @@ export function useChatState(
       } catch (e) {
         console.warn("Replay events API unavailable, fallback to message history", e);
       }
+      try {
+        const statesResp = await fetch(`/api/chat/${id}/actions/states`);
+        if (statesResp.ok) {
+          const stateData = await statesResp.json();
+          setActionStates(Array.isArray(stateData) ? stateData : []);
+        } else {
+          setActionStates(replayActionStates);
+        }
+      } catch (e) {
+        console.warn("Action states API unavailable, fallback to replay events", e);
+        setActionStates(replayActionStates);
+      }
       setCurrentChatId(data.id);
       setMessages(mergedMessages);
       setSelectedAgent(data.agent_id);
@@ -199,6 +218,7 @@ export function useChatState(
     clearMetaRefreshTimers();
     setCurrentChatId(null);
     setMessages([]);
+    setActionStates([]);
     setInput("");
     if (isMobile) {
       setShowHistory(false);
@@ -212,6 +232,7 @@ export function useChatState(
       if (currentChatId() === id) {
         setCurrentChatId(null);
         setMessages([]);
+        setActionStates([]);
       }
       toast.success("Chat deleted successfully");
     } catch (e) {
@@ -267,6 +288,7 @@ export function useChatState(
   const submitText = async (rawText: string) => {
     await submitChatText({
       rawText,
+      requestOverrides: undefined,
       currentImages: imageAttachments(),
       messages,
       currentChatId,
@@ -283,6 +305,61 @@ export function useChatState(
       setActiveSkill,
       setElapsedTime,
       setCurrentChatId,
+      setActionStates,
+      setShowLLMSelector,
+      refreshChatMeta,
+      scheduleMetaRefreshForTitle,
+      toast,
+      fileToBase64,
+      setAbortController: (controller) => {
+        abortController = controller;
+      },
+      setTimerInterval: (interval) => {
+        timerInterval = interval;
+      },
+      getTimerInterval: () => timerInterval,
+    });
+  };
+
+  const submitActionDecision = async (actionState: ActionState, approved: boolean) => {
+    const requestedSkill = actionState.skill_version
+      ? `${actionState.skill_name}:${actionState.skill_version}`
+      : actionState.skill_name;
+    const validatedArguments = actionState.payload?.metadata?.validated_arguments;
+    const fallbackArguments = actionState.payload?.metadata?.tool_args;
+    const requestArguments =
+      validatedArguments && typeof validatedArguments === 'object'
+        ? validatedArguments
+        : (fallbackArguments && typeof fallbackArguments === 'object' ? fallbackArguments : undefined);
+    const verb = approved ? 'Approve' : 'Reject';
+    const rawText = `${verb} ${actionState.skill_name}.${actionState.action_id}`;
+
+    await submitChatText({
+      rawText,
+      requestOverrides: {
+        requested_skill: requestedSkill,
+        requested_action: actionState.action_id,
+        requested_action_approved: approved,
+        requested_action_approval_token: actionState.approval_token || undefined,
+        requested_action_arguments: requestArguments,
+      },
+      currentImages: [],
+      messages,
+      currentChatId,
+      selectedProvider,
+      selectedModel,
+      selectedAgent,
+      requestedSkill: () => requestedSkill,
+      isDeepThinking,
+      setMessages,
+      setInput,
+      setImageAttachments,
+      setIsTyping,
+      setLastGenerationOutcome,
+      setActiveSkill,
+      setElapsedTime,
+      setCurrentChatId,
+      setActionStates,
       setShowLLMSelector,
       refreshChatMeta,
       scheduleMetaRefreshForTitle,
@@ -383,6 +460,8 @@ export function useChatState(
     setCopiedMessageIndex,
     activeSkill,
     setActiveSkill,
+    actionStates,
+    setActionStates,
     lastGenerationOutcome,
     loadHistory,
     loadChat,
@@ -391,6 +470,7 @@ export function useChatState(
     generateSummary,
     stopGeneration,
     submitText,
+    submitActionDecision,
     handleSubmit,
     handleRegenerate,
     toggleThought,
