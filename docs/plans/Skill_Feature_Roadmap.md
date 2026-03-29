@@ -1,580 +1,476 @@
-# Skill Feature Upgrade Roadmap
+# Skill Feature Roadmap
 
-*Generated on February 14, 2026*  
-*Version: 1.0.0*
+*Updated on March 27, 2026*  
+*Status: Current-state gap analysis and next-stage roadmap*
 
-## Executive Summary
+## 1. Goal
 
-This document outlines a comprehensive upgrade plan to implement a **skill-based architecture** in the Yue platform. Building upon the existing MCP tool integration and agent configuration system, this roadmap proposes transforming the platform from a "tool-equipped chatbot" into a **true multi-agent platform** with reusable skill modules, hierarchical agent orchestration, and deterministic script execution.
+The product goal is to evolve Yue's current skill feature into a system closer to **Claude Code** or **OpenClaw** style skills:
 
-The upgrade will enable **progressive disclosure** of expertise, **coordinator-subagent delegation**, and **skill-based tool grouping**, resulting in 60-80% token savings, improved error containment, and simplified agent configuration.
+1. Skills are **package-like capability modules**, not just prompt snippets.
+2. Skills support **progressive disclosure** across metadata, instructions, references, scripts, and provider-specific variants.
+3. Skills can safely influence both **prompt behavior** and **runtime execution behavior**.
+4. Skills are composable enough to support **tooling workflows today** and **delegation/subagents later**.
 
-## Vision & Goals
+## 1.1 Boundary Update (2026-03-28)
 
-### Vision
-Transform Yue into a modular AI engineering platform where:
-- **Skills** encapsulate reusable expertise (frontend, database, API integration)
-- **Agents** assemble skills dynamically based on task requirements  
-- **Users** configure agents through skill selection rather than manual tool assignment
-- **Complex tasks** decompose automatically via coordinator-subagent orchestration
+Yue's current product boundary for skills is now explicit:
 
-### Primary Goals
-1. **Context Efficiency**: Reduce token usage by 60-80% through progressive disclosure
-2. **Configuration Simplicity**: Cut agent setup time by 80% via skill-based assembly
-3. **Reliability Improvement**: Move 40% of complex operations from LLM generation to deterministic scripts
-4. **Scalability**: Enable addition of new expertise via skill folders, not code changes
+1. Skills may **select, constrain, and orchestrate only the tools that Yue already exposes** through built-in tools and MCP.
+2. Skills may provide **prompt blocks, references, templates, overlays, and action/workflow metadata**.
+3. Skills may use existing platform tools, including `builtin:exec` when it is explicitly exposed and authorized at the platform/tool layer.
+4. Skills may **not** introduce a separate skill-owned runtime, custom script runner, or any execution surface beyond the platform's existing tool and MCP surface.
 
-### Success Metrics
-- Token usage per conversation (target: 60% reduction)
-- Agent configuration time (target: 80% reduction)
-- Task success rate for complex multi-step problems (target: 95%)
-- Number of reusable skills in library (target: 10+ core skills)
+This means the long-term direction in this roadmap should now be interpreted as:
 
-## Core Principles (from Skill-Creator)
+1. **Yes** to package-first, tool-backed skills that stay inside Yue's platform tool boundary.
+2. **Yes** to platform-level `builtin:exec` when governed as a normal built-in tool.
+3. **No** to building a separate skill script runner or dynamic execution path outside the platform tool surface.
 
-The implementation will follow established skill design principles:
+This document replaces the older "big bang" roadmap with a gap-driven roadmap based on the codebase as it exists today.
 
-### 1. Progressive Disclosure
-Skills use a three-level loading system to manage context efficiently:
-- **Level 1: Metadata** (name + description) - Always in context (~100 words)
-- **Level 2: SKILL.md body** - When skill triggers (<5k words)
-- **Level 3: Bundled resources** - As needed by Claude (scripts, references, assets)
+## 1.2 Current Delivery Snapshot (2026-03-28)
 
-### 2. Concise is Key
-- Only add context Claude doesn't already have
-- Challenge each piece of information: "Does Claude really need this explanation?"
-- Prefer concise examples over verbose explanations
+The current implementation has already delivered the highest-value stories for the package/action contract line:
 
-### 3. Appropriate Degrees of Freedom
-- **High freedom**: Text-based instructions for multiple valid approaches
-- **Medium freedom**: Pseudocode or scripts with parameters for preferred patterns
-- **Low freedom**: Specific scripts with few parameters for fragile operations
+1. package-first skill parsing and registry with legacy markdown compatibility
+2. provider/model overlays
+3. tool-backed action descriptors, preflight, approval, and runtime lifecycle
+4. chat runtime integration for `requested_action`, including approved handoff into platform tools such as `builtin:exec`
+5. persisted `skill.action.*` events, direct `action_states`, approval-token lookup, and `invocation_id`-based action identity
+6. frontend action history, approval UX, structured detail sections, filters/search/summary, collapsible invocation history, and a first `builtin:exec`-specific result renderer
 
-### 4. Skill Anatomy
-```
-skill-name/
-├── SKILL.md (required)
-│   ├── YAML frontmatter metadata (required)
-│   └── Markdown instructions (required)
-└── Bundled Resources (optional)
-    ├── scripts/          - Executable code (Python/Bash/etc.)
-    ├── references/       - Documentation loaded as needed
-    └── assets/           - Files used in output (templates, icons, etc.)
-```
+As a result, the roadmap items below should now be read as:
 
-## Architecture Overview
+1. foundational package/action/runtime work is largely complete
+2. remaining work is primarily enhancement work on schema breadth, tool-specific presentation, and deeper UX rather than missing core architecture
 
-### Current Architecture (Baseline)
-```
-User → Agent → LLM → [Authorized Tools]
-```
+Recommended handoff interpretation for the next thread:
 
-### Target Architecture (Skill-Enabled)
-```
-User → Coordinator → Skill Selection
-                     ↓
-              [Subagent Pool]
-              /     |     \
-    Skill 1   Skill 2   Skill 3
-    (Frontend) (Database) (API)
-```
+1. do not reopen the question of a skill-owned runner
+2. do not re-scope the current work as incomplete foundation work
+3. continue only on enhancement tracks unless product direction changes
 
-### Key Architectural Components
+## 2. Current Reality
 
-| Component | Purpose | Integration Point |
-|-----------|---------|-------------------|
-| **Skill Registry** | Discover, validate, load skills | New service at `/api/skills` |
-| **Skill Loader** | Progressive disclosure management | Extends MCP manager |
-| **Coordinator Engine** | Task decomposition & delegation | New `/api/agents/{id}/delegate` endpoint |
-| **Subagent Runtime** | Isolated skill execution | Separate `pydantic-ai` contexts |
-| **Script Execution** | Deterministic operation execution | Sandboxed environment with MCP wrapper |
+Today Yue already has a meaningful skill foundation:
 
-## Implementation Phases
+1. Layered skill discovery exists across `builtin`, `workspace`, and `user` directories via [`backend/app/services/skills/directories.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/directories.py).
+2. Skill metadata and markdown parsing exist via [`backend/app/services/skills/models.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/models.py) and [`backend/app/services/skills/parsing.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/parsing.py).
+3. Runtime selection exists via [`backend/app/services/skills/routing.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/routing.py).
+4. Runtime tool gating exists via [`backend/app/services/skills/policy.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/policy.py).
+5. Prompt assembly already injects the selected skill into chat runtime via [`backend/app/services/chat_prompting.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/chat_prompting.py).
 
-### Phase 1: Foundation - Skill Module System (3 weeks)
+In other words, Yue already has a **working prompt-time skill system**.
 
-**Timeline**: Weeks 1-3  
-**Priority**: High (Foundation for all subsequent work)
+What it does **not** yet have is a fully realized package/runtime system like Claude Code or OpenClaw.
 
-#### Milestones
-1. **Skill Schema Definition** (Week 1)
-   - Pydantic models: `SkillDefinition`, `SkillScript`, `SkillReference`
-   - Validation logic for skill structure and metadata
-   - Migration path for existing built-in agents
+## 3. Current Directories
 
-2. **Skill Storage & Discovery** (Week 2)
-   - Filesystem-based skill storage at `/skills/` directory
-   - Skill registry service with versioning support
-   - Skill validation and integrity checks
-   - Backward compatibility layer
+The current directory picture is:
 
-3. **Skill Loader Service** (Week 3)
-   - Progressive disclosure implementation
-   - Context-aware skill loading (metadata → body → resources)
-   - Integration with existing agent configuration
-   - Performance optimization (caching, lazy loading)
+```text
+backend/data/skills/                # builtin skill packages and flat markdown skills
+data/skills/                        # workspace skill packages
+~/.yue/skills/                      # user skill packages (resolved at runtime)
 
-#### Deliverables
-1. `/backend/app/services/skill_registry.py`
-2. `/backend/app/models/skill.py` (Pydantic models)
-3. `/skills/` directory structure
-4. `/backend/app/api/skills.py` (REST API)
-5. Updated `agent_store.py` for skill integration
-
-#### Dependencies
-- No external dependencies
-- Builds on existing MCP infrastructure
-- Requires frontend team coordination for UI changes
-
-### Phase 2: Orchestration - Coordinator-Subagent Pattern (4 weeks)
-
-**Timeline**: Weeks 4-7  
-**Priority**: High (Enables complex task handling)
-
-#### Milestones
-1. **Session Isolation Framework** (Week 4)
-   - Separate `pydantic-ai` runtime contexts
-   - Subagent lifecycle management (create, execute, cleanup)
-   - Resource limits and timeout handling
-
-2. **Task Delegation API** (Week 5)
-   - `POST /api/agents/{id}/delegate` endpoint
-   - Task description parsing and skill matching
-   - Result aggregation and error handling
-   - Progress tracking via SSE events
-
-3. **Subagent Coordination** (Week 6)
-   - Parallel execution support
-   - Dependency resolution between subagents
-   - Result synthesis and conflict resolution
-   - Audit logging for compliance
-
-4. **Frontend Integration** (Week 7)
-   - Real-time subagent status visualization
-   - Task decomposition UI
-   - Result aggregation display
-   - Error handling and recovery UI
-
-#### Deliverables
-1. `/backend/app/services/subagent_runner.py`
-2. `/backend/app/api/delegation.py`
-3. Updated `agents.py` with delegation endpoints
-4. Frontend components: `SubagentMonitor`, `TaskDecomposer`
-5. SSE event stream for subagent progress
-
-#### Dependencies
-- Phase 1 completion (skill registry)
-- Frontend team availability for UI work
-- Testing infrastructure for parallel execution
-
-### Phase 3: Enhancement - Tool Discovery & Script Integration (3 weeks)
-
-**Timeline**: Weeks 8-10  
-**Priority**: Medium (Improves usability and reliability)
-
-#### Milestones
-1. **Enhanced Tool Metadata** (Week 8)
-   - Extend MCP tool schema with skill categorization
-   - Risk level annotation (read/write/dangerous)
-   - Tool grouping by skill domain
-   - Semantic search capabilities
-
-2. **Script Execution Environment** (Week 9)
-   - Secure sandbox for skill script execution
-   - Parameter validation and schema enforcement
-   - Resource limits and security controls
-   - Audit logging for compliance
-
-3. **MCP Tool Wrapper** (Week 10)
-   - Expose skill scripts as MCP tools
-   - Dynamic tool registration/unregistration
-   - Integration with existing tool authorization
-   - Performance monitoring and optimization
-
-#### Deliverables
-1. Enhanced `mcp/manager.py` with skill categorization
-2. `/backend/app/services/script_runner.py`
-3. MCP server for skill script execution
-4. Updated UI for skill-based tool filtering
-5. Security audit report for script execution
-
-#### Dependencies
-- Phase 1 completion (skill definitions)
-- Security team review for sandbox implementation
-- Performance testing infrastructure
-
-### Phase 4: Maturity - Core Skill Library & Optimization (3 weeks)
-
-**Timeline**: Weeks 11-13  
-**Priority**: Medium (Completes the ecosystem)
-
-#### Milestones
-1. **Core Skill Development** (Week 11)
-   - Frontend Expert skill (React, Tailwind, component optimization)
-   - Database Analyst skill (SQL optimization, schema design)
-   - API Integrator skill (OpenAPI validation, REST patterns)
-   - Documentation Specialist skill (Markdown, technical writing)
-
-2. **Performance Optimization** (Week 12)
-   - Skill loading performance (caching, preloading)
-   - Context switching optimization
-   - Memory management for subagents
-   - Token usage analytics and optimization
-
-3. **User Experience Polish** (Week 13)
-   - Skill marketplace UI (browse, install, update)
-   - Skill configuration wizards
-   - Template-based agent creation
-   - Usage analytics and recommendations
-
-#### Deliverables
-1. 4+ production-ready skills in `/skills/` directory
-2. Performance optimization patches
-3. Enhanced skill management UI
-4. Usage analytics dashboard
-5. Documentation and training materials
-
-#### Dependencies
-- All previous phases complete
-- Domain experts for skill content
-- User testing for skill effectiveness
-
-## Technical Specifications
-
-### 1. Skill Definition Schema
-
-```python
-class SkillDefinition(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    description: str  # Used for skill triggering
-    version: str = "1.0.0"
-    
-    # Progressive disclosure levels
-    metadata: SkillMetadata  # Always loaded
-    body_md: Optional[str] = None  # SKILL.md content
-    resources: SkillResources = Field(default_factory=SkillResources)
-    
-    # Integration points
-    system_prompt_templates: Dict[str, str] = Field(default_factory=dict)
-    required_tools: List[str] = Field(default_factory=list)
-    optional_tools: List[str] = Field(default_factory=list)
-    compatible_agents: List[str] = Field(default_factory=list)
-    
-    # Execution parameters
-    default_temperature: float = 0.7
-    default_max_tokens: int = 4000
-    requires_isolation: bool = True
-    
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+Examples already present:
+- backend/data/skills/ppt-expert/
+- backend/data/skills/system-ops-expert/
+- backend/data/skills/code-simplifier/
+- data/skills/project-status-auditor/
 ```
 
-### 2. Skill Storage Structure
+Several package directories already include richer structure:
 
-```
-skills/
-├── .registry.json                    # Central registry index
-├── frontend-expert/                  # Skill directory
-│   ├── SKILL.md                     # Required: metadata + instructions
-│   ├── skill.json                   # Skill definition (parsed from SKILL.md frontmatter)
-│   ├── scripts/                     # Executable code
-│   │   ├── optimize_react.py
-│   │   └── lint_css.sh
-│   ├── references/                  # Documentation
-│   │   ├── tailwind_cheatsheet.md
-│   │   └── react_patterns.md
-│   └── assets/                      # Output templates
-│       ├── component_template.tsx
-│       └── style_template.css
-├── database-analyst/
-│   ├── SKILL.md
-│   └── scripts/query_optimizer.py
-└── api-integrator/
-    ├── SKILL.md
-    └── scripts/openapi_validator.py
-```
+1. `SKILL.md`
+2. `scripts/`
+3. `references/`
+4. `agents/`
 
-### 3. Progressive Disclosure Implementation
+That is good news: the directory shape is already moving in the right direction.
 
-```python
-class SkillLoader:
-    async def load_for_agent(self, agent_id: str, skill_id: str, level: DisclosureLevel):
-        """Load skill content based on disclosure level"""
-        skill = await self.registry.get_skill(skill_id)
-        
-        if level == DisclosureLevel.METADATA_ONLY:
-            return skill.metadata
-        
-        if level == DisclosureLevel.BODY:
-            return {
-                "metadata": skill.metadata,
-                "body": skill.body_md
-            }
-        
-        if level == DisclosureLevel.FULL:
-            return {
-                "metadata": skill.metadata,
-                "body": skill.body_md,
-                "scripts": await self.load_scripts(skill),
-                "references": await self.load_references(skill)
-            }
-```
+## 4. Main Gaps vs Claude Code / OpenClaw Style Skills
 
-### 4. Subagent Execution Model
+### 4.1 Skill packages are not first-class runtime objects yet
 
-```python
-class SubagentRunner:
-    async def execute_task(self, skill_id: str, task_description: str, parent_context: Dict):
-        """Execute task in isolated subagent"""
-        # 1. Create isolated runtime
-        runtime = await self.create_isolated_runtime()
-        
-        # 2. Load skill with appropriate disclosure level
-        skill_content = await self.skill_loader.load_for_skill(
-            skill_id, 
-            level=DisclosureLevel.BODY
-        )
-        
-        # 3. Configure subagent with skill context
-        subagent = Agent(
-            system_prompt=skill_content["system_prompt"],
-            tools=skill_content["required_tools"],
-            temperature=skill_content["default_temperature"]
-        )
-        
-        # 4. Execute task
-        result = await subagent.run(task_description)
-        
-        # 5. Cleanup and return
-        await runtime.cleanup()
-        return {
-            "success": True,
-            "result": result.content,
-            "tokens_used": result.usage.total_tokens,
-            "execution_time": result.execution_time
-        }
-```
+Current state:
 
-### 5. Enhanced Sandbox Architecture
+1. The loader parses frontmatter and markdown sections from `SKILL.md` or flat `.md` files.
+2. The runtime mainly consumes `system_prompt`, `instructions`, `examples`, and `constraints.allowed_tools`.
 
-To ensure secure execution of skill scripts, the platform will implement a tiered sandboxing strategy:
+Gap:
 
-| Feature | Specification | Implementation Detail |
-|---------|---------------|-----------------------|
-| **Isolation Tier** | Container-level (gVisor) | Use gVisor as the Docker runtime to intercept syscalls and provide a stronger security boundary than standard Docker. |
-| **Network Policy** | Default: Deny All | Egress restricted to specific CIDRs or domains if required by the skill; otherwise, `network: none`. |
-| **Filesystem** | Read-Only Root + Ephemeral `/tmp` | Skill source code is mounted as read-only. Scripts only have write access to an ephemeral 100MB RAM-disk at `/workspace`. |
-| **Resource Quotas** | Strict Limits | CPU: 0.5 vCPU max, RAM: 512MB max, Timeout: 30s (default) to 300s (long-running). |
-| **System Calls** | Seccomp Filtering | Allow only a minimal set of syscalls required for language runtimes (Python/Node). |
-| **Audit Logs** | Real-time Stream | All `stdout`/`stderr` and syscall violations are logged to a secure central audit service. |
+1. `scripts/`, `references/`, `assets/`, and `agents/` are mostly just files on disk, not strongly modeled runtime resources.
+2. The registry does not expose a normalized resource manifest per skill package.
+3. Relative references inside skill content are not resolved as a first-class loading primitive.
 
-#### Sandbox Execution Flow:
-1. **Provision**: Spin up an ephemeral container (or Wasm runtime) from a hardened base image.
-2. **Mount**: Mount the specific `skills/{skill}/scripts` directory as **Read-Only**.
-3. **Inject**: Inject validated parameters as environment variables or a secure JSON file.
-4. **Execute**: Run the script as a non-privileged user or in a restricted VM context.
-5. **Reap**: Immediately destroy the environment after execution or timeout.
+Impact:
 
-### 6. Lightweight Local Sandbox Options
+1. Skills behave mostly like prompt presets.
+2. The system cannot reliably perform package-aware resource loading like Claude Code style skills do.
 
-For local development or resource-constrained environments where full gVisor/Docker infrastructure is undesirable, the following lightweight alternatives can be used:
+### 4.2 Progressive disclosure is only partial
 
-| Level | Strategy | Tooling | Use Case |
-|-------|----------|---------|----------|
-| **L1: Container Lite** | Optimized Docker | [OrbStack](https://orbstack.dev/) | macOS native, 10x faster and lighter than Docker Desktop. |
-| **L2: Runtime Native** | Permission-based | [Deno](https://deno.com/) | For JS/TS skills. Built-in security (no net/read by default). |
-| **L3: Virtual Machine** | WebAssembly (Wasm) | [Pyodide](https://pyodide.org/) | Run Python in a Wasm sandbox. Zero-Docker, high isolation. |
-| **L4: Process Isolation** | Environment restriction | `python -m venv` | Minimal isolation. Use only for trusted built-in skills. |
+Current state:
 
-#### Recommended Local Setup:
-1. **Primary**: Use **OrbStack** with standard Docker images. It provides the best balance of security and local performance.
-2. **Secondary (Zero-Docker)**: Implement a **Wasm-based runner** using `wasmer` or `pyodide` for core Python logic. This allows skills to run directly in the backend process with near-zero overhead.
-3. **Tertiary**: Use `deno` for any frontend-related scripts (linting, optimization) to leverage its native security model.
+1. Yue distinguishes summary loading from full skill loading through `list_summaries()` and `get_full_skill()`.
 
-## Integration Points with Existing System
+Gap:
 
-### 1. MCP Manager Integration
-```python
-# Extend MCP manager to support skill-based tool grouping
-class EnhancedMcpManager(McpManager):
-    async def get_tools_by_skill(self, skill_id: str) -> List[Dict]:
-        """Return tools categorized under specific skill"""
-        skill = await self.skill_registry.get_skill(skill_id)
-        all_tools = await self.get_available_tools()
-        
-        return [
-            tool for tool in all_tools
-            if tool.get("skill") == skill_id or 
-               tool["name"] in skill.required_tools
-        ]
-```
+1. Progressive disclosure stops at "summary vs full markdown".
+2. There is no separate lazy loading model for references, scripts, examples, templates, or provider-specific overlays.
+3. There is no explicit resource budget or loading policy.
 
-### 2. Agent Store Integration
-```python
-# Update agent configuration to support skills
-class EnhancedAgentConfig(AgentConfig):
-    enabled_skills: List[str] = Field(default_factory=list)
-    skill_overrides: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
-    
-    def get_effective_tools(self) -> List[str]:
-        """Combine directly enabled tools with skill-required tools"""
-        tools = set(self.enabled_tools)
-        
-        for skill_id in self.enabled_skills:
-            skill = self.skill_registry.get_skill(skill_id)
-            tools.update(skill.required_tools)
-            
-        return list(tools)
-```
+Impact:
 
-### 3. Frontend Integration Points
-- **Agents page**: Add "Skills" tab for skill management
-- **Agent creation/editing**: Skill selection interface
-- **Chat interface**: Subagent activity visualization
-- **Tools page**: Skill-based tool filtering
+1. We do not yet get the main context-efficiency advantage of mature skill systems.
 
-## Risk Assessment & Mitigation
+### 4.3 Skill schema is too prompt-centric
 
-| Risk | Probability | Impact | Mitigation Strategy |
-|------|------------|--------|---------------------|
-| **Skill context bloat** | Medium | High | Progressive disclosure implementation; token budgeting |
-| **Subagent resource leak** | Low | High | Resource limits; automatic cleanup; monitoring |
-| **Script execution security** | Medium | Critical | Sandboxed execution; parameter validation; audit logging |
-| **Performance degradation** | Medium | Medium | Caching; lazy loading; performance monitoring |
-| **User adoption resistance** | Low | Medium | Gradual rollout; training; template-based setup |
+Current state:
 
-### Security Considerations
-1. **Script Sandboxing**: All skill scripts execute in Docker containers or restricted environments
-2. **Parameter Validation**: Strict schema validation for all script parameters
-3. **Access Control**: Skills inherit agent authorization; no privilege escalation
-4. **Audit Trail**: Complete logging of all skill executions and tool calls
-5. **Resource Limits**: CPU, memory, and time limits for all subagents
+1. [`SkillSpec`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/models.py) models prompts, schemas, constraints, install metadata, and a few runtime fields.
 
-## Success Metrics & Monitoring
+Gap:
 
-### Quantitative Metrics
-1. **Token Efficiency**: Average tokens per conversation (target: 60% reduction)
-2. **Configuration Time**: Time to create new agent (target: 80% reduction)
-3. **Task Success Rate**: Complex task completion (target: 95% success)
-4. **Skill Reuse**: Average skills per agent (target: 2.5+)
-5. **Performance**: Subagent startup time < 500ms
+1. There is no first-class schema for:
+   - bundled scripts
+   - references
+   - assets/templates
+   - model/provider variants
+   - delegation hints
+   - trigger rules
+   - safety levels for executable actions
+   - install/check steps with structured validation
+2. The `entrypoint` field still assumes markdown section entry, not a broader skill contract.
 
-### Qualitative Metrics
-1. **User Satisfaction**: Survey scores for agent configuration experience
-2. **Skill Effectiveness**: User ratings for skill performance
-3. **Error Reduction**: Reduction in manual intervention for complex tasks
-4. **Adoption Rate**: Percentage of agents using skills
+Impact:
 
-### Monitoring Implementation
-```python
-# Skill usage analytics
-class SkillAnalytics:
-    async def track_skill_usage(self, skill_id: str, metrics: Dict):
-        await self.db.execute("""
-            INSERT INTO skill_usage 
-            (skill_id, tokens_saved, execution_time, success)
-            VALUES (?, ?, ?, ?)
-        """, ...)
-```
+1. The model cannot cleanly represent advanced skill behavior without overloading ad hoc metadata.
 
-## Resource Requirements
+### 4.4 Tool-backed workflows are not skill-native enough yet
 
-### Development Team
-- **Backend Engineers**: 2 (3 months)
-- **Frontend Engineers**: 1 (2 months)
-- **Security Engineer**: 0.5 (1 month for review)
-- **QA Engineer**: 1 (2 months)
+Current state:
 
-### Infrastructure
-- **Sandbox Environment**: Docker/Kubernetes for script execution
-- **Monitoring**: Prometheus/Grafana for performance metrics
-- **Storage**: Additional 1GB for skill library
-- **Backup**: Regular backups of skill registry
+1. Skills can restrict tools through `allowed_tools`.
+2. Some skill packages already include workflow metadata and script-like resources on disk.
 
-## Timeline Summary
+Gap:
 
-```mermaid
-gantt
-    title Skill Feature Upgrade Timeline
-    dateFormat  YYYY-MM-DD
-    section Phase 1: Foundation
-    Skill Schema Definition     :2026-02-17, 7d
-    Skill Storage & Discovery   :2026-02-24, 7d
-    Skill Loader Service        :2026-03-03, 7d
-    section Phase 2: Orchestration
-    Session Isolation Framework :2026-03-10, 7d
-    Task Delegation API         :2026-03-17, 7d
-    Subagent Coordination       :2026-03-24, 7d
-    Frontend Integration        :2026-03-31, 7d
-    section Phase 3: Enhancement
-    Enhanced Tool Metadata      :2026-04-07, 7d
-    Script Execution Environment :2026-04-14, 7d
-    MCP Tool Wrapper            :2026-04-21, 7d
-    section Phase 4: Maturity
-    Core Skill Development      :2026-04-28, 7d
-    Performance Optimization    :2026-05-05, 7d
-    User Experience Polish      :2026-05-12, 7d
+1. Skill actions are not yet cleanly framed as **tool-backed** platform actions.
+2. There is no strict contract that skill actions must stay inside existing built-in tools and MCP capabilities.
+3. Parameter schema, approval model, and audit trail are still incomplete at the skill-action level.
+
+Impact:
+
+1. Skills cannot yet deliver deterministic, reusable workflows while staying inside the existing platform tool boundary.
+
+### 4.5 Selection is still basic lexical routing
+
+Current state:
+
+1. The router scores by skill name, description, capabilities, and explicit request matching.
+
+Gap:
+
+1. No semantic retrieval.
+2. No trigger examples or evaluator-based scoring.
+3. No provider/model compatibility ranking.
+4. No confidence threshold calibration from production telemetry.
+5. No multi-skill composition beyond "selected skill + always skills".
+
+Impact:
+
+1. Routing works for simple cases, but it is still far from robust expert-skill dispatch.
+
+### 4.6 Package format is inconsistent
+
+Current state:
+
+1. Some skills are package directories with `SKILL.md`.
+2. Some skills are still flat markdown files such as `backend-api-debugger.md` and `quick-research.md`.
+
+Gap:
+
+1. There is no single preferred packaging standard.
+2. There is no migration plan from flat files to package directories.
+3. There is no manifest-level validation that a package is complete.
+
+Impact:
+
+1. The loader has to support mixed conventions.
+2. Advanced package capabilities become harder to implement consistently.
+
+### 4.7 Skill variants and agent overlays are not integrated
+
+Current state:
+
+1. There is already an example of provider-related config under `backend/data/skills/code-simplifier/agents/openai.yaml`.
+
+Gap:
+
+1. The parser and registry do not surface agent/provider overlays as first-class variants.
+2. There is no resolution order for base skill + provider overlay + user override.
+
+Impact:
+
+1. Skills cannot yet adapt cleanly across models/providers without hand-built code paths.
+
+### 4.8 Operational lifecycle is incomplete
+
+Current state:
+
+1. Availability checks cover OS, env vars, and binaries.
+2. Layered override and user-directory hot reload exist.
+
+Gap:
+
+1. No install flow.
+2. No upgrade/migration lifecycle.
+3. No integrity checks for packaged resources.
+4. No packaging/export/import format.
+5. No version compatibility policy between skills and app/runtime versions.
+
+Impact:
+
+1. The system can load local skills, but it does not yet manage them like reusable installable modules.
+
+### 4.9 Evaluation and observability are too thin for architectural expansion
+
+Current state:
+
+1. The chat runtime records some skill-effectiveness metrics.
+
+Gap:
+
+1. No benchmark set for routing quality.
+2. No before/after prompt-token measurement by skill loading tier.
+3. No action-level success metrics for tool-backed action flows or references.
+4. No regression suite for package resources and variant resolution.
+
+Impact:
+
+1. It is too early to confidently expand into subagents or executable skills without stronger eval coverage.
+
+## 5. Direction Decision
+
+The right direction is:
+
+1. **Yes** to a Claude Code / OpenClaw style skill system.
+2. **No** to jumping first into coordinator/subagent orchestration as the main next step.
+
+The current bottleneck is not service modularity anymore.  
+The current bottleneck is that Yue's skill model is still closer to **"prompt bundles with routing"** than **"full capability packages"**.
+
+So the next roadmap should prioritize:
+
+1. package model
+2. resource loading
+3. tool-backed non-executing actions
+4. richer routing/evals
+5. only then multi-agent delegation
+
+## 6. Recommended Target Package Format
+
+Preferred long-term standard:
+
+```text
+<skill-name>/
+├── SKILL.md
+├── manifest.yaml                 # optional at first, likely required later
+├── scripts/                      # optional legacy/package metadata only; not executable by Yue
+├── references/
+├── assets/
+├── templates/
+├── agents/
+│   ├── openai.yaml
+│   ├── anthropic.yaml
+│   └── local.yaml
+└── tests/
 ```
 
-## Next Steps (Immediate)
+Notes:
 
-1. **Week 1-2**: Design review and prototyping
-   - Create proof-of-concept for skill loading
-   - Validate progressive disclosure approach
-   - Security review of sandbox design
+1. `SKILL.md` should remain the human-authored core instructions file.
+2. `manifest.yaml` should become the machine-readable package contract once the schema expands.
+3. Flat markdown skills may remain supported temporarily as a backward-compatible legacy format.
 
-2. **Week 3**: Team mobilization
-   - Assign development resources
-   - Set up development environment
-   - Create detailed technical specifications
+## 7. Gap-Driven Roadmap
 
-3. **Week 4**: Development kickoff
-   - Begin Phase 1 implementation
-   - Set up CI/CD pipeline for skill validation
-   - Create initial skill templates
+### Phase A. Standardize the package contract
 
-## Appendix
+Goal:
 
-### A. Skill Creation Process (from skill-creator)
-1. **Understand** the skill with concrete examples
-2. **Plan** reusable skill contents (scripts, references, assets)
-3. **Initialize** the skill (run init_skill.py)
-4. **Edit** the skill (implement resources and write SKILL.md)
-5. **Package** the skill (run package_skill.py)
-6. **Iterate** based on real usage
+1. Move from mixed markdown/package conventions to a clear package-first model.
 
-### B. Example Skill: Frontend Expert
+Work:
 
-**SKILL.md frontmatter**:
-```yaml
-name: Frontend Expert
-description: |
-  Specialized in React, TypeScript, Tailwind CSS, and modern frontend development.
-  Use when: (1) Building React components, (2) Optimizing frontend performance,
-  (3) Implementing responsive designs, (4) Debugging frontend issues,
-  (5) Setting up frontend tooling (Vite, ESLint, etc.)
-```
+1. Define a canonical package format with required and optional files.
+2. Extend `SkillSpec` into a broader package model or introduce `SkillPackageSpec`.
+3. Add structured resource descriptors for scripts, references, assets, templates, and agent overlays.
+4. Keep flat `.md` skills as legacy-compatible input only.
 
-**Key scripts**:
-- `scripts/optimize_react.py`: Component optimization patterns
-- `scripts/lint_css.sh`: CSS quality checks
-- `scripts/generate_component.py`: Component template generation
+Deliverables:
 
-**Key references**:
-- `references/tailwind_cheatsheet.md`: Tailwind utility classes
-- `references/react_patterns.md`: React best practices
-- `references/performance.md`: Frontend optimization techniques
+1. updated skill schema
+2. package validator
+3. migration guide from flat markdown skills to package directories
 
-### C. Migration Path for Existing Agents
+### Phase B. Make bundled resources first-class
 
-1. **Built-in Docs Agent** → Convert to skill format
-2. **Custom Agents** → Optionally migrate to skill-based configuration
-3. **Tool Authorization** → Map existing tool lists to skill requirements
-4. **Backward Compatibility** → Maintain support for legacy agent format
+Goal:
 
-### D. References
-- [Skill Architecture Analysis Report](file://./docs/Skill_Architecture_Analysis_Report.md)
-- [Skill Creator Documentation](file://./.trae/skills/skill-creator/SKILL.md)
-- [MCP Integration Code](file://./backend/app/api/mcp.py)
-- [Agent Store Implementation](file://./backend/app/services/agent_store.py)
+1. Treat package resources as loadable runtime objects, not opaque files.
+
+Work:
+
+1. Add resource manifest generation in the registry.
+2. Add APIs/helpers for resolving bundled references by skill and relative path.
+3. Add lazy loading tiers:
+   - metadata
+   - core prompt sections
+   - selected references/examples
+   - executable actions/assets
+4. Add prompt assembly rules for when references should be mounted or summarized.
+
+Deliverables:
+
+1. skill resource manifest model
+2. resource resolver service
+3. progressive disclosure policy implementation
+
+### Phase C. Introduce tool-backed skill actions safely
+
+Goal:
+
+1. Let skills provide deterministic workflows without introducing arbitrary code execution.
+
+Work:
+
+1. Add first-class `actions` schema with parameters and policies.
+2. Define safety classes:
+   - read-only
+   - workspace-write
+   - approval-required
+3. Bind skill actions only to existing built-in tools or MCP tools.
+4. Persist audit logs for skill action usage.
+
+Deliverables:
+
+1. `SkillActionSpec`
+2. tool-backed action contract with policy checks
+3. integration tests for action state, approvals, and tool-binding validation
+
+### Phase D. Upgrade routing from lexical match to skill retrieval
+
+Goal:
+
+1. Make skill selection more reliable and scalable.
+
+Work:
+
+1. Add trigger examples and richer metadata to skills.
+2. Add semantic matching on top of lexical scoring.
+3. Rank by availability, provider compatibility, tool compatibility, and confidence.
+4. Support multi-skill plans where appropriate, not just one selected skill.
+
+Deliverables:
+
+1. improved router
+2. routing eval dataset
+3. production telemetry dashboard for match quality
+
+### Phase E. Add provider and agent overlays
+
+Goal:
+
+1. Allow one skill package to adapt to different models and agent styles cleanly.
+
+Work:
+
+1. Load `agents/*.yaml` overlays.
+2. Define merge order:
+   - base package
+   - provider overlay
+   - workspace override
+   - user override
+3. Support provider-specific prompt blocks, tool preferences, and action policies.
+
+Deliverables:
+
+1. overlay resolution system
+2. provider-aware packaging tests
+
+### Phase F. Package management and UX
+
+Goal:
+
+1. Make skills installable and maintainable as reusable modules.
+
+Work:
+
+1. Add install/upgrade/remove flows.
+2. Add integrity checks and compatibility warnings.
+3. Surface package health, requirements, and available actions in the UI.
+4. Add authoring docs and skill templates.
+
+Deliverables:
+
+1. package lifecycle commands/APIs
+2. UI for package inspection and management
+
+### Phase G. Delegation and multi-agent composition
+
+Goal:
+
+1. Introduce subagents only after the package/runtime model is mature enough.
+
+Work:
+
+1. Add delegation hints to skills.
+2. Define coordinator policy and result-merging contracts.
+3. Allow some skills to be "worker skills" and others to be "coordinator skills".
+
+Deliverables:
+
+1. delegation-ready skill contracts
+2. limited-scope subagent orchestration prototype
+
+## 8. Immediate Next 4 Tasks
+
+If we want the fastest path toward the target system, the best next tasks are:
+
+1. Add a new doc that defines the canonical **skill package contract** and legacy compatibility rules.
+2. Extend the skill schema to model **bundled resources** explicitly instead of leaving them implicit on disk.
+3. Update the loader/registry so every skill exposes a **resource manifest**.
+4. Add tests covering:
+   - package resource discovery
+   - provider overlay resolution
+   - progressive loading tiers
+   - action policy validation
+
+## 9. Success Criteria
+
+We should evaluate the roadmap against measurable outcomes:
+
+1. A skill package can declare and expose scripts, references, assets, and overlays without custom app code.
+2. Prompt assembly can load only the needed tier of a skill package.
+3. The router selects the right skill with improved confidence on a maintained eval set.
+4. Skill-provided actions run through explicit policy gates and audit logs.
+5. A new skill package can be added mostly by authoring files, not by modifying backend code.
+
+## 10. Bottom Line
+
+Yue is already on the right path, but it is only at the **prompt-skill foundation** stage.
+
+The biggest gaps are not in file modularization anymore.  
+The biggest gaps are:
+
+1. package contract
+2. resource modeling
+3. executable actions
+4. richer routing
+5. provider overlays
+
+That is the right next direction if the goal is to approach a Claude Code or OpenClaw level skill system.

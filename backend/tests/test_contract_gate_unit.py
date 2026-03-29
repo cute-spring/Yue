@@ -17,6 +17,7 @@ def test_classify_sse_event_kind():
     assert classify_sse_event_kind({"error": "bad request"}) == "error"
     assert classify_sse_event_kind({"event": "tool.call.started"}) == "tool_event"
     assert classify_sse_event_kind({"event": "skill_effectiveness"}) == "trace_event"
+    assert classify_sse_event_kind({"event": "skill.action.preflight"}) == "trace_event"
 
 
 def test_validate_event_payload_by_contract():
@@ -29,6 +30,7 @@ def test_validate_event_payload_by_contract():
     validate_event_payload(content_schema, {"content": "你好"})
     validate_event_payload(tool_schema, {"event": "tool.call.started", "call_id": "c1", "tool_name": "docs_search"})
     validate_event_payload(trace_schema, {"event": "skill_effectiveness", "reason_code": "skill_selected"})
+    validate_event_payload(trace_schema, {"event": "skill.action.result", "status": "blocked", "lifecycle_status": "preflight_blocked"})
 
     with pytest.raises(ValueError):
         validate_event_payload(content_schema, {"content": 123})

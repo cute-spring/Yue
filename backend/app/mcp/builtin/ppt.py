@@ -5,12 +5,20 @@ import asyncio
 import datetime
 import logging
 import re
+from pathlib import Path
 from typing import Any, Dict
 from pydantic_ai import RunContext
 from ..base import BaseTool
 from .registry import builtin_tool_registry
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_exports_dir(backend_dir: str) -> str:
+    data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data")))
+    exports_dir = data_dir / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    return str(exports_dir.resolve())
 
 class GeneratePptxTool(BaseTool):
     def __init__(self):
@@ -36,13 +44,10 @@ class GeneratePptxTool(BaseTool):
 
         backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
         script_path = os.path.join(backend_dir, "data/skills/ppt-expert/scripts/generate_pptx.py")
-        exports_dir = os.path.join(backend_dir, "data/exports")
+        exports_dir = _resolve_exports_dir(backend_dir)
         
         if not os.path.exists(script_path):
             return f"Error: PPT generation script not found at {script_path}"
-
-        # Ensure exports directory exists
-        os.makedirs(exports_dir, exist_ok=True)
 
         def _slugify(value: str) -> str:
             safe = re.sub(r"[^a-zA-Z0-9]+", "_", (value or "").strip())

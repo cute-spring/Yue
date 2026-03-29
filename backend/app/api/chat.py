@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic_ai import Agent, UsageLimits
 from app.api.chat_stream_runner import (
@@ -13,7 +13,12 @@ from app.api.chat_helpers import (
     resolve_reasoning_state,
     serialize_sse_payload,
 )
-from app.api.chat_schemas import ChatRequest, SummaryGenerateRequest, TruncateRequest
+from app.api.chat_schemas import (
+    ActionStateResponse,
+    ChatRequest,
+    SummaryGenerateRequest,
+    TruncateRequest,
+)
 from app.api.chat_tool_events import ToolEventTracker
 from app.mcp.registry import tool_registry
 from app.services.agent_store import agent_store
@@ -26,8 +31,14 @@ from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.services.multimodal_service import MultimodalService, MultimodalValidationError
 from app.services.session_meta_service import session_meta_service
-from app.services.skill_service import skill_registry, skill_router
-from app.services.skills import SkillPolicyGate, MarkdownSkillAdapter
+from app.services.skill_service import skill_action_execution_service, skill_registry, skill_router
+from app.services.skills import (
+    SkillPolicyGate,
+    MarkdownSkillAdapter,
+    build_action_approval_message,
+    build_action_execution_stub_message,
+    build_action_preflight_message,
+)
 from app.services import doc_retrieval
 from app.services.chat_prompting import (
     estimate_tokens,
@@ -264,6 +275,14 @@ def _title_refinement_reason_distribution() -> Dict[str, Any]:
 
 def _record_title_refinement_reason(reason: str) -> Dict[str, Any]:
     return record_title_refinement_reason(reason, _TITLE_REFINEMENT_REASON_COUNTS)
+
+
+def _normalize_action_state_response(state: Any) -> ActionStateResponse:
+    if hasattr(state, "model_dump"):
+        return ActionStateResponse.model_validate(state.model_dump())
+    return ActionStateResponse.model_validate(state)
+
+
 async def _refine_title_once(
     chat_id: str,
     provider_override: Optional[str] = None,
@@ -299,6 +318,67 @@ async def get_chat_events(chat_id: str, assistant_turn_id: Optional[str] = None,
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat_service.get_chat_events(chat_id, assistant_turn_id=assistant_turn_id, after_sequence=after_sequence)
+
+@router.get("/{chat_id}/actions/state", response_model=ActionStateResponse)
+async def get_action_state(
+    chat_id: str,
+    skill_name: Optional[str] = Query(default=None),
+    action_id: Optional[str] = Query(default=None),
+    invocation_id: Optional[str] = Query(default=None),
+    approval_token: Optional[str] = Query(default=None),
+):
+    chat = chat_service.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if invocation_id:
+        if skill_name or action_id or approval_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Use exactly one lookup mode: invocation_id, approval_token, or skill_name + action_id",
+            )
+        state = chat_service.get_action_state_by_invocation_id(
+            chat_id,
+            invocation_id=invocation_id,
+        )
+    elif approval_token:
+        if skill_name or action_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Use exactly one lookup mode: invocation_id, approval_token, or skill_name + action_id",
+            )
+        state = chat_service.get_action_state_by_approval_token(
+            chat_id,
+            approval_token=approval_token,
+        )
+    else:
+        if bool(skill_name) != bool(action_id):
+            raise HTTPException(
+                status_code=400,
+                detail="skill_name and action_id are required together when approval_token is not provided",
+            )
+        if not skill_name or not action_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide invocation_id, approval_token, or skill_name + action_id",
+            )
+        state = chat_service.get_action_state(
+            chat_id,
+            skill_name=skill_name,
+            action_id=action_id,
+        )
+
+    if state is None:
+        raise HTTPException(status_code=404, detail="Action state not found")
+    return _normalize_action_state_response(state)
+
+@router.get("/{chat_id}/actions/states", response_model=list[ActionStateResponse])
+async def list_action_states(chat_id: str):
+    chat = chat_service.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    states = chat_service.list_action_states(chat_id)
+    return [_normalize_action_state_response(state) for state in states]
 
 @router.delete("/{chat_id}")
 async def delete_chat(chat_id: str):
@@ -381,12 +461,16 @@ async def chat_stream(request: ChatRequest):
         handle_llm_exception=handle_llm_exception,
         prompt=PromptRuntimeDeps(
             skill_registry=skill_registry,
+            skill_action_execution_service=skill_action_execution_service,
             markdown_skill_adapter=MarkdownSkillAdapter,
             skill_policy_gate=SkillPolicyGate,
             assemble_runtime_prompt=assemble_runtime_prompt,
             build_scope_summary_block=_build_scope_summary_block,
             emit_skill_effectiveness_event=_emit_skill_effectiveness_event,
             resolve_skill_runtime_state=_resolve_skill_runtime_state,
+            action_preflight_message_builder=build_action_preflight_message,
+            action_approval_message_builder=build_action_approval_message,
+            action_execution_message_builder=build_action_execution_stub_message,
         ),
         retry=RetryRuntimeDeps(
             resolve_retry_targets=resolve_retry_targets,

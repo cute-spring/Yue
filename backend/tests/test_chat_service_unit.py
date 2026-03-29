@@ -313,6 +313,292 @@ def test_chat_events_replay_consistency(temp_db):
     events_turn = service.get_chat_events(chat.id, assistant_turn_id="turn_replay")
     assert len(events_turn) > 0
 
+def test_chat_events_replay_includes_action_events(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_message(
+        chat.id,
+        "assistant",
+        "action preflight summary",
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.preflight",
+            "event_id": "evt_action_preflight",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 2,
+            "ts": "2026-03-27T00:00:00Z",
+            "lifecycle_phase": "preflight",
+            "lifecycle_status": "preflight_evaluated",
+            "skill_name": "action-skill",
+            "action_id": "generate",
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_result",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 3,
+            "ts": "2026-03-27T00:00:01Z",
+            "lifecycle_phase": "preflight",
+            "lifecycle_status": "preflight_approval_required",
+            "skill_name": "action-skill",
+            "action_id": "generate",
+            "status": "approval_required",
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+
+    events = service.get_chat_events(chat.id, assistant_turn_id="turn_action")
+    event_names = [item["event"] for item in events]
+    assert "skill.action.preflight" in event_names
+    assert "skill.action.result" in event_names
+    result_event = next(item for item in events if item["event"] == "skill.action.result")
+    assert result_event["lifecycle_status"] == "preflight_approval_required"
+
+def test_action_state_tracks_latest_lifecycle_from_action_events(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_preflight",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 3,
+            "ts": "2026-03-28T00:00:01Z",
+            "lifecycle_phase": "preflight",
+            "lifecycle_status": "preflight_approval_required",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "status": "approval_required",
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_execution",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 4,
+            "ts": "2026-03-28T00:00:02Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "awaiting_approval",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "status": "awaiting_approval",
+            "approval_token": "approval:action-skill:1.0.0:generate:req-approval",
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+
+    state = service.get_action_state(chat.id, skill_name="action-skill", action_id="generate")
+
+    assert state is not None
+    assert state.lifecycle_phase == "execution"
+    assert state.lifecycle_status == "awaiting_approval"
+    assert state.status == "awaiting_approval"
+    assert state.approval_token == "approval:action-skill:1.0.0:generate:req-approval"
+    assert state.payload["event"] == "skill.action.result"
+
+def test_action_state_updates_after_approval_resume(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    approval_token = "approval:action-skill:1.0.0:generate:req-approval"
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.approval",
+            "event_id": "evt_action_approval",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 4,
+            "ts": "2026-03-28T00:00:02Z",
+            "lifecycle_phase": "approval",
+            "lifecycle_status": "approved",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "approved": True,
+            "approval_token": approval_token,
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_queued",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 5,
+            "ts": "2026-03-28T00:00:03Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "queued",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "status": "queued",
+            "approval_token": approval_token,
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+
+    state = service.get_action_state(chat.id, skill_name="action-skill", action_id="generate")
+    all_states = service.list_action_states(chat.id)
+
+    assert state is not None
+    assert state.lifecycle_status == "queued"
+    assert state.approval_token == approval_token
+    assert len(all_states) == 1
+    assert all_states[0].lifecycle_status == "queued"
+
+def test_action_state_separates_multiple_invocations_for_same_action(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_one",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 4,
+            "ts": "2026-03-28T00:00:02Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "skipped",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "invocation_id": "invoke:action-skill:1.0.0:generate:req-one",
+            "request_id": "req-one",
+            "status": "skipped",
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_two",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 5,
+            "ts": "2026-03-28T00:00:03Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "succeeded",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "invocation_id": "invoke:action-skill:1.0.0:generate:req-two",
+            "request_id": "req-two",
+            "status": "succeeded",
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+
+    latest_state = service.get_action_state(chat.id, skill_name="action-skill", action_id="generate")
+    first_invocation = service.get_action_state_by_invocation_id(
+        chat.id,
+        invocation_id="invoke:action-skill:1.0.0:generate:req-one",
+    )
+    all_states = service.list_action_states(chat.id)
+
+    assert latest_state is not None
+    assert latest_state.invocation_id == "invoke:action-skill:1.0.0:generate:req-two"
+    assert latest_state.lifecycle_status == "succeeded"
+    assert first_invocation is not None
+    assert first_invocation.request_id == "req-one"
+    assert len(all_states) == 2
+    assert {state.invocation_id for state in all_states} == {
+        "invoke:action-skill:1.0.0:generate:req-one",
+        "invoke:action-skill:1.0.0:generate:req-two",
+    }
+
+def test_get_action_state_by_approval_token_returns_latest_state(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    approval_token = "approval:action-skill:1.0.0:generate:req-approval"
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_waiting",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 4,
+            "ts": "2026-03-28T00:00:02Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "awaiting_approval",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "status": "awaiting_approval",
+            "approval_token": approval_token,
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_skipped",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 5,
+            "ts": "2026-03-28T00:00:03Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "skipped",
+            "skill_name": "action-skill",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "status": "skipped",
+            "approval_token": approval_token,
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+
+    state = service.get_action_state_by_approval_token(chat.id, approval_token=approval_token)
+
+    assert state is not None
+    assert state.skill_name == "action-skill"
+    assert state.action_id == "generate"
+    assert state.lifecycle_status == "skipped"
+    assert state.approval_token == approval_token
+
 def test_migrate_from_json(temp_dir_with_json):
     temp_dir, json_file = temp_dir_with_json
     db_file = os.path.join(temp_dir, "test_yue.db")

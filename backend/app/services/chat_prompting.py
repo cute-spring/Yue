@@ -296,6 +296,8 @@ def build_always_skill_blocks(
     *,
     always_skill_specs: List[Any],
     selected_skill_spec: Any,
+    provider: Optional[str],
+    model_name: Optional[str],
     feature_flags: Dict[str, Any],
     skill_registry: Any,
     markdown_skill_adapter: Any,
@@ -310,7 +312,12 @@ def build_always_skill_blocks(
             continue
         resolved_always = always_skill
         if feature_flags.get("skill_lazy_full_load_enabled", True):
-            resolved_always = skill_registry.get_full_skill(always_skill.name, always_skill.version) or always_skill
+            resolved_always = skill_registry.get_full_skill(
+                always_skill.name,
+                always_skill.version,
+                provider=provider,
+                model_name=model_name,
+            ) or always_skill
         always_descriptor = markdown_skill_adapter.to_descriptor(resolved_always)
         always_prompt = always_descriptor.prompt_blocks.get("system_prompt", "")
         always_instructions = always_descriptor.prompt_blocks.get("instructions", "")
@@ -344,7 +351,12 @@ def assemble_runtime_prompt(
 
     if selected_skill_spec:
         if feature_flags.get("skill_lazy_full_load_enabled", True):
-            selected_skill_spec = skill_registry.get_full_skill(selected_skill_spec.name, selected_skill_spec.version) or selected_skill_spec
+            selected_skill_spec = skill_registry.get_full_skill(
+                selected_skill_spec.name,
+                selected_skill_spec.version,
+                provider=provider or agent_config.provider,
+                model_name=model_name or agent_config.model,
+            ) or selected_skill_spec
         descriptor = markdown_skill_adapter.to_descriptor(selected_skill_spec)
         provider = provider or agent_config.provider
         model_name = model_name or agent_config.model
@@ -355,6 +367,8 @@ def assemble_runtime_prompt(
         always_blocks = build_always_skill_blocks(
             always_skill_specs=always_skill_specs,
             selected_skill_spec=selected_skill_spec,
+            provider=provider or agent_config.provider,
+            model_name=model_name or agent_config.model,
             feature_flags=feature_flags,
             skill_registry=skill_registry,
             markdown_skill_adapter=markdown_skill_adapter,
@@ -385,6 +399,8 @@ def assemble_runtime_prompt(
             always_blocks = build_always_skill_blocks(
                 always_skill_specs=always_skill_specs,
                 selected_skill_spec=selected_skill_spec,
+                provider=provider or agent_config.provider,
+                model_name=model_name or agent_config.model,
                 feature_flags=feature_flags,
                 skill_registry=skill_registry,
                 markdown_skill_adapter=markdown_skill_adapter,

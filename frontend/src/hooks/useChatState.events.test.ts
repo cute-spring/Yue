@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { buildToolCallsFromEvents, normalizeStreamEvent, shouldAcceptEvent, shouldSkipHistoryFetch } from './useChatState';
+import {
+  applyActionEventToStates,
+  buildActionStatesFromEvents,
+  buildToolCallsFromEvents,
+  normalizeStreamEvent,
+  shouldAcceptEvent,
+  shouldSkipHistoryFetch,
+} from './useChatState';
 
 describe('useChatState event helpers', () => {
   it('dedupes by event_id for reconnect duplicates', () => {
@@ -35,6 +42,106 @@ describe('useChatState event helpers', () => {
     expect(merged[0].status).toBe('success');
     expect(merged[0].sequence).toBe(20);
     expect(merged[0].args).toEqual({ q: 'reasoning' });
+  });
+
+  it('builds current action states from skill action events', () => {
+    const events = [
+      {
+        event: 'skill.action.result',
+        event_id: 'evt_1',
+        sequence: 10,
+        ts: '2026-03-28T10:00:01Z',
+        skill_name: 'action-skill',
+        action_id: 'generate',
+        invocation_id: 'invoke:action-skill:1.0.0:generate:req-1',
+        lifecycle_phase: 'preflight',
+        lifecycle_status: 'preflight_approval_required',
+        status: 'approval_required',
+      },
+      {
+        event: 'skill.action.result',
+        event_id: 'evt_2',
+        sequence: 20,
+        ts: '2026-03-28T10:00:02Z',
+        skill_name: 'action-skill',
+        action_id: 'generate',
+        invocation_id: 'invoke:action-skill:1.0.0:generate:req-1',
+        lifecycle_phase: 'execution',
+        lifecycle_status: 'awaiting_approval',
+        status: 'awaiting_approval',
+        approval_token: 'approval:token',
+      }
+    ];
+    const states = buildActionStatesFromEvents(events);
+    expect(states).toHaveLength(1);
+    expect(states[0].lifecycle_status).toBe('awaiting_approval');
+    expect(states[0].approval_token).toBe('approval:token');
+    expect(states[0].invocation_id).toBe('invoke:action-skill:1.0.0:generate:req-1');
+    expect(states[0].payload?.event).toBe('skill.action.result');
+  });
+
+  it('applies later action events as in-place state updates', () => {
+    const initial = [
+      {
+        skill_name: 'action-skill',
+        action_id: 'generate',
+        invocation_id: 'invoke:action-skill:1.0.0:generate:req-1',
+        lifecycle_status: 'awaiting_approval',
+        status: 'awaiting_approval',
+        sequence: 20,
+        ts: '2026-03-28T10:00:02Z',
+      }
+    ];
+    const next = applyActionEventToStates(initial, {
+      event: 'skill.action.result',
+      event_id: 'evt_3',
+      sequence: 30,
+      ts: '2026-03-28T10:00:03Z',
+      skill_name: 'action-skill',
+      action_id: 'generate',
+      invocation_id: 'invoke:action-skill:1.0.0:generate:req-1',
+      lifecycle_phase: 'execution',
+      lifecycle_status: 'skipped',
+      status: 'skipped',
+    });
+    expect(next).toHaveLength(1);
+    expect(next[0].lifecycle_status).toBe('skipped');
+    expect(next[0].sequence).toBe(30);
+  });
+
+  it('keeps separate states for separate invocation ids of the same action', () => {
+    const states = buildActionStatesFromEvents([
+      {
+        event: 'skill.action.result',
+        event_id: 'evt_1',
+        sequence: 10,
+        ts: '2026-03-28T10:00:01Z',
+        skill_name: 'action-skill',
+        action_id: 'generate',
+        invocation_id: 'invoke:action-skill:1.0.0:generate:req-1',
+        lifecycle_phase: 'execution',
+        lifecycle_status: 'skipped',
+        status: 'skipped',
+      },
+      {
+        event: 'skill.action.result',
+        event_id: 'evt_2',
+        sequence: 20,
+        ts: '2026-03-28T10:00:02Z',
+        skill_name: 'action-skill',
+        action_id: 'generate',
+        invocation_id: 'invoke:action-skill:1.0.0:generate:req-2',
+        lifecycle_phase: 'execution',
+        lifecycle_status: 'succeeded',
+        status: 'succeeded',
+      },
+    ]);
+
+    expect(states).toHaveLength(2);
+    expect(states.map((state) => state.invocation_id)).toEqual([
+      'invoke:action-skill:1.0.0:generate:req-1',
+      'invoke:action-skill:1.0.0:generate:req-2',
+    ]);
   });
 
   it('skips redundant history fetch within short interval', () => {

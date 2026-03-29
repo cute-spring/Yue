@@ -35,7 +35,11 @@ def classify_sse_event_kind(payload: Dict[str, Any]) -> str:
     event_name = payload.get("event")
     if isinstance(event_name, str) and event_name.startswith("tool."):
         return "tool_event"
-    if isinstance(event_name, str) and (event_name in KNOWN_TRACE_EVENTS or event_name.startswith("trace.")):
+    if isinstance(event_name, str) and (
+        event_name in KNOWN_TRACE_EVENTS
+        or event_name.startswith("trace.")
+        or event_name.startswith("skill.action.")
+    ):
         return "trace_event"
     return "unknown"
 

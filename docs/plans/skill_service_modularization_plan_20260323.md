@@ -1,5 +1,25 @@
 # `skill_service.py` Modularization Plan (2026-03-23)
 
+## Status Note (2026-03-27)
+
+This plan was the right direction for reducing refactor risk in the original monolithic `skill_service.py`, and the extraction work described below has largely been completed.
+
+At this point, modularization is no longer the main gap for the Yue skill system.
+
+The main remaining product/architecture gaps have moved to:
+
+1. package-first skill modeling
+2. first-class bundled resource loading
+3. executable skill actions with policy control
+4. richer routing and evaluation
+5. provider and agent overlays
+
+That means this document should now be treated as:
+
+1. a record of the service extraction strategy and validation work
+2. a compatibility reference for the current `app.services.skill_service` facade
+3. not the primary roadmap for reaching a Claude Code / OpenClaw style skill system
+
 ## 1. Purpose
 
 This document analyzes [`backend/app/services/skill_service.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skill_service.py) and proposes a safe modularization plan that improves cohesion, lowers coupling, and preserves current runtime behavior.

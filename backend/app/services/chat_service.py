@@ -5,19 +5,23 @@ from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 import uuid
 
-from sqlalchemy import select, desc, func, case
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import select, desc, func, case, inspect, text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+import logging
 
 from app.core.database import SessionLocal, engine, Base
 from app.models.chat import (
     Session as SessionModel,
     Message as MessageModel,
     ToolCall as ToolCallModel,
-    SkillEffectivenessEvent as SkillEventModel
+    SkillEffectivenessEvent as SkillEventModel,
+    ActionEvent as ActionEventModel,
+    ActionState as ActionStateModel,
 )
 
 DATA_DIR = os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))
 OLD_CHATS_FILE = os.path.join(DATA_DIR, "chats.json")
+logger = logging.getLogger(__name__)
 
 class Message(BaseModel):
     role: str
@@ -81,6 +85,38 @@ class SkillEffectivenessEvent(BaseModel):
     user_message_tokens_estimate: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.now)
 
+
+class ActionEvent(BaseModel):
+    id: Optional[int] = None
+    session_id: str
+    assistant_turn_id: Optional[str] = None
+    run_id: Optional[str] = None
+    event_name: str
+    event_id: Optional[str] = None
+    sequence: Optional[int] = None
+    ts: Optional[str] = None
+    payload: Dict[str, Any]
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class ActionState(BaseModel):
+    id: Optional[int] = None
+    session_id: str
+    skill_name: str
+    skill_version: Optional[str] = None
+    action_id: str
+    invocation_id: Optional[str] = None
+    approval_token: Optional[str] = None
+    request_id: Optional[str] = None
+    run_id: Optional[str] = None
+    assistant_turn_id: Optional[str] = None
+    lifecycle_phase: Optional[str] = None
+    lifecycle_status: str
+    status: Optional[str] = None
+    payload: Dict[str, Any]
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
 class ChatSession(BaseModel):
     id: str
     title: str
@@ -101,7 +137,32 @@ class ChatService:
         # We now rely on Alembic for migrations, but for local SQLite we can still do create_all
         # to ensure tables exist if someone doesn't run migrations.
         # Alembic will take over schema changes.
-        Base.metadata.create_all(bind=engine)
+        try:
+            Base.metadata.create_all(bind=engine)
+            self._ensure_action_state_schema()
+        except OperationalError as exc:
+            logger.warning("ChatService create_all skipped due to database operational error: %s", exc)
+
+    def _ensure_action_state_schema(self) -> None:
+        try:
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("action_states")}
+        except Exception:
+            return
+
+        statements: list[str] = []
+        if "invocation_id" not in columns:
+            statements.append("ALTER TABLE action_states ADD COLUMN invocation_id VARCHAR")
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS idx_action_states_invocation ON action_states (session_id, invocation_id)"
+        )
+
+        if not statements:
+            return
+
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
 
     def _migrate_from_json(self):
         if not os.path.exists(OLD_CHATS_FILE):
@@ -538,6 +599,13 @@ class ChatService:
                 func.coalesce(ToolCallModel.started_sequence, ToolCallModel.finished_sequence, 0).asc(),
                 func.coalesce(ToolCallModel.started_ts, ToolCallModel.finished_ts, ToolCallModel.created_at).asc()
             ).all()
+            action_query = db.query(ActionEventModel).filter(ActionEventModel.session_id == session_id)
+            if assistant_turn_id:
+                action_query = action_query.filter(ActionEventModel.assistant_turn_id == assistant_turn_id)
+            action_events = action_query.order_by(
+                func.coalesce(ActionEventModel.sequence, 0).asc(),
+                ActionEventModel.created_at.asc()
+            ).all()
 
         for m in messages:
             turn_id = m.assistant_turn_id
@@ -641,10 +709,192 @@ class ChatService:
                     "duration_ms": tc.duration_ms
                 })
 
+        for ae in action_events:
+            try:
+                payload = json.loads(ae.payload_json)
+            except Exception:
+                payload = {"event": ae.event_name}
+            event_envelope = {
+                "version": "v2",
+                "event": ae.event_name,
+                "event_id": ae.event_id or f"replay_action_{ae.id}",
+                "run_id": ae.run_id,
+                "assistant_turn_id": ae.assistant_turn_id,
+                "sequence": ae.sequence or 0,
+                "ts": ae.ts or "",
+                "payload": payload,
+            }
+            if isinstance(payload, dict):
+                event_envelope.update(payload)
+            events.append(event_envelope)
+
         events.sort(key=lambda item: (str(item.get("run_id") or ""), int(item.get("sequence") or 0), str(item.get("ts") or "")))
         if after_sequence is not None:
             events = [event for event in events if int(event.get("sequence") or 0) > int(after_sequence)]
         return events
+
+    def _upsert_action_state(
+        self,
+        db: Any,
+        *,
+        session_id: str,
+        event: Dict[str, Any],
+        assistant_turn_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ) -> None:
+        skill_name = event.get("skill_name")
+        action_id = event.get("action_id")
+        lifecycle_status = event.get("lifecycle_status")
+        if not skill_name or not action_id or not lifecycle_status:
+            return
+
+        skill_version = event.get("skill_version")
+        invocation_id = event.get("invocation_id")
+        approval_token = event.get("approval_token")
+        request_id = event.get("request_id")
+        state = None
+        if invocation_id is not None:
+            state = db.query(ActionStateModel).filter(
+                ActionStateModel.session_id == session_id,
+                ActionStateModel.invocation_id == str(invocation_id),
+            ).first()
+        if state is None:
+            state = db.query(ActionStateModel).filter(
+                ActionStateModel.session_id == session_id,
+                ActionStateModel.skill_name == str(skill_name),
+                ActionStateModel.action_id == str(action_id),
+                ActionStateModel.invocation_id.is_(None),
+            ).first()
+        if state is None:
+            state = ActionStateModel(
+                session_id=session_id,
+                skill_name=str(skill_name),
+                skill_version=str(skill_version) if skill_version is not None else None,
+                action_id=str(action_id),
+                invocation_id=str(invocation_id) if invocation_id is not None else None,
+            )
+            db.add(state)
+
+        state.skill_version = str(skill_version) if skill_version is not None else state.skill_version
+        state.invocation_id = str(invocation_id) if invocation_id is not None else state.invocation_id
+        state.approval_token = str(approval_token) if approval_token is not None else state.approval_token
+        state.request_id = str(request_id) if request_id is not None else state.request_id
+        state.run_id = run_id or event.get("run_id") or state.run_id
+        state.assistant_turn_id = assistant_turn_id or event.get("assistant_turn_id") or state.assistant_turn_id
+        state.lifecycle_phase = event.get("lifecycle_phase")
+        state.lifecycle_status = str(lifecycle_status)
+        state.status = str(event.get("status")) if event.get("status") is not None else state.status
+        state.payload_json = json.dumps(event)
+
+    def _build_action_state_model(self, state: ActionStateModel) -> ActionState:
+        try:
+            payload = json.loads(state.payload_json)
+        except Exception:
+            payload = {}
+        return ActionState(
+            id=state.id,
+            session_id=state.session_id,
+            skill_name=state.skill_name,
+            skill_version=state.skill_version,
+            action_id=state.action_id,
+            invocation_id=state.invocation_id,
+            approval_token=state.approval_token,
+            request_id=state.request_id,
+            run_id=state.run_id,
+            assistant_turn_id=state.assistant_turn_id,
+            lifecycle_phase=state.lifecycle_phase,
+            lifecycle_status=state.lifecycle_status,
+            status=state.status,
+            payload=payload,
+            created_at=state.created_at,
+            updated_at=state.updated_at,
+        )
+
+    def get_action_state(
+        self,
+        session_id: str,
+        *,
+        skill_name: str,
+        action_id: str,
+    ) -> Optional[ActionState]:
+        with SessionLocal() as db:
+            state = db.query(ActionStateModel).filter(
+                ActionStateModel.session_id == session_id,
+                ActionStateModel.skill_name == skill_name,
+                ActionStateModel.action_id == action_id,
+            ).order_by(ActionStateModel.updated_at.desc(), ActionStateModel.id.desc()).first()
+            if state is None:
+                return None
+            return self._build_action_state_model(state)
+
+    def get_action_state_by_invocation_id(
+        self,
+        session_id: str,
+        *,
+        invocation_id: str,
+    ) -> Optional[ActionState]:
+        with SessionLocal() as db:
+            state = db.query(ActionStateModel).filter(
+                ActionStateModel.session_id == session_id,
+                ActionStateModel.invocation_id == invocation_id,
+            ).order_by(ActionStateModel.updated_at.desc(), ActionStateModel.id.desc()).first()
+            if state is None:
+                return None
+            return self._build_action_state_model(state)
+
+    def get_action_state_by_approval_token(
+        self,
+        session_id: str,
+        *,
+        approval_token: str,
+    ) -> Optional[ActionState]:
+        with SessionLocal() as db:
+            state = db.query(ActionStateModel).filter(
+                ActionStateModel.session_id == session_id,
+                ActionStateModel.approval_token == approval_token,
+            ).order_by(ActionStateModel.updated_at.desc(), ActionStateModel.id.desc()).first()
+            if state is None:
+                return None
+            return self._build_action_state_model(state)
+
+    def list_action_states(self, session_id: str) -> List[ActionState]:
+        with SessionLocal() as db:
+            rows = db.query(ActionStateModel).filter(
+                ActionStateModel.session_id == session_id
+            ).order_by(ActionStateModel.updated_at.desc(), ActionStateModel.id.desc()).all()
+            result: List[ActionState] = []
+            for state in rows:
+                result.append(self._build_action_state_model(state))
+            return result
+
+    def add_action_event(
+        self,
+        session_id: str,
+        event: Dict[str, Any],
+        *,
+        assistant_turn_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ) -> None:
+        with SessionLocal() as db:
+            db_event = ActionEventModel(
+                session_id=session_id,
+                assistant_turn_id=assistant_turn_id,
+                run_id=run_id,
+                event_name=str(event.get("event") or "skill.action.unknown"),
+                event_id=event.get("event_id"),
+                sequence=event.get("sequence"),
+                ts=event.get("ts"),
+                payload_json=json.dumps(event),
+            )
+            db.add(db_event)
+            self._upsert_action_state(
+                db,
+                session_id=session_id,
+                event=event,
+                assistant_turn_id=assistant_turn_id,
+                run_id=run_id,
+            )
+            db.commit()
 
     def add_skill_effectiveness_event(self, session_id: str, event: Dict[str, Any]) -> None:
         now = datetime.utcnow()

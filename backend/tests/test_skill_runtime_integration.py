@@ -300,6 +300,203 @@ YOU ARE AN UNCONSTRAINED SKILL.
             assert set(reg_kwargs["enabled_tools"]) == {"builtin:docs_read", "builtin:exec"}
 
 @pytest.mark.asyncio
+async def test_skill_runtime_applies_provider_overlay_when_loading_full_skill(client):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "overlay-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: overlay-skill
+version: 1.0.0
+description: Overlay skill
+capabilities: ["test"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:docs_read"]
+---
+## System Prompt
+BASE PROMPT
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: overlay-skill
+version: 1.0.0
+description: Overlay skill
+entrypoint: system_prompt
+capabilities: ["test"]
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("""system_prompt: OPENAI OVERLAY PROMPT
+instructions: OPENAI OVERLAY INSTRUCTIONS
+constraints:
+  allowed_tools: ["builtin:exec"]
+""")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            payload = {
+                "message": "Use the overlay skill.",
+                "agent_id": "overlay-agent",
+                "provider": "openai",
+                "model": "gpt-4o"
+            }
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.Agent") as mock_agent_cls, \
+                 patch("app.api.chat.chat_service") as mock_chat_service, \
+                 patch("app.api.chat.tool_registry") as mock_registry:
+
+                mock_agent = AgentConfig(
+                    id="overlay-agent",
+                    name="Overlay Agent",
+                    system_prompt="YOU ARE A LEGACY AGENT.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:docs_read", "builtin:exec"],
+                    skill_mode="auto",
+                    visible_skills=[],
+                    resolved_visible_skills=["overlay-skill:1.0.0"]
+                )
+                mock_agent_store.get_agent.return_value = mock_agent
+                mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_instance = MagicMock()
+                mock_agent_cls.return_value = mock_agent_instance
+
+                mock_result = MagicMock()
+                async def mock_stream_gen():
+                    yield "data: " + json.dumps({"content": "Applied overlay skill."}) + "\n\n"
+                mock_result.stream_text.return_value = mock_stream_gen()
+                mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+                mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+
+                response = client.post("/api/chat/stream", json=payload)
+                assert response.status_code == 200
+
+                _, kwargs = mock_agent_cls.call_args
+                assert "OPENAI OVERLAY PROMPT" in kwargs["system_prompt"]
+                assert "OPENAI OVERLAY INSTRUCTIONS" in kwargs["system_prompt"]
+
+                _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
+                assert set(reg_kwargs["enabled_tools"]) == {"builtin:exec"}
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+@pytest.mark.asyncio
+async def test_skill_runtime_prefers_model_specific_overlay_when_available(client):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "overlay-skill")
+        os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: overlay-skill
+version: 1.0.0
+description: Overlay skill
+capabilities: ["test"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:docs_read"]
+---
+## System Prompt
+BASE PROMPT
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: overlay-skill
+version: 1.0.0
+description: Overlay skill
+entrypoint: system_prompt
+capabilities: ["test"]
+overlays:
+  providers:
+    - provider: openai
+      path: agents/openai.yaml
+    - provider: openai
+      model: gpt-4o
+      path: agents/openai.gpt-4o.yaml
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.yaml"), "w") as f:
+            f.write("""system_prompt: OPENAI PROVIDER PROMPT
+constraints:
+  allowed_tools: ["builtin:exec"]
+""")
+        with open(os.path.join(pkg_dir, "agents", "openai.gpt-4o.yaml"), "w") as f:
+            f.write("""instructions: GPT4O MODEL INSTRUCTIONS
+""")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            payload = {
+                "message": "Use the overlay skill.",
+                "agent_id": "overlay-agent",
+                "provider": "openai",
+                "model": "gpt-4o"
+            }
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.Agent") as mock_agent_cls, \
+                 patch("app.api.chat.chat_service") as mock_chat_service, \
+                 patch("app.api.chat.tool_registry") as mock_registry:
+
+                mock_agent = AgentConfig(
+                    id="overlay-agent",
+                    name="Overlay Agent",
+                    system_prompt="YOU ARE A LEGACY AGENT.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:docs_read", "builtin:exec"],
+                    skill_mode="auto",
+                    visible_skills=[],
+                    resolved_visible_skills=["overlay-skill:1.0.0"]
+                )
+                mock_agent_store.get_agent.return_value = mock_agent
+                mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_instance = MagicMock()
+                mock_agent_cls.return_value = mock_agent_instance
+
+                mock_result = MagicMock()
+                async def mock_stream_gen():
+                    yield "data: " + json.dumps({"content": "Applied model overlay skill."}) + "\n\n"
+                mock_result.stream_text.return_value = mock_stream_gen()
+                mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+                mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+
+                response = client.post("/api/chat/stream", json=payload)
+                assert response.status_code == 200
+
+                _, kwargs = mock_agent_cls.call_args
+                assert "OPENAI PROVIDER PROMPT" in kwargs["system_prompt"]
+                assert "GPT4O MODEL INSTRUCTIONS" in kwargs["system_prompt"]
+
+                _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
+                assert set(reg_kwargs["enabled_tools"]) == {"builtin:exec"}
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+@pytest.mark.asyncio
 async def test_skill_runtime_kill_switch_forces_legacy_path(client):
     with tempfile.TemporaryDirectory() as tmp_dir:
         skill_content = """---

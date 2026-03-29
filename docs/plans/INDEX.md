@@ -20,11 +20,12 @@
 ### Epic 5: 消息交互与多模态增强 (Interaction & Multimodal)
 > **状态**: 推进中 (约 60%)
 > **详情文档**: [multimodal_image_qa_enhancement_plan_20260317.md](./multimodal_image_qa_enhancement_plan_20260317.md)
-> **目标**: 升级图片问答体验，支持仅图片提问、视觉能力门禁与消息导出。
+> **目标**: 升级图片问答体验，支持仅图片提问、视觉能力门禁、文件上传与消息导出。
 - [x] **Phase 1: 后端治理内核** (图片校验、标准化与 vision 判定)
 - [x] **Phase 2: 流式 meta 契约扩展** (透传 vision_enabled 状态)
 - [ ] **Phase 3: 仅图片发送支持** (前端发送逻辑重构)
 - [ ] **Phase 4: 消息导出功能** (见 [2026-03-20-message-export-plan.md](./2026-03-20-message-export-plan.md))
+- [ ] **Phase 5: 文件上传集成** (见 [upload_file_integration_plan_20260324.md](./upload_file_integration_plan_20260324.md))
 
 ### Epic 6: 发布质量与工程门禁 (Quality & Release Gates)
 > **状态**: 推进中 (约 85%)
@@ -55,25 +56,36 @@
 > **目标**: 建立层级记忆系统 (STM/LTM)，并优化模型能力判定与 UI 展示。
 - [ ] **Phase 1: 短期滚动摘要 (STM) MVP** (缓解长会话上下文丢失)
 - [ ] **Phase 2: 模型能力精细化管理 (UI)** (见 [ui_capability_management_plan_plan.md](./ui_capability_management_plan_plan.md))
-- [ ] **Phase 3: Providers API 重构** (见 [llm_providers_api_refactoring_plan.md](./llm_providers_api_refactoring_plan.md))
+- [ ] **Phase 3: Providers API 重构** (合并 [llm_providers_api_refactoring_plan.md](./llm_providers_api_refactoring_plan.md))
 
 ### Epic 8: 技能系统深度增强 (Skills Deep Dive)
-> **状态**: 待启动
+> **状态**: 推进中 (约 15%)
 > **详情文档**: [skill_creator_implementation_plan_20260319.md](./skill_creator_implementation_plan_20260319.md)
 > **目标**: 建立 Skill Creator 内置 Agent，并补齐 PPT/Nanobot 等领域技能差距。
+- [x] **Phase 0: 技能服务模块化** (见 [skill_service_modularization_plan_20260323.md](./skill_service_modularization_plan_20260323.md)) - Phase 1 已完成，测试全绿
 - [ ] **Phase 1: Skill Creator 实现** (AI 驱动的技能生成工作流)
-- [ ] **Phase 2: PPT 技能加固** (见 [ppt_skill_gap_enhancement_plan_20260307.md](./ppt_skill_gap_enhancement_plan_20260307.md))
-- [ ] **Phase 3: Nanobot 技能演进** (见 [nanobot_skill_gap_plan_20260307.md](./nanobot_skill_gap_plan_20260307.md))
+- [ ] **Phase 2: PPT 技能加固** (见 [ppt_skill_gap_enhancement_plan_20260307.md](./ppt_skill_gap_enhancement_plan_20260307.md)) - Blocked/Deprioritized
+- [ ] **Phase 3: Nanobot 技能演进** (见 [nanobot_skill_gap_plan_20260307.md](./nanobot_skill_gap_plan_20260307.md)) - Blocked/Deprioritized
 
 ### Epic 9: 代码库健康与 God Object 重构 (Refactoring)
-> **状态**: 待启动
+> **状态**: 推进中 (约 10%)
 > **详情文档**: [codebase_refactor_plan_20260319.md](./codebase_refactor_plan_20260319.md)
 > **子计划（chat.py 专项）**: [chat_api_stream_simplification_plan_20260322.md](./chat_api_stream_simplification_plan_20260322.md)
 > **子计划（Settings.tsx 专项）**: [settings_tsx_modularization_plan_20260323.md](./settings_tsx_modularization_plan_20260323.md)
+> **子计划（Chat 前端专项）**: [chat_frontend_modularization_plan_20260326.md](./chat_frontend_modularization_plan_20260326.md)
 > **目标**: 拆解 `chat.py` 和 `Settings.tsx` 等超过 500 行的庞大组件。
 - [ ] **Phase 1: 后端重构 (chat/doc)** (模块化拆解核心服务)
 - [ ] **Phase 2a: 前端重构 (Settings.tsx 专项)** (拆解 settings 页面 tabs、modals、hooks)
 - [ ] **Phase 2b: 前端重构 (MessageItem 专项)** (消息项组件解耦)
+- [ ] **Phase 2c: 前端重构 (Chat 组件专项)** (合并 [chat_frontend_modularization_plan_20260326.md](./chat_frontend_modularization_plan_20260326.md))
+
+### Epic 10: 聊天历史与用户体验优化 (Chat History & UX)
+> **状态**: 待启动
+> **详情文档**: [2026-03-26-chat-history-management-improvement-plan.md](./2026-03-26-chat-history-management-improvement-plan.md)
+> **目标**: 实现用户隔离、搜索过滤、虚拟滚动等体验优化，提升历史会话查找与管理效率。
+- [ ] **Phase 1: 用户隔离基础** (Session owner 字段、API 过滤参数)
+- [ ] **Phase 2: 前端搜索与过滤** (虚拟滚动、日期分组、搜索栏)
+- [ ] **Phase 3: 高级功能** (收藏、标签、快速定位)
 
 ---
 
@@ -88,6 +100,13 @@
 - [x] **技能架构长线演进与清理** (见 [archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md](./archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md))
 - [x] **语音合成与自动朗读功能** (见 [archive/2026-03-24-auto-speech-synthesis.md](./archive/2026-03-24-auto-speech-synthesis.md))
 - [x] **语音输入功能（Azure Speech + Browser Fallback）** (见 [Voice_Input_Feature_Design.md](./Voice_Input_Feature_Design.md), [Voice_Input_Implementation_Plan.md](./Voice_Input_Implementation_Plan.md), [Voice_Input_Release_Checklist.md](./Voice_Input_Release_Checklist.md))
+
+> **归档说明**: 以下历史计划文档已归档至 `archive/` 目录，供参考查阅：
+> - 工具架构重构相关：`agent_tooling_refactor_plan.md`, `builtin_tools_refactor_plan.md`
+> - 技能系统演进相关：`skills_long_term_architecture_and_legacy_removal_plan_20260317.md`, `agent_classification_and_skill_group_plan_20260319.md`
+> - 已完成功能计划：`PDF_BUILTIN_TOOLS_HIGH_ROI.md`, `MS_EXCEL_SUPPORT_PLAN.md`, `2026-03-24-auto-speech-synthesis.md`
+> - 已被替代计划：`reasoning_tools_execution_enhancement_plan_20260308.md` (已被 Epic 4 替代), `Skill_Feature_Roadmap.md` (已被 Epic 8 替代)
+> - 分析参考文档：`REASONING_CHAIN_OPTIMIZATION.md`, `SMART_DOC_PROCESSING_PLAN.md`, `Docs_Tooling_Enhancement_Plan.md`, `MCP_DOC_AGENT_PLAN.md`
 
 ---
 
