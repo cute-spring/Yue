@@ -303,7 +303,7 @@ class ConfigService:
         """
         policies = {
             "default": {
-                "tool_calls_limit": 8,
+                "tool_calls_limit": 12,
                 "request_limit": 12,
                 "total_tokens_limit": 120000
             },

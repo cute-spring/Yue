@@ -156,6 +156,9 @@ class ChatService:
         statements.append(
             "CREATE INDEX IF NOT EXISTS idx_action_states_invocation ON action_states (session_id, invocation_id)"
         )
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS idx_action_states_request ON action_states (request_id)"
+        )
 
         if not statements:
             return
@@ -856,6 +859,50 @@ class ChatService:
             if state is None:
                 return None
             return self._build_action_state_model(state)
+
+    def get_latest_action_state_by_request_id(
+        self,
+        request_id: str,
+        *,
+        skill_name: Optional[str] = None,
+        action_id: Optional[str] = None,
+    ) -> Optional[ActionState]:
+        with SessionLocal() as db:
+            query = db.query(ActionStateModel).filter(
+                ActionStateModel.request_id == request_id,
+            )
+            if skill_name is not None:
+                query = query.filter(ActionStateModel.skill_name == skill_name)
+            if action_id is not None:
+                query = query.filter(ActionStateModel.action_id == action_id)
+            state = query.order_by(
+                ActionStateModel.updated_at.desc(),
+                ActionStateModel.id.desc(),
+            ).first()
+            if state is None:
+                return None
+            return self._build_action_state_model(state)
+
+    def list_action_states_by_request_id(
+        self,
+        request_id: str,
+        *,
+        skill_name: Optional[str] = None,
+        action_id: Optional[str] = None,
+    ) -> List[ActionState]:
+        with SessionLocal() as db:
+            query = db.query(ActionStateModel).filter(
+                ActionStateModel.request_id == request_id,
+            )
+            if skill_name is not None:
+                query = query.filter(ActionStateModel.skill_name == skill_name)
+            if action_id is not None:
+                query = query.filter(ActionStateModel.action_id == action_id)
+            rows = query.order_by(
+                ActionStateModel.updated_at.desc(),
+                ActionStateModel.id.desc(),
+            ).all()
+            return [self._build_action_state_model(state) for state in rows]
 
     def list_action_states(self, session_id: str) -> List[ActionState]:
         with SessionLocal() as db:

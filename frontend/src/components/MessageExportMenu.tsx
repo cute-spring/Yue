@@ -84,15 +84,15 @@ export default function MessageExportMenu(props: Props) {
   return (
     <div 
       ref={menuRef}
-      class="fixed z-50 bg-surface-elevated border border-border shadow-xl rounded-xl p-2 w-48 flex flex-col gap-1"
+      class="fixed z-50 bg-surface/98 border border-border/80 shadow-[0_18px_40px_rgba(20,35,30,0.14)] rounded-[1.2rem] p-2.5 w-56 flex flex-col gap-1 backdrop-blur-xl"
       style={{ top: `${props.position.y}px`, left: `${props.position.x}px` }}
     >
-      <div class="text-xs font-bold text-text-secondary px-2 py-1 uppercase tracking-wider">Export As</div>
+      <div class="text-[11px] font-medium text-text-secondary px-2.5 py-1">Export As</div>
       
       <button 
         onClick={handleExportImage}
         disabled={isExporting()}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary/10 hover:text-primary text-text-primary text-sm font-medium transition-colors text-left disabled:opacity-50"
+        class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-background hover:text-primary text-text-primary text-[14px] font-medium transition-all text-left disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
         {isExporting() ? 'Exporting...' : 'Long Image (PNG)'}
@@ -101,7 +101,7 @@ export default function MessageExportMenu(props: Props) {
       <button 
         onClick={handleExportMarkdown}
         disabled={isExporting()}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary/10 hover:text-primary text-text-primary text-sm font-medium transition-colors text-left disabled:opacity-50"
+        class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-background hover:text-primary text-text-primary text-[14px] font-medium transition-all text-left disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
         Markdown (MD)
@@ -110,7 +110,7 @@ export default function MessageExportMenu(props: Props) {
       <button 
         onClick={() => handleServerExport('pdf')}
         disabled={isExporting()}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary/10 hover:text-primary text-text-primary text-sm font-medium transition-colors text-left disabled:opacity-50"
+        class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-background hover:text-primary text-text-primary text-[14px] font-medium transition-all text-left disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
         PDF Document
@@ -119,7 +119,7 @@ export default function MessageExportMenu(props: Props) {
       <button 
         onClick={() => handleServerExport('docx')}
         disabled={isExporting()}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary/10 hover:text-primary text-text-primary text-sm font-medium transition-colors text-left disabled:opacity-50"
+        class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-background hover:text-primary text-text-primary text-[14px] font-medium transition-all text-left disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
         Word (DOCX)
@@ -128,7 +128,7 @@ export default function MessageExportMenu(props: Props) {
       <button 
         onClick={() => handleServerExport('txt')}
         disabled={isExporting()}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary/10 hover:text-primary text-text-primary text-sm font-medium transition-colors text-left disabled:opacity-50"
+        class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-background hover:text-primary text-text-primary text-[14px] font-medium transition-all text-left disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
         Text (TXT)

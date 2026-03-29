@@ -316,6 +316,142 @@ def test_prepare_runtime_dependencies_requested_action_resume_after_approval():
     asyncio.run(run_test())
 
 
+def test_prepare_runtime_dependencies_browser_requested_action_merges_resolved_context_into_tool_args():
+    async def run_test():
+        deps = _make_deps()
+        deps.tool_event_tracker_cls = ToolEventTracker
+        deps.build_agent_deps.return_value = {}
+        deps.config_service.get_feature_flags.return_value = {}
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": SimpleNamespace(name="browser-operator", version="1.0.0"),
+            "always_skill_specs": [],
+            "selection_reason_code": "skill_selected",
+            "selection_source": "explicit",
+            "selection_score": 9,
+            "visible_skill_count": 1,
+            "available_skill_count": 1,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 1,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=SimpleNamespace(name="browser-operator", version="1.0.0"),
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=["builtin:browser_click"],
+            always_injected_count=0,
+            selected_group_ids=[],
+            resolved_skill_count=1,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+            emitted_event=None,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        invocation = SimpleNamespace(
+            action_id="click_element",
+            skill_name="browser-operator",
+            skill_version="1.0.0",
+            mapped_tool="builtin:browser_click",
+        )
+        deps.prompt.skill_action_execution_service.preflight.return_value = SimpleNamespace(
+            event_payloads=[
+                {"event": "skill.action.preflight", "action_id": "click_element", "lifecycle_phase": "preflight", "lifecycle_status": "preflight_evaluated"},
+                {"event": "skill.action.result", "action_id": "click_element", "status": "approval_required", "lifecycle_phase": "preflight", "lifecycle_status": "preflight_approval_required"},
+            ],
+            lifecycle_status="preflight_approval_required",
+            invocation=invocation,
+            request_id=None,
+            metadata={
+                "tool_family": "agent_browser",
+                "validated_arguments": {
+                    "binding_source": "snapshot:browser_snapshot",
+                },
+                "browser_continuity_resolution": {
+                    "continuity_status": "resolved",
+                    "resolved_context": {
+                        "session_id": "session-1",
+                        "tab_id": "tab-1",
+                        "element_ref": "snapshot:browser_snapshot#node:1",
+                    },
+                },
+            },
+        )
+        deps.prompt.skill_action_execution_service.build_approval_result.return_value = SimpleNamespace(
+            event_payloads=[
+                {"event": "skill.action.approval", "action_id": "click_element", "lifecycle_phase": "approval", "lifecycle_status": "approved"}
+            ],
+            lifecycle_status="approved",
+            approval_token="approval:browser-operator:1.0.0:click_element:manual",
+        )
+        deps.prompt.skill_action_execution_service.build_transition_result.side_effect = (
+            lambda *, invocation, status, request_id=None, lifecycle_phase="execution", lifecycle_status=None, metadata=None:
+                SimpleNamespace(
+                    event_payloads=[
+                        {
+                            "event": "skill.action.result",
+                            "action_id": invocation.action_id,
+                            "status": status,
+                            "lifecycle_phase": lifecycle_phase,
+                            "lifecycle_status": lifecycle_status or status,
+                        }
+                    ],
+                    lifecycle_status=lifecycle_status or status,
+                    metadata=metadata or {},
+                    invocation=invocation,
+                )
+        )
+        fake_tool = SimpleNamespace(
+            name="browser_click",
+            validate_params=lambda args: args,
+            execute=AsyncMock(return_value='{"ok": false, "status": "not_implemented"}'),
+        )
+        deps.tool_registry.get_tools_for_agent = AsyncMock(return_value=[fake_tool])
+
+        request = _make_request(
+            requested_action="click_element",
+            requested_action_arguments={"binding_source": "snapshot:browser_snapshot"},
+            requested_action_approved=True,
+            requested_action_approval_token="approval:browser-operator:1.0.0:click_element:manual",
+        )
+        ctx, metrics, emitter, tool_tracker = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        from app.api.chat_stream_runner import _prepare_runtime_dependencies
+
+        async for step in _prepare_runtime_dependencies(
+            ctx=ctx,
+            metrics=metrics,
+            emitter=emitter,
+            tool_tracker=tool_tracker,
+            multimodal_service=MagicMock(),
+            validated_images=[],
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(step)
+
+        queued_call = deps.prompt.skill_action_execution_service.build_transition_result.call_args_list[0]
+        assert queued_call.kwargs["metadata"]["tool_args"] == {
+            "binding_source": "snapshot:browser_snapshot",
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "element_ref": "snapshot:browser_snapshot#node:1",
+        }
+        assert any(isinstance(item, dict) and item.get("lifecycle_status") == "queued" for item in outputs)
+        assert any(isinstance(item, dict) and item.get("lifecycle_status") == "running" for item in outputs)
+
+    asyncio.run(run_test())
+
+
 def test_prepare_runtime_dependencies_short_circuits_for_requested_action():
     async def run_test():
         deps = _make_deps()

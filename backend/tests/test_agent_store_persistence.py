@@ -30,6 +30,7 @@ class TestAgentStorePersistence(unittest.TestCase):
             self.assertIn("builtin-pdf-research", ids)
             self.assertIn("builtin-ppt-builder", ids)
             self.assertIn("builtin-action-lab", ids)
+            self.assertIn("builtin-browser-operator", ids)
 
             self.assertTrue(os.path.exists(os.path.join(data_dir, "agents.json")))
 
@@ -52,11 +53,11 @@ class TestAgentStorePersistence(unittest.TestCase):
                 f.write("{")
 
             agents = store.list_agents()
-            self.assertGreaterEqual(len(agents), 7)
+            self.assertGreaterEqual(len(agents), 8)
             with open(agents_path, "r") as f:
                 restored = json.load(f)
             self.assertTrue(isinstance(restored, list))
-            self.assertGreaterEqual(len(restored), 7)
+            self.assertGreaterEqual(len(restored), 8)
 
     def test_preserve_corrupt_file_when_no_backup(self):
         from app.services.agent_store import AgentStore
@@ -72,7 +73,7 @@ class TestAgentStorePersistence(unittest.TestCase):
                 f.write("{")
 
             agents = store.list_agents()
-            self.assertGreaterEqual(len(agents), 7)
+            self.assertGreaterEqual(len(agents), 8)
 
             corrupt_files = [p for p in os.listdir(td) if p.startswith("agents.json.corrupt.")]
             self.assertTrue(len(corrupt_files) >= 1)

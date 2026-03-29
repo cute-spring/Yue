@@ -27,13 +27,20 @@ class BuiltinToolRegistry:
         """Get metadata for all registered tools in the format expected by the frontend."""
         metadata = []
         for tool in self.get_all_tools():
-            metadata.append({
+            payload = {
                 "id": f"builtin:{tool.name}",
                 "name": tool.name,
                 "description": tool.description,
                 "server": "builtin",
-                "input_schema": tool.parameters
-            })
+                "input_schema": tool.parameters,
+            }
+            output_schema = getattr(tool, "output_schema", None)
+            if isinstance(output_schema, dict):
+                payload["output_schema"] = output_schema
+            contract_metadata = getattr(tool, "contract_metadata", None)
+            if isinstance(contract_metadata, dict):
+                payload["metadata"] = contract_metadata
+            metadata.append(payload)
         return sorted(metadata, key=lambda x: x["name"])
 
 # Global instance for easy access

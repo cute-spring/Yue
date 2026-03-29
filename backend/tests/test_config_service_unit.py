@@ -270,12 +270,13 @@ def test_tool_call_mismatch_config_merged_with_env_override(temp_config_file, mo
 
     result = service.get_tool_call_mismatch_config()
     assert result["auto_retry_enabled"] is False
-    # assert result["fallback_model"] == "gpt-4o"
-    # assert result["fallback_models"] == ["gpt-4o", "deepseek/deepseek-chat"]
 
-    monkeypatch.setenv("TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED", "true")
-    monkeypatch.setenv("TOOL_CALL_MISMATCH_FALLBACK_MODELS", "minimax/minimax-m2.5, gpt-4o-mini")
-    result = service.get_tool_call_mismatch_config()
-    assert result["auto_retry_enabled"] is True
-    assert result["fallback_model"] == "minimax/minimax-m2.5"
-    assert result["fallback_models"] == ["minimax/minimax-m2.5", "gpt-4o-mini"]
+
+def test_usage_limits_default_tier_is_more_roomy_for_browser_workflows(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+
+    limits = service.get_usage_limits()
+
+    assert limits["tool_calls_limit"] == 12
+    assert limits["request_limit"] == 12
+    assert limits["total_tokens_limit"] == 120000

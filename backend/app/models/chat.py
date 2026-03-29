@@ -167,4 +167,5 @@ class ActionState(Base):
         Index("idx_action_states_lookup", "session_id", "skill_name", "action_id"),
         Index("idx_action_states_invocation", "session_id", "invocation_id"),
         Index("idx_action_states_approval_token", "approval_token"),
+        Index("idx_action_states_request", "request_id"),
     )

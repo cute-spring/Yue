@@ -33,6 +33,11 @@ dependencies = [
     "alembic>=1.18.4",
 ]
 
+[project.optional-dependencies]
+browser = [
+    "playwright",
+]
+
 [dependency-groups]
 dev = [
     "pytest",

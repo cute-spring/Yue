@@ -2,7 +2,7 @@ import { createSignal, For, Show, onCleanup, createEffect, createMemo } from 'so
 import { Message } from '../types';
 import { renderMarkdown } from '../utils/markdown';
 import { getAdaptedThought } from "../utils/thoughtParser";
-import ToolCallItem from './ToolCallItem';
+import ToolCallItem, { getDownloadArtifact, getScreenshotPreview, isBrowserSnapshotTool, parseToolCallResultPayload } from './ToolCallItem';
 import MessageExportMenu from './MessageExportMenu';
 import SpeechControl from './SpeechControl';
 import { getSpeechMessageId } from '../utils/speech';
@@ -66,6 +66,309 @@ export const getVisionFeedbackText = (
   }
   return '';
 };
+
+const _SYSTEM_MESSAGE_PREFIXES = [
+  '[Action Preflight]',
+  '[Action Flow]',
+  '[Action Approval]',
+  '[Tool Result]',
+];
+
+const _looksLikeStructuredPayloadLine = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return (
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('}') ||
+    trimmed.startsWith('[') ||
+    trimmed.startsWith(']') ||
+    trimmed.startsWith('"') ||
+    trimmed.startsWith(',') ||
+    trimmed.startsWith(':') ||
+    trimmed in { 'true': true, 'false': true, 'null': true } ||
+    trimmed.includes('download_url') ||
+    trimmed.includes('download_markdown') ||
+    trimmed.includes('artifact') ||
+    trimmed.includes('file_path') ||
+    trimmed.includes('filename')
+  );
+};
+
+export const sanitizeAssistantDisplayContent = (content?: string | null): string => {
+  if (!content) return '';
+
+  const normalized = content.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
+  const kept: string[] = [];
+  let skippingToolPayload = false;
+  let skippingArtifactFollowup = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (_SYSTEM_MESSAGE_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
+      skippingToolPayload = trimmed.startsWith('[Tool Result]');
+      skippingArtifactFollowup = false;
+      continue;
+    }
+
+    if (trimmed === 'Screenshot ready:' || trimmed === 'Artifact ready:') {
+      skippingArtifactFollowup = true;
+      skippingToolPayload = false;
+      continue;
+    }
+
+    if (skippingToolPayload) {
+      if (!trimmed || _looksLikeStructuredPayloadLine(trimmed)) {
+        continue;
+      }
+      skippingToolPayload = false;
+    }
+
+    if (skippingArtifactFollowup) {
+      if (
+        !trimmed ||
+        trimmed.startsWith('![') ||
+        /^\[.+\]\(.+\)$/.test(trimmed) ||
+        trimmed.includes('/exports/')
+      ) {
+        continue;
+      }
+      skippingArtifactFollowup = false;
+    }
+
+    kept.push(line);
+  }
+
+  return kept
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+export const stripDuplicateArtifactReferences = (
+  content: string,
+  artifactUrls: string[],
+): string => {
+  if (!content) return '';
+  const normalizedUrls = artifactUrls
+    .map((url) => url.trim())
+    .filter(Boolean);
+  if (normalizedUrls.length === 0) return content;
+
+  const lines = content.split('\n');
+  const kept = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+
+    return !normalizedUrls.some((url) => {
+      if (!trimmed.includes(url)) return false;
+      return (
+        trimmed.startsWith('![') ||
+        /^\[.+\]\(.+\)$/.test(trimmed) ||
+        trimmed === url
+      );
+    });
+  });
+
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+export const formatSnapshotVisibleText = (
+  value?: string | null,
+  pageTitle?: string | null,
+): string => {
+  const structured = structureSnapshotVisibleText(value, pageTitle);
+  if (structured.resultItems.length > 0) {
+    return [
+      ...structured.headerLines,
+      structured.scopeLine,
+      structured.sortLine,
+      ...structured.resultItems,
+      ...structured.paragraphs,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  if (!value) return '';
+  let normalized = value.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return '';
+
+  const trimmedTitle = typeof pageTitle === 'string' ? pageTitle.trim() : '';
+  if (trimmedTitle && normalized.startsWith(trimmedTitle)) {
+    normalized = normalized.slice(trimmedTitle.length).trim();
+  }
+
+  if (!normalized.includes('\n')) {
+    normalized = normalized
+      .replace(/(Models Docs Pricing Sign in Download)\s+/g, '$1\n\n')
+      .replace(/(Cloud Embedding Vision Tools Thinking)\s+/g, '$1\n\n')
+      .replace(/(Popular Newest)\s+/g, '$1\n\n')
+      .replace(/\s+(Updated\s+\d+\s+\w+\s+ago)\s+/g, ' $1\n\n');
+  }
+
+  return normalized
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+type StructuredSnapshotText = {
+  headerLines: string[];
+  scopeLine: string;
+  sortLine: string;
+  resultItems: string[];
+  paragraphs: string[];
+};
+
+const SNAPSHOT_HEADER_PATTERNS = [
+  /^Models Docs Pricing Sign in Download\b/i,
+  /^Cloud Embedding Vision Tools Thinking\b/i,
+];
+
+const SNAPSHOT_SORT_PATTERN = /^(Popular Newest|Popular|Newest)\b/i;
+const SNAPSHOT_RESULT_SPLIT_PATTERN = /(?<=Updated\s+\d+\s+\w+\s+ago)\s+(?=[a-z0-9][\w.-]{1,40}(?:\s|$))/i;
+
+export const structureSnapshotVisibleText = (
+  value?: string | null,
+  pageTitle?: string | null,
+): StructuredSnapshotText => {
+  if (!value) {
+    return {
+      headerLines: [],
+      scopeLine: '',
+      sortLine: '',
+      resultItems: [],
+      paragraphs: [],
+    };
+  }
+
+  let normalized = value.replace(/\r\n/g, '\n').trim();
+  const trimmedTitle = typeof pageTitle === 'string' ? pageTitle.trim() : '';
+  if (trimmedTitle && normalized.startsWith(trimmedTitle)) {
+    normalized = normalized.slice(trimmedTitle.length).trim();
+  }
+
+  if (!normalized) {
+    return {
+      headerLines: [],
+      scopeLine: '',
+      sortLine: '',
+      resultItems: [],
+      paragraphs: [],
+    };
+  }
+
+  if (normalized.includes('\n')) {
+    return {
+      headerLines: [],
+      scopeLine: '',
+      sortLine: '',
+      resultItems: [],
+      paragraphs: normalized
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .split(/\n{2,}/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    };
+  }
+
+  let working = normalized.replace(/\s+/g, ' ').trim();
+  const headerLines: string[] = [];
+
+  for (const pattern of SNAPSHOT_HEADER_PATTERNS) {
+    const match = working.match(pattern);
+    if (!match || match.index !== 0) continue;
+    headerLines.push(match[0].trim());
+    working = working.slice(match[0].length).trim();
+  }
+
+  let scopeLine = '';
+  const scopeMatch = working.match(/^(Cloud|Embedding|Vision|Tools|Thinking)(?:\s+\S+){0,12}/i);
+  if (!headerLines.some((line) => /Cloud Embedding Vision Tools Thinking/i.test(line)) && scopeMatch && scopeMatch.index === 0) {
+    scopeLine = scopeMatch[0].trim();
+    working = working.slice(scopeMatch[0].length).trim();
+  }
+
+  let sortLine = '';
+  const sortMatch = working.match(SNAPSHOT_SORT_PATTERN);
+  if (sortMatch && sortMatch.index === 0) {
+    sortLine = sortMatch[1].trim();
+    working = working.slice(sortMatch[0].length).trim();
+  }
+
+  const resultItems = working
+    ? working
+        .split(SNAPSHOT_RESULT_SPLIT_PATTERN)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+
+  if (resultItems.length <= 1) {
+    return {
+      headerLines,
+      scopeLine,
+      sortLine,
+      resultItems: [],
+      paragraphs: [
+        [scopeLine, sortLine, working].filter(Boolean).join(' ').trim(),
+      ].filter(Boolean),
+    };
+  }
+
+  return {
+    headerLines,
+    scopeLine,
+    sortLine,
+    resultItems,
+    paragraphs: [],
+  };
+};
+
+const getSnapshotItemTitle = (value: string): string => {
+  const match = value.trim().match(/^([^\s]+)\s+(.+)$/);
+  return match ? match[1].trim() : value.trim();
+};
+
+const getSnapshotItemBody = (value: string): string => {
+  const match = value.trim().match(/^([^\s]+)\s+(.+)$/);
+  return match ? match[2].trim() : '';
+};
+
+type BrowserScreenshotArtifact = {
+  kind: 'screenshot';
+  url: string;
+  alt: string;
+  toolName: string;
+  sourceUrl: string;
+};
+
+type DownloadArtifact = {
+  kind: 'download';
+  url: string;
+  filename: string;
+  kindLabel: string;
+  toolName: string;
+  sourceUrl: string;
+  isImage: boolean;
+};
+
+type MessageArtifact = BrowserScreenshotArtifact | DownloadArtifact;
+
+type BrowserSnapshotArtifact = {
+  kind: 'snapshot';
+  toolName: string;
+  sourceUrl: string;
+  pageTitle: string;
+  visibleText: string;
+  interactiveCount: number;
+  bindingSource: string;
+  bindingUrl: string;
+};
+
+type UnifiedArtifact = MessageArtifact | BrowserSnapshotArtifact;
 
 export default function MessageItem(props: MessageItemProps) {
   const speechController = useMaybeSpeechController();
@@ -152,6 +455,80 @@ export default function MessageItem(props: MessageItemProps) {
   };
   const visionBadge = () => getVisionBadge(props.msg);
   const visionFeedbackText = () => getVisionFeedbackText(props.msg);
+  const getToolSourceUrl = (args: unknown) => {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
+    const sourceUrl = (args as Record<string, unknown>).url;
+    return typeof sourceUrl === 'string' ? sourceUrl : '';
+  };
+  const artifactItems = (): MessageArtifact[] =>
+    (props.msg.tool_calls || [])
+      .map((toolCall) => {
+        const screenshot = getScreenshotPreview(toolCall.tool_name, toolCall.result);
+        const sourceUrl = getToolSourceUrl(toolCall.args);
+        if (screenshot) {
+          return { kind: 'screenshot', ...screenshot, toolName: toolCall.tool_name, sourceUrl } as MessageArtifact;
+        }
+
+        const artifact = getDownloadArtifact(toolCall.tool_name, toolCall.result);
+        if (!artifact) return null;
+        return {
+          kind: 'download',
+          ...artifact,
+          toolName: toolCall.tool_name,
+          sourceUrl,
+          isImage: /\.(png|jpe?g|gif|webp|svg)$/i.test(artifact.url || artifact.filename),
+        } as MessageArtifact;
+      })
+      .filter((item): item is MessageArtifact => item !== null);
+  const browserSnapshotItems = (): BrowserSnapshotArtifact[] =>
+    (props.msg.tool_calls || [])
+      .map((toolCall) => {
+        if (!isBrowserSnapshotTool(toolCall.tool_name)) return null;
+        const payload = parseToolCallResultPayload(toolCall.result);
+        const snapshot = payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? (payload as Record<string, any>).snapshot
+          : null;
+        const browserContext = payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? (payload as Record<string, any>).browser_context
+          : null;
+        const snapshotRecord = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+          ? snapshot as Record<string, any>
+          : null;
+        const browserContextRecord = browserContext && typeof browserContext === 'object' && !Array.isArray(browserContext)
+          ? browserContext as Record<string, any>
+          : null;
+        if (!payload || !snapshotRecord) return null;
+
+        const sourceUrl = typeof browserContextRecord?.url === 'string'
+          ? browserContextRecord.url
+          : getToolSourceUrl(toolCall.args);
+        const pageTitle = typeof browserContextRecord?.page_title === 'string' ? browserContextRecord.page_title : '';
+        const visibleText = typeof snapshotRecord.visible_text === 'string' ? snapshotRecord.visible_text.trim() : '';
+        const interactiveElements = Array.isArray(snapshotRecord.interactive_elements)
+          ? snapshotRecord.interactive_elements.filter((item) => item && typeof item === 'object').length
+          : 0;
+        const bindingContext = snapshotRecord.target_binding_context && typeof snapshotRecord.target_binding_context === 'object' && !Array.isArray(snapshotRecord.target_binding_context)
+          ? snapshotRecord.target_binding_context as Record<string, any>
+          : null;
+
+        return {
+          kind: 'snapshot',
+          toolName: toolCall.tool_name,
+          sourceUrl,
+          pageTitle,
+          visibleText,
+          interactiveCount: interactiveElements,
+          bindingSource: typeof bindingContext?.binding_source === 'string' ? bindingContext.binding_source : '',
+          bindingUrl: typeof bindingContext?.binding_url === 'string' ? bindingContext.binding_url : '',
+        };
+      })
+      .filter((item): item is BrowserSnapshotArtifact => item !== null);
+  const unifiedArtifacts = (): UnifiedArtifact[] => {
+    const items: UnifiedArtifact[] = [...browserSnapshotItems(), ...artifactItems()];
+    const rank = (artifact: UnifiedArtifact) =>
+      artifact.kind === 'snapshot' ? 0 : artifact.kind === 'screenshot' ? 1 : 2;
+    return items.sort((a, b) => rank(a) - rank(b));
+  };
   const speechMessageId = () => getSpeechMessageId(props.msg, props.index);
   const speechState = () => speechController?.getMessageState(speechMessageId()) || 'idle';
   const handleSpeechShortcut = (e: KeyboardEvent) => {
@@ -185,11 +562,20 @@ export default function MessageItem(props: MessageItemProps) {
 
     return (
       <div 
-        class="prose prose-sm dark:prose-invert max-w-none opacity-90 leading-relaxed font-sans"
+        class="prose prose-sm max-w-none text-text-primary leading-relaxed font-sans"
         innerHTML={renderMarkdown(processedThought, props.isTyping)}
       />
     );
   };
+
+  const artifactShellClass =
+    'overflow-hidden rounded-[1rem] border border-slate-200/55 bg-white/70 shadow-[0_8px_24px_rgba(15,23,42,0.04)]';
+  const artifactHeaderClass =
+    'flex items-start justify-between gap-3 px-4 pt-4 pb-2';
+  const artifactMetaLabelClass =
+    'text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500/80';
+  const artifactMetaValueClass =
+    'mt-1 block break-all text-[12px] font-medium text-text-primary hover:text-primary hover:underline';
 
   const renderMetaBadges = (msg: Message) => {
     const isUser = msg.role === 'user';
@@ -204,9 +590,9 @@ export default function MessageItem(props: MessageItemProps) {
           onMouseEnter={() => setHoveredMetric(p.label)}
           onMouseLeave={() => setHoveredMetric(null)}
         >
-          <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/50 border border-border/40 text-[10px] font-medium text-text-secondary/80 hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 cursor-default">
+          <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-background/85 border border-border/70 text-[11px] font-medium text-text-secondary hover:border-primary/20 hover:bg-primary/5 transition-all duration-200 cursor-default">
             {p.icon}
-            <span class="opacity-50 font-bold uppercase tracking-tighter text-[9px]">{p.label}</span>
+            <span class="opacity-60 font-semibold text-[10px]">{p.label}</span>
             <span class="font-semibold text-text-primary/90">{p.value}</span>
           </div>
           
@@ -215,12 +601,12 @@ export default function MessageItem(props: MessageItemProps) {
               isVisible() ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
             }`}
           >
-            <div class="bg-white/95 backdrop-blur-xl border border-border/50 shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-xl p-3 overflow-hidden">
+            <div class="bg-surface/98 backdrop-blur-xl border border-border shadow-[0_10px_30px_rgb(20,35,30,0.12)] rounded-2xl p-3 overflow-hidden">
               <div class="flex items-center gap-2 mb-1.5">
                 <div class="p-1.5 rounded-lg bg-primary/10 text-primary">
                   {p.icon}
                 </div>
-                <div class="font-bold text-[11px] text-text-primary tracking-tight">
+                <div class="font-semibold text-[11px] text-text-primary tracking-tight">
                   {p.title}
                 </div>
               </div>
@@ -228,11 +614,11 @@ export default function MessageItem(props: MessageItemProps) {
                 {p.description}
               </div>
               <div class="mt-2 pt-2 border-t border-border/30 flex justify-between items-center">
-                <span class="text-[9px] text-text-secondary/50 font-bold uppercase">{p.label}</span>
+                <span class="text-[9px] text-text-secondary/60 font-semibold">{p.label}</span>
                 <span class="text-[10px] font-bold text-primary">{p.value}</span>
               </div>
             </div>
-            <div class="absolute bottom-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-b-white/95"></div>
+            <div class="absolute bottom-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-b-[color:rgba(255,255,255,0.98)]"></div>
           </div>
         </div>
       );
@@ -240,23 +626,23 @@ export default function MessageItem(props: MessageItemProps) {
 
     return (
       <div class={`export-exclude mt-4 flex flex-wrap items-center gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
-        <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-text-secondary/5 border border-border/40 text-[10px] font-medium text-text-secondary/70">
+        <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-background/85 border border-border/70 text-[11px] font-medium text-text-secondary">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           {formatTime(msg.timestamp)}
         </div>
 
         <Show when={!isUser}>
-          <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/5 border border-primary/10 text-[10px] font-bold text-primary/80 uppercase tracking-tight shadow-sm shadow-primary/5">
+          <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-primary/6 border border-primary/12 text-[11px] font-semibold text-primary tracking-tight shadow-sm shadow-primary/5">
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
             {modelLabel(msg)}
           </div>
 
-          <div class={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] font-bold uppercase tracking-tight ${
+          <div class={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold tracking-tight ${
             responseStatus(msg) === 'Failed' 
-              ? 'bg-rose-500/5 border-rose-500/20 text-rose-500' 
+              ? 'bg-rose-50 border-rose-200 text-rose-700' 
               : responseStatus(msg) === 'Generating' 
-                ? 'bg-amber-500/5 border-amber-500/20 text-amber-500' 
-                : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-500 shadow-sm shadow-emerald-500/5'
+                ? 'bg-amber-50 border-amber-200 text-amber-700' 
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm shadow-emerald-500/5'
           }`}>
             <Show when={responseStatus(msg) === 'Generating'}>
               <div class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div>
@@ -267,7 +653,7 @@ export default function MessageItem(props: MessageItemProps) {
             {responseStatus(msg)}
           </div>
           <Show when={visionBadge()}>
-            <div class={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] font-bold uppercase tracking-tight ${visionBadge()?.className}`}>
+            <div class={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold tracking-tight ${visionBadge()?.className}`}>
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>
               {visionBadge()?.label}
             </div>
@@ -324,14 +710,14 @@ export default function MessageItem(props: MessageItemProps) {
           </Show>
 
           <Show when={msg.citations && msg.citations.length > 0}>
-            <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-500/5 border border-indigo-500/20 text-[10px] font-bold text-indigo-500/80 uppercase tracking-tight">
+            <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-background/90 border border-border/80 text-[11px] font-semibold text-text-secondary tracking-tight">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1 0 2.5 0 5-2 7Z"/><path d="M14 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1 0 2.5 0 5-2 7Z"/></svg>
               {msg.citations?.length} Citations
             </div>
           </Show>
 
           <Show when={msg.tools && msg.tools.length > 0}>
-            <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/5 border border-amber-500/20 text-[10px] font-bold text-amber-500/80 uppercase tracking-tight">
+            <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-background/90 border border-border/80 text-[11px] font-semibold text-text-secondary tracking-tight">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
               {msg.tools?.length} Tools
             </div>
@@ -356,7 +742,7 @@ export default function MessageItem(props: MessageItemProps) {
             </svg>
           </Show>
         </div>
-        <span class={`text-[10px] font-black uppercase tracking-[0.24em] ${props.msg.role === 'user' ? 'text-text-secondary/50' : 'text-primary/70'}`}>
+        <span class={`text-[11px] font-semibold tracking-[0.02em] ${props.msg.role === 'user' ? 'text-text-secondary/80' : 'text-primary/85'}`}>
           {props.msg.role === 'user' ? 'You' : props.activeAgentName}
         </span>
       </div>
@@ -365,10 +751,10 @@ export default function MessageItem(props: MessageItemProps) {
         tabIndex={props.msg.role === 'assistant' ? 0 : -1}
         onKeyDown={handleSpeechShortcut}
         aria-label={props.msg.role === 'assistant' ? 'Assistant message. Press R to read aloud or stop.' : undefined}
-        class={`group relative max-w-[85%] lg:max-w-[75%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+        class={`group relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
         props.msg.role === 'user' 
-          ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-primary/20 rounded-[26px] rounded-br-none overflow-hidden' 
-          : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none'
+          ? 'max-w-[44rem] bg-surface text-text-primary px-5 py-4 border border-primary/14 rounded-[18px] rounded-br-[6px] overflow-hidden' 
+          : 'w-full max-w-none bg-transparent text-text-primary border-0 px-0 py-2 shadow-none rounded-none'
       }`}
       >
         {props.msg.role === 'user' ? (
@@ -431,10 +817,17 @@ export default function MessageItem(props: MessageItemProps) {
             const res = adapted();
             const thought = res.thought;
             const content = res.content;
+            const artifactUrls = unifiedArtifacts()
+              .filter((artifact): artifact is BrowserScreenshotArtifact | DownloadArtifact => artifact.kind !== 'snapshot')
+              .map((artifact) => artifact.url);
+            const displayContent = stripDuplicateArtifactReferences(
+              sanitizeAssistantDisplayContent(content),
+              artifactUrls,
+            );
             const isActuallyThinking = res.isThinking;
             const thoughtSource = res.source;
             const reasoningEnabled = props.msg.reasoning_enabled === true;
-            const isThinking = reasoningEnabled && (isActuallyThinking || (props.isTyping && !content));
+            const isThinking = reasoningEnabled && (isActuallyThinking || (props.isTyping && !displayContent));
             const showInitializing = () => props.isTyping && !thought && !content && !reasoningEnabled;
 
             return (
@@ -447,7 +840,7 @@ export default function MessageItem(props: MessageItemProps) {
                         <div class="absolute inset-0 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
                         <div class="relative w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_rgba(var(--primary-rgb),0.6)]"></div>
                       </div>
-                      <span class="text-[11px] font-black uppercase tracking-[0.2em] text-primary/70 animate-pulse">
+                      <span class="text-[11px] font-semibold tracking-[0.04em] text-primary/80 animate-pulse">
                         {getLoadingStatus().title}
                       </span>
                     </div>
@@ -464,19 +857,19 @@ export default function MessageItem(props: MessageItemProps) {
                       <div class="mt-2 flex flex-col gap-1.5 animate-in fade-in slide-in-from-bottom-1 duration-700 delay-300">
                         <div class="flex items-center gap-1.5">
                           <div class="w-1 h-1 rounded-full bg-primary/40"></div>
-                          <span class="text-[9px] font-bold uppercase tracking-wider text-text-secondary/30">Capabilities Ready</span>
+                          <span class="text-[10px] font-medium text-text-secondary/70">Capabilities Ready</span>
                         </div>
                         <div class="flex flex-wrap gap-1.5 pl-2">
                           <For each={props.msg.tools?.slice(0, 5)}>
                             {(tool) => (
-                              <div class="px-1.5 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-medium text-primary/60 flex items-center gap-1">
+                              <div class="px-2 py-0.5 rounded-full bg-primary/6 border border-primary/12 text-[10px] font-medium text-primary/80 flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                                 {tool.replace('mcp__', '').replace('builtin:', '').split('__').pop()}
                               </div>
                             )}
                           </For>
                           <Show when={(props.msg.tools?.length || 0) > 5}>
-                            <div class="px-1.5 py-0.5 rounded bg-text-secondary/5 border border-border/20 text-[8px] font-medium text-text-secondary/40">
+                            <div class="px-2 py-0.5 rounded-full bg-background border border-border/70 text-[10px] font-medium text-text-secondary/70">
                               +{(props.msg.tools?.length || 0) - 5} more
                             </div>
                           </Show>
@@ -485,15 +878,20 @@ export default function MessageItem(props: MessageItemProps) {
                     </Show>
 
                     <Show when={waitSecs() > 20}>
-                      <div class="mt-1 px-3 py-1.5 rounded-lg bg-amber-500/5 border border-amber-500/10 text-[9px] text-amber-600/70 font-bold animate-in fade-in slide-in-from-top-1">
+                      <div class="mt-1 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[10px] text-amber-800 font-medium animate-in fade-in slide-in-from-top-1">
                         ⚠️ The model is taking longer than expected. This can happen with complex reasoning or high server load.
                       </div>
                     </Show>
                   </div>
                 </Show>
 
-                <Show when={reasoningEnabled && (thought || (props.isTyping && !content))}>
-                  <div class="mb-4 rounded-2xl border border-border/40 bg-background/40 overflow-hidden group/thought transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.05)]">
+                <Show when={reasoningEnabled && (thought || (props.isTyping && !displayContent))}>
+                  <section class="mb-4 space-y-2">
+                    <div class="flex items-center gap-2 px-1">
+                      <div class="w-1 h-3 rounded-full bg-primary/40"></div>
+                      <span class="text-[10px] font-bold uppercase tracking-wider text-text-secondary/40">LLM Thinking</span>
+                    </div>
+                  <div class="rounded-2xl border border-border/40 bg-background/40 overflow-hidden group/thought transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.05)]">
                     <button 
                       onClick={() => props.toggleThought(props.index)}
                       class="w-full flex items-center justify-between px-5 py-4 hover:bg-primary/[0.03] transition-all group/btn relative overflow-hidden"
@@ -611,6 +1009,7 @@ export default function MessageItem(props: MessageItemProps) {
                       </div>
                     </div>
                   </div>
+                  </section>
                 </Show>
 
                 <Show when={props.msg.tool_calls && props.msg.tool_calls.length > 0}>
@@ -625,26 +1024,260 @@ export default function MessageItem(props: MessageItemProps) {
                   </div>
                 </Show>
 
-                <Show when={content || (props.isTyping && !thought)}>
+                <Show when={displayContent || unifiedArtifacts().length > 0 || (props.isTyping && !thought)}>
                   <Show when={visionFeedbackText()}>
                     <div class="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 text-[13px]">
                       {visionFeedbackText()}
                     </div>
                   </Show>
-                  <div 
-                    innerHTML={renderMarkdown(content, props.isTyping)} 
-                    class="prose prose-slate dark:prose-invert max-w-none 
-                      prose-p:leading-relaxed prose-p:my-3 prose-p:text-[15px]
-                      prose-headings:text-text-primary prose-headings:font-black prose-headings:tracking-tight
-                      prose-a:text-primary prose-a:font-bold hover:prose-a:text-primary-hover prose-a:no-underline border-b border-transparent hover:border-primary
-                      prose-strong:text-text-primary prose-strong:font-bold
-                      prose-code:text-primary prose-code:bg-primary/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-code:font-bold prose-code:break-words prose-code:break-all
-                      prose-pre:p-0 prose-pre:bg-transparent
-                      prose-ol:my-4 prose-ul:my-4 prose-li:my-1
-                      prose-table:w-full prose-table:border-collapse prose-table:my-6 prose-table:table-fixed
-                      prose-th:bg-primary/5 prose-th:text-primary prose-th:p-3 prose-th:text-left prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-wider prose-th:border prose-th:border-border/60 prose-th:break-words prose-th:break-all
-                      prose-td:p-3 prose-td:text-sm prose-td:border prose-td:border-border/60 prose-td:text-text-secondary prose-td:break-words prose-td:break-all" 
-                  />
+                  <Show when={displayContent}>
+                    <div 
+                      innerHTML={renderMarkdown(displayContent, props.isTyping)} 
+                      class="prose prose-slate max-w-none text-text-primary
+                        prose-p:leading-relaxed prose-p:my-3 prose-p:text-[15px] prose-p:text-text-primary
+                        prose-li:text-text-primary prose-ol:text-text-primary prose-ul:text-text-primary
+                        prose-headings:text-text-primary prose-headings:font-black prose-headings:tracking-tight
+                        prose-a:text-primary prose-a:font-bold hover:prose-a:text-primary-hover prose-a:no-underline border-b border-transparent hover:border-primary
+                        prose-strong:text-text-primary prose-strong:font-bold
+                        prose-code:text-primary prose-code:bg-primary/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-code:font-bold prose-code:break-words prose-code:break-all
+                        prose-pre:p-0 prose-pre:bg-transparent
+                        prose-ol:my-4 prose-ul:my-4 prose-li:my-1
+                        prose-table:w-full prose-table:border-collapse prose-table:my-6 prose-table:table-fixed
+                        prose-th:bg-primary/5 prose-th:text-primary prose-th:p-3 prose-th:text-left prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-wider prose-th:border prose-th:border-border/60 prose-th:break-words prose-th:break-all
+                        prose-td:p-3 prose-td:text-sm prose-td:border prose-td:border-border/60 prose-td:text-text-secondary prose-td:break-words prose-td:break-all" 
+                    />
+                  </Show>
+                  <Show when={unifiedArtifacts().length > 0}>
+                    <div class={`${displayContent ? 'mt-4' : 'mt-0'} grid gap-3`}>
+                      <For each={unifiedArtifacts()}>
+                        {(artifact) => (
+                          <figure class={artifactShellClass}>
+                            <div class={artifactHeaderClass}>
+                              <div class="min-w-0">
+                                <div class={artifactMetaLabelClass}>
+                                  {artifact.kind === 'screenshot'
+                                    ? 'Browser Capture'
+                                    : artifact.kind === 'snapshot'
+                                      ? 'Browser Snapshot'
+                                      : 'File Export'}
+                                </div>
+                                <Show when={artifact.kind === 'screenshot'}>
+                                  <div class="mt-1 truncate text-[13px] font-semibold text-text-primary">
+                                    {(artifact as BrowserScreenshotArtifact).alt}
+                                  </div>
+                                </Show>
+                                <Show when={artifact.kind === 'download'}>
+                                  <div class="mt-1 truncate text-[13px] font-semibold text-text-primary">
+                                    {(artifact as DownloadArtifact).filename}
+                                  </div>
+                                </Show>
+                                <Show when={artifact.kind === 'snapshot'}>
+                                  <div class="mt-1 truncate text-[13px] font-semibold text-text-primary">
+                                    {(artifact as BrowserSnapshotArtifact).pageTitle || 'Captured page summary'}
+                                  </div>
+                                </Show>
+                              </div>
+                              <Show when={artifact.kind === 'download'}>
+                                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                                  {(artifact as DownloadArtifact).kindLabel}
+                                </span>
+                              </Show>
+                            </div>
+
+                            <Show when={artifact.sourceUrl}>
+                              <div class="px-4 pb-3">
+                                <div class={artifactMetaLabelClass}>
+                                  {artifact.kind === 'screenshot' ? 'Captured From' : 'Source'}
+                                </div>
+                                <a
+                                  href={artifact.sourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  class={artifactMetaValueClass}
+                                >
+                                  {artifact.sourceUrl}
+                                </a>
+                              </div>
+                            </Show>
+
+                            <Show when={artifact.kind === 'screenshot'}>
+                              <img
+                                src={(artifact as BrowserScreenshotArtifact).url}
+                                alt={(artifact as BrowserScreenshotArtifact).alt}
+                                class="block w-full object-contain border-y border-slate-200/50 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(241,245,249,0.95))]"
+                                loading="lazy"
+                              />
+                            </Show>
+
+                            <Show when={artifact.kind === 'download'}>
+                              <Show
+                                when={(artifact as DownloadArtifact).isImage}
+                                fallback={
+                                  <div class="flex items-start gap-3 px-4 pb-4">
+                                    <div class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-primary">
+                                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M7 21h10a2 2 0 0 0 2-2V9.414a1 1 0 0 0-.293-.707l-5.414-5.414A1 1 0 0 0 12.586 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2z" />
+                                      </svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                      <div class="truncate text-[14px] font-semibold text-text-primary">{(artifact as DownloadArtifact).filename}</div>
+                                      <div class="mt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-text-secondary/60">
+                                        {(artifact as DownloadArtifact).kindLabel}
+                                      </div>
+                                    </div>
+                                  </div>
+                                }
+                              >
+                                <img
+                                  src={(artifact as DownloadArtifact).url}
+                                  alt={(artifact as DownloadArtifact).filename}
+                                  class="block w-full object-contain border-y border-slate-200/50 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(241,245,249,0.95))]"
+                                  loading="lazy"
+                                />
+                              </Show>
+                            </Show>
+
+                            <Show when={artifact.kind === 'snapshot'}>
+                              <div class="space-y-3 px-4 pb-4">
+                                {(() => {
+                                  const snapshotArtifact = artifact as BrowserSnapshotArtifact;
+                                  const structuredText = structureSnapshotVisibleText(
+                                    snapshotArtifact.visibleText,
+                                    snapshotArtifact.pageTitle,
+                                  );
+                                  const paragraphs = structuredText.paragraphs;
+
+                                  return (
+                                    <div class="space-y-3">
+                                      <Show when={structuredText.headerLines.length > 0 || structuredText.scopeLine || structuredText.sortLine}>
+                                        <div class="space-y-2">
+                                          <div class={artifactMetaLabelClass}>Page Structure</div>
+                                          <div class="flex flex-wrap gap-2">
+                                            <For each={structuredText.headerLines}>
+                                              {(line) => (
+                                                <div class="rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-[12px] font-medium text-text-primary">
+                                                  {line}
+                                                </div>
+                                              )}
+                                            </For>
+                                            <Show when={structuredText.scopeLine}>
+                                              <div class="rounded-full border border-primary/10 bg-primary/[0.04] px-3 py-1.5 text-[12px] font-medium text-primary">
+                                                {structuredText.scopeLine}
+                                              </div>
+                                            </Show>
+                                            <Show when={structuredText.sortLine}>
+                                              <div class="rounded-full border border-slate-200 bg-slate-50/80 px-3 py-1.5 text-[12px] font-medium text-text-secondary">
+                                                Sort: {structuredText.sortLine}
+                                              </div>
+                                            </Show>
+                                          </div>
+                                        </div>
+                                      </Show>
+
+                                      <Show when={structuredText.resultItems.length > 0}>
+                                        <div class="space-y-2">
+                                          <div class={artifactMetaLabelClass}>Visible Results</div>
+                                          <div class="space-y-2">
+                                            <For each={structuredText.resultItems}>
+                                              {(item, index) => (
+                                                <div class={`${index() === 0 ? 'bg-slate-50/80 border-slate-200/80' : 'bg-white/75 border-slate-200/65'} rounded-2xl border px-3 py-3`}>
+                                                  <div class="flex items-start gap-3">
+                                                    <div class="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/[0.08] text-[11px] font-semibold text-primary">
+                                                      {index() + 1}
+                                                    </div>
+                                                    <div class="min-w-0">
+                                                      <div class="text-[13px] font-semibold text-text-primary">
+                                                        {getSnapshotItemTitle(item)}
+                                                      </div>
+                                                      <Show when={getSnapshotItemBody(item)}>
+                                                        <div class="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-text-secondary">
+                                                          {getSnapshotItemBody(item)}
+                                                        </div>
+                                                      </Show>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </For>
+                                          </div>
+                                        </div>
+                                      </Show>
+
+                                      <Show when={paragraphs.length > 0}>
+                                        <div class="space-y-2">
+                                          <div class={artifactMetaLabelClass}>Page Summary</div>
+                                          <div class="space-y-2">
+                                            <For each={paragraphs}>
+                                              {(paragraph, index) => (
+                                                <div class={`${index() === 0 ? 'bg-slate-50/75' : 'bg-white/65'} rounded-2xl px-3 py-3`}>
+                                                  <div class="whitespace-pre-wrap text-[13px] leading-relaxed text-text-primary">
+                                                    {paragraph}
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </For>
+                                          </div>
+                                        </div>
+                                      </Show>
+
+                                      <Show when={!structuredText.resultItems.length && !paragraphs.length}>
+                                        <div class="space-y-2">
+                                          <div class={artifactMetaLabelClass}>Page Summary</div>
+                                          <div class="rounded-2xl bg-slate-50/75 px-3 py-3 text-[13px] leading-relaxed text-text-secondary">
+                                            No readable page summary was captured.
+                                          </div>
+                                        </div>
+                                      </Show>
+                                    </div>
+                                  );
+                                })()}
+                                <div class="grid gap-2 lg:grid-cols-2">
+                                  <Show when={(artifact as BrowserSnapshotArtifact).bindingSource}>
+                                    <div class="rounded-2xl bg-slate-50/75 px-3 py-2">
+                                      <div class={artifactMetaLabelClass}>Binding Source</div>
+                                      <div class="mt-1 break-all text-[12px] text-text-primary">{(artifact as BrowserSnapshotArtifact).bindingSource}</div>
+                                    </div>
+                                  </Show>
+                                  <Show when={(artifact as BrowserSnapshotArtifact).bindingUrl}>
+                                    <div class="rounded-2xl bg-slate-50/75 px-3 py-2">
+                                      <div class={artifactMetaLabelClass}>Binding URL</div>
+                                      <div class="mt-1 break-all text-[12px] text-text-primary">{(artifact as BrowserSnapshotArtifact).bindingUrl}</div>
+                                    </div>
+                                  </Show>
+                                </div>
+                                <div class="flex items-center justify-between gap-3 rounded-2xl bg-slate-50/75 px-3 py-2">
+                                  <div class="text-[12px] text-text-secondary">Interactive elements</div>
+                                  <div class="text-[12px] font-semibold text-text-primary">
+                                    {(artifact as BrowserSnapshotArtifact).interactiveCount}
+                                  </div>
+                                </div>
+                              </div>
+                            </Show>
+
+                            <figcaption class="flex items-center justify-between gap-3 px-4 py-3">
+                              <span class="truncate text-[11px] font-medium text-slate-800">
+                                {artifact.kind === 'screenshot'
+                                  ? (artifact as BrowserScreenshotArtifact).alt
+                                  : artifact.kind === 'download'
+                                    ? (artifact as DownloadArtifact).filename
+                                    : ((artifact as BrowserSnapshotArtifact).pageTitle || 'Snapshot details')}
+                              </span>
+                              <Show when={artifact.kind !== 'snapshot'}>
+                                <a
+                                  href={artifact.kind === 'screenshot' ? (artifact as BrowserScreenshotArtifact).url : (artifact as DownloadArtifact).url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  class="text-[11px] font-semibold text-slate-700 hover:text-slate-800 hover:underline"
+                                >
+                                  {artifact.kind === 'screenshot' ? 'Open image' : 'Open file'}
+                                </a>
+                              </Show>
+                            </figcaption>
+                          </figure>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                 </Show>
 
                 <Show when={isTruncated()}>

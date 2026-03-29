@@ -52,15 +52,20 @@ export const ToastProvider: ParentComponent = (props) => {
             {(toast) => (
               <div
                 class={`
-                  pointer-events-auto min-w-[300px] max-w-md p-4 rounded-xl shadow-lg border backdrop-blur-md animate-in slide-in-from-right-full duration-300
-                  ${toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : ''}
-                  ${toast.type === 'error' ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' : ''}
-                  ${toast.type === 'info' ? 'bg-blue-500/10 border-blue-500/20 text-blue-500' : ''}
-                  ${toast.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : ''}
+                  pointer-events-auto min-w-[300px] max-w-md p-4 rounded-2xl shadow-[0_14px_30px_rgba(20,35,30,0.12)] border backdrop-blur-md animate-in slide-in-from-right-full duration-300 bg-surface/96 text-text-primary
+                  ${toast.type === 'success' ? 'border-emerald-200' : ''}
+                  ${toast.type === 'error' ? 'border-rose-200' : ''}
+                  ${toast.type === 'info' ? 'border-sky-200' : ''}
+                  ${toast.type === 'warning' ? 'border-amber-200' : ''}
                 `}
               >
                 <div class="flex items-start gap-3">
-                  <div class="mt-0.5">
+                  <div class={`mt-0.5 rounded-full p-1.5 ${
+                    toast.type === 'success' ? 'bg-emerald-50 text-emerald-700' :
+                    toast.type === 'error' ? 'bg-rose-50 text-rose-700' :
+                    toast.type === 'info' ? 'bg-sky-50 text-sky-700' :
+                    'bg-amber-50 text-amber-700'
+                  }`}>
                     {toast.type === 'success' && (
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
@@ -83,11 +88,11 @@ export const ToastProvider: ParentComponent = (props) => {
                     )}
                   </div>
                   <div class="flex-1">
-                    <p class="text-sm font-semibold">{toast.message}</p>
+                    <p class="text-sm font-semibold text-text-primary">{toast.message}</p>
                   </div>
                   <button 
                     onClick={() => removeToast(toast.id)}
-                    class="text-current opacity-60 hover:opacity-100 transition-opacity"
+                    class="text-text-secondary opacity-70 hover:opacity-100 transition-opacity"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                       <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />

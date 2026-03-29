@@ -117,6 +117,7 @@ class AgentStore:
             self._builtin_pdf_research_agent(),
             self._builtin_ppt_builder_agent(),
             self._builtin_action_lab_agent(),
+            self._builtin_browser_operator_agent(),
         ]
 
     def _builtin_docs_agent(self) -> AgentConfig:
@@ -307,6 +308,38 @@ class AgentStore:
                 "code-simplifier:1.0.0",
                 "ppt-expert:1.0.0",
             ],
+            require_citations=False,
+        )
+
+    def _builtin_browser_operator_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-browser-operator",
+            name="Browser Operator",
+            system_prompt=(
+                "Role: You are Yue's browser action test operator.\n"
+                "Workflow: Use the browser-operator skill and Yue platform browser tools for browser tasks. "
+                "Prefer tool-backed execution over prose. Start with open/snapshot for inspection, then use "
+                "authoritative snapshot-minted targets for click/type/press mutations.\n"
+                "Continuity: Reuse Yue-provided browser continuity metadata when present, but never invent browser "
+                "state, never use selector fallback, and never claim browser access unless the platform tool call "
+                "actually ran.\n"
+                "Output format: Briefly report which browser action ran, what page/context was observed, and any "
+                "approval or continuity state that matters for debugging.\n"
+                "Prohibitions: Do not answer with generic browser limitations when the browser skill is available. "
+                "Do not use non-browser tools for browser tasks."
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[
+                "builtin:browser_open",
+                "builtin:browser_snapshot",
+                "builtin:browser_screenshot",
+                "builtin:browser_press",
+                "builtin:browser_click",
+                "builtin:browser_type",
+            ],
+            skill_mode="auto",
+            visible_skills=["browser-operator:1.0.0"],
             require_citations=False,
         )
 

@@ -3,6 +3,7 @@ import json
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock, AsyncMock
 from app.main import app
+from app.api.chat_requested_action_flow import _runtime_contract_metadata
 from app.services.skill_service import SkillSpec, skill_registry
 from app.services.agent_store import AgentConfig
 from app.services.chat_service import Message
@@ -268,6 +269,44 @@ def test_list_action_states(client, mock_chat_service):
     assert response.status_code == 200
     assert response.json()[0]["skill_name"] == "action-skill"
     mock_chat_service.list_action_states.assert_called_once_with("1")
+
+
+def test_runtime_contract_metadata_keeps_browser_resolved_context():
+    preflight_result = MagicMock()
+    preflight_result.metadata = {
+        "tool_family": "agent_browser",
+        "operation": "click",
+        "browser_continuity": {
+            "contract_mode": "authoritative_target_mutation",
+        },
+        "browser_continuity_resolution": {
+            "resolver_contract_version": 1,
+            "resolution_mode": "explicit_request_context",
+            "continuity_status": "resolved",
+            "resolved_context": {
+                "resolved_context_id": "browser_ctx:test",
+                "session_id": "session-1",
+                "tab_id": "tab-1",
+                "element_ref": "snapshot:browser_snapshot#node:1",
+                "resolution_mode": "explicit_request_context",
+                "resolution_source": "explicit_request_context",
+                "resolved_target_kind": "authoritative_target",
+            },
+        },
+        "browser_continuity_resolver": {
+            "resolver_id": "explicit_context",
+            "status": "resolved",
+            "resolved": True,
+        },
+    }
+
+    payload = _runtime_contract_metadata(preflight_result)
+
+    assert payload["tool_family"] == "agent_browser"
+    assert payload["operation"] == "click"
+    assert payload["browser_continuity_resolution"]["resolved_context"]["session_id"] == "session-1"
+    assert payload["browser_continuity_resolution"]["resolved_context"]["resolved_target_kind"] == "authoritative_target"
+    assert payload["browser_continuity_resolver"]["resolver_id"] == "explicit_context"
 
 @pytest.mark.asyncio
 async def test_chat_stream_basic(client, mock_chat_service):
@@ -602,6 +641,969 @@ actions:
                 mock_chat_service.add_tool_call.assert_called_once()
                 mock_chat_service.update_tool_call.assert_called_once()
                 mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_browser_action_resume_preserves_lifecycle_contract(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:browser_click"]
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+resources:
+  scripts:
+    - id: click_element
+      path: scripts/click.py
+      runtime: python
+      safety: browser_write
+actions:
+  - id: click_element
+    tool: builtin:browser_click
+    resource: click_element
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        binding_source:
+          type: string
+        binding_session_id:
+          type: string
+        binding_tab_id:
+          type: string
+        element_ref:
+          type: string
+      required: ["element_ref"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: click
+      runtime_metadata_expectations:
+        required: ["operation", "element_ref"]
+        optional: ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id"]
+""")
+        with open(os.path.join(pkg_dir, "scripts", "click.py"), "w") as f:
+            f.write("print('click')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_browser_tool = MagicMock()
+                mock_browser_tool.name = "browser_click"
+                mock_browser_tool.validate_params.side_effect = lambda args: args
+                mock_browser_tool.execute = AsyncMock(
+                    return_value='{"ok": false, "status": "not_implemented", "operation": "click"}'
+                )
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[mock_browser_tool])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="browser-agent",
+                    name="Browser Agent",
+                    system_prompt="You are a browser agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:browser_click"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["browser-operator:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Approve browser click",
+                        "agent_id": "browser-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "browser-operator:1.0.0",
+                        "requested_action": "click_element",
+                        "requested_action_arguments": {
+                            "session_id": "session-1",
+                            "tab_id": "tab-1",
+                            "binding_source": "snapshot:browser_snapshot",
+                            "binding_session_id": "session-1",
+                            "binding_tab_id": "tab-1",
+                            "element_ref": "snapshot:browser_snapshot#node:1",
+                        },
+                        "requested_action_approved": True,
+                        "requested_action_approval_token": "approval:browser-operator:1.0.0:click_element:manual",
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"event": "skill.action.approval"' in line for line in data_lines)
+                assert any('"lifecycle_status": "approved"' in line for line in data_lines)
+                assert any('"lifecycle_status": "queued"' in line for line in data_lines)
+                assert any('"lifecycle_status": "running"' in line for line in data_lines)
+                assert any('"lifecycle_status": "succeeded"' in line for line in data_lines)
+                assert any('"mapped_tool": "builtin:browser_click"' in line for line in data_lines)
+                assert any('"tool_family": "agent_browser"' in line for line in data_lines)
+                assert any('"operation": "click"' in line for line in data_lines)
+                assert any('"binding_source": "snapshot:browser_snapshot"' in line for line in data_lines)
+                assert any('"binding_session_id": "session-1"' in line for line in data_lines)
+                assert any('"binding_tab_id": "tab-1"' in line for line in data_lines)
+                assert any('"browser_continuity_resolution"' in line for line in data_lines)
+                assert any('"resolution_mode": "explicit_request_context"' in line for line in data_lines)
+                assert any('"continuity_status": "resolved"' in line for line in data_lines)
+                assert any('"resolved_context"' in line for line in data_lines)
+                assert any('"resolved_context_id": "browser_ctx:' in line for line in data_lines)
+                assert any('"resolved_target_kind": "authoritative_target"' in line for line in data_lines)
+                assert any('"browser_continuity_resolver"' in line for line in data_lines)
+                assert any('"resolver_id": "explicit_context"' in line for line in data_lines)
+                assert any("[Tool Result] `builtin:browser_click` returned:" in line for line in data_lines)
+                assert mock_chat_service.add_action_event.call_count == 6
+                mock_chat_service.add_tool_call.assert_called_once()
+                mock_chat_service.update_tool_call.assert_called_once()
+                mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_browser_open_auto_policy_executes_without_approval(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:browser_open"]
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+resources:
+  scripts:
+    - id: open_page
+      path: scripts/open.py
+      runtime: python
+actions:
+  - id: open_page
+    tool: builtin:browser_open
+    approval_policy: auto
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+      required: ["url"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: open
+      runtime_metadata_expectations:
+        required: ["operation", "url"]
+        optional: ["session_id", "tab_id"]
+""")
+        with open(os.path.join(pkg_dir, "scripts", "open.py"), "w") as f:
+            f.write("print('open')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_browser_tool = MagicMock()
+                mock_browser_tool.name = "browser_open"
+                mock_browser_tool.validate_params.side_effect = lambda args: args
+                mock_browser_tool.execute = AsyncMock(
+                    return_value='{"ok": false, "status": "not_implemented", "operation": "open"}'
+                )
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[mock_browser_tool])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="browser-agent",
+                    name="Browser Agent",
+                    system_prompt="You are a browser agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:browser_open"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["browser-operator:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Open a page",
+                        "agent_id": "browser-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "browser-operator:1.0.0",
+                        "requested_action": "open_page",
+                        "requested_action_arguments": {
+                            "session_id": "session-1",
+                            "tab_id": "tab-1",
+                            "url": "https://example.com",
+                        },
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"event": "skill.action.preflight"' in line for line in data_lines)
+                assert any('"lifecycle_status": "preflight_ready"' in line for line in data_lines)
+                assert any('"lifecycle_status": "queued"' in line for line in data_lines)
+                assert any('"lifecycle_status": "running"' in line for line in data_lines)
+                assert any('"lifecycle_status": "succeeded"' in line for line in data_lines)
+                assert any('"mapped_tool": "builtin:browser_open"' in line for line in data_lines)
+                assert any('"tool_family": "agent_browser"' in line for line in data_lines)
+                assert any('"operation": "open"' in line for line in data_lines)
+                assert any('"url": "https://example.com"' in line for line in data_lines)
+                assert not any('"event": "skill.action.approval"' in line for line in data_lines)
+                assert not any('"lifecycle_status": "awaiting_approval"' in line for line in data_lines)
+                assert any("[Tool Result] `builtin:browser_open` returned:" in line for line in data_lines)
+                assert mock_chat_service.add_action_event.call_count == 5
+                mock_chat_service.add_tool_call.assert_called_once()
+                mock_chat_service.update_tool_call.assert_called_once()
+                mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_browser_type_resume_preserves_lifecycle_contract(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:browser_type"]
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+resources:
+  scripts:
+    - id: type_into_field
+      path: scripts/type.py
+      runtime: python
+      safety: browser_write
+actions:
+  - id: type_into_field
+    tool: builtin:browser_type
+    resource: type_into_field
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+        wait_until:
+          type: string
+        binding_source:
+          type: string
+        binding_session_id:
+          type: string
+        binding_tab_id:
+          type: string
+        binding_url:
+          type: string
+        binding_dom_version:
+          type: string
+        active_dom_version:
+          type: string
+        element_ref:
+          type: string
+        text:
+          type: string
+        clear_first:
+          type: boolean
+      required: ["element_ref", "text"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: type
+      runtime_metadata_expectations:
+        required: ["operation", "element_ref"]
+        optional: ["session_id", "tab_id", "url", "wait_until", "text", "binding_source", "binding_session_id", "binding_tab_id", "binding_url", "binding_dom_version", "active_dom_version"]
+""")
+        with open(os.path.join(pkg_dir, "scripts", "type.py"), "w") as f:
+            f.write("print('type')")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_browser_tool = MagicMock()
+                mock_browser_tool.name = "browser_type"
+                mock_browser_tool.validate_params.side_effect = lambda args: args
+                mock_browser_tool.execute = AsyncMock(
+                    return_value='{"ok": true, "status": "succeeded", "operation": "type", "target": {"element_ref": "snapshot:browser_snapshot#node:2", "text": "hello"}}'
+                )
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[mock_browser_tool])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="browser-agent",
+                    name="Browser Agent",
+                    system_prompt="You are a browser agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:browser_type"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["browser-operator:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Approve browser type",
+                        "agent_id": "browser-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "browser-operator:1.0.0",
+                        "requested_action": "type_into_field",
+                        "requested_action_arguments": {
+                            "session_id": "session-1",
+                            "tab_id": "tab-1",
+                            "url": "https://example.com",
+                            "binding_source": "snapshot:browser_snapshot",
+                            "binding_session_id": "session-1",
+                            "binding_tab_id": "tab-1",
+                            "binding_url": "https://example.com",
+                            "element_ref": "snapshot:browser_snapshot#node:2",
+                            "text": "hello",
+                            "clear_first": True,
+                        },
+                        "requested_action_approved": True,
+                        "requested_action_approval_token": "approval:browser-operator:1.0.0:type_into_field:manual",
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"event": "skill.action.approval"' in line for line in data_lines)
+                assert any('"lifecycle_status": "approved"' in line for line in data_lines)
+                assert any('"lifecycle_status": "queued"' in line for line in data_lines)
+                assert any('"lifecycle_status": "running"' in line for line in data_lines)
+                assert any('"lifecycle_status": "succeeded"' in line for line in data_lines)
+                assert any('"mapped_tool": "builtin:browser_type"' in line for line in data_lines)
+                assert any('"tool_family": "agent_browser"' in line for line in data_lines)
+                assert any('"operation": "type"' in line for line in data_lines)
+                assert any('"binding_source": "snapshot:browser_snapshot"' in line for line in data_lines)
+                assert any('"binding_session_id": "session-1"' in line for line in data_lines)
+                assert any('"binding_tab_id": "tab-1"' in line for line in data_lines)
+                assert any('"url": "https://example.com"' in line for line in data_lines)
+                assert any('"text": "hello"' in line for line in data_lines)
+                assert any('"browser_continuity"' in line for line in data_lines)
+                assert any('"browser_continuity_resolution"' in line for line in data_lines)
+                assert any('"resolution_mode": "single_use_url_with_authoritative_target"' in line for line in data_lines)
+                assert any("[Tool Result] `builtin:browser_type` returned:" in line for line in data_lines)
+                assert mock_chat_service.add_action_event.call_count == 6
+                mock_chat_service.add_tool_call.assert_called_once()
+                mock_chat_service.update_tool_call.assert_called_once()
+                mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_browser_type_blocks_without_authoritative_target_context(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:browser_type"]
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+actions:
+  - id: type_into_field
+    tool: builtin:browser_type
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        binding_source:
+          type: string
+        binding_session_id:
+          type: string
+        binding_tab_id:
+          type: string
+        element_ref:
+          type: string
+        text:
+          type: string
+      required: ["element_ref", "text"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: type
+      runtime_metadata_expectations:
+        required: ["operation", "element_ref"]
+        optional: ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id", "text"]
+""")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="browser-agent",
+                    name="Browser Agent",
+                    system_prompt="You are a browser agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:browser_type"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["browser-operator:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Type without authoritative target context",
+                        "agent_id": "browser-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "browser-operator:1.0.0",
+                        "requested_action": "type_into_field",
+                        "requested_action_arguments": {
+                            "element_ref": "field:email",
+                            "text": "hello",
+                        },
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "preflight_blocked"' in line for line in data_lines)
+                assert any("browser_session_required" in line for line in data_lines)
+                assert any("browser_tab_required" in line for line in data_lines)
+                assert any("browser_target_required" in line for line in data_lines)
+                assert any('"browser_continuity_resolution"' in line for line in data_lines)
+                assert any('"continuity_status": "blocked"' in line for line in data_lines)
+                assert any('"missing_context": ["session_id", "tab_id"]' in line for line in data_lines)
+                assert any('"browser_continuity_resolver"' in line for line in data_lines)
+                assert any('"resolver_id": "explicit_context"' in line for line in data_lines)
+                assert any('"status": "blocked"' in line for line in data_lines)
+                mock_registry.get_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_browser_click_blocks_without_authoritative_target_context(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:browser_click"]
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+actions:
+  - id: click_element
+    tool: builtin:browser_click
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        binding_source:
+          type: string
+        binding_session_id:
+          type: string
+        binding_tab_id:
+          type: string
+        element_ref:
+          type: string
+      required: ["element_ref"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: click
+      runtime_metadata_expectations:
+        required: ["operation", "element_ref"]
+        optional: ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id"]
+""")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="browser-agent",
+                    name="Browser Agent",
+                    system_prompt="You are a browser agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:browser_click"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["browser-operator:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Click without authoritative target context",
+                        "agent_id": "browser-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "browser-operator:1.0.0",
+                        "requested_action": "click_element",
+                        "requested_action_arguments": {
+                            "element_ref": "button:submit",
+                        },
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "preflight_blocked"' in line for line in data_lines)
+                assert any("browser_session_required" in line for line in data_lines)
+                assert any("browser_tab_required" in line for line in data_lines)
+                assert any("browser_target_required" in line for line in data_lines)
+                mock_registry.get_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_browser_click_blocks_when_target_is_stale(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:browser_click"]
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+actions:
+  - id: click_element
+    tool: builtin:browser_click
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        binding_source:
+          type: string
+        binding_session_id:
+          type: string
+        binding_tab_id:
+          type: string
+        binding_dom_version:
+          type: string
+        active_dom_version:
+          type: string
+        element_ref:
+          type: string
+      required: ["element_ref"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: click
+      runtime_metadata_expectations:
+        required: ["operation", "element_ref"]
+        optional: ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id", "binding_dom_version", "active_dom_version"]
+""")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="browser-agent",
+                    name="Browser Agent",
+                    system_prompt="You are a browser agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:browser_click"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["browser-operator:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Click with stale target context",
+                        "agent_id": "browser-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "browser-operator:1.0.0",
+                        "requested_action": "click_element",
+                        "requested_action_arguments": {
+                            "session_id": "session-1",
+                            "tab_id": "tab-1",
+                            "binding_source": "snapshot:browser_snapshot",
+                            "binding_session_id": "session-1",
+                            "binding_tab_id": "tab-1",
+                            "binding_dom_version": "dom:v1",
+                            "active_dom_version": "dom:v2",
+                            "element_ref": "node:1",
+                        },
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "preflight_blocked"' in line for line in data_lines)
+                assert any("browser_target_stale" in line for line in data_lines)
+                mock_registry.get_tools_for_agent.assert_not_called()
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            skill_registry.layered_skill_dirs = prev_layered
+            skill_registry.skill_dirs = prev_skill_dirs
+            skill_registry.load_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_browser_type_blocks_when_target_is_stale(client, mock_chat_service):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["builtin:browser_type"]
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+actions:
+  - id: type_into_field
+    tool: builtin:browser_type
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        binding_source:
+          type: string
+        binding_session_id:
+          type: string
+        binding_tab_id:
+          type: string
+        binding_dom_version:
+          type: string
+        active_dom_version:
+          type: string
+        element_ref:
+          type: string
+        text:
+          type: string
+      required: ["element_ref", "text"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: type
+      runtime_metadata_expectations:
+        required: ["operation", "element_ref"]
+        optional: ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id", "binding_dom_version", "active_dom_version", "text"]
+""")
+
+        prev_layered = list(skill_registry.layered_skill_dirs)
+        prev_skill_dirs = list(skill_registry.skill_dirs)
+        try:
+            skill_registry.layered_skill_dirs = []
+            skill_registry.skill_dirs = [tmp_dir]
+            skill_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="browser-agent",
+                    name="Browser Agent",
+                    system_prompt="You are a browser agent.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["builtin:browser_type"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["browser-operator:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Type with stale target context",
+                        "agent_id": "browser-agent",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "browser-operator:1.0.0",
+                        "requested_action": "type_into_field",
+                        "requested_action_arguments": {
+                            "session_id": "session-1",
+                            "tab_id": "tab-1",
+                            "binding_source": "snapshot:browser_snapshot",
+                            "binding_session_id": "session-1",
+                            "binding_tab_id": "tab-1",
+                            "binding_dom_version": "dom:v1",
+                            "active_dom_version": "dom:v2",
+                            "element_ref": "node:2",
+                            "text": "hello",
+                        },
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "preflight_blocked"' in line for line in data_lines)
+                assert any("browser_target_stale" in line for line in data_lines)
+                mock_registry.get_tools_for_agent.assert_not_called()
                 mock_get_model.assert_not_called()
                 mock_agent_cls.assert_not_called()
         finally:

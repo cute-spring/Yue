@@ -11,34 +11,34 @@ interface AgentSelectorProps {
 export default function AgentSelector(props: AgentSelectorProps) {
   return (
     <Show when={props.show}>
-      <div class="absolute bottom-full left-0 mb-4 w-80 bg-surface border border-border rounded-[24px] shadow-2xl overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-300 backdrop-blur-xl">
-        <div class="bg-primary/5 px-5 py-3 border-b border-border flex items-center justify-between">
-          <span class="text-[10px] font-bold text-primary uppercase tracking-[0.2em]">Mention Intelligence Agent</span>
-          <span class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">@</span>
+      <div class="absolute bottom-full left-0 mb-4 w-80 bg-surface/98 border border-border/80 rounded-[24px] shadow-[0_18px_40px_rgba(20,35,30,0.14)] overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-300 backdrop-blur-xl">
+        <div class="bg-background/70 px-5 py-3.5 border-b border-border/70 flex items-center justify-between">
+          <span class="text-[11px] font-medium text-primary">Mention Intelligence Agent</span>
+          <span class="text-[11px] bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-semibold">@</span>
         </div>
-        <div class="max-h-72 overflow-y-auto p-2 scrollbar-thin">
+        <div class="max-h-72 overflow-y-auto p-2.5 scrollbar-thin">
           <For each={props.agents}>
             {(agent, index) => (
               <button
                 onClick={() => props.onSelect(agent)}
-                class={`w-full text-left px-4 py-3 flex items-center justify-between rounded-xl transition-all duration-200 ${
-                  props.selectedIndex === index() ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-[1.02]' : 'hover:bg-primary/5 text-text-primary'
+                class={`w-full text-left px-4 py-3.5 flex items-center justify-between rounded-[1rem] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 ${
+                  props.selectedIndex === index() ? 'bg-primary/10 text-text-primary ring-1 ring-primary/18 shadow-sm' : 'hover:bg-background text-text-primary'
                 }`}
               >
                 <div class="flex items-center gap-3">
-                  <div class={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${props.selectedIndex === index() ? 'bg-white/20' : 'bg-primary/10 text-primary'}`}>
+                  <div class={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-semibold ${props.selectedIndex === index() ? 'bg-primary/12 text-primary' : 'bg-primary/10 text-primary'}`}>
                     <Show when={agent.avatar} fallback={agent.name.charAt(0)}>
-                      <img src={agent.avatar} alt={agent.name} class="w-full h-full object-cover rounded-lg" />
+                      <img src={agent.avatar} alt={agent.name} class="w-full h-full object-cover rounded-xl" />
                     </Show>
                   </div>
                   <div>
-                    <span class="font-bold text-sm block">{agent.name}</span>
-                    <span class={`text-[10px] block opacity-70 ${props.selectedIndex === index() ? 'text-white' : 'text-text-secondary'}`}>Specialized Intelligence</span>
+                    <span class="font-semibold text-[14px] block">{agent.name}</span>
+                    <span class={`text-[11px] block mt-0.5 ${props.selectedIndex === index() ? 'text-text-secondary' : 'text-text-secondary'}`}>Specialized Intelligence</span>
                   </div>
                 </div>
                 <Show when={props.selectedIndex === index()}>
                   <div class="flex items-center gap-1">
-                    <span class="text-[9px] font-black tracking-tighter border border-white/30 px-1 rounded">ENTER</span>
+                    <span class="text-[10px] font-medium tracking-tight border border-primary/20 bg-primary/5 text-primary px-2 py-0.5 rounded-full">Enter</span>
                   </div>
                 </Show>
               </button>

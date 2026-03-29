@@ -87,6 +87,19 @@
 - [ ] **Phase 2: 前端搜索与过滤** (虚拟滚动、日期分组、搜索栏)
 - [ ] **Phase 3: 高级功能** (收藏、标签、快速定位)
 
+### Epic 11: 技能内核独立库化 (Skill Kernel Library Extraction)
+> **状态**: 待启动
+> **详情文档**: [skill_kernel_library_extraction_plan_20260329.md](./skill_kernel_library_extraction_plan_20260329.md)
+> **目标**: 将当前 Yue skill 核心抽离为可安装、可复用、可被其他项目直接依赖的独立 Python library。
+- [ ] **Phase 0: 契约冻结** (定义 public API、Yue-only 边界与兼容策略)
+- [ ] **Phase 1: Library 骨架** (建立可安装 package 结构与 smoke test)
+- [ ] **Phase 2: Contract 抽离** (迁移模型、请求/结果契约与导出边界)
+- [ ] **Phase 3: Loader/Normalization** (迁移 package loader、manifest 与资源归一化)
+- [ ] **Phase 4: Registry/Router 抽离** (移除 Yue 全局 store 耦合)
+- [ ] **Phase 5: Policy/Runtime 逻辑抽离** (迁移校验、审批与生命周期决策)
+- [ ] **Phase 6: Yue Adapter 收敛** (让 `skill_service.py` 退化为薄适配层)
+- [ ] **Phase 7: 打包与外部消费验证** (可安装、可版本化、可外部项目接入)
+
 ---
 
 ## ⚪ Done (已完成)

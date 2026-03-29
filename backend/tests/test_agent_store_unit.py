@@ -39,12 +39,13 @@ def test_no_legacy_path_uses_runtime_data_only(temp_dirs):
 
 def test_list_agents(agent_store):
     agents = agent_store.list_agents()
-    assert len(agents) >= 7
+    assert len(agents) >= 8
     assert agents[0].id == "builtin-docs"
     assert any(a.id == "builtin-excel-analyst" for a in agents)
     assert any(a.id == "builtin-pdf-research" for a in agents)
     assert any(a.id == "builtin-ppt-builder" for a in agents)
     assert any(a.id == "builtin-action-lab" for a in agents)
+    assert any(a.id == "builtin-browser-operator" for a in agents)
 
 def test_create_agent(agent_store):
     new_agent = AgentConfig(name="New Agent", system_prompt="You are a helper")
@@ -105,9 +106,10 @@ def test_recover_corrupt_file(temp_dirs):
     store = AgentStore(data_dir=data_dir)
     # list_agents should trigger recovery
     agents = store.list_agents()
-    assert len(agents) >= 7
+    assert len(agents) >= 8
     assert any(a.id == "builtin-docs" for a in agents)
     assert any(a.id == "builtin-excel-analyst" for a in agents)
+    assert any(a.id == "builtin-browser-operator" for a in agents)
     # Should have created a corrupt file
     files = os.listdir(data_dir)
     assert any(f.startswith("agents.json.corrupt") for f in files)
@@ -143,6 +145,19 @@ def test_builtin_agents_expose_skill_friendly_defaults(agent_store):
     assert action_lab.skill_mode == "manual"
     assert "system-ops-expert:1.0.0" in action_lab.visible_skills
     assert "ppt-expert:1.0.0" in action_lab.visible_skills
+
+    browser_operator = agent_store.get_agent("builtin-browser-operator")
+    assert browser_operator is not None
+    assert browser_operator.skill_mode == "auto"
+    assert browser_operator.visible_skills == ["browser-operator:1.0.0"]
+    assert browser_operator.enabled_tools == [
+        "builtin:browser_open",
+        "builtin:browser_snapshot",
+        "builtin:browser_screenshot",
+        "builtin:browser_press",
+        "builtin:browser_click",
+        "builtin:browser_type",
+    ]
 
 def test_migrate_agents_script_dry_run(temp_dirs):
     data_dir, legacy_dir = temp_dirs

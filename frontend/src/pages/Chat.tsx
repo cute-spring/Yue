@@ -45,7 +45,7 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
   });
   
   // History & Knowledge State
-  const [showHistory, setShowHistory] = createSignal(true); // Default to true on desktop
+  const [showHistory, setShowHistory] = createSignal(true);
   const [showKnowledge, setShowKnowledge] = createSignal(false);
   const [intelligenceTab, setIntelligenceTab] = createSignal<'notes' | 'graph' | 'actions' | 'preview' | 'stats'>('actions');
   const [previewContent, setPreviewContent] = createSignal<{lang: string, content: string} | null>(null);
@@ -312,14 +312,9 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
     debouncedRender
   } = useMermaid(messages);
 
-  // Responsive State
-  const [windowWidth, setWindowWidth] = createSignal(window.innerWidth);
   onMount(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    setShowHistory(true);
   });
-  const isMobile = () => windowWidth() < 1024;
 
   createEffect(() => {
     if (messages().length > 0 && !userHasScrolledUp()) {
@@ -694,71 +689,73 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
         currentChatId={currentChatId()} 
         onNewChat={() => {
           speech.stopCurrent();
-          startNewChat(isMobile(), setShowHistory);
+          startNewChat(false, setShowHistory);
         }} 
         onLoadChat={(id) => {
           speech.stopCurrent();
-          loadChat(id, isMobile(), setShowHistory, setSelectedAgent);
+          loadChat(id, false, setShowHistory, setSelectedAgent);
         }} 
         onDeleteChat={(id) => setConfirmDeleteId(id)} 
         onGenerateSummary={handleGenerateSummary}
       />
 
       {/* 2. Main Chat Area (flex) */}
-      <div class="flex-1 flex flex-col h-full min-w-0 bg-background relative">
+      <div class="flex-1 flex flex-col h-full min-w-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.04),transparent_38%)] relative">
         {/* Chat Header */}
-        <div class="h-16 px-6 border-b border-border flex items-center justify-between bg-surface/80 backdrop-blur-md z-10 sticky top-0">
-          <div class="flex items-center gap-4 min-w-0">
-            <button 
-              onClick={() => setShowHistory(!showHistory())} 
-              class="p-2 -ml-2 text-text-secondary hover:bg-primary/10 rounded-xl transition-all active:scale-90"
-              title={showHistory() ? "Hide History" : "Show History"}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            
-            <div class="flex items-center gap-3.5 truncate">
-              <div class="relative">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center text-primary font-bold shrink-0 border border-primary/10 shadow-sm overflow-hidden">
-                  <Show when={currentAgent()?.avatar} fallback={activeAgentName().charAt(0)}>
-                    <img src={currentAgent()?.avatar} alt={activeAgentName()} class="w-full h-full object-cover" />
+        <div class="h-16 border-b border-border/70 bg-surface/82 backdrop-blur-md z-10 sticky top-0">
+          <div class="mx-auto flex h-full w-full max-w-[84rem] items-center justify-between px-6">
+            <div class="flex items-center gap-4 min-w-0">
+              <button 
+                onClick={() => setShowHistory(!showHistory())} 
+                class="p-2.5 -ml-1 text-text-secondary hover:bg-primary/8 hover:text-primary rounded-2xl transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                title={showHistory() ? "Hide History" : "Show History"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              
+              <div class="flex items-center gap-3.5 truncate">
+                <div class="relative">
+                  <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center text-primary font-bold shrink-0 border border-primary/10 shadow-sm overflow-hidden">
+                    <Show when={currentAgent()?.avatar} fallback={activeAgentName().charAt(0)}>
+                      <img src={currentAgent()?.avatar} alt={activeAgentName()} class="w-full h-full object-cover" />
+                    </Show>
+                  </div>
+                  <div class={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-surface ${isTyping() ? 'bg-primary animate-pulse' : 'bg-emerald-500'}`}></div>
+                </div>
+                <div class="truncate">
+                  <h3 class="font-semibold text-text-primary text-base truncate leading-tight">{activeAgentName()}</h3>
+                  <p class="text-[11px] text-text-secondary font-medium tracking-[0.02em] opacity-80">
+                    {isTyping() ? 'Processing Intelligence...' : 'System Ready'}
+                  </p>
+                </div>
+              </div>
+              <Show when={currentAgent()?.skill_mode && currentAgent()?.skill_mode !== 'off'}>
+                <div class="flex items-center gap-2 ml-4">
+                  <span class="text-[11px] font-medium text-primary bg-primary/10 border border-primary/15 rounded-full px-2.5 py-1">
+                    {currentAgent()?.skill_mode}
+                  </span>
+                  <Show when={activeSkill()}>
+                    <span class="text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+                      Active: {activeSkill()!.name}@{activeSkill()!.version}
+                    </span>
                   </Show>
                 </div>
-                <div class={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-surface ${isTyping() ? 'bg-primary animate-pulse' : 'bg-emerald-500'}`}></div>
-              </div>
-              <div class="truncate">
-                <h3 class="font-bold text-text-primary text-base truncate leading-tight">{activeAgentName()}</h3>
-                <p class="text-[11px] text-text-secondary font-medium uppercase tracking-widest opacity-70">
-                  {isTyping() ? 'Processing Intelligence...' : 'System Ready'}
-                </p>
-              </div>
+              </Show>
             </div>
-            <Show when={currentAgent()?.skill_mode && currentAgent()?.skill_mode !== 'off'}>
-              <div class="hidden md:flex items-center gap-2 ml-4">
-                <span class="text-[10px] uppercase tracking-wider font-bold text-violet-700 bg-violet-100 border border-violet-200 rounded-full px-2 py-1">
-                  {currentAgent()?.skill_mode}
-                </span>
-                <Show when={activeSkill()}>
-                  <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2 py-1">
-                    Active: {activeSkill()!.name}@{activeSkill()!.version}
-                  </span>
-                </Show>
-              </div>
-            </Show>
-          </div>
-          
-          <div class="flex items-center gap-2">
-            <button 
-              onClick={() => setShowKnowledge(!showKnowledge())}
-              class={`p-2.5 rounded-xl transition-all duration-300 active:scale-90 ${showKnowledge() ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-secondary hover:bg-primary/10 hover:text-primary'}`}
-              title="Toggle Knowledge Intelligence"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
+            
+            <div class="flex items-center gap-2">
+              <button 
+                onClick={() => setShowKnowledge(!showKnowledge())}
+                class={`p-2.5 rounded-2xl transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 ${showKnowledge() ? 'bg-primary/10 text-primary ring-1 ring-primary/15 shadow-sm' : 'text-text-secondary hover:bg-primary/8 hover:text-primary'}`}
+                title="Toggle Knowledge Intelligence"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
         
@@ -847,19 +844,10 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
         setIntelligenceTab={setIntelligenceTab}
         previewContent={previewContent()}
         lastMessage={[...messages()].reverse().find(m => m.role === 'assistant')}
-        isMobile={isMobile()}
         actionStates={actionStates()}
         isTyping={isTyping()}
         onResolveAction={(state, approved) => { void submitActionDecision(state, approved); }}
       />
-      
-      {/* Mobile Overlays */}
-      {(showHistory() || (showKnowledge() && isMobile())) && (
-        <div 
-          onClick={() => { setShowHistory(false); setShowKnowledge(false); }}
-          class="fixed inset-0 bg-black/40 backdrop-blur-sm z-20 lg:hidden"
-        />
-      )}
 
       <ConfirmModal
         show={!!confirmDeleteId()}

@@ -63,6 +63,74 @@ Remaining backlog should be treated as enhancement work:
 - more tool-specific renderers
 - deeper trace/detail UX and exportability
 
+## 1.2 Browser Foundation Follow-On Snapshot
+
+On top of the package/action baseline above, the current branch now also contains `agent-browser` Phase 1 foundation work.
+
+Delivered browser-foundation additions:
+
+- builtin browser tool family contract in [`backend/app/mcp/builtin/browser.py`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/builtin/browser.py)
+- operation-specific builtin tool contracts for:
+  - `builtin:browser_open`
+  - `builtin:browser_snapshot`
+  - `builtin:browser_click`
+  - `builtin:browser_type`
+  - `builtin:browser_press`
+  - `builtin:browser_screenshot`
+- builtin registry metadata extended to expose optional `output_schema` and contract `metadata`
+- minimal builtin browser skill package in [`backend/data/skills/browser-operator/`](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/data/skills/browser-operator)
+- browser-specific safety classes recognized in skill policy:
+  - `browser_write`
+  - `browser_mutation`
+- stable browser runtime metadata propagated through action invocation/preflight metadata:
+  - `tool_family`
+  - `operation`
+  - `runtime_metadata_expectations`
+  - `runtime_metadata`
+- requested-action flows verified for both:
+  - approval-required mutation operations such as `browser_click`
+  - auto-approved low-risk operations such as `browser_open`
+- intelligence panel action details extended to show browser contract summary/context without adding a browser-only panel
+
+Current backend-execution status:
+
+- `builtin:browser_open` now executes through a minimal single-use Playwright flow
+- `builtin:browser_snapshot` now executes through a minimal single-use Playwright flow
+- `builtin:browser_screenshot` now executes through a minimal single-use Playwright flow
+- `builtin:browser_press` now executes through a minimal single-use Playwright flow
+- `builtin:browser_click` now executes through a minimal single-use Playwright flow using authoritative snapshot-minted targets
+- `builtin:browser_type` now executes through a minimal single-use Playwright flow using authoritative snapshot-minted targets
+
+This means the branch now has:
+
+1. browser contract shape
+2. browser skill/action package wiring
+3. approval/runtime metadata compatibility
+4. backend/frontend regression coverage
+
+It does not yet have:
+
+1. a complete persistent browser execution backend
+2. session management
+3. login persistence
+4. autonomous browser workflows
+
+Important interpretation update:
+
+- the branch now has a narrow real browser backend for single-use URL-scoped operations
+- it still does not have persistent browser state or stable cross-call resumed element targeting
+- `press`, `click`, and `type` now all have narrow real execution, but only in single-use URL-scoped form
+- further mutation work should focus on continuity/target-strengthening rather than first-time execution
+
+Recommended next design pass before any further mutation work:
+
+- define `session continuity + stable target identity` as a contract problem first, not an execution problem
+- keep `session_id` and `tab_id` platform-owned and nullable for single-use operations only
+- define `element_ref` as an opaque platform-issued reference, not a raw selector contract
+- require structured stale-target/context-mismatch failures rather than selector fallback
+- make snapshot-minted target binding session-aware, including `binding_session_id`
+- publish stale-target failure vocabulary through tool/action metadata, not just prose docs
+
 ## 2. Original Goal
 
 The original Phase 1 goal was:
@@ -538,6 +606,65 @@ Only after A-C, if desired:
 - split `IntelligencePanel` helpers into smaller modules
 - normalize more result payloads before they hit the frontend
 - add regression coverage for large histories and dense action sessions
+
+#### E. Browser foundation Phase 2
+
+Browser foundation Phase 2 is now materially complete on this branch.
+
+Delivered scope:
+
+- implement real execution behind the existing builtin browser tool family
+- preserve operation-specific tool ids and input schemas
+- preserve action lifecycle semantics and current action-state persistence
+- preserve browser runtime metadata keys already flowing through invocation/preflight/execution payloads
+- prefer single-use URL-scoped execution first for operations that do not require stable resumed element identity
+
+Recommended files to start from:
+
+- [backend/app/mcp/builtin/browser.py](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/builtin/browser.py)
+- [backend/app/mcp/builtin/registry.py](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/builtin/registry.py)
+- [backend/app/services/skills/policy.py](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/policy.py)
+- [backend/app/services/skills/actions.py](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/actions.py)
+- [backend/app/api/chat_requested_action_flow.py](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/chat_requested_action_flow.py)
+- [backend/data/skills/browser-operator/manifest.yaml](/Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/data/skills/browser-operator/manifest.yaml)
+
+Guardrails:
+
+- do not introduce a skill-owned browser runner
+- do not bypass Yue platform tools
+- do not add hidden autonomous loops
+- do not redesign the persistence or frontend action system just for browser support
+- do not turn `click` or `type` into ad hoc selector-based execution that bypasses the existing `element_ref` contract
+- treat single-use authoritative mutation as the upper bound before session continuity is explicitly designed
+
+#### F. Browser foundation Phase 2.5
+
+Before resumed `click` or `type` continuity work, define the following minimum contract:
+
+- `session_id`
+  - required for reuse-sensitive operations
+  - nullable for single-use operations
+- `tab_id`
+  - required when an action depends on an existing page context
+- `element_ref`
+  - opaque platform-issued reference
+  - must not degrade into raw selector contract
+- target-binding metadata
+  - include at least:
+    - `binding_source`
+    - `binding_session_id`
+    - `binding_tab_id`
+    - `binding_url`
+    - optional `binding_dom_version`
+  - use the same shape in snapshot-level binding context and per-element target binding
+- structured failure categories
+  - include stale-target and context-mismatch style errors
+- contract metadata
+  - expose `structured_failure_codes` for reuse-sensitive operations such as `click` and `type`
+
+Implementation rule:
+
+- if a candidate `click` or `type` implementation needs selector guessing, hidden page reuse, or undeclared target translation, stop and keep the operation at contract-only status
 
 ### 7.4 Suggested round-by-round execution plan
 

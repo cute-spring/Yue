@@ -3,7 +3,6 @@ import { A } from '@solidjs/router';
 
 const App: Component<{children?: any}> = (props) => {
   const [theme, setTheme] = createSignal<'light' | 'dark'>('light');
-  const [isSidebarOpen, setIsSidebarOpen] = createSignal(true);
   const [isSidebarExpanded, setIsSidebarExpanded] = createSignal(false);
 
   onMount(() => {
@@ -25,7 +24,7 @@ const App: Component<{children?: any}> = (props) => {
     <div class="flex h-screen bg-background text-text-primary transition-colors duration-250">
        {/* Sidebar */}
        <aside 
-         class={`fixed inset-y-0 left-0 z-50 ${isSidebarExpanded() ? 'w-sidebar' : 'w-16'} bg-surface border-r border-border flex flex-col transition-transform duration-250 ease-out lg:relative lg:translate-x-0 ${isSidebarOpen() ? 'translate-x-0' : '-translate-x-full'}`}
+         class={`relative inset-y-0 left-0 z-30 ${isSidebarExpanded() ? 'w-sidebar' : 'w-16'} bg-surface border-r border-border flex flex-col transition-[width] duration-250 ease-out`}
        >
          <div class={`flex items-center justify-between ${isSidebarExpanded() ? 'p-6' : 'p-4'} border-b border-border/60`}>
            <button
@@ -39,15 +38,6 @@ const App: Component<{children?: any}> = (props) => {
              </div>
              <span class={`font-black text-xl ${isSidebarExpanded() ? 'block' : 'hidden'}`}>Yue</span>
            </button>
-
-            <button 
-              onClick={() => setIsSidebarOpen(false)}
-             class="lg:hidden p-2 hover:bg-primary/10 rounded-xl"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
           </div>
 
          <nav class={`flex-1 ${isSidebarExpanded() ? 'px-4' : 'px-2'} py-3 space-y-2`}>
@@ -134,34 +124,8 @@ const App: Component<{children?: any}> = (props) => {
           </div>
        </aside>
 
-       {/* Mobile Sidebar Overlay */}
-       {isSidebarOpen() && (
-         <div 
-           onClick={() => setIsSidebarOpen(false)}
-           class="fixed inset-0 z-40 bg-black/50 lg:hidden"
-         />
-       )}
-
        {/* Main Area */}
        <main class="flex-1 overflow-hidden relative flex flex-col min-w-0">
-          {/* Mobile Header */}
-          <header class="lg:hidden flex items-center h-16 px-6 bg-surface/80 backdrop-blur-md border-b border-border z-30 sticky top-0">
-            <button 
-              onClick={() => setIsSidebarOpen(true)}
-              class="p-2 -ml-2 hover:bg-primary/10 text-text-secondary hover:text-primary rounded-xl transition-all active:scale-90"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <div class="ml-4 flex items-center gap-2">
-              <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10 flex items-center justify-center font-black text-primary text-sm">
-                Y
-              </div>
-              <span class="font-black text-text-primary tracking-tight">Yue</span>
-            </div>
-          </header>
-          
           <div id="main-content" class="flex-1 relative overflow-y-auto">
             {props.children}
           </div>

@@ -91,9 +91,9 @@ export const mergeImageAttachments = (
 
 export const getUploadButtonClass = (attachmentCount: number): string => {
   if (attachmentCount > 0) {
-    return 'relative p-2.5 bg-primary/20 text-primary border border-primary/30 rounded-2xl transition-all active:scale-90 shadow-sm';
+    return 'relative p-2.5 bg-primary/12 text-primary border border-primary/20 rounded-2xl transition-all active:scale-90 shadow-sm';
   }
-  return 'relative p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90';
+  return 'relative p-2.5 text-text-secondary hover:text-primary hover:bg-primary/8 rounded-2xl transition-all active:scale-90';
 };
 
 export const removeImageAttachmentAt = (files: File[], index: number): File[] => {
@@ -116,7 +116,7 @@ export const getVoiceInputButtonClass = (
   isProcessing: boolean,
 ): string => {
   if (!enabled || !supported) {
-    return 'p-2.5 text-slate-300 bg-slate-100 rounded-2xl cursor-not-allowed';
+    return 'p-2.5 text-text-secondary/40 bg-background rounded-2xl cursor-not-allowed';
   }
   if (isRecording) {
     return 'p-2.5 text-white bg-rose-500 hover:bg-rose-600 rounded-2xl transition-all active:scale-90 animate-pulse shadow-sm shadow-rose-500/30';
@@ -124,7 +124,7 @@ export const getVoiceInputButtonClass = (
   if (isProcessing) {
     return 'p-2.5 text-white bg-sky-500 hover:bg-sky-600 rounded-2xl transition-all active:scale-90 animate-pulse shadow-sm shadow-sky-500/30';
   }
-  return 'p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90';
+  return 'p-2.5 text-text-secondary hover:text-primary hover:bg-primary/8 rounded-2xl transition-all active:scale-90';
 };
 
 export const getVoiceInputProviderLabel = (provider: 'browser' | 'azure'): string => {
@@ -170,8 +170,8 @@ export default function ChatInput(props: ChatInputProps) {
   };
 
   return (
-    <div class="px-4 pb-6 lg:px-8 bg-transparent">
-      <div class="max-w-6xl mx-auto relative">
+    <div class="bg-transparent px-10 pb-8 pt-4">
+      <div class="relative mx-auto max-w-[84rem]">
         <AgentSelector 
           show={props.showAgentSelector}
           agents={props.filteredAgents}
@@ -181,7 +181,7 @@ export default function ChatInput(props: ChatInputProps) {
 
         <Show when={props.skillMode === 'manual' && props.visibleSkills.length > 0}>
           <div
-            class="flex items-center gap-2 mb-3 overflow-x-auto pb-2 scrollbar-hide no-scrollbar"
+            class="mb-4 flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar"
             data-testid="skill-chip-list"
             role="group"
             aria-label="Manual skill selection"
@@ -205,8 +205,8 @@ export default function ChatInput(props: ChatInputProps) {
                   class={`
                     px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border
                     ${props.requestedSkill === skill.id
-                      ? 'bg-violet-600 border-violet-600 text-white shadow-md shadow-violet-500/20 scale-105'
-                      : 'bg-surface border-border text-text-secondary hover:border-violet-400/50 hover:text-violet-600 hover:bg-violet-50'}
+                      ? 'bg-primary/12 border-primary/25 text-primary shadow-sm scale-105'
+                      : 'bg-surface border-border/80 text-text-secondary hover:border-primary/20 hover:text-primary hover:bg-primary/5'}
                   `}
                 >
                   {skill.name}{skill.version ? `:${skill.version}` : ''}
@@ -218,8 +218,8 @@ export default function ChatInput(props: ChatInputProps) {
 
         <form onSubmit={props.onSubmit} class="relative">
           <div class={`
-            relative bg-surface/80 backdrop-blur-xl border-2 rounded-[28px] transition-all duration-500 p-1.5 shadow-2xl
-            ${props.isTyping ? 'border-primary/40 ring-8 ring-primary/5 shadow-primary/10' : 'border-border focus-within:border-primary/40 focus-within:ring-8 focus-within:ring-primary/5'}
+            relative rounded-[1.35rem] border bg-surface/96 p-2 shadow-[0_14px_34px_rgba(20,35,30,0.05)] backdrop-blur-xl transition-all duration-500
+            ${props.isTyping ? 'border-primary/28 ring-4 ring-primary/6 shadow-primary/8' : 'border-border/80 focus-within:border-primary/28 focus-within:ring-4 focus-within:ring-primary/6'}
           `}>
             <Show when={props.composerKey} keyed>
               {(composerKey) => (
@@ -231,7 +231,7 @@ export default function ChatInput(props: ChatInputProps) {
                   onKeyDown={props.onKeyDown}
                   readOnly={inputLocked()}
                   placeholder={`You are chatting with ${props.activeAgentName} now`}
-                  class={`w-full bg-transparent px-6 pt-3.5 pb-14 focus:outline-none resize-none min-h-[72px] max-h-[400px] overflow-y-auto text-text-primary leading-relaxed text-lg font-medium placeholder:text-text-secondary/30 ${inputLocked() ? 'cursor-default opacity-90' : ''}`}
+                  class={`min-h-[84px] max-h-[400px] w-full resize-none overflow-y-auto bg-transparent px-6 pt-4 pb-[4.25rem] text-[17px] font-medium leading-relaxed text-text-primary placeholder:text-text-secondary/55 focus:outline-none ${inputLocked() ? 'cursor-default opacity-90' : ''}`}
                   rows={1}
                 />
               )}
@@ -260,14 +260,14 @@ export default function ChatInput(props: ChatInputProps) {
                   onClick={() => props.setIsDeepThinking(!props.isDeepThinking)}
                   class={`flex items-center gap-2 px-3 py-2 rounded-2xl transition-all active:scale-95 border shadow-sm ${
                     props.isDeepThinking 
-                      ? 'bg-primary/10 border-primary/30 text-primary' 
-                      : 'bg-background border-border text-text-secondary hover:text-primary hover:bg-primary/5'
+                      ? 'bg-primary/10 border-primary/20 text-primary' 
+                      : 'bg-background/90 border-border/80 text-text-secondary hover:text-primary hover:bg-primary/5'
                   }`}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                   </svg>
-                  <span class="text-xs font-bold uppercase tracking-wider">Deep Thinking</span>
+                  <span class="text-xs font-semibold">Deep Thinking</span>
                 </button>
               </div>
 
@@ -276,15 +276,15 @@ export default function ChatInput(props: ChatInputProps) {
                 {/* Tools Group */}
                 <div class="flex items-center gap-1.5">
                   <div class="relative group/tooltip">
-                    <button type="button" class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
+                    <button type="button" class="p-2.5 text-text-secondary hover:text-primary hover:bg-primary/8 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
                       <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
                     </button>
-                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                      <span class="font-bold text-white/90">快速理解总结文件</span>
-                      <span class="block text-[11px] text-white/50 mt-1">PDF, Word, Excel, PPT, Code</span>
-                      <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-surface/98 backdrop-blur-xl border border-border rounded-2xl shadow-xl px-5 py-3 text-xs font-medium text-text-primary whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
+                      <span class="font-semibold">快速理解总结文件</span>
+                      <span class="block text-[11px] text-text-secondary mt-1">PDF, Word, Excel, PPT, Code</span>
+                      <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-surface/98 border-r border-b border-border rotate-45"></div>
                     </div>
                   </div>
                   <Show when={supportsVision()}>
@@ -315,10 +315,10 @@ export default function ChatInput(props: ChatInputProps) {
                           <span class="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-primary text-white rounded-full px-1 border-2 border-surface shadow-sm">{props.imageAttachments.length}</span>
                         </Show>
                       </button>
-                      <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                        <span class="font-bold text-white/90">上传图片</span>
-                        <span class="block text-[11px] text-white/50 mt-1">JPG, PNG (Max 10)</span>
-                        <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
+                      <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-surface/98 backdrop-blur-xl border border-border rounded-2xl shadow-xl px-5 py-3 text-xs font-medium text-text-primary whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
+                        <span class="font-semibold">上传图片</span>
+                        <span class="block text-[11px] text-text-secondary mt-1">JPG, PNG (Max 10)</span>
+                        <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-surface/98 border-r border-b border-border rotate-45"></div>
                       </div>
                     </div>
                   </Show>
@@ -340,9 +340,9 @@ export default function ChatInput(props: ChatInputProps) {
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </button>
-                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                      <span class="font-bold text-white/90">{voiceInputTooltip()}</span>
-                      <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[200px] bg-surface/98 backdrop-blur-xl border border-border rounded-2xl shadow-xl px-5 py-3 text-xs font-medium text-text-primary whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
+                      <span class="font-semibold">{voiceInputTooltip()}</span>
+                      <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-surface/98 border-r border-b border-border rotate-45"></div>
                     </div>
                   </div>
                 </div>
@@ -357,12 +357,12 @@ export default function ChatInput(props: ChatInputProps) {
                   }}
                   disabled={!props.isTyping && (!canSubmit() || !props.selectedModel)}
                   class={`
-                    flex items-center justify-center p-3 rounded-2xl transition-all duration-500 shadow-lg
+                    flex items-center justify-center p-3 rounded-2xl transition-all duration-500 shadow-md
                     ${props.isTyping 
                       ? 'bg-rose-500 text-white hover:bg-rose-600 hover:shadow-rose-500/30 active:scale-95' 
                       : (canSubmit() && props.selectedModel)
-                        ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/30 hover:scale-[1.02] active:scale-95' 
-                        : 'bg-border/50 text-text-secondary cursor-not-allowed opacity-50'}
+                        ? 'bg-primary text-white hover:bg-primary-hover hover:shadow-primary/20 hover:scale-[1.02] active:scale-95' 
+                        : 'bg-background text-text-secondary cursor-not-allowed opacity-60 border border-border'}
                   `}
                   title={props.isTyping ? "Stop Generation" : "Send Message"}
                 >
@@ -383,10 +383,10 @@ export default function ChatInput(props: ChatInputProps) {
         </form>
 
         <Show when={props.imageAttachments.length > 0}>
-          <div class="mt-2 px-2 flex items-center gap-2 overflow-x-auto">
+          <div class="mt-3 flex items-center gap-2 overflow-x-auto px-1">
             <For each={props.imageAttachments}>
               {(file: File, index: () => number) => (
-                <div class="flex items-center gap-2 px-2 py-1.5 rounded-xl border border-border bg-surface text-xs min-w-[200px]">
+                <div class="flex items-center gap-2 px-2 py-1.5 rounded-xl border border-border/80 bg-surface text-xs min-w-[200px] shadow-sm">
                   <img src={previewUrls()[index()]} alt={file.name} class="w-10 h-10 rounded-lg object-cover border border-border/60 bg-background/50 shrink-0" />
                   <div class="min-w-0 flex-1">
                     <div class="max-w-[150px] truncate font-semibold text-text-primary">{file.name}</div>
@@ -412,7 +412,7 @@ export default function ChatInput(props: ChatInputProps) {
           </div>
         </Show>
         <Show when={visionCapabilityHint()}>
-          <div class="mt-2 px-3 py-2 rounded-xl border border-amber-400/30 bg-amber-500/10 text-[12px] text-amber-700">
+          <div class="mt-3 rounded-xl border border-amber-300/40 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
             {visionCapabilityHint()}
           </div>
         </Show>
@@ -431,8 +431,8 @@ export default function ChatInput(props: ChatInputProps) {
         />
 
         <Show when={!props.selectedModel}>
-          <div class="mt-3 flex items-center justify-center">
-            <div class="px-3 py-1.5 rounded-full bg-surface border border-border text-[11px] text-text-secondary font-semibold">
+          <div class="mt-4 flex items-center justify-center">
+            <div class="px-3 py-1.5 rounded-full bg-surface border border-border/80 text-[11px] text-text-secondary font-semibold shadow-sm">
               Select a model to start
             </div>
           </div>

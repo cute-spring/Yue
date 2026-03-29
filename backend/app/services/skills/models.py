@@ -106,6 +106,38 @@ class RuntimeSkillActionExecutionRequest(BaseModel):
     request_id: Optional[str] = None
 
 
+class RuntimeBrowserContinuityResolutionRequest(BaseModel):
+    invocation_request: RuntimeSkillActionInvocationRequest
+    invocation_result: RuntimeSkillActionInvocationResult
+    request_id: Optional[str] = None
+    browser_continuity: Dict[str, Any] = Field(default_factory=dict)
+    browser_continuity_resolution: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeBrowserContinuityResolutionResult(BaseModel):
+    resolver_id: str
+    status: str
+    resolved: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeBrowserContinuityLookupRequest(BaseModel):
+    invocation_request: RuntimeSkillActionInvocationRequest
+    invocation_result: RuntimeSkillActionInvocationResult
+    request_id: Optional[str] = None
+    browser_continuity: Dict[str, Any] = Field(default_factory=dict)
+    browser_continuity_resolution: Dict[str, Any] = Field(default_factory=dict)
+    provided_context: Dict[str, Any] = Field(default_factory=dict)
+    missing_context: List[str] = Field(default_factory=list)
+
+
+class RuntimeBrowserContinuityLookupResult(BaseModel):
+    backend_id: str
+    status: str
+    resolved: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class RuntimeSkillActionApprovalRequest(BaseModel):
     skill_name: str
     skill_version: str

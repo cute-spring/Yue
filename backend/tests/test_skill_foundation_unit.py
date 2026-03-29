@@ -2,12 +2,21 @@ import pytest
 import os
 import tempfile
 import platform
+from types import SimpleNamespace
 from app.services.skill_service import (
+    DefaultBrowserContinuityLookupBackend,
     MarkdownSkillAdapter,
+    DefaultBrowserContinuityResolver,
+    ExplicitContextBrowserContinuityResolver,
+    RuntimeBrowserContinuityLookupRequest,
+    RuntimeBrowserContinuityLookupResult,
+    RuntimeBrowserContinuityResolutionRequest,
+    RuntimeBrowserContinuityResolutionResult,
     RuntimeSkillActionApprovalRequest,
     RuntimeSkillActionDescriptor,
     RuntimeSkillActionExecutionRequest,
     RuntimeSkillActionInvocationRequest,
+    RuntimeSkillActionInvocationResult,
     SkillActionExecutionService,
     build_action_approval_message,
     build_action_execution_transition_event,
@@ -20,6 +29,7 @@ from app.services.skill_service import (
     SkillRouter,
     SkillSpec,
     SkillValidator,
+    YueActionStateBrowserContinuityLookupBackend,
     build_action_execution_result_event,
     build_action_invocation_event,
 )
@@ -1265,6 +1275,328 @@ def test_skill_policy_gate_allows_builtin_exec_binding_as_platform_tool():
     assert result.execution_mode == "tool_only"
     assert result.validation_errors == []
 
+def test_skill_policy_gate_requires_approval_for_browser_write_actions():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "element_ref": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_session_id": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+                "binding_dom_version": {"type": "string"},
+                "active_dom_version": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+            },
+            "required": ["status"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": [
+                    "session_id",
+                    "tab_id",
+                    "binding_source",
+                    "binding_session_id",
+                    "binding_tab_id",
+                    "binding_dom_version",
+                    "active_dom_version",
+                ],
+            },
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "element_ref": "snapshot:browser_snapshot#node:1",
+            "binding_source": "snapshot:browser_snapshot",
+            "binding_session_id": "session-1",
+            "binding_tab_id": "tab-1",
+        },
+    )
+
+    assert result.accepted is True
+    assert result.approval_required is True
+    assert result.mapped_tool == "builtin:browser_click"
+    assert result.metadata["validated_arguments"] == {
+        "session_id": "session-1",
+        "tab_id": "tab-1",
+        "element_ref": "snapshot:browser_snapshot#node:1",
+        "binding_source": "snapshot:browser_snapshot",
+        "binding_session_id": "session-1",
+        "binding_tab_id": "tab-1",
+    }
+    assert result.metadata["tool_family"] == "agent_browser"
+    assert result.metadata["operation"] == "click"
+    assert result.metadata["browser_continuity"] == {
+        "contract_mode": "authoritative_target_mutation",
+        "current_execution_mode": "resumable_session_required",
+        "authoritative_target_required": True,
+        "resumable_continuity": "deferred",
+    }
+    assert result.metadata["browser_continuity_resolution"] == {
+        "resolver_contract_version": 1,
+        "resolution_mode": "session_tab_target_lookup",
+        "continuity_status": "resolver_deferred",
+        "session_lookup_required": True,
+        "tab_lookup_required": True,
+        "target_lookup_required": True,
+        "provided_context": {
+            "has_url": False,
+            "has_session_id": True,
+            "has_tab_id": True,
+            "has_element_ref": True,
+        },
+        "missing_context": [],
+        "contract_mode": "authoritative_target_mutation",
+    }
+    assert result.metadata["runtime_metadata"] == {
+        "operation": "click",
+        "tool_family": "agent_browser",
+        "mapped_tool": "builtin:browser_click",
+        "session_id": "session-1",
+        "tab_id": "tab-1",
+        "element_ref": "snapshot:browser_snapshot#node:1",
+        "binding_source": "snapshot:browser_snapshot",
+        "binding_session_id": "session-1",
+        "binding_tab_id": "tab-1",
+    }
+
+def test_skill_policy_gate_blocks_browser_click_without_authoritative_target_context():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "element_ref": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id"],
+            },
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={"element_ref": "button:submit"},
+    )
+
+    assert result.accepted is False
+    assert result.approval_required is True
+    assert result.validation_errors == [
+        "browser_session_required",
+        "browser_tab_required",
+        "browser_target_required",
+    ]
+
+def test_skill_policy_gate_blocks_browser_click_when_target_is_stale():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "element_ref": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_session_id": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+                "binding_dom_version": {"type": "string"},
+                "active_dom_version": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": [
+                    "session_id",
+                    "tab_id",
+                    "binding_source",
+                    "binding_session_id",
+                    "binding_tab_id",
+                    "binding_dom_version",
+                    "active_dom_version",
+                ],
+            },
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "element_ref": "snapshot:browser_snapshot#node:1",
+            "binding_source": "snapshot:browser_snapshot",
+            "binding_session_id": "session-1",
+            "binding_tab_id": "tab-1",
+            "binding_dom_version": "dom:v1",
+            "active_dom_version": "dom:v2",
+        },
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == ["browser_target_stale"]
+
+def test_skill_policy_gate_blocks_browser_click_when_element_ref_is_not_platform_minted():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "element_ref": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_session_id": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": [
+                    "session_id",
+                    "tab_id",
+                    "binding_source",
+                    "binding_session_id",
+                    "binding_tab_id",
+                ],
+            },
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "element_ref": "node:1",
+            "binding_source": "snapshot:browser_snapshot",
+            "binding_session_id": "session-1",
+            "binding_tab_id": "tab-1",
+        },
+    )
+
+    assert result.accepted is False
+    assert result.validation_errors == ["browser_target_context_mismatch"]
+
+def test_skill_policy_gate_keeps_browser_open_auto_approved_and_runtime_metadata_ready():
+    action = RuntimeSkillActionDescriptor(
+        id="open_page",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_open",
+        approval_policy="auto",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+            },
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "open",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "url"],
+                "optional": ["session_id", "tab_id"],
+            },
+        },
+    )
+
+    result = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_open"],
+        arguments={"url": "https://example.com", "session_id": "session-1"},
+    )
+
+    assert result.accepted is True
+    assert result.approval_required is False
+    assert result.mapped_tool == "builtin:browser_open"
+    assert result.metadata["browser_continuity"] == {
+        "contract_mode": "single_use_url_scoped",
+        "current_execution_mode": "single_use_url_scoped",
+        "authoritative_target_required": False,
+        "resumable_continuity": "not_required",
+    }
+    assert result.metadata["browser_continuity_resolution"] == {
+        "resolver_contract_version": 1,
+        "resolution_mode": "single_use_url",
+        "continuity_status": "single_use_ready",
+        "session_lookup_required": False,
+        "tab_lookup_required": False,
+        "target_lookup_required": False,
+        "provided_context": {
+            "has_url": True,
+            "has_session_id": True,
+            "has_tab_id": False,
+            "has_element_ref": False,
+        },
+        "missing_context": [],
+    }
+    assert result.metadata["runtime_metadata"] == {
+        "operation": "open",
+        "tool_family": "agent_browser",
+        "mapped_tool": "builtin:browser_open",
+        "url": "https://example.com",
+        "session_id": "session-1",
+    }
+
 def test_skill_policy_gate_validates_action_arguments_against_input_schema():
     action = RuntimeSkillActionDescriptor(
         id="generate",
@@ -1740,6 +2072,1552 @@ actions:
         assert result.missing_requirements == []
         assert result.metadata["validated_arguments"] == {"command": "pwd"}
 
+def test_skill_registry_preserves_browser_action_contract_fields():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "browser-operator")
+        os.makedirs(os.path.join(pkg_dir, "scripts"), exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+capabilities: ["browser"]
+entrypoint: system_prompt
+---
+## System Prompt
+Browser operator prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: browser-operator
+version: 1.0.0
+description: browser operator skill
+entrypoint: system_prompt
+capabilities: ["browser"]
+resources:
+  scripts:
+    - id: click_element
+      path: scripts/click.py
+      runtime: python
+      safety: browser_write
+actions:
+  - id: click_element
+    tool: builtin:browser_click
+    resource: click_element
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        element_ref:
+          type: string
+      required: ["element_ref"]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+        browser_context:
+          type: object
+      required: ["status", "browser_context"]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: click
+      runtime_metadata_expectations:
+        required: ["operation", "element_ref"]
+        optional: ["session_id", "tab_id"]
+""")
+        with open(os.path.join(pkg_dir, "scripts", "click.py"), "w") as f:
+            f.write("print('click')")
+
+        registry = SkillRegistry(skill_dirs=[tmp_dir])
+        registry.load_all()
+
+        actions = registry.get_action_descriptors("browser-operator")
+
+        assert len(actions) == 1
+        assert actions[0].tool == "builtin:browser_click"
+        assert actions[0].safety == "browser_write"
+        assert actions[0].approval_policy == "manual"
+        assert actions[0].input_schema["required"] == ["element_ref"]
+        assert actions[0].output_schema["required"] == ["status", "browser_context"]
+        assert actions[0].metadata["tool_family"] == "agent_browser"
+        assert actions[0].metadata["runtime_metadata_expectations"]["required"] == [
+            "operation",
+            "element_ref",
+        ]
+
+def test_skill_registry_loads_builtin_browser_operator_package():
+    registry = SkillRegistry(skill_dirs=["backend/data/skills"])
+    registry.load_all()
+
+    package = registry.get_package_manifest("browser-operator")
+    assert package is not None
+    assert package.name == "browser-operator"
+    assert len(package.actions) == 6
+
+    action_ids = {action.id for action in package.actions}
+    assert action_ids == {
+        "open_page",
+        "snapshot_page",
+        "click_element",
+        "type_into_field",
+        "press_key",
+        "capture_screenshot",
+    }
+
+    click_action = next(action for action in package.actions if action.id == "click_element")
+    assert click_action.tool == "builtin:browser_click"
+    assert click_action.safety == "browser_write"
+    assert click_action.metadata["tool_family"] == "agent_browser"
+    assert "binding_source" in click_action.input_schema["properties"]
+    assert click_action.metadata["runtime_metadata_expectations"]["optional"] == [
+        "session_id",
+        "tab_id",
+        "url",
+        "binding_source",
+        "binding_session_id",
+        "binding_tab_id",
+        "binding_url",
+        "binding_dom_version",
+        "active_dom_version",
+    ]
+    assert click_action.metadata["structured_failure_codes"] == [
+        "browser_session_required",
+        "browser_tab_required",
+        "browser_target_required",
+        "browser_target_stale",
+        "browser_target_context_mismatch",
+    ]
+
+    press_action = next(action for action in package.actions if action.id == "press_key")
+    assert press_action.tool == "builtin:browser_press"
+    assert "url" in press_action.input_schema["properties"]
+    assert press_action.input_schema["required"] == ["url", "key"]
+    assert press_action.metadata["runtime_metadata_expectations"]["required"] == [
+        "operation",
+        "url",
+        "key",
+    ]
+    assert press_action.metadata["runtime_metadata_expectations"]["optional"] == [
+        "session_id",
+        "tab_id",
+        "url",
+        "wait_until",
+        "element_ref",
+    ]
+
+    snapshot_action = next(action for action in package.actions if action.id == "snapshot_page")
+    assert snapshot_action.tool == "builtin:browser_snapshot"
+    assert snapshot_action.input_schema["required"] == ["url"]
+    assert snapshot_action.metadata["runtime_metadata_expectations"]["required"] == [
+        "operation",
+        "url",
+    ]
+
+    screenshot_action = next(action for action in package.actions if action.id == "capture_screenshot")
+    assert screenshot_action.tool == "builtin:browser_screenshot"
+    assert screenshot_action.input_schema["required"] == ["url"]
+    assert screenshot_action.metadata["runtime_metadata_expectations"]["required"] == [
+        "operation",
+        "url",
+    ]
+
+def test_skill_action_execution_service_preflight_carries_browser_runtime_contract_metadata():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        approval_policy="manual",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "element_ref": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_session_id": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id"],
+            },
+        },
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "element_ref": "button:submit",
+            "binding_source": "snapshot:browser_snapshot",
+            "binding_session_id": "session-1",
+            "binding_tab_id": "tab-1",
+        },
+    )
+    service = SkillActionExecutionService(
+        type(
+            "StubRegistry",
+            (),
+            {"validate_action_invocation": lambda self, request: invocation},
+        )()
+    )
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-browser",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "element_ref": "button:submit",
+                    "binding_source": "snapshot:browser_snapshot",
+                    "binding_session_id": "session-1",
+                    "binding_tab_id": "tab-1",
+                },
+                enabled_tools=["builtin:browser_click"],
+            )
+        )
+    )
+
+    fallback = service.build_transition_result(
+        invocation=invocation,
+        status="queued",
+        request_id="req-browser",
+        lifecycle_phase="execution",
+        metadata={
+            "tool_family": invocation.metadata.get("tool_family"),
+            "operation": invocation.metadata.get("operation"),
+            "runtime_metadata_expectations": invocation.metadata.get("runtime_metadata_expectations"),
+            "runtime_metadata": invocation.metadata.get("runtime_metadata"),
+        },
+    )
+
+    assert result.metadata["tool_family"] == "agent_browser"
+    assert result.metadata["operation"] == "click"
+    assert result.metadata["runtime_metadata"]["element_ref"] == "button:submit"
+    assert result.metadata["runtime_metadata"]["session_id"] == "session-1"
+    assert result.metadata["runtime_metadata"]["tab_id"] == "tab-1"
+    assert result.metadata["runtime_metadata"]["binding_source"] == "snapshot:browser_snapshot"
+    assert result.metadata["browser_continuity"] == {
+        "contract_mode": "authoritative_target_mutation",
+        "current_execution_mode": "resumable_session_required",
+        "authoritative_target_required": True,
+        "resumable_continuity": "deferred",
+    }
+    assert result.metadata["browser_continuity_resolution"]["resolution_mode"] == "explicit_request_context"
+    assert result.metadata["browser_continuity_resolution"]["session_lookup_required"] is False
+    assert result.metadata["browser_continuity_resolution"]["target_lookup_required"] is False
+    assert result.metadata["browser_continuity_resolver"] == {
+        "resolver_id": "explicit_context",
+        "status": "resolved",
+        "resolved": True,
+    }
+    assert result.metadata["browser_continuity_resolution"]["continuity_status"] == "resolved"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["session_id"] == "session-1"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["tab_id"] == "tab-1"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["element_ref"] == "button:submit"
+    assert fallback.metadata["runtime_metadata"]["mapped_tool"] == "builtin:browser_click"
+
+
+def test_skill_action_execution_service_preflight_carries_browser_target_binding_metadata():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        approval_policy="manual",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "element_ref": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+                "binding_url": {"type": "string"},
+                "binding_dom_version": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": [
+                    "session_id",
+                    "tab_id",
+                    "binding_source",
+                    "binding_session_id",
+                    "binding_tab_id",
+                    "binding_url",
+                    "binding_dom_version",
+                ],
+            },
+        },
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "element_ref": "node:1",
+            "binding_source": "snapshot:browser_snapshot",
+            "binding_session_id": "session-1",
+            "binding_tab_id": "tab-1",
+            "binding_url": "https://example.com/",
+            "binding_dom_version": "dom:v1",
+        },
+    )
+    service = SkillActionExecutionService(
+        type(
+            "StubRegistry",
+            (),
+            {"validate_action_invocation": lambda self, request: invocation},
+        )()
+    )
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-browser-binding",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "element_ref": "node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                    "binding_session_id": "session-1",
+                    "binding_tab_id": "tab-1",
+                    "binding_url": "https://example.com/",
+                    "binding_dom_version": "dom:v1",
+                },
+                enabled_tools=["builtin:browser_click"],
+            )
+        )
+    )
+
+    assert result.metadata["runtime_metadata"]["binding_source"] == "snapshot:browser_snapshot"
+    assert result.metadata["runtime_metadata"]["binding_session_id"] == "session-1"
+    assert result.metadata["runtime_metadata"]["binding_tab_id"] == "tab-1"
+    assert result.metadata["runtime_metadata"]["binding_url"] == "https://example.com/"
+    assert result.metadata["runtime_metadata"]["binding_dom_version"] == "dom:v1"
+    assert result.metadata["browser_continuity"]["contract_mode"] == "authoritative_target_mutation"
+    assert result.metadata["browser_continuity"]["resumable_continuity"] == "deferred"
+    assert result.metadata["browser_continuity_resolution"]["contract_mode"] == "authoritative_target_mutation"
+    assert result.metadata["browser_continuity_resolution"]["continuity_status"] == "resolved"
+    assert result.metadata["browser_continuity_resolution"]["resolution_mode"] == "explicit_request_context"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["session_id"] == "session-1"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["tab_id"] == "tab-1"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["element_ref"] == "node:1"
+    assert result.metadata["browser_continuity_resolver"] == {
+        "resolver_id": "explicit_context",
+        "status": "resolved",
+        "resolved": True,
+    }
+
+def test_skill_action_execution_service_preflight_uses_injected_browser_continuity_resolver():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        approval_policy="manual",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "url": {"type": "string"},
+                "element_ref": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_session_id": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": [
+                    "session_id",
+                    "tab_id",
+                    "url",
+                    "binding_source",
+                    "binding_session_id",
+                    "binding_tab_id",
+                ],
+            },
+        },
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "url": "https://example.com",
+            "element_ref": "snapshot:browser_snapshot#node:1",
+            "binding_source": "snapshot:browser_snapshot",
+            "binding_session_id": "session-1",
+            "binding_tab_id": "tab-1",
+        },
+    )
+
+    class StubResolver:
+        def resolve(self, request):
+            assert request.browser_continuity["contract_mode"] == "authoritative_target_mutation"
+            return RuntimeBrowserContinuityResolutionResult(
+                resolver_id="stub_resolver",
+                status="resolved",
+                resolved=True,
+                metadata={
+                    "resolver_contract_version": 1,
+                    "resolution_mode": "stubbed_session_lookup",
+                    "continuity_status": "resolved",
+                    "session_lookup_required": True,
+                    "tab_lookup_required": True,
+                    "target_lookup_required": True,
+                    "provided_context": request.browser_continuity_resolution.get("provided_context", {}),
+                    "missing_context": [],
+                },
+            )
+
+    service = SkillActionExecutionService(
+        type(
+            "StubRegistry",
+            (),
+            {"validate_action_invocation": lambda self, request: invocation},
+        )(),
+        continuity_resolver=StubResolver(),
+    )
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-browser-resolver",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "url": "https://example.com",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                    "binding_session_id": "session-1",
+                    "binding_tab_id": "tab-1",
+                },
+                enabled_tools=["builtin:browser_click"],
+            )
+        )
+    )
+
+    assert result.metadata["browser_continuity_resolver"] == {
+        "resolver_id": "stub_resolver",
+        "status": "resolved",
+        "resolved": True,
+    }
+    assert result.metadata["browser_continuity_resolution"]["resolution_mode"] == "stubbed_session_lookup"
+    assert result.metadata["browser_continuity_resolution"]["continuity_status"] == "resolved"
+
+
+def test_default_browser_continuity_resolver_preserves_deferred_metadata():
+    resolver = DefaultBrowserContinuityResolver()
+    request = RuntimeSkillActionExecutionRequest(
+        request_id="req-default-resolver",
+        invocation=RuntimeSkillActionInvocationRequest(
+            skill_name="browser-operator",
+            skill_version="1.0.0",
+            action_id="click_element",
+            arguments={},
+            enabled_tools=["builtin:browser_click"],
+        ),
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=True,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        approval_required=True,
+        approval_policy="manual",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "tab_id": "tab-1",
+                "element_ref": "snapshot:browser_snapshot#node:1",
+            },
+        },
+    )
+
+    result = resolver.resolve(
+        RuntimeBrowserContinuityResolutionRequest(
+            invocation_request=request.invocation,
+            invocation_result=invocation,
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={
+                "resolver_contract_version": 1,
+                "resolution_mode": "session_tab_target_lookup",
+                "continuity_status": "resolver_deferred",
+                "session_lookup_required": True,
+                "tab_lookup_required": True,
+                "target_lookup_required": True,
+                "provided_context": {
+                    "has_url": False,
+                    "has_session_id": True,
+                    "has_tab_id": True,
+                    "has_element_ref": True,
+                },
+                "missing_context": [],
+                "contract_mode": "authoritative_target_mutation",
+            },
+        )
+    )
+
+    assert result.resolver_id == "default_noop"
+    assert result.status == "deferred"
+    assert result.resolved is False
+    assert result.metadata["continuity_status"] == "resolver_deferred"
+    assert "resolved_context" not in result.metadata
+
+
+def test_default_browser_continuity_lookup_backend_returns_not_configured():
+    backend = DefaultBrowserContinuityLookupBackend()
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={},
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            browser_continuity={},
+            browser_continuity_resolution={},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.backend_id == "default_noop"
+    assert result.status == "not_configured"
+    assert result.resolved is False
+    assert result.metadata == {}
+
+
+def test_explicit_context_browser_continuity_resolver_returns_resolved_context():
+    resolver = ExplicitContextBrowserContinuityResolver()
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=True,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="type_into_field",
+        approval_required=True,
+        approval_policy="manual",
+        mapped_tool="builtin:browser_type",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "type",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "tab_id": "tab-1",
+                "element_ref": "snapshot:browser_snapshot#node:2",
+                "binding_source": "snapshot:browser_snapshot",
+                "binding_session_id": "session-1",
+                "binding_tab_id": "tab-1",
+            },
+        },
+    )
+
+    result = resolver.resolve(
+        RuntimeBrowserContinuityResolutionRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="type_into_field",
+                arguments={},
+                enabled_tools=["builtin:browser_type"],
+            ),
+            invocation_result=invocation,
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={
+                "resolver_contract_version": 1,
+                "resolution_mode": "session_tab_target_lookup",
+                "continuity_status": "resolver_deferred",
+                "session_lookup_required": True,
+                "tab_lookup_required": True,
+                "target_lookup_required": True,
+                "provided_context": {
+                    "has_url": False,
+                    "has_session_id": True,
+                    "has_tab_id": True,
+                    "has_element_ref": True,
+                },
+                "missing_context": [],
+                "contract_mode": "authoritative_target_mutation",
+            },
+        )
+    )
+
+    assert result.resolver_id == "explicit_context"
+    assert result.status == "resolved"
+    assert result.resolved is True
+    assert result.metadata["resolution_mode"] == "explicit_request_context"
+    assert result.metadata["continuity_status"] == "resolved"
+    assert result.metadata["session_lookup_required"] is False
+    assert result.metadata["tab_lookup_required"] is False
+    assert result.metadata["target_lookup_required"] is False
+    assert result.metadata["resolved_context"] == {
+        "resolved_context_id": result.metadata["resolved_context"]["resolved_context_id"],
+        "session_id": "session-1",
+        "tab_id": "tab-1",
+        "element_ref": "snapshot:browser_snapshot#node:2",
+        "resolution_mode": "explicit_request_context",
+        "resolution_source": "explicit_request_context",
+        "resolved_target_kind": "authoritative_target",
+    }
+
+
+def test_explicit_context_browser_continuity_resolver_blocks_when_context_missing():
+    resolver = ExplicitContextBrowserContinuityResolver()
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        approval_required=True,
+        approval_policy="manual",
+        mapped_tool="builtin:browser_click",
+        validation_errors=["browser_tab_required"],
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "element_ref": "snapshot:browser_snapshot#node:1",
+            },
+        },
+    )
+
+    result = resolver.resolve(
+        RuntimeBrowserContinuityResolutionRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={
+                "resolver_contract_version": 1,
+                "resolution_mode": "session_tab_target_lookup",
+                "continuity_status": "resolver_deferred",
+                "session_lookup_required": True,
+                "tab_lookup_required": True,
+                "target_lookup_required": True,
+                "provided_context": {
+                    "has_url": False,
+                    "has_session_id": True,
+                    "has_tab_id": False,
+                    "has_element_ref": True,
+                },
+                "missing_context": ["tab_id"],
+                "contract_mode": "authoritative_target_mutation",
+            },
+        )
+    )
+
+    assert result.resolver_id == "explicit_context"
+    assert result.status == "blocked"
+    assert result.resolved is False
+    assert result.metadata["continuity_status"] == "blocked"
+    assert result.metadata["missing_context"] == ["tab_id"]
+    assert result.metadata["resolved_context"] == {}
+    assert result.metadata["lookup_backend"] == {
+        "backend_id": "default_noop",
+        "status": "not_configured",
+        "resolved": False,
+    }
+
+
+def test_explicit_context_browser_continuity_resolver_can_use_lookup_backend_stub():
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=True,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        approval_required=True,
+        approval_policy="manual",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "binding_source": "snapshot:browser_snapshot",
+            },
+        },
+    )
+
+    class StubLookupBackend:
+        def lookup(self, request):
+            assert request.missing_context == ["tab_id", "element_ref"]
+            return RuntimeBrowserContinuityLookupResult(
+                backend_id="stub_lookup",
+                status="resolved",
+                resolved=True,
+                metadata={
+                    "resolution_mode": "lookup_backend",
+                    "continuity_status": "resolved",
+                    "resolved_context": {
+                        "resolved_context_id": "browser_ctx:lookup",
+                        "session_id": "session-1",
+                        "tab_id": "tab-1",
+                        "element_ref": "snapshot:browser_snapshot#node:1",
+                        "resolution_mode": "lookup_backend",
+                        "resolution_source": "lookup_backend",
+                        "resolved_target_kind": "authoritative_target",
+                    },
+                },
+            )
+
+    resolver = ExplicitContextBrowserContinuityResolver(lookup_backend=StubLookupBackend())
+    result = resolver.resolve(
+        RuntimeBrowserContinuityResolutionRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={
+                "resolver_contract_version": 1,
+                "resolution_mode": "session_tab_target_lookup",
+                "continuity_status": "resolver_deferred",
+                "session_lookup_required": True,
+                "tab_lookup_required": True,
+                "target_lookup_required": True,
+                "provided_context": {
+                    "has_url": False,
+                    "has_session_id": True,
+                    "has_tab_id": False,
+                    "has_element_ref": False,
+                },
+                "missing_context": ["tab_id", "element_ref"],
+                "contract_mode": "authoritative_target_mutation",
+            },
+        )
+    )
+
+    assert result.resolver_id == "explicit_context"
+    assert result.status == "resolved"
+    assert result.resolved is True
+    assert result.metadata["resolution_mode"] == "lookup_backend"
+    assert result.metadata["continuity_status"] == "resolved"
+    assert result.metadata["resolved_context"]["tab_id"] == "tab-1"
+    assert result.metadata["resolved_context"]["element_ref"] == "snapshot:browser_snapshot#node:1"
+    assert result.metadata["lookup_backend"] == {
+        "backend_id": "stub_lookup",
+        "status": "resolved",
+        "resolved": True,
+    }
+
+
+def test_yue_action_state_browser_continuity_lookup_backend_returns_not_found_without_matching_record():
+    backend = YueActionStateBrowserContinuityLookupBackend(
+        chat_service=SimpleNamespace(list_action_states_by_request_id=lambda *args, **kwargs: [])
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "binding_source": "snapshot:browser_snapshot",
+            },
+        },
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            request_id="req-browser-missing",
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={"resolution_mode": "session_tab_target_lookup"},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.backend_id == "yue_action_state"
+    assert result.status == "not_found"
+    assert result.resolved is False
+    assert result.metadata["reason"] == "action_state_not_found"
+    assert result.metadata["lookup_request_id"] == "req-browser-missing"
+
+
+def test_yue_action_state_browser_continuity_lookup_backend_returns_not_found_without_request_id():
+    backend = YueActionStateBrowserContinuityLookupBackend(
+        chat_service=SimpleNamespace(list_action_states_by_request_id=lambda *args, **kwargs: [])
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "binding_source": "snapshot:browser_snapshot",
+            },
+        },
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            request_id=None,
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={"resolution_mode": "session_tab_target_lookup"},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.backend_id == "yue_action_state"
+    assert result.status == "not_found"
+    assert result.resolved is False
+    assert result.metadata["reason"] == "request_id_unavailable"
+
+
+def test_yue_action_state_browser_continuity_lookup_backend_resolves_from_persisted_action_state():
+    persisted_state = SimpleNamespace(
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                    "binding_session_id": "session-1",
+                    "binding_tab_id": "tab-1",
+                },
+                "browser_continuity_resolution": {
+                    "continuity_status": "resolved",
+                    "resolved_context": {
+                        "resolved_context_id": "browser_ctx:prior",
+                        "session_id": "session-1",
+                        "tab_id": "tab-1",
+                        "element_ref": "snapshot:browser_snapshot#node:1",
+                        "resolution_mode": "explicit_request_context",
+                        "resolution_source": "explicit_request_context",
+                        "resolved_target_kind": "authoritative_target",
+                    },
+                },
+            },
+        },
+    )
+    backend = YueActionStateBrowserContinuityLookupBackend(
+        chat_service=SimpleNamespace(
+            list_action_states_by_request_id=lambda *args, **kwargs: [persisted_state]
+        )
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "binding_source": "snapshot:browser_snapshot",
+            },
+        },
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            request_id="req-browser-resume",
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={"resolution_mode": "session_tab_target_lookup"},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.backend_id == "yue_action_state"
+    assert result.status == "resolved"
+    assert result.resolved is True
+    assert result.metadata["resolution_mode"] == "action_state_lookup"
+    assert result.metadata["resolved_context"]["session_id"] == "session-1"
+    assert result.metadata["resolved_context"]["tab_id"] == "tab-1"
+    assert result.metadata["resolved_context"]["element_ref"] == "snapshot:browser_snapshot#node:1"
+    assert result.metadata["resolved_context"]["resolution_source"] == "yue_action_state_lookup"
+
+
+def test_yue_action_state_browser_continuity_lookup_backend_blocks_on_binding_source_mismatch():
+    persisted_state = SimpleNamespace(
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                },
+            },
+        },
+    )
+    backend = YueActionStateBrowserContinuityLookupBackend(
+        chat_service=SimpleNamespace(
+            list_action_states_by_request_id=lambda *args, **kwargs: [persisted_state]
+        )
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "binding_source": "snapshot:other_snapshot",
+            },
+        },
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            request_id="req-browser-mismatch",
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={"resolution_mode": "session_tab_target_lookup"},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.backend_id == "yue_action_state"
+    assert result.status == "blocked"
+    assert result.resolved is False
+    assert result.metadata["reason"] == "binding_source_mismatch"
+    assert result.metadata["record_source"]["request_id"] == "req-browser-mismatch"
+
+
+def test_yue_action_state_browser_continuity_lookup_backend_prefers_continuity_bearing_record():
+    sparse_state = SimpleNamespace(
+        id=2,
+        lifecycle_phase="execution",
+        lifecycle_status="running",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "binding_source": "snapshot:browser_snapshot",
+                },
+            },
+        },
+    )
+    continuity_state = SimpleNamespace(
+        id=1,
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                },
+                "browser_continuity_resolution": {
+                    "continuity_status": "resolved",
+                    "resolved_context": {
+                        "resolved_context_id": "browser_ctx:prior",
+                        "session_id": "session-1",
+                        "tab_id": "tab-1",
+                        "element_ref": "snapshot:browser_snapshot#node:1",
+                        "resolution_mode": "explicit_request_context",
+                        "resolution_source": "explicit_request_context",
+                        "resolved_target_kind": "authoritative_target",
+                    },
+                },
+            },
+        },
+    )
+    backend = YueActionStateBrowserContinuityLookupBackend(
+        chat_service=SimpleNamespace(
+            list_action_states_by_request_id=lambda *args, **kwargs: [sparse_state, continuity_state]
+        )
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "binding_source": "snapshot:browser_snapshot",
+            },
+        },
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            request_id="req-browser-best-record",
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={"resolution_mode": "session_tab_target_lookup"},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.status == "resolved"
+    assert result.metadata["record_source"]["lifecycle_phase"] == "preflight"
+    assert result.metadata["resolved_context"]["tab_id"] == "tab-1"
+
+
+def test_yue_action_state_browser_continuity_lookup_backend_prefers_binding_compatible_record():
+    mismatched_better_state = SimpleNamespace(
+        id=3,
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-99",
+                    "element_ref": "snapshot:other_snapshot#node:9",
+                    "binding_source": "snapshot:other_snapshot",
+                },
+                "browser_continuity_resolution": {
+                    "continuity_status": "resolved",
+                    "resolved_context": {
+                        "resolved_context_id": "browser_ctx:other",
+                        "session_id": "session-1",
+                        "tab_id": "tab-99",
+                        "element_ref": "snapshot:other_snapshot#node:9",
+                        "resolution_mode": "explicit_request_context",
+                        "resolution_source": "explicit_request_context",
+                        "resolved_target_kind": "authoritative_target",
+                    },
+                },
+            },
+        },
+    )
+    matching_state = SimpleNamespace(
+        id=2,
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                },
+            },
+        },
+    )
+    backend = YueActionStateBrowserContinuityLookupBackend(
+        chat_service=SimpleNamespace(
+            list_action_states_by_request_id=lambda *args, **kwargs: [
+                mismatched_better_state,
+                matching_state,
+            ]
+        )
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+                "binding_source": "snapshot:browser_snapshot",
+            },
+        },
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            request_id="req-browser-binding-compatible",
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={"resolution_mode": "session_tab_target_lookup"},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.status == "resolved"
+    assert result.metadata["record_source"]["request_id"] == "req-browser-binding-compatible"
+    assert result.metadata["resolved_context"]["tab_id"] == "tab-1"
+    assert result.metadata["resolved_context"]["element_ref"] == "snapshot:browser_snapshot#node:1"
+
+
+def test_yue_action_state_browser_continuity_lookup_backend_blocks_when_binding_source_is_ambiguous():
+    candidate_a = SimpleNamespace(
+        id=3,
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-a",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                },
+            },
+        },
+    )
+    candidate_b = SimpleNamespace(
+        id=2,
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-b",
+                    "element_ref": "snapshot:other_snapshot#node:2",
+                    "binding_source": "snapshot:other_snapshot",
+                },
+            },
+        },
+    )
+    backend = YueActionStateBrowserContinuityLookupBackend(
+        chat_service=SimpleNamespace(
+            list_action_states_by_request_id=lambda *args, **kwargs: [candidate_a, candidate_b]
+        )
+    )
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        mapped_tool="builtin:browser_click",
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "validated_arguments": {
+                "session_id": "session-1",
+            },
+        },
+    )
+
+    result = backend.lookup(
+        RuntimeBrowserContinuityLookupRequest(
+            invocation_request=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={},
+                enabled_tools=["builtin:browser_click"],
+            ),
+            invocation_result=invocation,
+            request_id="req-browser-ambiguous",
+            browser_continuity={"contract_mode": "authoritative_target_mutation"},
+            browser_continuity_resolution={"resolution_mode": "session_tab_target_lookup"},
+            provided_context={"session_id": "session-1"},
+            missing_context=["tab_id", "element_ref"],
+        )
+    )
+
+    assert result.status == "blocked"
+    assert result.resolved is False
+    assert result.metadata["reason"] == "binding_source_ambiguous"
+    assert result.metadata["candidate_binding_sources"] == [
+        "snapshot:browser_snapshot",
+        "snapshot:other_snapshot",
+    ]
+
+
+def test_skill_action_execution_service_preflight_resolves_browser_continuity_from_action_state_lookup():
+    invocation = RuntimeSkillActionInvocationResult(
+        accepted=False,
+        skill_name="browser-operator",
+        skill_version="1.0.0",
+        action_id="click_element",
+        approval_required=True,
+        approval_policy="manual",
+        mapped_tool="builtin:browser_click",
+        validation_errors=["browser_tab_required", "browser_target_required"],
+        execution_mode="tool_only",
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["binding_source"],
+                "optional": ["session_id", "tab_id"],
+            },
+            "validated_arguments": {
+                "session_id": "session-1",
+                "binding_source": "snapshot:browser_snapshot",
+            },
+            "browser_continuity": {
+                "contract_mode": "authoritative_target_mutation",
+                "current_execution_mode": "resumable_session_required",
+                "authoritative_target_required": True,
+                "resumable_continuity": "deferred",
+            },
+            "browser_continuity_resolution": {
+                "resolver_contract_version": 1,
+                "resolution_mode": "session_tab_target_lookup",
+                "continuity_status": "resolver_deferred",
+                "session_lookup_required": True,
+                "tab_lookup_required": True,
+                "target_lookup_required": True,
+                "provided_context": {
+                    "has_url": False,
+                    "has_session_id": True,
+                    "has_tab_id": False,
+                    "has_element_ref": False,
+                },
+                "missing_context": ["tab_id", "element_ref"],
+                "contract_mode": "authoritative_target_mutation",
+            },
+        },
+    )
+    persisted_state = SimpleNamespace(
+        lifecycle_phase="preflight",
+        lifecycle_status="preflight_approval_required",
+        payload={
+            "metadata": {
+                "validated_arguments": {
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                    "binding_source": "snapshot:browser_snapshot",
+                },
+                "browser_continuity_resolution": {
+                    "continuity_status": "resolved",
+                    "resolved_context": {
+                        "resolved_context_id": "browser_ctx:prior",
+                        "session_id": "session-1",
+                        "tab_id": "tab-1",
+                        "element_ref": "snapshot:browser_snapshot#node:1",
+                        "resolution_mode": "explicit_request_context",
+                        "resolution_source": "explicit_request_context",
+                        "resolved_target_kind": "authoritative_target",
+                    },
+                },
+            },
+        },
+    )
+    service = SkillActionExecutionService(
+        type(
+            "StubRegistry",
+            (),
+            {"validate_action_invocation": lambda self, request: invocation},
+        )(),
+        continuity_resolver=ExplicitContextBrowserContinuityResolver(
+            lookup_backend=YueActionStateBrowserContinuityLookupBackend(
+                chat_service=SimpleNamespace(
+                    list_action_states_by_request_id=lambda *args, **kwargs: [persisted_state]
+                )
+            )
+        ),
+    )
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-browser-resume",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={"session_id": "session-1", "binding_source": "snapshot:browser_snapshot"},
+                enabled_tools=["builtin:browser_click"],
+            ),
+        )
+    )
+
+    assert result.metadata["browser_continuity_resolver"] == {
+        "resolver_id": "explicit_context",
+        "status": "resolved",
+        "resolved": True,
+    }
+    assert result.metadata["browser_continuity_resolution"]["resolution_mode"] == "action_state_lookup"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["tab_id"] == "tab-1"
+    assert result.metadata["browser_continuity_resolution"]["resolved_context"]["element_ref"] == "snapshot:browser_snapshot#node:1"
+    assert result.metadata["browser_continuity_resolution"]["lookup_backend"] == {
+        "backend_id": "yue_action_state",
+        "status": "resolved",
+        "resolved": True,
+    }
+
+def test_skill_action_execution_service_preflight_returns_ready_for_browser_open_auto_policy():
+    action = RuntimeSkillActionDescriptor(
+        id="open_page",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_open",
+        approval_policy="auto",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "tab_id": {"type": "string"},
+            },
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "open",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "url"],
+                "optional": ["tab_id"],
+            },
+        },
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_open"],
+        arguments={"url": "https://example.com", "tab_id": "tab-1"},
+    )
+    service = SkillActionExecutionService(
+        type(
+            "StubRegistry",
+            (),
+            {"validate_action_invocation": lambda self, request: invocation},
+        )()
+    )
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-browser-open",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="open_page",
+                arguments={"url": "https://example.com", "tab_id": "tab-1"},
+                enabled_tools=["builtin:browser_open"],
+            )
+        )
+    )
+
+    stub_results = service.build_stub_execution_results(preflight_result=result)
+
+    assert result.status == "ready"
+    assert result.lifecycle_status == "preflight_ready"
+    assert result.metadata["operation"] == "open"
+    assert result.metadata["runtime_metadata"]["url"] == "https://example.com"
+    assert [item.lifecycle_status for item in stub_results] == ["queued", "skipped"]
+
+def test_skill_action_execution_service_preflight_ready_browser_event_carries_resolved_continuity_metadata():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        approval_policy="manual",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_session_id": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+                "element_ref": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id"],
+            },
+        },
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={
+            "session_id": "session-1",
+            "tab_id": "tab-1",
+            "binding_source": "snapshot:browser_snapshot",
+            "binding_session_id": "session-1",
+            "binding_tab_id": "tab-1",
+            "element_ref": "snapshot:browser_snapshot#node:1",
+        },
+    )
+    service = SkillActionExecutionService(
+        type(
+            "StubRegistry",
+            (),
+            {"validate_action_invocation": lambda self, request: invocation},
+        )()
+    )
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-browser-ready",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={
+                    "session_id": "session-1",
+                    "tab_id": "tab-1",
+                    "binding_source": "snapshot:browser_snapshot",
+                    "binding_session_id": "session-1",
+                    "binding_tab_id": "tab-1",
+                    "element_ref": "snapshot:browser_snapshot#node:1",
+                },
+                enabled_tools=["builtin:browser_click"],
+            )
+        )
+    )
+
+    payload = result.event_payloads[1]
+    assert payload["status"] == "approval_required"
+    assert payload["lifecycle_status"] == "preflight_approval_required"
+    assert payload["metadata"]["browser_continuity_resolution"]["continuity_status"] == "resolved"
+    assert payload["metadata"]["browser_continuity_resolution"]["resolution_mode"] == "explicit_request_context"
+    assert payload["metadata"]["browser_continuity_resolution"]["resolved_context"]["session_id"] == "session-1"
+    assert payload["metadata"]["browser_continuity_resolution"]["resolved_context"]["tab_id"] == "tab-1"
+    assert payload["metadata"]["browser_continuity_resolver"] == {
+        "resolver_id": "explicit_context",
+        "status": "resolved",
+        "resolved": True,
+    }
+
 def test_skill_registry_validate_action_invocation_handles_missing_action():
     registry = SkillRegistry()
 
@@ -1792,6 +3670,39 @@ def test_build_action_execution_result_event_payload():
     assert payload["skill_name"] == "action-skill"
     assert payload["action_id"] == "generate"
     assert payload["invocation_id"] is None
+
+def test_build_action_execution_result_event_includes_metadata_payload():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        approval_policy="manual",
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+    )
+
+    payload = build_action_execution_result_event(
+        status="blocked",
+        result=invocation,
+        request_id="req-browser",
+        metadata={
+            "browser_continuity_resolution": {
+                "resolution_mode": "explicit_request_context",
+                "continuity_status": "resolved",
+            },
+            "browser_continuity_resolver": {
+                "resolver_id": "explicit_context",
+                "status": "resolved",
+                "resolved": True,
+            },
+        },
+    )
+
+    assert payload["metadata"]["browser_continuity_resolution"]["resolution_mode"] == "explicit_request_context"
+    assert payload["metadata"]["browser_continuity_resolver"]["resolver_id"] == "explicit_context"
 
 def test_skill_action_execution_service_preflight_returns_approval_required():
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1937,6 +3848,73 @@ def test_skill_action_execution_service_preflight_returns_blocked_for_missing_ac
     assert result.invocation.validation_errors == ["Action descriptor not found"]
     assert result.event_payloads[1]["status"] == "blocked"
     assert result.event_payloads[1]["lifecycle_status"] == "preflight_blocked"
+
+def test_skill_action_execution_service_preflight_blocked_browser_event_carries_continuity_metadata():
+    action = RuntimeSkillActionDescriptor(
+        id="click_element",
+        name="browser-operator",
+        version="1.0.0",
+        tool="builtin:browser_click",
+        safety="browser_write",
+        approval_policy="manual",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "tab_id": {"type": "string"},
+                "binding_source": {"type": "string"},
+                "binding_session_id": {"type": "string"},
+                "binding_tab_id": {"type": "string"},
+                "element_ref": {"type": "string"},
+            },
+            "required": ["element_ref"],
+            "additionalProperties": False,
+        },
+        metadata={
+            "tool_family": "agent_browser",
+            "operation": "click",
+            "runtime_metadata_expectations": {
+                "required": ["operation", "element_ref"],
+                "optional": ["session_id", "tab_id", "binding_source", "binding_session_id", "binding_tab_id"],
+            },
+        },
+    )
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["builtin:browser_click"],
+        arguments={"element_ref": "button:submit"},
+    )
+    service = SkillActionExecutionService(
+        type(
+            "StubRegistry",
+            (),
+            {"validate_action_invocation": lambda self, request: invocation},
+        )()
+    )
+
+    result = service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id="req-browser-blocked",
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name="browser-operator",
+                skill_version="1.0.0",
+                action_id="click_element",
+                arguments={"element_ref": "button:submit"},
+                enabled_tools=["builtin:browser_click"],
+            )
+        )
+    )
+
+    payload = result.event_payloads[1]
+    assert payload["status"] == "blocked"
+    assert payload["lifecycle_status"] == "preflight_blocked"
+    assert payload["metadata"]["browser_continuity_resolution"]["continuity_status"] == "blocked"
+    assert payload["metadata"]["browser_continuity_resolution"]["missing_context"] == ["session_id", "tab_id"]
+    assert payload["metadata"]["browser_continuity_resolver"] == {
+        "resolver_id": "explicit_context",
+        "status": "blocked",
+        "resolved": False,
+    }
 
 def test_build_action_execution_transition_event_payload():
     action = RuntimeSkillActionDescriptor(

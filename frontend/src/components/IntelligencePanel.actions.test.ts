@@ -260,6 +260,244 @@ describe('IntelligencePanel action helpers', () => {
     expect(sections[1].content).toBe('/exports/deck.pptx');
   });
 
+  it('renders browser screenshot artifacts with download link and image preview', () => {
+    const sections = getActionStateDetailSections({
+      skill_name: 'browser-operator',
+      action_id: 'capture',
+      lifecycle_status: 'succeeded',
+      payload: {
+        mapped_tool: 'builtin:browser_screenshot',
+        metadata: {
+          tool_result: JSON.stringify({
+            filename: 'browser-shot.png',
+            file_path: '/workspace/.yue/data/exports/browser-shot.png',
+            download_url: '/exports/browser-shot.png',
+            artifact: {
+              kind: 'screenshot',
+            },
+          }),
+        },
+      },
+    });
+
+    expect(sections.map((section) => section.title)).toEqual(['Artifact', 'Download', 'Preview', 'Artifact Metadata']);
+    expect(sections[1].kind).toBe('link');
+    expect(sections[1].href).toBe('/exports/browser-shot.png');
+    expect(sections[2].kind).toBe('image');
+    expect(sections[2].href).toBe('/exports/browser-shot.png');
+  });
+
+  it('renders browser contract sections from runtime metadata and tool args', () => {
+    const sections = getActionStateDetailSections({
+      skill_name: 'browser-operator',
+      action_id: 'click_element',
+      lifecycle_status: 'running',
+      payload: {
+        mapped_tool: 'builtin:browser_click',
+        metadata: {
+          tool_family: 'agent_browser',
+          operation: 'click',
+          runtime_metadata_expectations: {
+            required: ['operation', 'element_ref'],
+            optional: ['session_id', 'tab_id', 'url'],
+          },
+          runtime_metadata: {
+            operation: 'click',
+            tool_family: 'agent_browser',
+            mapped_tool: 'builtin:browser_click',
+            element_ref: 'button:submit',
+            session_id: 'session-1',
+            tab_id: 'tab-1',
+          },
+          browser_continuity: {
+            contract_mode: 'authoritative_target_mutation',
+            current_execution_mode: 'resumable_session_required',
+            authoritative_target_required: true,
+            resumable_continuity: 'deferred',
+          },
+          browser_continuity_resolution: {
+            resolver_contract_version: 1,
+            resolution_mode: 'explicit_request_context',
+            continuity_status: 'resolved',
+            missing_context: [],
+            resolved_context: {
+              resolved_context_id: 'browser_ctx:test',
+              session_id: 'session-1',
+              tab_id: 'tab-1',
+              element_ref: 'button:submit',
+              resolution_mode: 'explicit_request_context',
+              resolution_source: 'explicit_request_context',
+              resolved_target_kind: 'authoritative_target',
+            },
+          },
+          browser_continuity_resolver: {
+            resolver_id: 'explicit_context',
+            status: 'resolved',
+            resolved: true,
+          },
+          tool_args: {
+            url: 'https://example.com/checkout',
+            element_ref: 'button:submit',
+            session_id: 'session-1',
+            tab_id: 'tab-1',
+          },
+        },
+      },
+    });
+
+    expect(sections.map((section) => section.title)).toEqual([
+      'Browser Contract',
+      'Browser Target',
+      'Browser Context',
+      'Runtime Metadata Contract',
+      'Browser Continuity',
+      'Browser Continuity Resolution',
+      'Resolved Browser Context',
+    ]);
+    expect(sections[0].content).toContain('operation: click');
+    expect(sections[0].content).toContain('mapped tool: builtin:browser_click');
+    expect(sections[1].content).toContain('url: https://example.com/checkout');
+    expect(sections[1].content).toContain('element_ref: button:submit');
+    expect(sections[2].content).toContain('session_id: session-1');
+    expect(sections[3].content).toContain('required: operation, element_ref');
+    expect(sections[4].content).toContain('contract mode: authoritative_target_mutation');
+    expect(sections[4].content).toContain('resumable continuity: deferred');
+    expect(sections[5].content).toContain('resolution mode: explicit_request_context');
+    expect(sections[5].content).toContain('resolver: explicit_context');
+    expect(sections[6].content).toContain('resolved_context_id: browser_ctx:test');
+    expect(sections[6].content).toContain('resolved target kind: authoritative_target');
+  });
+
+  it('renders browser snapshot results as readable summary and interactive elements', () => {
+    const sections = getActionStateDetailSections({
+      skill_name: 'browser-operator',
+      action_id: 'snapshot_page',
+      lifecycle_status: 'succeeded',
+      payload: {
+        mapped_tool: 'builtin:browser_snapshot',
+        metadata: {
+          tool_result: JSON.stringify({
+            browser_context: {
+              url: 'https://example.com',
+              page_title: 'Example Domain',
+            },
+            snapshot: {
+              max_nodes: 50,
+              visible_text: 'Example Domain Example text content',
+              interactive_elements: [
+                {
+                  ref: 'snapshot:browser_snapshot#node:1',
+                  tag: 'a',
+                  text: 'More information',
+                  aria_label: '',
+                  name: '',
+                  id: 'cta-link',
+                },
+                {
+                  ref: 'snapshot:browser_snapshot#node:2',
+                  tag: 'button',
+                  text: 'Continue',
+                  aria_label: 'Continue flow',
+                  name: 'continue',
+                  id: '',
+                },
+              ],
+              target_binding_context: {
+                binding_source: 'snapshot:browser_snapshot',
+                binding_session_id: 'session-1',
+                binding_tab_id: 'tab-1',
+                binding_url: 'https://example.com',
+                binding_dom_version: null,
+              },
+            },
+          }),
+        },
+      },
+    });
+
+    expect(sections.map((section) => section.title)).toEqual([
+      'Snapshot Summary',
+      'Interactive Elements',
+      'Visible Text',
+      'Snapshot Binding Context',
+    ]);
+    expect(sections[0].content).toContain('url: https://example.com');
+    expect(sections[0].content).toContain('interactive elements: 2');
+    expect(sections[1].content).toContain('1. snapshot:browser_snapshot#node:1');
+    expect(sections[1].content).toContain('tag=a');
+    expect(sections[1].content).toContain('text=More information');
+    expect(sections[1].content).toContain('aria=Continue flow');
+    expect(sections[2].content).toContain('Example Domain Example text content');
+    expect(sections[3].content).toContain('binding_source: snapshot:browser_snapshot');
+    expect(sections[3].content).toContain('binding_session_id: session-1');
+  });
+
+  it('renders blocked browser continuity resolution without resolved context section', () => {
+    const sections = getActionStateDetailSections({
+      skill_name: 'browser-operator',
+      action_id: 'click_element',
+      lifecycle_status: 'preflight_blocked',
+      payload: {
+        mapped_tool: 'builtin:browser_click',
+        metadata: {
+          tool_family: 'agent_browser',
+          operation: 'click',
+          runtime_metadata: {
+            operation: 'click',
+            tool_family: 'agent_browser',
+            mapped_tool: 'builtin:browser_click',
+            element_ref: 'snapshot:browser_snapshot#node:1',
+          },
+          browser_continuity_resolution: {
+            resolver_contract_version: 1,
+            resolution_mode: 'session_tab_target_lookup',
+            continuity_status: 'blocked',
+            missing_context: ['tab_id'],
+            resolved_context: {},
+          },
+          browser_continuity_resolver: {
+            resolver_id: 'explicit_context',
+            status: 'blocked',
+            resolved: false,
+          },
+        },
+      },
+    });
+
+    expect(sections.map((section) => section.title)).toContain('Browser Continuity Resolution');
+    expect(sections.find((section) => section.title === 'Browser Continuity Resolution')?.content).toContain('missing context: tab_id');
+    expect(sections.find((section) => section.title === 'Resolved Browser Context')).toBeUndefined();
+  });
+
+  it('renders browser key and label targets when present', () => {
+    const sections = getActionStateDetailSections({
+      skill_name: 'browser-operator',
+      action_id: 'press_key',
+      lifecycle_status: 'succeeded',
+      payload: {
+        metadata: {
+          tool_family: 'agent_browser',
+          operation: 'press',
+          runtime_metadata_expectations: {
+            required: ['operation', 'key'],
+            optional: ['session_id', 'tab_id', 'element_ref'],
+          },
+          runtime_metadata: {
+            operation: 'press',
+            tool_family: 'agent_browser',
+            mapped_tool: 'builtin:browser_press',
+            key: 'Enter',
+            label: 'confirm-submit',
+          },
+        },
+      },
+    });
+
+    expect(sections[1].title).toBe('Browser Target');
+    expect(sections[1].content).toContain('key: Enter');
+    expect(sections[1].content).toContain('label: confirm-submit');
+  });
+
   it('builds stable short display ids from invocation ids', () => {
     expect(getActionStateDisplayId({
       invocation_id: 'invoke:exec:1.0.0:run:req-approval',

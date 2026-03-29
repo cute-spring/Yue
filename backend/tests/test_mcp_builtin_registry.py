@@ -27,4 +27,5 @@ def test_registry_metadata():
     assert len(metadata) == 2
     assert metadata[0]["id"] == "builtin:tool_a"
     assert metadata[0]["server"] == "builtin"
+    assert metadata[0]["input_schema"] == {"type": "object", "properties": {}}
     assert metadata[1]["id"] == "builtin:tool_b"
