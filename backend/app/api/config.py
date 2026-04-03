@@ -29,6 +29,14 @@ async def update_llm_config(config: Dict[str, Any] = Body(...)):
 async def get_preferences():
     return config_service.get_preferences()
 
+@router.get("/feature_flags")
+async def get_feature_flags():
+    return config_service.get_feature_flags()
+
+@router.post("/feature_flags")
+async def update_feature_flags(feature_flags: Dict[str, Any] = Body(...)):
+    return config_service.update_feature_flags(feature_flags)
+
 @router.post("/preferences")
 async def update_preferences(prefs: Dict[str, Any] = Body(...)):
     return config_service.update_preferences(prefs)

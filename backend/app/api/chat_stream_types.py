@@ -15,6 +15,7 @@ class StreamRunContext:
     validated_images: List[str]
     feature_flags: Dict[str, Any]
     run_id: str
+    request_id: str
     assistant_turn_id: str
     event_v2_enabled: bool
     turn_binding_enabled: bool

@@ -313,6 +313,159 @@ def test_chat_events_replay_consistency(temp_db):
     events_turn = service.get_chat_events(chat.id, assistant_turn_id="turn_replay")
     assert len(events_turn) > 0
 
+
+def test_get_chat_trace_bundle_returns_summary_view(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_action_event(
+        chat.id,
+        {
+            "event": "chat.request.snapshot",
+            "request_id": "req-1",
+            "run_id": "run-1",
+            "assistant_turn_id": "turn-1",
+            "snapshot": {
+                "chat_id": chat.id,
+                "assistant_turn_id": "turn-1",
+                "request_id": "req-1",
+                "run_id": "run-1",
+                "created_at": datetime.utcnow().isoformat(),
+                "provider": "openai",
+                "model": "gpt-4o",
+                "system_prompt": "secret prompt",
+                "user_message": "hello",
+                "message_history": [],
+                "attachments": [],
+                "tool_context": {"enabled_tools": ["docs_search"]},
+                "skill_context": {},
+                "runtime_flags": {},
+                "redaction": {},
+                "truncation": {},
+            },
+        },
+        assistant_turn_id="turn-1",
+        run_id="run-1",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "event": "tool.trace.record",
+            "trace_id": "trace-1",
+            "run_id": "run-1",
+            "assistant_turn_id": "turn-1",
+            "trace": {
+                "chat_id": chat.id,
+                "run_id": "run-1",
+                "assistant_turn_id": "turn-1",
+                "trace_id": "trace-1",
+                "tool_name": "docs_search",
+                "call_id": "call-1",
+                "call_index": 1,
+                "status": "success",
+                "input_arguments": {"q": "hello"},
+                "output_result": {"ok": True},
+                "chain_depth": 0,
+            },
+        },
+        assistant_turn_id="turn-1",
+        run_id="run-1",
+    )
+
+    bundle = service.get_chat_trace_bundle(chat.id, mode="summary")
+
+    assert bundle is not None
+    assert bundle["mode"] == "summary"
+    assert bundle["snapshot"]["user_message"] == "hello"
+    assert bundle["snapshot"]["system_prompt"] is None
+    assert bundle["snapshot"]["redaction"]["system_prompt"] is True
+    assert len(bundle["tool_traces"]) == 1
+    assert bundle["tool_traces"][0]["trace_id"] == "trace-1"
+    assert bundle["tool_traces"][0]["input_arguments"] is None
+    assert bundle["tool_traces"][0]["output_result"] is None
+
+
+def test_get_chat_trace_bundle_returns_raw_view(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_action_event(
+        chat.id,
+        {
+            "event": "chat.request.snapshot",
+            "request_id": "req-1",
+            "run_id": "run-1",
+            "assistant_turn_id": "turn-1",
+            "snapshot": {
+                "chat_id": chat.id,
+                "assistant_turn_id": "turn-1",
+                "request_id": "req-1",
+                "run_id": "run-1",
+                "created_at": datetime.utcnow().isoformat(),
+                "provider": "openai",
+                "model": "gpt-4o",
+                "system_prompt": "secret prompt",
+                "user_message": "hello",
+                "message_history": [],
+                "attachments": [],
+                "tool_context": {"enabled_tools": ["docs_search"]},
+                "skill_context": {},
+                "runtime_flags": {},
+                "redaction": {},
+                "truncation": {},
+            },
+        },
+        assistant_turn_id="turn-1",
+        run_id="run-1",
+    )
+    service.add_action_event(
+        chat.id,
+        {
+            "event": "tool.trace.record",
+            "trace_id": "trace-1",
+            "run_id": "run-1",
+            "assistant_turn_id": "turn-1",
+            "trace": {
+                "chat_id": chat.id,
+                "run_id": "run-1",
+                "assistant_turn_id": "turn-1",
+                "trace_id": "trace-1",
+                "tool_name": "docs_search",
+                "call_id": "call-1",
+                "call_index": 1,
+                "status": "success",
+                "input_arguments": {"q": "hello"},
+                "output_result": {"ok": True},
+                "chain_depth": 0,
+            },
+        },
+        assistant_turn_id="turn-1",
+        run_id="run-1",
+    )
+
+    bundle = service.get_chat_trace_bundle(chat.id, mode="raw")
+
+    assert bundle is not None
+    assert bundle["mode"] == "raw"
+    assert bundle["snapshot"]["system_prompt"] == "secret prompt"
+    assert bundle["tool_traces"][0]["input_arguments"] == {"q": "hello"}
+    assert bundle["tool_traces"][0]["output_result"] == {"ok": True}
+
+
+def test_get_chat_trace_bundle_returns_none_without_snapshot(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+
+    bundle = service.get_chat_trace_bundle(chat.id, mode="summary")
+
+    assert bundle is None
+
+
+def test_get_chat_trace_bundle_rejects_unknown_mode(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+
+    with pytest.raises(ValueError, match="Unsupported trace bundle mode"):
+        service.get_chat_trace_bundle(chat.id, mode="invalid")
+
 def test_chat_events_replay_includes_action_events(temp_db):
     service, _ = temp_db
     chat = service.create_chat()

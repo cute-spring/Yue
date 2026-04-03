@@ -118,6 +118,7 @@ def test_create_stream_runtime_sets_expected_context_and_tracker():
     assert ctx.validated_images == ["img1"]
     assert ctx.provider == "openai"
     assert ctx.model_name == "gpt-4o"
+    assert ctx.request_id.startswith("req_")
     assert metrics.total_tokens == 0
     assert created_tracker is tracker
     assert emitter.run_id.startswith("run_")
@@ -182,6 +183,68 @@ def test_prepare_prompt_runtime_emits_events_and_updates_context():
         assert ctx.provider == "deepseek"
         assert ctx.model_name == "deepseek-chat"
         assert ctx.system_prompt == "assembled prompt"
+        deps.chat_service.add_action_event.assert_called_once()
+        action_event = deps.chat_service.add_action_event.call_args.args[1]
+        assert action_event["event"] == "chat.request.snapshot"
+        assert action_event["request_id"] == ctx.request_id
+        assert action_event["snapshot"]["system_prompt"] == "assembled prompt"
+        assert action_event["snapshot"]["tool_context"]["enabled_tools"] == ["docs_read"]
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_snapshot_persistence_is_fail_open():
+    async def run_test():
+        deps = _make_deps()
+        deps.chat_service.add_action_event.side_effect = RuntimeError("db down")
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=[],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.config_service.get_feature_flags.return_value = {}
+        request = _make_request()
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        async for item in _prepare_prompt_runtime(
+            ctx=ctx,
+            emitter=emitter,
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(item)
+
+        assert outputs[0] == {"event": "skill_effectiveness"}
+        assert isinstance(outputs[1], PromptPreparation)
+        deps.logger.exception.assert_called_once()
 
     asyncio.run(run_test())
 

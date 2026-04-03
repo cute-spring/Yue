@@ -87,9 +87,8 @@
 - [ ] **Phase 2: 前端搜索与过滤** (虚拟滚动、日期分组、搜索栏)
 - [ ] **Phase 3: 高级功能** (收藏、标签、快速定位)
 
----
-
 ## ⚪ Done (已完成)
+- [x] **Epic 11: 历史请求与工具调用追踪调试 (Request & Tool Trace Inspection)** (见 [2026-04-03-chat-request-payload-inspection-plan.md](./2026-04-03-chat-request-payload-inspection-plan.md), [2026-04-03-chat-trace-inspection-release-checklist.md](./2026-04-03-chat-trace-inspection-release-checklist.md), [2026-04-03-chat-trace-delivery-summary.md](./2026-04-03-chat-trace-delivery-summary.md), [2026-04-03-chat-trace-user-guide.md](./2026-04-03-chat-trace-user-guide.md)) - 已完成，待发布
 - [x] **Epic 2: 数据库架构演进 (核心数据层)** (见 [archive/Database_Evolution_Plan.md](./archive/Database_Evolution_Plan.md))
 - [x] **Epic 1: 配置与日志的云端演进** (见 [archive/Logging_Config_Evolution_Plan.md](./archive/Logging_Config_Evolution_Plan.md))
 - [x] **架构演进可行性与依赖关系分析** (完成了日志、数据库、文件管理的拆解与评估)

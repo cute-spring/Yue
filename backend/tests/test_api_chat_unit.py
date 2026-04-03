@@ -127,6 +127,105 @@ def test_get_chat_meta_success(client, mock_chat_service):
     assert payload["title"] == "Refined Title"
     assert payload["summary"] == "Summary"
 
+
+def test_get_chat_trace_bundle_success(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_chat_trace_bundle.return_value = {
+        "mode": "summary",
+        "chat_id": "1",
+        "run_id": "run-1",
+        "assistant_turn_id": "turn-1",
+        "snapshot": {
+            "chat_id": "1",
+            "assistant_turn_id": "turn-1",
+            "request_id": "req-1",
+            "run_id": "run-1",
+            "created_at": datetime.now().isoformat(),
+            "system_prompt": None,
+            "user_message": "hello",
+            "message_history": [],
+            "attachments": [],
+            "tool_context": {},
+            "skill_context": {},
+            "runtime_flags": {},
+            "redaction": {"system_prompt": True},
+            "truncation": {},
+        },
+        "tool_traces": [],
+        "field_policies": [],
+    }
+
+    response = client.get("/api/chat/1/trace/bundle")
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "summary"
+    mock_chat_service.get_chat_trace_bundle.assert_called_once_with("1", assistant_turn_id=None, mode="summary")
+
+
+def test_get_chat_trace_bundle_not_found(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_chat_trace_bundle.return_value = None
+
+    response = client.get("/api/chat/1/trace/bundle")
+
+    assert response.status_code == 404
+
+
+def test_get_chat_trace_bundle_rejects_unsupported_mode(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_chat_trace_bundle.side_effect = ValueError("Unsupported trace bundle mode")
+
+    response = client.get("/api/chat/1/trace/bundle?mode=raw")
+
+    assert response.status_code == 403
+    assert "Raw trace mode is disabled" in response.json()["detail"]
+
+
+def test_get_chat_trace_bundle_raw_mode_success_when_enabled(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_chat_trace_bundle.return_value = {
+        "mode": "raw",
+        "chat_id": "1",
+        "run_id": "run-1",
+        "assistant_turn_id": "turn-1",
+        "snapshot": {
+            "chat_id": "1",
+            "assistant_turn_id": "turn-1",
+            "request_id": "req-1",
+            "run_id": "run-1",
+            "created_at": datetime.now().isoformat(),
+            "system_prompt": "raw prompt",
+            "user_message": "hello",
+            "message_history": [],
+            "attachments": [],
+            "tool_context": {},
+            "skill_context": {},
+            "runtime_flags": {},
+            "redaction": {},
+            "truncation": {},
+        },
+        "tool_traces": [],
+        "field_policies": [],
+    }
+
+    with patch("app.api.chat.config_service.get_feature_flags", return_value={"chat_trace_raw_enabled": True}):
+        response = client.get("/api/chat/1/trace/bundle?mode=raw")
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "raw"
+    mock_chat_service.get_chat_trace_bundle.assert_called_once_with("1", assistant_turn_id=None, mode="raw")
+
+
+def test_get_chat_trace_bundle_invalid_mode_returns_400_when_raw_gate_passes(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.get_chat_trace_bundle.side_effect = ValueError("Unsupported trace bundle mode")
+
+    with patch("app.api.chat.config_service.get_feature_flags", return_value={"chat_trace_raw_enabled": True}):
+        response = client.get("/api/chat/1/trace/bundle?mode=invalid")
+
+    assert response.status_code == 400
+    assert "Unsupported trace bundle mode" in response.json()["detail"]
+
 def test_get_action_state_by_skill_and_action(client, mock_chat_service):
     now = datetime.now()
     mock_chat_service.get_chat.return_value = MagicMock(id="1")

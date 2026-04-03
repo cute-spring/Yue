@@ -9,6 +9,12 @@ from sqlalchemy import select, desc, func, case, inspect, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import logging
 
+from app.api.chat_trace_schemas import (
+    ChatTraceBundle,
+    RequestSnapshotRecord,
+    ToolTraceRecord,
+    build_default_trace_field_policies,
+)
 from app.core.database import SessionLocal, engine, Base
 from app.models.chat import (
     Session as SessionModel,
@@ -732,6 +738,96 @@ class ChatService:
         if after_sequence is not None:
             events = [event for event in events if int(event.get("sequence") or 0) > int(after_sequence)]
         return events
+
+    def get_chat_trace_bundle(
+        self,
+        session_id: str,
+        *,
+        assistant_turn_id: Optional[str] = None,
+        mode: str = "summary",
+    ) -> Optional[Dict[str, Any]]:
+        if mode not in {"summary", "raw"}:
+            raise ValueError("Unsupported trace bundle mode")
+
+        with SessionLocal() as db:
+            snapshot_query = db.query(ActionEventModel).filter(
+                ActionEventModel.session_id == session_id,
+                ActionEventModel.event_name == "chat.request.snapshot",
+            )
+            if assistant_turn_id:
+                snapshot_query = snapshot_query.filter(ActionEventModel.assistant_turn_id == assistant_turn_id)
+            snapshot_row = snapshot_query.order_by(ActionEventModel.created_at.desc(), ActionEventModel.id.desc()).first()
+            if snapshot_row is None:
+                return None
+
+            try:
+                snapshot_payload = json.loads(snapshot_row.payload_json)
+            except Exception:
+                snapshot_payload = {}
+
+            snapshot_record = RequestSnapshotRecord.model_validate(snapshot_payload.get("snapshot") or {})
+            trace_query = db.query(ActionEventModel).filter(
+                ActionEventModel.session_id == session_id,
+                ActionEventModel.event_name == "tool.trace.record",
+                ActionEventModel.run_id == snapshot_record.run_id,
+                ActionEventModel.assistant_turn_id == snapshot_record.assistant_turn_id,
+            ).order_by(
+                func.coalesce(ActionEventModel.sequence, 0).asc(),
+                ActionEventModel.created_at.asc(),
+                ActionEventModel.id.asc(),
+            )
+            trace_rows = trace_query.all()
+
+        trace_records: List[ToolTraceRecord] = []
+        for row in trace_rows:
+            try:
+                payload = json.loads(row.payload_json)
+            except Exception:
+                payload = {}
+            trace_payload = payload.get("trace") or {}
+            try:
+                trace_records.append(ToolTraceRecord.model_validate(trace_payload))
+            except Exception:
+                continue
+
+        bundle = ChatTraceBundle(
+            mode=mode,
+            chat_id=session_id,
+            run_id=snapshot_record.run_id,
+            assistant_turn_id=snapshot_record.assistant_turn_id,
+            snapshot=snapshot_record,
+            tool_traces=trace_records,
+            field_policies=build_default_trace_field_policies(),
+        )
+
+        if mode == "raw":
+            return bundle.model_dump(mode="json")
+
+        summary_snapshot = bundle.snapshot.model_copy(deep=True)
+        summary_snapshot.system_prompt = None
+        summary_snapshot.redaction = {
+            **summary_snapshot.redaction,
+            "system_prompt": True,
+            "mode": "summary",
+        }
+
+        summary_traces: List[ToolTraceRecord] = []
+        for trace in bundle.tool_traces:
+            redacted_trace = trace.model_copy(deep=True)
+            redacted_trace.input_arguments = None
+            redacted_trace.output_result = None
+            redacted_trace.error_stack = None
+            summary_traces.append(redacted_trace)
+
+        return ChatTraceBundle(
+            mode="summary",
+            chat_id=bundle.chat_id,
+            run_id=bundle.run_id,
+            assistant_turn_id=bundle.assistant_turn_id,
+            snapshot=summary_snapshot,
+            tool_traces=summary_traces,
+            field_policies=bundle.field_policies,
+        ).model_dump(mode="json")
 
     def _upsert_action_state(
         self,

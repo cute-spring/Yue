@@ -34,6 +34,7 @@ def test_stream_run_types_have_expected_defaults():
         validated_images=[],
         feature_flags={},
         run_id="run-1",
+        request_id="req-1",
         assistant_turn_id="turn-1",
         event_v2_enabled=True,
         turn_binding_enabled=True,
@@ -139,5 +140,52 @@ def test_tool_event_tracker_persists_started_and_finished_events():
         assert tool_event_queue.qsize() == 2
         chat_service.add_tool_call.assert_called_once()
         chat_service.update_tool_call.assert_called_once()
+        assert chat_service.add_action_event.call_count == 2
+        started_trace = chat_service.add_action_event.call_args_list[0].args[1]
+        finished_trace = chat_service.add_action_event.call_args_list[1].args[1]
+        assert started_trace["event"] == "tool.trace.record"
+        assert finished_trace["event"] == "tool.trace.record"
+        assert started_trace["trace"]["status"] == "started"
+        assert finished_trace["trace"]["status"] == "success"
+        assert started_trace["trace_id"] == finished_trace["trace_id"]
+        assert started_trace["call_index"] == 1
+        assert finished_trace["call_index"] == 1
+
+    asyncio.run(run_test())
+
+
+def test_tool_event_tracker_trace_persistence_is_fail_open():
+    async def run_test():
+        emitter = StreamEventEmitter(
+            event_v2_enabled=True,
+            run_id="run-1",
+            assistant_turn_id="turn-1",
+            serialize_payload=lambda payload: payload,
+            iso_utc_now=lambda: "2026-03-22T00:00:00Z",
+        )
+        tool_event_queue = asyncio.Queue()
+        chat_service = MagicMock()
+        chat_service.add_action_event.side_effect = RuntimeError("trace store down")
+        tracker = ToolEventTracker(
+            chat_id="chat-1",
+            assistant_turn_id="turn-1",
+            run_id="run-1",
+            turn_binding_enabled=True,
+            emitter=emitter,
+            tool_event_queue=tool_event_queue,
+            chat_service=chat_service,
+            normalize_finished_ts=lambda ts: ts,
+        )
+
+        await tracker.on_tool_event({
+            "event": "tool.call.started",
+            "call_id": "call-1",
+            "tool_name": "docs_search",
+            "args": {"q": "hello"},
+        })
+
+        assert tracker.counts == {"started": 1, "finished": 0}
+        chat_service.add_tool_call.assert_called_once()
+        chat_service.update_tool_call.assert_not_called()
 
     asyncio.run(run_test())

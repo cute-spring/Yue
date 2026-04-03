@@ -1,0 +1,6 @@
+{
+  "feature_flags": {
+    "chat_trace_ui_enabled": false,
+    "chat_trace_raw_enabled": false
+  }
+}

@@ -2,11 +2,13 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from pydantic_ai.exceptions import UsageLimitExceeded
 
+from app.api.chat_trace_schemas import RequestAttachmentItem, RequestHistoryItem, RequestSnapshotRecord
 from app.api.chat_stream_types import StreamRunContext, StreamRunMetrics
 from app.services.chat_streaming import StreamEventEmitter, StreamState
 from app.services.skills.models import (
@@ -210,6 +212,133 @@ def _resolve_requested_action_request_id(request: Any) -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _summarize_history_item(item: Any) -> RequestHistoryItem:
+    role = "user"
+    content_type = "text"
+    content_summary = None
+    image_count = 0
+    truncated = False
+
+    class_name = item.__class__.__name__
+    if class_name == "ModelResponse":
+        role = "assistant"
+    elif class_name == "ModelRequest":
+        role = "user"
+    elif class_name.lower().startswith("tool"):
+        role = "tool"
+
+    parts = getattr(item, "parts", None)
+    if isinstance(parts, list) and parts:
+        fragments: List[str] = []
+        for part in parts:
+            content = getattr(part, "content", None)
+            if isinstance(content, list):
+                content_type = "mixed"
+                for nested in content:
+                    if isinstance(nested, str):
+                        fragments.append(nested)
+                    else:
+                        image_count += 1
+            elif isinstance(content, str):
+                fragments.append(content)
+            elif content is not None:
+                fragments.append(str(content))
+        joined = " ".join(fragment.strip() for fragment in fragments if isinstance(fragment, str) and fragment.strip()).strip()
+        if joined:
+            content_summary = joined[:240]
+            truncated = len(joined) > 240
+    else:
+        content_summary = str(item)[:240]
+        truncated = len(str(item)) > 240
+
+    return RequestHistoryItem(
+        role=role,
+        content_type=content_type,
+        content_summary=content_summary,
+        image_count=image_count,
+        truncated=truncated,
+    )
+
+
+def _build_request_snapshot_record(
+    *,
+    ctx: StreamRunContext,
+    request: Any,
+    prompt_result: Any,
+    selected_skill_spec: Any,
+    final_tools_list: List[str],
+) -> RequestSnapshotRecord:
+    attachments = [
+        RequestAttachmentItem(
+            kind="image",
+            name=(image.rsplit("/", 1)[-1] if isinstance(image, str) and image else None),
+            content_type=None,
+            size_bytes=None,
+            redacted=False,
+        )
+        for image in (ctx.validated_images or [])
+    ]
+    skill_context: Dict[str, Any] = {}
+    if selected_skill_spec is not None:
+        skill_context = {
+            "selected_skill": {
+                "name": getattr(selected_skill_spec, "name", None),
+                "version": getattr(selected_skill_spec, "version", None),
+            }
+        }
+
+    return RequestSnapshotRecord(
+        chat_id=ctx.chat_id,
+        assistant_turn_id=ctx.assistant_turn_id,
+        request_id=ctx.request_id,
+        run_id=ctx.run_id,
+        created_at=datetime.now(UTC),
+        provider=ctx.provider,
+        model=ctx.model_name,
+        agent_id=getattr(request, "agent_id", None),
+        requested_skill=getattr(request, "requested_skill", None),
+        deep_thinking_enabled=bool(getattr(request, "deep_thinking_enabled", False)),
+        system_prompt=ctx.system_prompt,
+        user_message=str(getattr(request, "message", "") or ""),
+        message_history=[_summarize_history_item(item) for item in (ctx.history or [])],
+        attachments=attachments,
+        tool_context={"enabled_tools": list(final_tools_list or [])},
+        skill_context=skill_context,
+        runtime_flags={
+            "event_v2_enabled": bool(ctx.event_v2_enabled),
+            "turn_binding_enabled": bool(ctx.turn_binding_enabled),
+            "reasoning_display_gated_enabled": bool(ctx.reasoning_display_gated_enabled),
+            "summary_injected": bool(getattr(prompt_result, "summary_injected", False)),
+            "scope_summary_injected": bool(getattr(prompt_result, "scope_summary_injected", False)),
+        },
+        redaction={},
+        truncation={},
+    )
+
+
+def _persist_request_snapshot(
+    *,
+    ctx: StreamRunContext,
+    deps: StreamRunnerDeps,
+    snapshot: RequestSnapshotRecord,
+) -> None:
+    try:
+        deps.chat_service.add_action_event(
+            ctx.chat_id,
+            {
+                "event": "chat.request.snapshot",
+                "request_id": ctx.request_id,
+                "run_id": ctx.run_id,
+                "assistant_turn_id": ctx.assistant_turn_id,
+                "snapshot": snapshot.model_dump(mode="json"),
+            },
+            assistant_turn_id=ctx.assistant_turn_id,
+            run_id=ctx.run_id,
+        )
+    except Exception:
+        deps.logger.exception("Failed to persist request snapshot")
+
+
 def _create_stream_runtime(
     *,
     chat_id: str,
@@ -220,6 +349,7 @@ def _create_stream_runtime(
 ) -> tuple[StreamRunContext, StreamRunMetrics, StreamEventEmitter, Any]:
     feature_flags = deps.config_service.get_feature_flags()
     run_id = f"run_{uuid.uuid4().hex[:12]}"
+    request_id = f"req_{uuid.uuid4().hex[:12]}"
     assistant_turn_id = f"turn_{uuid.uuid4().hex[:12]}"
     ctx = StreamRunContext(
         chat_id=chat_id,
@@ -228,6 +358,7 @@ def _create_stream_runtime(
         validated_images=validated_images,
         feature_flags=feature_flags,
         run_id=run_id,
+        request_id=request_id,
         assistant_turn_id=assistant_turn_id,
         event_v2_enabled=bool(feature_flags.get("transparency_event_v2_enabled", True)),
         turn_binding_enabled=bool(feature_flags.get("transparency_turn_binding_enabled", True)),
@@ -306,6 +437,17 @@ async def _prepare_prompt_runtime(
     ctx.provider = prompt_result.provider
     ctx.model_name = prompt_result.model_name
     ctx.system_prompt = prompt_result.system_prompt
+    _persist_request_snapshot(
+        ctx=ctx,
+        deps=deps,
+        snapshot=_build_request_snapshot_record(
+            ctx=ctx,
+            request=request,
+            prompt_result=prompt_result,
+            selected_skill_spec=selected_skill_spec,
+            final_tools_list=prompt_result.final_tools_list,
+        ),
+    )
     if prompt_result.emitted_event:
         deps.logger.info("Skill %s selected. Tool intersection: %s", selected_skill_spec.name, prompt_result.final_tools_list)
         yield emitter.emit(prompt_result.emitted_event)

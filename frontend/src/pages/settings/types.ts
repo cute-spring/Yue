@@ -130,4 +130,23 @@ export type DocAccess = {
   deny_roots: string[];
 };
 
+export type FeatureFlags = {
+  chat_trace_ui_enabled: boolean;
+  chat_trace_raw_enabled: boolean;
+};
+
+export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
+  chat_trace_ui_enabled: false,
+  chat_trace_raw_enabled: false,
+};
+
+export const normalizeFeatureFlags = (value: any): FeatureFlags => ({
+  chat_trace_ui_enabled: typeof value?.chat_trace_ui_enabled === 'boolean'
+    ? value.chat_trace_ui_enabled
+    : DEFAULT_FEATURE_FLAGS.chat_trace_ui_enabled,
+  chat_trace_raw_enabled: typeof value?.chat_trace_raw_enabled === 'boolean'
+    ? value.chat_trace_raw_enabled
+    : DEFAULT_FEATURE_FLAGS.chat_trace_raw_enabled,
+});
+
 export type LlmForm = Record<string, any>;

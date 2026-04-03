@@ -46,6 +46,31 @@ def test_get_preferences(client, mock_config_service):
     assert response.status_code == 200
     assert response.json() == {"theme": "dark"}
 
+def test_get_feature_flags(client, mock_config_service):
+    mock_config_service.get_feature_flags.return_value = {
+        "chat_trace_ui_enabled": False,
+        "chat_trace_raw_enabled": False,
+    }
+    response = client.get("/api/config/feature_flags")
+    assert response.status_code == 200
+    assert response.json() == {
+        "chat_trace_ui_enabled": False,
+        "chat_trace_raw_enabled": False,
+    }
+
+def test_update_feature_flags(client, mock_config_service):
+    mock_config_service.update_feature_flags.return_value = {
+        "chat_trace_ui_enabled": True,
+        "chat_trace_raw_enabled": False,
+    }
+    response = client.post("/api/config/feature_flags", json={"chat_trace_ui_enabled": True})
+    assert response.status_code == 200
+    assert response.json() == {
+        "chat_trace_ui_enabled": True,
+        "chat_trace_raw_enabled": False,
+    }
+    mock_config_service.update_feature_flags.assert_called_once_with({"chat_trace_ui_enabled": True})
+
 def test_update_preferences(client, mock_config_service):
     mock_config_service.update_preferences.return_value = {"status": "ok"}
     response = client.post("/api/config/preferences", json={"theme": "light"})

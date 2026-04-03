@@ -319,6 +319,23 @@ async def get_chat_events(chat_id: str, assistant_turn_id: Optional[str] = None,
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat_service.get_chat_events(chat_id, assistant_turn_id=assistant_turn_id, after_sequence=after_sequence)
 
+@router.get("/{chat_id}/trace/bundle")
+async def get_chat_trace_bundle(chat_id: str, assistant_turn_id: Optional[str] = None, mode: str = Query(default="summary")):
+    chat = chat_service.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    if mode == "raw":
+        feature_flags = config_service.get_feature_flags()
+        if not feature_flags.get("chat_trace_raw_enabled", False):
+            raise HTTPException(status_code=403, detail="Raw trace mode is disabled")
+    try:
+        bundle = chat_service.get_chat_trace_bundle(chat_id, assistant_turn_id=assistant_turn_id, mode=mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if bundle is None:
+        raise HTTPException(status_code=404, detail="Trace bundle not found")
+    return bundle
+
 @router.get("/{chat_id}/actions/state", response_model=ActionStateResponse)
 async def get_action_state(
     chat_id: str,
