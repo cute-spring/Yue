@@ -176,3 +176,86 @@ export interface Provider {
   model_capabilities?: Record<string, string[]>;
   explicit_model_capabilities?: Record<string, string[]>;
 }
+
+export type FeatureFlags = {
+  chat_trace_ui_enabled?: boolean;
+  chat_trace_raw_enabled?: boolean;
+  [key: string]: boolean | undefined;
+};
+
+export type TraceFieldPolicy = {
+  field_name: string;
+  exposure: 'safe' | 'raw_only';
+  reason?: string | null;
+};
+
+export type RequestHistoryItem = {
+  role: string;
+  content_type: string;
+  content_summary?: string | null;
+  image_count: number;
+  truncated: boolean;
+};
+
+export type RequestAttachmentItem = {
+  kind: string;
+  name?: string | null;
+  content_type?: string | null;
+  size_bytes?: number | null;
+  redacted: boolean;
+};
+
+export type RequestSnapshotRecord = {
+  chat_id: string;
+  assistant_turn_id: string;
+  request_id: string;
+  run_id: string;
+  created_at: string;
+  provider?: string | null;
+  model?: string | null;
+  agent_id?: string | null;
+  requested_skill?: string | null;
+  deep_thinking_enabled: boolean;
+  system_prompt?: string | null;
+  user_message: string;
+  message_history: RequestHistoryItem[];
+  attachments: RequestAttachmentItem[];
+  tool_context: Record<string, any>;
+  skill_context: Record<string, any>;
+  runtime_flags: Record<string, any>;
+  redaction: Record<string, any>;
+  truncation: Record<string, any>;
+};
+
+export type ToolTraceRecord = {
+  chat_id: string;
+  run_id: string;
+  assistant_turn_id: string;
+  trace_id: string;
+  parent_trace_id?: string | null;
+  tool_name: string;
+  tool_type?: string | null;
+  call_id?: string | null;
+  call_index: number;
+  status: 'started' | 'success' | 'error' | 'cancelled';
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  input_arguments?: any;
+  output_result?: any;
+  error_type?: string | null;
+  error_message?: string | null;
+  error_stack?: string | null;
+  chain_depth: number;
+  raw_event_id?: string | null;
+};
+
+export type ChatTraceBundle = {
+  mode: 'summary' | 'raw';
+  chat_id: string;
+  run_id: string;
+  assistant_turn_id: string;
+  snapshot: RequestSnapshotRecord;
+  tool_traces: ToolTraceRecord[];
+  field_policies: TraceFieldPolicy[];
+};

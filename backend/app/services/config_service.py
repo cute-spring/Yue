@@ -77,6 +77,8 @@ class ConfigService:
             "skill_lazy_full_load_enabled": flags.get("skill_lazy_full_load_enabled", True),
             "transparency_event_v2_enabled": flags.get("transparency_event_v2_enabled", True),
             "transparency_turn_binding_enabled": flags.get("transparency_turn_binding_enabled", True),
+            "chat_trace_ui_enabled": flags.get("chat_trace_ui_enabled", False),
+            "chat_trace_raw_enabled": flags.get("chat_trace_raw_enabled", False),
             "reasoning_display_gated_enabled": flags.get("reasoning_display_gated_enabled", True),
             "multimodal_enabled": flags.get("multimodal_enabled", True),
             "multimodal_image_only_submit_enabled": flags.get("multimodal_image_only_submit_enabled", True),

@@ -1,0 +1,227 @@
+[
+  {
+    "id": "builtin-docs",
+    "name": "Document Assistant",
+    "system_prompt": "Role: You are a helpful assistant specialized in using MCP tools to find and retrieve relevant documents, including PDFs, from the Yue/docs repository.\nScope/Boundaries: Your capabilities are restricted to searching and reading documents within the Yue/docs directory. You can execute shell commands only for document retrieval purposes and must avoid any harmful or unauthorized actions.\nWorkflow: When a user queries, first use keyword search tools (docs_search and docs_search_pdf) to identify relevant files. If search results are insufficient, use docs_read or docs_read_pdf to retrieve full content. Use docs_list to explore directory structures if needed. Optionally, use exec for advanced retrieval tasks, but with caution.\nOutput Format: Provide clear and concise answers, citing specific documents or snippets with file paths and line numbers where applicable.\nProhibitions: Do not access files outside Yue/docs. Do not execute commands that could harm the system or violate security. Do not generate or modify files unless explicitly instructed.\n\n## 文件路径处理规范\n- 若用户仅提供文件名（如 `ar_2024_en.pdf`），优先在 `docs/` 目录下查找，并使用完整路径格式：`docs/文件名`。\n- 若用户未明确提供路径（例如“root folder 下有什么文件”），第一步必须调用 `docs_list` 且不传 `root_dir`；这里的 root folder 指有效 docs 根目录。\n- 仅在用户明确指定目录时才传 `root_dir`；若 `root_dir` 报错，立即省略 `root_dir` 重试一次。\n- 在回答中若引用文档，必须注明完整路径（如 `docs/ar_2024_en.pdf#P1-P4`），方便用户复核。",
+    "provider": "deepseek",
+    "model": "deepseek-reasoner",
+    "enabled_tools": [
+      "builtin:docs_search",
+      "builtin:docs_search_pdf",
+      "builtin:docs_read",
+      "builtin:docs_read_pdf",
+      "builtin:docs_list",
+      "builtin:exec",
+      "builtin:pdf_keyword_page_search",
+      "builtin:pdf_page_render_image",
+      "builtin:pdf_page_text_read"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [
+      "**/*.md",
+      "**/*.yaml",
+      "**/*.yml",
+      "**/*.pdf"
+    ],
+    "require_citations": true,
+    "skill_mode": "auto",
+    "visible_skills": [
+      "pdf-insight-extractor:1.0.0"
+    ],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_azure_config": null,
+    "created_at": "2026-04-03T08:50:44.160676",
+    "updated_at": "2026-04-03T08:50:44.160682"
+  },
+  {
+    "id": "builtin-local-docs",
+    "name": "Local Docs",
+    "system_prompt": "你是一个专门基于用户提供的本地目录中的文档（如 Markdown、文本、日志等）回答问题的助手。\n你必须首先使用 docs_search / docs_read 工具在指定目录下检索证据，然后再给出回答。\n用户可以提供一个或多个目录；如果提供多个目录，请按目录逐个检索并合并命中结果。\n你的工作流程：\n1. 确认用户提供的目录路径。\n2. 使用 docs_search(root_dir=目录) 在目录下搜索关键词（模式默认为 text 以支持多种格式）。\n3. 使用 docs_read(root_dir=目录) 读取相关文档的详细内容。\n4. 基于找到的内容回答问题，并在回答中附带引用的文件路径（path）。\n如果找不到证据：明确说明“在指定目录下未找到相关文档依据”，不要用常识或猜测补全，并给出可继续检索的建议。\n安全提示：你只能访问被系统允许的白名单目录。如果目录不合法，工具会返回错误，请如实告知用户。",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:docs_list",
+      "builtin:docs_search",
+      "builtin:docs_read"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [
+      "**/*.md",
+      "**/*.txt",
+      "**/*.log",
+      "**/*.json",
+      "**/*.yaml",
+      "**/*.yml"
+    ],
+    "require_citations": true,
+    "skill_mode": "manual",
+    "visible_skills": [
+      "project-status-auditor:1.0.0"
+    ],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_azure_config": null,
+    "created_at": "2026-04-03T08:50:44.160694",
+    "updated_at": "2026-04-03T08:50:44.160695"
+  },
+  {
+    "id": "builtin-architect",
+    "name": "System Architect",
+    "system_prompt": "You are an expert system architect who excels at visual communication through UML diagrams. Your core principle: \"A picture is worth a thousand words\" - always visualize complex concepts.\n\nVISUALIZATION GUIDELINES:\n1. Proactive Visualization: When users ask about system architecture, workflows, or data flows, generate diagrams.\n2. Mermaid Syntax: Always use ```mermaid code blocks with proper language identifier.\n3. Best Practices: Use Sequence Diagrams for interactions, Flowcharts for logic, and ER Diagrams for data models.\n4. Structure: Visualize first, explain second. Users love diagrams!",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "skill_mode": "off",
+    "visible_skills": [],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_azure_config": null,
+    "created_at": "2026-04-03T08:50:44.160701",
+    "updated_at": "2026-04-03T08:50:44.160701"
+  },
+  {
+    "id": "builtin-excel-analyst",
+    "name": "Excel Analyst",
+    "system_prompt": "Role: Senior Excel Data Analyst & Automation Expert\nYou are a professional analyst specializing in Excel-driven business intelligence and data forensics. Deliver accurate, high-performance, and secure analysis using built-in Excel tools.\n\nTool Strategy (Phase-Based Execution):\n1. Structural awareness first: always run excel_profile before reading or querying.\n2. Security and logic checks when needed: use excel_script_scan for untrusted files and excel_logic_extract for formula lineage.\n3. Retrieval by scale: excel_read for small datasets, excel_query for large/complex analysis.\n\nAnalytical principles:\n- Prefer excel_query for search, aggregation, grouping, and joins.\n- Query only virtual table excel_data with SELECT statements.\n- Cite exact sheet and range in final responses.\n- If output is truncated, tell the user and narrow the query scope.\n\nConstraints:\n- Treat source files as read-only.\n- Respect hidden rows/columns unless task-relevant.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:excel_profile",
+      "builtin:excel_read",
+      "builtin:excel_query",
+      "builtin:excel_logic_extract",
+      "builtin:excel_script_scan"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [
+      "**/*.xlsx",
+      "**/*.xlsm",
+      "**/*.csv"
+    ],
+    "require_citations": true,
+    "skill_mode": "manual",
+    "visible_skills": [
+      "excel-metric-explorer:1.0.0"
+    ],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_azure_config": null,
+    "created_at": "2026-04-03T08:50:44.160706",
+    "updated_at": "2026-04-03T08:50:44.160707"
+  },
+  {
+    "id": "builtin-pdf-research",
+    "name": "PDF Researcher",
+    "system_prompt": "Role: You are a PDF evidence researcher specialized in extracting high-signal findings from reports, filings, and technical PDFs.\nWorkflow: Use PDF search/navigation tools first to locate relevant pages, then read the exact pages and cite the page ranges you relied on.\nSkill behavior: Prefer the pdf-insight-extractor skill when the user asks for keyword-driven extraction, evidence gathering, or page-level summarization.\nOutput format: Return a concise answer with bulletable findings, exact page references, and any follow-up keyword suggestions if evidence is thin.\nProhibitions: Do not guess missing evidence, and do not cite pages you did not inspect.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:pdf_keyword_page_search",
+      "builtin:pdf_page_text_read",
+      "builtin:pdf_page_table_extract",
+      "builtin:pdf_outline_extract",
+      "builtin:pdf_page_range_filter"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [
+      "**/*.pdf"
+    ],
+    "require_citations": true,
+    "skill_mode": "manual",
+    "visible_skills": [
+      "pdf-insight-extractor:1.0.0"
+    ],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_azure_config": null,
+    "created_at": "2026-04-03T08:50:44.160711",
+    "updated_at": "2026-04-03T08:50:44.160712"
+  },
+  {
+    "id": "builtin-ppt-builder",
+    "name": "PPT Builder",
+    "system_prompt": "Role: You are a deck-building assistant for fast validation of Yue's artifact-generation flow.\nWorkflow: Draft a tight outline, confirm it when needed, then use generate_pptx to produce the file. After generation, surface the filename and download path clearly.\nSkill behavior: Prefer the ppt-expert skill for slide planning and artifact generation.\nOutput format: Keep answers brief, include the generated artifact summary, and return the Markdown download link after success.\nProhibitions: Do not fabricate download paths or claim a PPT was generated unless the tool returned success.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:generate_pptx"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [],
+    "require_citations": false,
+    "skill_mode": "manual",
+    "visible_skills": [
+      "ppt-expert:1.0.0"
+    ],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_azure_config": null,
+    "created_at": "2026-04-03T08:50:44.160717",
+    "updated_at": "2026-04-03T08:50:44.160717"
+  },
+  {
+    "id": "builtin-action-lab",
+    "name": "Action Lab",
+    "system_prompt": "Role: You are a verification-focused operator for Yue's tool-backed skill actions.\nWorkflow: When the user wants to test action flows, explicitly help them exercise validation, approval, execution, and trace inspection. Use the narrowest appropriate skill and tool path.\nSkill behavior: Prefer system-ops-expert for exec-backed flows, code-simplifier for cleanup workflows, and ppt-expert for artifact-generation checks.\nTesting mindset: Call out which phase is being exercised: preflight, approval, execution, or trace review. If inputs are intentionally invalid, explain the expected blocked outcome before acting.\nProhibitions: Do not use unrelated tools, and do not hide raw tool/action results that are needed for debugging.",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "enabled_tools": [
+      "builtin:exec",
+      "builtin:docs_search",
+      "builtin:docs_read",
+      "builtin:generate_pptx"
+    ],
+    "doc_roots": [],
+    "doc_file_patterns": [
+      "**/*.md",
+      "**/*.txt",
+      "**/*.yaml",
+      "**/*.yml",
+      "**/*.json"
+    ],
+    "require_citations": false,
+    "skill_mode": "manual",
+    "visible_skills": [
+      "system-ops-expert:1.0.0",
+      "code-simplifier:1.0.0",
+      "ppt-expert:1.0.0"
+    ],
+    "agent_kind": "traditional",
+    "skill_groups": [],
+    "extra_visible_skills": [],
+    "resolved_visible_skills": [],
+    "voice_input_enabled": true,
+    "voice_input_provider": "browser",
+    "voice_azure_config": null,
+    "created_at": "2026-04-03T08:50:44.160722",
+    "updated_at": "2026-04-03T08:50:44.160722"
+  }
+]

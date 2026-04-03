@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup, Show, createEffect, createMemo } from 'solid-js';
-import { Message, SkillSpec, VisibleSkillChip } from '../types';
+import { FeatureFlags, Message, SkillSpec, VisibleSkillChip } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
@@ -20,6 +20,7 @@ import ChatSidebar from '../components/ChatSidebar';
 import ChatInput from '../components/ChatInput';
 import MessageList from '../components/MessageList';
 import IntelligencePanel from '../components/IntelligencePanel';
+import ChatTraceShell from '../components/ChatTraceShell';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { modelSupportsVision, useLLMProviders } from '../hooks/useLLMProviders';
 import { useAgents } from '../hooks/useAgents';
@@ -30,7 +31,11 @@ import { DEFAULT_PREFERENCES, Preferences, normalizePreferences } from './settin
 import { getSpeechMessageId } from '../utils/speech';
 import { composeVoiceInputText, useVoiceInput } from '../hooks/useVoiceInput';
 
-function ChatContent(props: { speechPrefs: () => Preferences }) {
+function ChatContent(props: {
+  speechPrefs: () => Preferences;
+  traceUiEnabled: boolean;
+  traceRawEnabled: boolean;
+}) {
   const toast = useToast();
   const speech = useSpeechController();
   const [requestedSkill, setRequestedSkill] = createSignal<string | null>(null);
@@ -51,6 +56,7 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
   const [previewContent, setPreviewContent] = createSignal<{lang: string, content: string} | null>(null);
   const [isArtifactExpanded, setIsArtifactExpanded] = createSignal(false);
   const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
+  const [showTraceShell, setShowTraceShell] = createSignal(false);
   
   // Refs
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -750,6 +756,18 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
           </div>
           
           <div class="flex items-center gap-2">
+            <Show when={props.traceUiEnabled}>
+              <button
+                onClick={() => setShowTraceShell(true)}
+                class="p-2.5 rounded-xl text-text-secondary hover:bg-primary/10 hover:text-primary transition-all duration-300 active:scale-90"
+                title="Open Trace Inspector"
+                aria-label="Open trace inspector"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m3 6V7m3 10v-4M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </Show>
             <button 
               onClick={() => setShowKnowledge(!showKnowledge())}
               class={`p-2.5 rounded-xl transition-all duration-300 active:scale-90 ${showKnowledge() ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-secondary hover:bg-primary/10 hover:text-primary'}`}
@@ -878,26 +896,48 @@ function ChatContent(props: { speechPrefs: () => Preferences }) {
         }}
         onCancel={() => setConfirmDeleteId(null)}
       />
+
+      <Show when={props.traceUiEnabled}>
+        <ChatTraceShell
+          open={showTraceShell()}
+          chatId={currentChatId()}
+          rawEnabled={props.traceRawEnabled}
+          onClose={() => setShowTraceShell(false)}
+        />
+      </Show>
     </div>
   );
 }
 
 export default function Chat() {
   const [speechPrefs, setSpeechPrefs] = createSignal<Preferences>(DEFAULT_PREFERENCES);
+  const [featureFlags, setFeatureFlags] = createSignal<FeatureFlags>({});
 
   onMount(async () => {
     try {
-      const res = await fetch('/api/config/preferences');
-      const raw = await res.json();
+      const [preferencesRes, featureFlagsRes] = await Promise.all([
+        fetch('/api/config/preferences'),
+        fetch('/api/config/feature_flags'),
+      ]);
+      const raw = await preferencesRes.json();
       setSpeechPrefs(normalizePreferences(raw));
+
+      if (featureFlagsRes.ok) {
+        const flags = (await featureFlagsRes.json()) as FeatureFlags;
+        setFeatureFlags(flags);
+      }
     } catch (e) {
-      console.warn('Failed to load speech preferences', e);
+      console.warn('Failed to load chat configuration', e);
     }
   });
 
   return (
     <SpeechControllerProvider prefs={speechPrefs}>
-      <ChatContent speechPrefs={speechPrefs} />
+      <ChatContent
+        speechPrefs={speechPrefs}
+        traceUiEnabled={!!featureFlags().chat_trace_ui_enabled}
+        traceRawEnabled={!!featureFlags().chat_trace_raw_enabled}
+      />
     </SpeechControllerProvider>
   );
 }
