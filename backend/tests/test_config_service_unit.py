@@ -122,6 +122,24 @@ def test_get_feature_flags_reads_chat_trace_raw_override(temp_config_file):
     assert flags["chat_trace_ui_enabled"] is True
     assert flags["chat_trace_raw_enabled"] is True
 
+
+def test_update_feature_flags_round_trip(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+
+    updated = service.update_feature_flags({
+        "chat_trace_ui_enabled": True,
+        "chat_trace_raw_enabled": "true",
+    })
+
+    assert updated["chat_trace_ui_enabled"] is True
+    assert updated["chat_trace_raw_enabled"] is True
+
+    with open(temp_config_file, "r") as f:
+        persisted = json.load(f)
+
+    assert persisted["feature_flags"]["chat_trace_ui_enabled"] is True
+    assert persisted["feature_flags"]["chat_trace_raw_enabled"] is True
+
 def test_update_llm_config_protects_secrets(temp_config_file, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # 使用新的结构化配置格式

@@ -90,6 +90,7 @@ The feature is ready for controlled rollout.
 - `docs/plans/2026-04-03-chat-request-payload-inspection-plan.md`
 - `docs/plans/2026-04-03-chat-trace-inspection-release-checklist.md`
 - `docs/plans/2026-04-03-chat-trace-delivery-summary.md`
+- `docs/plans/2026-04-03-chat-trace-user-guide.md`
 
 ## Remaining Non-Blocking Follow-ups
 
@@ -103,6 +104,8 @@ Default safe posture:
 
 - `chat_trace_ui_enabled=false`
 - `chat_trace_raw_enabled=false`
+
+Both flags can be toggled online from `System Configuration -> General -> Feature Flags` and are stored alongside the rest of the global configuration.
 
 Recommended release order:
 

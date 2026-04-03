@@ -14,6 +14,7 @@ import type {
   Agent,
   CustomModel,
   DocAccess,
+  FeatureFlags,
   LLMProvider,
   LlmForm,
   McpStatus,
@@ -21,7 +22,7 @@ import type {
   NewCustomModelDraft,
   Preferences,
 } from './settings/types';
-import { DEFAULT_PREFERENCES, normalizePreferences } from './settings/types';
+import { DEFAULT_FEATURE_FLAGS, DEFAULT_PREFERENCES, normalizeFeatureFlags, normalizePreferences } from './settings/types';
 
 type Tab = 'general' | 'mcp' | 'llm';
 
@@ -87,6 +88,9 @@ type Tab = 'general' | 'mcp' | 'llm';
     allow_roots: [],
     deny_roots: []
   });
+  const [featureFlags, setFeatureFlags] = createSignal<FeatureFlags>({
+    ...DEFAULT_FEATURE_FLAGS,
+  });
   const [docAllowText, setDocAllowText] = createSignal("");
   const [docDenyText, setDocDenyText] = createSignal("");
   const [isSavingDocAccess, setIsSavingDocAccess] = createSignal(false);
@@ -103,6 +107,7 @@ type Tab = 'general' | 'mcp' | 'llm';
       setAgents(snapshot.agents);
       setPrefs(snapshot.prefs);
       setDocAccess(snapshot.docAccess);
+      setFeatureFlags(snapshot.featureFlags);
       setDocAllowText(snapshot.docAllowText);
       setDocDenyText(snapshot.docDenyText);
     } catch (e) {
@@ -195,6 +200,23 @@ type Tab = 'general' | 'mcp' | 'llm';
     } finally {
       setIsSavingDocAccess(false);
     }
+  };
+
+  const saveFeatureFlags = async (nextFlags?: FeatureFlags) => {
+    const payload = nextFlags ?? featureFlags();
+    setFeatureFlags(payload);
+    const res = await fetch('/api/config/feature_flags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      showToast('error', 'Failed to save feature flags');
+      return;
+    }
+    const saved = await res.json();
+    setFeatureFlags(normalizeFeatureFlags(saved));
+    showToast('success', 'Feature flags saved');
   };
 
 
@@ -433,6 +455,9 @@ type Tab = 'general' | 'mcp' | 'llm';
             setPrefs={setPrefs}
             agents={agents}
             savePrefs={savePrefs}
+            featureFlags={featureFlags}
+            setFeatureFlags={setFeatureFlags}
+            saveFeatureFlags={saveFeatureFlags}
             docAccess={docAccess}
             docAllowText={docAllowText}
             setDocAllowText={setDocAllowText}

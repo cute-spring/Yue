@@ -1,5 +1,5 @@
 import { For, Show, createSignal, onCleanup, type Accessor, type Setter } from 'solid-js';
-import type { Agent, DocAccess, Preferences } from '../types';
+import type { Agent, DocAccess, FeatureFlags, Preferences } from '../types';
 import { useSpeechSynthesis } from '../../../hooks/useSpeechSynthesis';
 
 type GeneralSettingsTabProps = {
@@ -7,6 +7,9 @@ type GeneralSettingsTabProps = {
   setPrefs: Setter<Preferences>;
   agents: Accessor<Agent[]>;
   savePrefs: (prefs?: Preferences) => void;
+  featureFlags: Accessor<FeatureFlags>;
+  setFeatureFlags: Setter<FeatureFlags>;
+  saveFeatureFlags: (featureFlags?: FeatureFlags) => void;
   docAccess: Accessor<DocAccess>;
   docAllowText: Accessor<string>;
   setDocAllowText: Setter<string>;
@@ -144,6 +147,15 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
 
     props.setPrefs(next);
     props.savePrefs(next);
+  };
+
+  const saveFeatureFlags = async () => {
+    const next: FeatureFlags = {
+      chat_trace_ui_enabled: props.featureFlags().chat_trace_ui_enabled,
+      chat_trace_raw_enabled: props.featureFlags().chat_trace_raw_enabled,
+    };
+    props.setFeatureFlags(next);
+    await props.saveFeatureFlags(next);
   };
 
   return (
@@ -381,6 +393,68 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
           </button>
         </div>
       </form>
+
+      <div class="pt-6 border-t">
+        <h3 class="text-xl font-semibold border-b pb-2">Feature Flags</h3>
+        <p class="text-sm text-gray-500 mt-2">
+          Toggle internal chat trace inspection controls without editing config files manually.
+        </p>
+        <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4 mt-4">
+          <label class="flex items-start justify-between gap-4">
+            <span class="space-y-1">
+              <span class="block text-sm font-medium text-gray-700">Trace Inspector UI</span>
+              <span class="block text-xs text-gray-500">
+                Shows the read-only trace drawer in chat so you can inspect historical request and tool call data.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              data-testid="settings-feature-flag-chat-trace-ui"
+              class="mt-1 h-4 w-4 accent-emerald-600"
+              checked={props.featureFlags().chat_trace_ui_enabled}
+              onChange={(e) =>
+                props.setFeatureFlags((current) => ({
+                  ...current,
+                  chat_trace_ui_enabled: e.currentTarget.checked,
+                }))
+              }
+            />
+          </label>
+          <label class="flex items-start justify-between gap-4">
+            <span class="space-y-1">
+              <span class="block text-sm font-medium text-gray-700">Raw Trace Access</span>
+              <span class="block text-xs text-gray-500">
+                Allows the trace drawer to switch into raw payload mode for deeper debugging.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              data-testid="settings-feature-flag-chat-trace-raw"
+              class="mt-1 h-4 w-4 accent-emerald-600"
+              checked={props.featureFlags().chat_trace_raw_enabled}
+              onChange={(e) =>
+                props.setFeatureFlags((current) => ({
+                  ...current,
+                  chat_trace_raw_enabled: e.currentTarget.checked,
+                }))
+              }
+            />
+          </label>
+          <div class="flex items-center justify-between gap-3">
+            <div class="text-xs text-gray-500">
+              UI: {props.featureFlags().chat_trace_ui_enabled ? 'On' : 'Off'} • Raw: {props.featureFlags().chat_trace_raw_enabled ? 'On' : 'Off'}
+            </div>
+            <button
+              type="button"
+              data-testid="settings-save-feature-flags"
+              onClick={() => { void saveFeatureFlags(); }}
+              class="bg-emerald-600 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 transition-colors shadow-md"
+            >
+              Save Feature Flags
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div class="pt-6 border-t">
         <h3 class="text-xl font-semibold border-b pb-2">Document Access</h3>

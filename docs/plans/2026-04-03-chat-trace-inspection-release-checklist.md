@@ -41,6 +41,8 @@ Not fully completed yet:
 - purpose: allows backend raw trace bundle access
 - recommended rollout: keep disabled unless an explicitly authorized debug workflow needs it
 
+These flags can now be toggled online from `System Configuration -> General -> Feature Flags`, and they are persisted into the same global config store as the other system settings.
+
 ## Pre-Release Checklist
 
 - [ ] Confirm backend tests are green for trace-related changes.
@@ -157,6 +159,7 @@ Expected result:
   - `chat_trace_raw_enabled=false`
 - If internal teams need summary inspection, enable only the UI flag first.
 - Enable raw mode only for trusted debug workflows with explicit awareness of exposure risk.
+- For a short team-facing usage note, see [2026-04-03-chat-trace-user-guide.md](./2026-04-03-chat-trace-user-guide.md).
 
 ## Exit Criteria For Broader Rollout
 

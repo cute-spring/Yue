@@ -69,21 +69,62 @@ class ConfigService:
     def get_feature_flags(self) -> Dict[str, bool]:
         """获取功能开关配置"""
         flags = self._config.get("feature_flags", {})
+        def _coerce_bool(value: Any, default: bool) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"true", "1", "yes", "on"}:
+                    return True
+                if lowered in {"false", "0", "no", "off"}:
+                    return False
+            if value is None:
+                return default
+            return bool(value)
         return {
-            "skill_runtime_enabled": flags.get("skill_runtime_enabled", True),
-            "skill_selector_tool_enabled": flags.get("skill_selector_tool_enabled", True),
-            "skill_auto_mode_enabled": flags.get("skill_auto_mode_enabled", True),
-            "skill_summary_prompt_enabled": flags.get("skill_summary_prompt_enabled", True),
-            "skill_lazy_full_load_enabled": flags.get("skill_lazy_full_load_enabled", True),
-            "transparency_event_v2_enabled": flags.get("transparency_event_v2_enabled", True),
-            "transparency_turn_binding_enabled": flags.get("transparency_turn_binding_enabled", True),
-            "chat_trace_ui_enabled": flags.get("chat_trace_ui_enabled", False),
-            "chat_trace_raw_enabled": flags.get("chat_trace_raw_enabled", False),
-            "reasoning_display_gated_enabled": flags.get("reasoning_display_gated_enabled", True),
-            "multimodal_enabled": flags.get("multimodal_enabled", True),
-            "multimodal_image_only_submit_enabled": flags.get("multimodal_image_only_submit_enabled", True),
-            "multimodal_vision_fallback_enabled": flags.get("multimodal_vision_fallback_enabled", False),
+            "skill_runtime_enabled": _coerce_bool(flags.get("skill_runtime_enabled"), True),
+            "skill_selector_tool_enabled": _coerce_bool(flags.get("skill_selector_tool_enabled"), True),
+            "skill_auto_mode_enabled": _coerce_bool(flags.get("skill_auto_mode_enabled"), True),
+            "skill_summary_prompt_enabled": _coerce_bool(flags.get("skill_summary_prompt_enabled"), True),
+            "skill_lazy_full_load_enabled": _coerce_bool(flags.get("skill_lazy_full_load_enabled"), True),
+            "transparency_event_v2_enabled": _coerce_bool(flags.get("transparency_event_v2_enabled"), True),
+            "transparency_turn_binding_enabled": _coerce_bool(flags.get("transparency_turn_binding_enabled"), True),
+            "chat_trace_ui_enabled": _coerce_bool(flags.get("chat_trace_ui_enabled"), False),
+            "chat_trace_raw_enabled": _coerce_bool(flags.get("chat_trace_raw_enabled"), False),
+            "reasoning_display_gated_enabled": _coerce_bool(flags.get("reasoning_display_gated_enabled"), True),
+            "multimodal_enabled": _coerce_bool(flags.get("multimodal_enabled"), True),
+            "multimodal_image_only_submit_enabled": _coerce_bool(flags.get("multimodal_image_only_submit_enabled"), True),
+            "multimodal_vision_fallback_enabled": _coerce_bool(flags.get("multimodal_vision_fallback_enabled"), False),
         }
+
+    def update_feature_flags(self, feature_flags: Dict[str, Any]) -> Dict[str, bool]:
+        """更新功能开关配置并持久化到磁盘"""
+        current = self.get_feature_flags()
+        incoming = feature_flags if isinstance(feature_flags, dict) else {}
+
+        for key in current.keys():
+            if key not in incoming:
+                continue
+            value = incoming.get(key)
+            if isinstance(value, bool):
+                current[key] = value
+            elif isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"true", "1", "yes", "on"}:
+                    current[key] = True
+                elif lowered in {"false", "0", "no", "off"}:
+                    current[key] = False
+                else:
+                    current[key] = bool(value)
+            elif value is not None:
+                current[key] = bool(value)
+
+        self._config["feature_flags"] = {
+            **self._config.get("feature_flags", {}),
+            **current,
+        }
+        self.update_config(self._config)
+        return self.get_feature_flags()
 
     def get_multimodal_config(self) -> Dict[str, Any]:
         multimodal = self._config.get("multimodal", {})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PREFERENCES, normalizePreferences } from './types';
+import { DEFAULT_FEATURE_FLAGS, DEFAULT_PREFERENCES, normalizeFeatureFlags, normalizePreferences } from './types';
 
 describe('preferences normalization', () => {
   it('fills missing speech fields with defaults', () => {
@@ -37,5 +37,19 @@ describe('preferences normalization', () => {
     expect(normalized.voice_input_provider).toBe('azure');
     expect(normalized.voice_input_language).toBe('zh-CN');
     expect(normalized.voice_input_show_interim).toBe(false);
+  });
+
+  it('fills missing feature flag values with defaults', () => {
+    expect(normalizeFeatureFlags({})).toEqual(DEFAULT_FEATURE_FLAGS);
+  });
+
+  it('normalizes chat trace feature flags from booleans only', () => {
+    const normalized = normalizeFeatureFlags({
+      chat_trace_ui_enabled: true,
+      chat_trace_raw_enabled: false,
+    });
+
+    expect(normalized.chat_trace_ui_enabled).toBe(true);
+    expect(normalized.chat_trace_raw_enabled).toBe(false);
   });
 });

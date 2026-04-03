@@ -6,9 +6,10 @@ import type {
   LlmForm,
   McpStatus,
   McpTool,
+  FeatureFlags,
   Preferences,
 } from './types';
-import { DEFAULT_PREFERENCES, normalizePreferences } from './types';
+import { DEFAULT_PREFERENCES, normalizeFeatureFlags, normalizePreferences } from './types';
 
 export type SettingsDataSnapshot = {
   mcpConfigText: string;
@@ -20,6 +21,7 @@ export type SettingsDataSnapshot = {
   agents: Agent[];
   prefs: Preferences;
   docAccess: DocAccess;
+  featureFlags: FeatureFlags;
   docAllowText: string;
   docDenyText: string;
 };
@@ -59,6 +61,10 @@ export function useSettingsData() {
     const rawDocAccess = await docAccessRes.json();
     const docAccess = normalizeDocAccess(rawDocAccess);
 
+    const featureFlagsRes = await fetch('/api/config/feature_flags');
+    const rawFeatureFlags = await featureFlagsRes.json();
+    const featureFlags = normalizeFeatureFlags(rawFeatureFlags);
+
     return {
       mcpConfigText: JSON.stringify(mcpConfig, null, 2),
       mcpStatus,
@@ -69,6 +75,7 @@ export function useSettingsData() {
       agents,
       prefs: normalizePreferences(prefsRaw || DEFAULT_PREFERENCES),
       docAccess,
+      featureFlags,
       docAllowText: docAccess.allow_roots.join('\n'),
       docDenyText: docAccess.deny_roots.join('\n'),
     };
