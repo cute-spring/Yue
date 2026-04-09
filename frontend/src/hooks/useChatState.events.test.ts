@@ -4,6 +4,7 @@ import {
   buildActionStatesFromEvents,
   buildToolCallsFromEvents,
   normalizeStreamEvent,
+  runEditQuestionFlow,
   shouldAcceptEvent,
   shouldSkipHistoryFetch,
 } from './useChatState';
@@ -150,5 +151,93 @@ describe('useChatState event helpers', () => {
 
   it('allows history fetch after interval threshold', () => {
     expect(shouldSkipHistoryFetch(1000, 1900, 800)).toBe(false);
+  });
+});
+
+describe('handleEditQuestion flow', () => {
+  it('truncates then submits edited text when truncate succeeds', async () => {
+    const calls: string[] = [];
+    const fetchCalls: Array<{ url: string; body: any }> = [];
+    const messages = [
+      { role: 'user', content: 'Q1' },
+      { role: 'assistant', content: 'A1' },
+      { role: 'user', content: 'Q2' },
+      { role: 'assistant', content: 'A2' },
+    ];
+
+    await runEditQuestionFlow({
+      index: 2,
+      newContent: '  Edited Q2  ',
+      isTyping: false,
+      currentMessages: messages,
+      currentChatId: 'chat-1',
+      fetchImpl: async (url, init) => {
+        fetchCalls.push({ url: String(url), body: JSON.parse(String(init?.body || '{}')) });
+        return new Response(JSON.stringify({ status: 'success' }), { status: 200 });
+      },
+      truncateLocalMessages: (keepCount) => calls.push(`truncate:${keepCount}`),
+      setInputText: (value) => calls.push(`input:${value}`),
+      submitEditedQuestion: async () => {
+        calls.push('submit');
+      },
+    });
+
+    expect(fetchCalls).toEqual([
+      {
+        url: '/api/chat/chat-1/truncate',
+        body: { keep_count: 2 },
+      },
+    ]);
+    expect(calls).toEqual(['truncate:2', 'input:Edited Q2', 'submit']);
+  });
+
+  it('throws and does not mutate local state when truncate returns non-ok', async () => {
+    const calls: string[] = [];
+
+    await expect(
+      runEditQuestionFlow({
+        index: 2,
+        newContent: 'Edited',
+        isTyping: false,
+        currentMessages: [
+          { role: 'user', content: 'Q1' },
+          { role: 'assistant', content: 'A1' },
+          { role: 'user', content: 'Q2' },
+        ],
+        currentChatId: 'chat-1',
+        fetchImpl: async () => new Response(JSON.stringify({ detail: 'boom' }), { status: 500 }),
+        truncateLocalMessages: () => calls.push('truncate'),
+        setInputText: () => calls.push('input'),
+        submitEditedQuestion: async () => {
+          calls.push('submit');
+        },
+      }),
+    ).rejects.toThrow();
+
+    expect(calls).toEqual([]);
+  });
+
+  it('throws on fetch rejection and does not submit', async () => {
+    const calls: string[] = [];
+
+    await expect(
+      runEditQuestionFlow({
+        index: 0,
+        newContent: 'Edited',
+        isTyping: false,
+        currentMessages: [{ role: 'user', content: 'Q1' }],
+        currentChatId: 'chat-1',
+        fetchImpl: async () => {
+          throw new Error('network');
+        },
+        truncateLocalMessages: () => calls.push('truncate'),
+        setInputText: () => calls.push('input'),
+        submitEditedQuestion: async () => {
+          calls.push('submit');
+        },
+      }),
+    ).rejects.toThrow('network');
+
+    expect(calls).toEqual([]);
   });
 });

@@ -20,10 +20,26 @@ interface MessageItemProps {
   copyUserMessage: (content: string, index: number) => void;
   quoteUserMessage: (content: string) => void;
   handleRegenerate: (index: number) => void;
+  handleEditQuestion: (index: number, newContent: string) => Promise<void>;
   onContinue: (msg: Message) => void;
   selectedProvider: string;
   selectedModel: string;
 }
+
+type EditShortcutAction = 'none' | 'cancel' | 'submit';
+
+export const getNormalizedEditedQuestion = (value: string): string => value.trim();
+
+export const getEditShortcutAction = (event: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}): EditShortcutAction => {
+  if (event.key === 'Escape') return 'cancel';
+  if (event.key === 'Enter' && !event.shiftKey && (event.metaKey || event.ctrlKey)) return 'submit';
+  return 'none';
+};
 
 export const getVisionBadge = (msg: Pick<Message, 'supports_vision' | 'vision_enabled' | 'vision_fallback_mode' | 'image_count'>) => {
   const imageCount = typeof msg.image_count === 'number' ? msg.image_count : 0;
@@ -70,6 +86,10 @@ export const getVisionFeedbackText = (
 export default function MessageItem(props: MessageItemProps) {
   const speechController = useMaybeSpeechController();
   const [waitSecs, setWaitSecs] = createSignal(0);
+  const [isEditing, setIsEditing] = createSignal(false);
+  const [editContent, setEditContent] = createSignal('');
+  const [isSavingEdit, setIsSavingEdit] = createSignal(false);
+  const [editError, setEditError] = createSignal<string | null>(null);
   let timer: any;
 
   const [exportMenuPos, setExportMenuPos] = createSignal<{x: number, y: number} | null>(null);
@@ -77,6 +97,44 @@ export default function MessageItem(props: MessageItemProps) {
   const handleExportClick = (e: MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setExportMenuPos({ x: rect.left, y: rect.bottom + 8 });
+  };
+
+  const closeEdit = () => {
+    setIsEditing(false);
+    setIsSavingEdit(false);
+    setEditError(null);
+  };
+
+  const onSubmitEditedQuestion = async () => {
+    const normalized = getNormalizedEditedQuestion(editContent());
+    if (!normalized) {
+      setEditError('Question cannot be empty');
+      return;
+    }
+
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      await props.handleEditQuestion(props.index, normalized);
+      closeEdit();
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Failed to update question');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const onEditKeyDown = async (event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }) => {
+    const action = getEditShortcutAction(event);
+    if (action === 'cancel') {
+      event.preventDefault();
+      closeEdit();
+      return;
+    }
+    if (action === 'submit') {
+      event.preventDefault();
+      await onSubmitEditedQuestion();
+    }
   };
 
   // Memoize parsing to avoid redundant work and logic issues during non-typing states
@@ -373,58 +431,108 @@ export default function MessageItem(props: MessageItemProps) {
       >
         {props.msg.role === 'user' ? (
            <>
-             <div class="absolute inset-0 pointer-events-none overflow-hidden">
-               <div class="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-primary/10 blur-3xl"></div>
-               <div class="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl"></div>
-               <div class="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_55%,rgba(16,185,129,0.06))]"></div>
-             </div>
-             <Show when={props.msg.images && props.msg.images.length > 0}>
-               <div class="flex flex-wrap gap-2 mb-2 relative z-10">
-                 <For each={props.msg.images}>
-                   {(img) => (
-                     <img src={img} class="max-w-full h-auto max-h-64 rounded-lg border border-white/10" alt="User upload" />
-                   )}
-                 </For>
+             <Show when={!isEditing()}>
+               <div class="absolute inset-0 pointer-events-none overflow-hidden">
+                 <div class="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-primary/10 blur-3xl"></div>
+                 <div class="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl"></div>
+                 <div class="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_55%,rgba(16,185,129,0.06))]"></div>
                </div>
-             </Show>
-             <div class="relative whitespace-pre-wrap leading-relaxed font-medium text-[15px] select-text">{props.msg.content}</div>
-             <div class="mt-3 flex justify-end">
-               <div class="flex items-center gap-1 p-1 rounded-2xl bg-surface/70 backdrop-blur-md ring-1 ring-border/70 shadow-sm transition-opacity opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
-                 <button
-                   class={`p-1.5 rounded-xl transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
-                     props.copiedMessageIndex === props.index
-                       ? 'text-emerald-500 bg-emerald-500/10'
-                       : 'text-text-secondary/70 hover:text-primary hover:bg-primary/10'
-                   }`}
-                   title={props.copiedMessageIndex === props.index ? "Copied" : "Copy"}
-                   aria-label="Copy message"
-                   onClick={() => props.copyUserMessage(props.msg.content, props.index)}
-                 >
-                   <Show
-                     when={props.copiedMessageIndex === props.index}
-                     fallback={
+               <Show when={props.msg.images && props.msg.images.length > 0}>
+                 <div class="flex flex-wrap gap-2 mb-2 relative z-10">
+                   <For each={props.msg.images}>
+                     {(img) => (
+                       <img src={img} class="max-w-full h-auto max-h-64 rounded-lg border border-white/10" alt="User upload" />
+                     )}
+                   </For>
+                 </div>
+               </Show>
+               <div class="relative whitespace-pre-wrap leading-relaxed font-medium text-[15px] select-text">{props.msg.content}</div>
+               <div class="mt-3 flex justify-end">
+                 <div class="flex items-center gap-1 p-1 rounded-2xl bg-surface/70 backdrop-blur-md ring-1 ring-border/70 shadow-sm transition-opacity opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
+                   <button
+                     class={`p-1.5 rounded-xl transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                       props.copiedMessageIndex === props.index
+                         ? 'text-emerald-500 bg-emerald-500/10'
+                         : 'text-text-secondary/70 hover:text-primary hover:bg-primary/10'
+                     }`}
+                     title={props.copiedMessageIndex === props.index ? "Copied" : "Copy"}
+                     aria-label="Copy message"
+                     onClick={() => props.copyUserMessage(props.msg.content, props.index)}
+                   >
+                     <Show
+                       when={props.copiedMessageIndex === props.index}
+                       fallback={
+                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                         </svg>
+                       }
+                     >
                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                        </svg>
-                     }
+                     </Show>
+                   </button>
+                   <button
+                     class="p-1.5 rounded-xl text-text-secondary/70 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                     title="Quote"
+                     aria-label="Quote message"
+                     onClick={() => props.quoteUserMessage(props.msg.content)}
                    >
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l5 5m-5-5l5-5" />
                      </svg>
-                   </Show>
-                 </button>
-                 <button
-                   class="p-1.5 rounded-xl text-text-secondary/70 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                   title="Quote"
-                   aria-label="Quote message"
-                   onClick={() => props.quoteUserMessage(props.msg.content)}
-                 >
-                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l5 5m-5-5l5-5" />
-                   </svg>
-                 </button>
+                   </button>
+                   <button
+                     class="p-1.5 rounded-xl text-text-secondary/70 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                     title="Edit"
+                     aria-label="Edit message"
+                     onClick={() => {
+                       setEditContent(props.msg.content);
+                       setEditError(null);
+                       setIsEditing(true);
+                     }}
+                   >
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5h2m-7 14h12a2 2 0 002-2V7a2 2 0 00-2-2h-3m-4 0H8a2 2 0 00-2 2v3m0 4v3a2 2 0 002 2m8-7l-6 6-4 1 1-4 6-6m3-3l2 2" />
+                     </svg>
+                   </button>
+                 </div>
                </div>
-             </div>
+             </Show>
+             <Show when={isEditing()}>
+               <div class="flex flex-col gap-2 mt-2 w-full min-w-[250px] relative z-20">
+                 <textarea
+                   class="w-full bg-background/80 backdrop-blur-md border border-primary/30 rounded-xl p-3 text-[15px] text-text-primary focus:outline-none focus:border-primary/60 resize-y min-h-[100px]"
+                   value={editContent()}
+                   disabled={isSavingEdit()}
+                   onInput={(e) => setEditContent(e.currentTarget.value)}
+                   onKeyDown={(e) => {
+                     void onEditKeyDown(e);
+                   }}
+                 />
+                 <Show when={editError()}>
+                   <div class="text-xs text-rose-500">{editError()}</div>
+                 </Show>
+                 <div class="flex justify-end gap-2 mt-1">
+                   <button
+                     disabled={isSavingEdit()}
+                     onClick={closeEdit}
+                     class="px-3 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:bg-text-secondary/10 transition-colors disabled:opacity-60"
+                   >
+                     Cancel
+                   </button>
+                   <button
+                     disabled={isSavingEdit()}
+                     onClick={() => {
+                       void onSubmitEditedQuestion();
+                     }}
+                     class="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white hover:bg-primary-hover transition-colors shadow-sm disabled:opacity-60"
+                   >
+                     Save & Submit
+                   </button>
+                 </div>
+               </div>
+             </Show>
            </>
         ) : (
           (() => {

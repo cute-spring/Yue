@@ -35,6 +35,61 @@ export const shouldSkipHistoryFetch = (lastFetchAt: number, now: number, minInte
   return now - lastFetchAt < minIntervalMs;
 };
 
+export type EditQuestionFlowDeps = {
+  index: number;
+  newContent: string;
+  isTyping: boolean;
+  currentMessages: Array<Pick<Message, 'role' | 'content'>>;
+  currentChatId: string | null;
+  fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  truncateLocalMessages: (keepCount: number) => void;
+  setInputText: (value: string) => void;
+  submitEditedQuestion: (value: string) => Promise<void>;
+};
+
+export const runEditQuestionFlow = async ({
+  index,
+  newContent,
+  isTyping,
+  currentMessages,
+  currentChatId,
+  fetchImpl,
+  truncateLocalMessages,
+  setInputText,
+  submitEditedQuestion,
+}: EditQuestionFlowDeps): Promise<void> => {
+  if (isTyping) return;
+  const trimmed = newContent.trim();
+  if (!trimmed) {
+    throw new Error('Edited question cannot be empty');
+  }
+  if (index < 0 || index >= currentMessages.length) {
+    throw new Error('Invalid message index');
+  }
+  const targetMessage = currentMessages[index];
+  if (targetMessage.role !== 'user') {
+    throw new Error('Only user messages can be edited');
+  }
+
+  // TODO: Prefer message-id truncation once backend supports it.
+  const keepCount = index;
+
+  if (currentChatId) {
+    const response = await fetchImpl(`/api/chat/${currentChatId}/truncate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keep_count: keepCount }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to truncate chat history (${response.status})`);
+    }
+  }
+
+  truncateLocalMessages(keepCount);
+  setInputText(trimmed);
+  await submitEditedQuestion(trimmed);
+};
+
 export function useChatState(
   selectedProvider: () => string,
   selectedModel: () => string,
@@ -407,6 +462,30 @@ export function useChatState(
     handleSubmit();
   };
 
+  const handleEditQuestion = async (index: number, newContent: string): Promise<void> => {
+    try {
+      await runEditQuestionFlow({
+        index,
+        newContent,
+        isTyping: isTyping(),
+        currentMessages: messages(),
+        currentChatId: currentChatId(),
+        fetchImpl: fetch,
+        truncateLocalMessages: (keepCount) => {
+          setMessages(messages().slice(0, keepCount));
+        },
+        setInputText: setInput,
+        submitEditedQuestion: async (value) => {
+          await submitText(value);
+        },
+      });
+    } catch (error) {
+      console.error('Failed to update question', error);
+      toast.error('Failed to update question');
+      throw error;
+    }
+  };
+
   onMount(() => {
     loadHistory();
   });
@@ -473,6 +552,7 @@ export function useChatState(
     submitActionDecision,
     handleSubmit,
     handleRegenerate,
+    handleEditQuestion,
     toggleThought,
     handleImageUpload,
     removeImage,
