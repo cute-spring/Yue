@@ -132,6 +132,7 @@ function ChatContent(props: {
     copyUserMessage,
     quoteUserMessage,
     handleRegenerate,
+    handleEditQuestion,
     lastGenerationOutcome,
     submitText,
     submitActionDecision,
@@ -794,6 +795,7 @@ function ChatContent(props: {
           copyUserMessage={copyUserMessage}
           quoteUserMessage={quoteUserMessage}
           handleRegenerate={handleRegenerate}
+          handleEditQuestion={handleEditQuestion}
           onContinue={handleContinue}
           messagesEndRef={el => messagesEndRef = el}
           setInput={setInput}
