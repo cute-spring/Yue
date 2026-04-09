@@ -297,7 +297,58 @@ export default function MessageItem(props: MessageItemProps) {
     };
 
     return (
-      <div class={`export-exclude mt-4 flex flex-wrap items-center gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div class={`export-exclude mt-4 flex flex-wrap items-center gap-3 ${isUser ? 'justify-between' : 'justify-start'}`}>
+        <Show when={isUser}>
+          <div class="flex items-center gap-1.5 -ml-2">
+            <button
+              class={`p-1.5 rounded-lg transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                props.copiedMessageIndex === props.index
+                  ? 'text-emerald-500 bg-emerald-500/10'
+                  : 'text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5'
+              }`}
+              title={props.copiedMessageIndex === props.index ? "Copied" : "Copy"}
+              aria-label="Copy message"
+              onClick={() => props.copyUserMessage(props.msg.content, props.index)}
+            >
+              <Show
+                when={props.copiedMessageIndex === props.index}
+                fallback={
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                  </svg>
+                }
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+              </Show>
+            </button>
+            <button
+              class="p-1.5 rounded-lg text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              title="Quote"
+              aria-label="Quote message"
+              onClick={() => props.quoteUserMessage(props.msg.content)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l5 5m-5-5l5-5" />
+              </svg>
+            </button>
+            <button
+              class="p-1.5 rounded-lg text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              title="Edit"
+              aria-label="Edit message"
+              onClick={() => {
+                setEditContent(props.msg.content);
+                setEditError(null);
+                setIsEditing(true);
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5h2m-7 14h12a2 2 0 002-2V7a2 2 0 00-2-2h-3m-4 0H8a2 2 0 00-2 2v3m0 4v3a2 2 0 002 2m8-7l-6 6-4 1 1-4 6-6m3-3l2 2" />
+              </svg>
+            </button>
+          </div>
+        </Show>
         <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-text-secondary/5 border border-border/40 text-[10px] font-medium text-text-secondary/70">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           {formatTime(msg.timestamp)}
@@ -423,10 +474,10 @@ export default function MessageItem(props: MessageItemProps) {
         tabIndex={props.msg.role === 'assistant' ? 0 : -1}
         onKeyDown={handleSpeechShortcut}
         aria-label={props.msg.role === 'assistant' ? 'Assistant message. Press R to read aloud or stop.' : undefined}
-        class={`group relative max-w-[85%] lg:max-w-[75%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+        class={`group relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
         props.msg.role === 'user' 
-          ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-primary/20 rounded-[26px] rounded-br-none overflow-hidden' 
-          : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none'
+          ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-primary/20 rounded-[26px] rounded-br-none overflow-hidden max-w-[85%] lg:max-w-[75%]' 
+          : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none max-w-[85%] lg:max-w-[75%]'
       }`}
       >
         {props.msg.role === 'user' ? (
@@ -441,19 +492,19 @@ export default function MessageItem(props: MessageItemProps) {
                  <div class="flex flex-wrap gap-2 mb-2 relative z-10">
                    <For each={props.msg.images}>
                      {(img) => (
-                       <img src={img} class="max-w-full h-auto max-h-64 rounded-lg border border-white/10" alt="User upload" />
+                       <img src={img} class="max-w-full h-auto max-h-64 rounded-lg border border-white/10 shadow-sm" alt="User upload" />
                      )}
                    </For>
                  </div>
                </Show>
                <div class="relative whitespace-pre-wrap leading-relaxed font-medium text-[15px] select-text">{props.msg.content}</div>
-               <div class="mt-3 flex justify-end">
-                 <div class="flex items-center gap-1 p-1 rounded-2xl bg-surface/70 backdrop-blur-md ring-1 ring-border/70 shadow-sm transition-opacity opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
+               <div class="mt-4 flex justify-between items-center border-t border-primary/10 pt-3">
+                 <div class="export-exclude flex items-center gap-1.5 -ml-2">
                    <button
-                     class={`p-1.5 rounded-xl transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                     class={`p-1.5 rounded-lg transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                        props.copiedMessageIndex === props.index
                          ? 'text-emerald-500 bg-emerald-500/10'
-                         : 'text-text-secondary/70 hover:text-primary hover:bg-primary/10'
+                         : 'text-text-secondary/50 hover:text-primary hover:bg-primary/10'
                      }`}
                      title={props.copiedMessageIndex === props.index ? "Copied" : "Copy"}
                      aria-label="Copy message"
@@ -463,7 +514,7 @@ export default function MessageItem(props: MessageItemProps) {
                        when={props.copiedMessageIndex === props.index}
                        fallback={
                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                          </svg>
                        }
                      >
@@ -473,7 +524,7 @@ export default function MessageItem(props: MessageItemProps) {
                      </Show>
                    </button>
                    <button
-                     class="p-1.5 rounded-xl text-text-secondary/70 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                     class="p-1.5 rounded-lg text-text-secondary/50 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                      title="Quote"
                      aria-label="Quote message"
                      onClick={() => props.quoteUserMessage(props.msg.content)}
@@ -483,7 +534,7 @@ export default function MessageItem(props: MessageItemProps) {
                      </svg>
                    </button>
                    <button
-                     class="p-1.5 rounded-xl text-text-secondary/70 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                     class="p-1.5 rounded-lg text-text-secondary/50 hover:text-primary hover:bg-primary/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                      title="Edit"
                      aria-label="Edit message"
                      onClick={() => {
@@ -496,6 +547,10 @@ export default function MessageItem(props: MessageItemProps) {
                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5h2m-7 14h12a2 2 0 002-2V7a2 2 0 00-2-2h-3m-4 0H8a2 2 0 00-2 2v3m0 4v3a2 2 0 002 2m8-7l-6 6-4 1 1-4 6-6m3-3l2 2" />
                      </svg>
                    </button>
+                 </div>
+                 <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/5 border border-primary/10 text-[10px] font-bold text-text-secondary/60 uppercase tracking-tight">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-70"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                   {formatTime(props.msg.timestamp)}
                  </div>
                </div>
              </Show>
@@ -601,10 +656,10 @@ export default function MessageItem(props: MessageItemProps) {
                 </Show>
 
                 <Show when={reasoningEnabled && (thought || (props.isTyping && !content))}>
-                  <div class="mb-4 rounded-2xl border border-border/40 bg-background/40 overflow-hidden group/thought transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.05)]">
+                  <div class="mb-4 rounded-xl border border-border/40 bg-background/40 overflow-hidden group/thought transition-all duration-500 hover:border-primary/30">
                     <button 
                       onClick={() => props.toggleThought(props.index)}
-                      class="w-full flex items-center justify-between px-5 py-4 hover:bg-primary/[0.03] transition-all group/btn relative overflow-hidden"
+                      class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-primary/[0.03] transition-all group/btn relative overflow-hidden"
                     >
                       <Show when={isThinking}>
                         <div class="absolute inset-0 bg-gradient-to-r from-transparent via-primary/[0.05] to-transparent -translate-x-full animate-[shimmer_3s_infinite] pointer-events-none"></div>
@@ -818,57 +873,49 @@ export default function MessageItem(props: MessageItemProps) {
         </Show>
 
         <Show when={props.msg.role === 'assistant' && !props.isTyping}>
-          <div class="export-exclude flex items-center gap-1.5 mt-3 -ml-2">
-            <button 
-              class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
-              title="Copy" 
-              onClick={() => navigator.clipboard.writeText(props.msg.content)}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-              </svg>
-            </button>
-            <SpeechControl messageId={speechMessageId()} content={props.msg.content} />
-            <Show when={speechState() === 'speaking' || speechState() === 'paused'}>
-              <div class="px-2 py-1 rounded-md border border-primary/20 bg-primary/5 text-[10px] font-semibold text-primary flex items-center gap-1.5">
-                <span class={`w-1.5 h-1.5 rounded-full ${speechState() === 'speaking' ? 'bg-primary animate-pulse' : 'bg-primary/60'}`}></span>
-                {speechState() === 'speaking' ? 'Speaking now' : 'Paused'}
-              </div>
-            </Show>
-             <button 
-               class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
-               title="Download/Export"
-               onClick={handleExportClick}
-             >
-               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-               </svg>
-            </button>
-             <button class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" title="Share">
-               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-               </svg>
-            </button>
-             <button class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" title="More">
-               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
-               </svg>
-            </button>
+          <div class="export-exclude flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-border/10">
+            <div class="flex items-center gap-1.5 -ml-1.5">
+              <button 
+                class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
+                title="Copy" 
+                onClick={() => navigator.clipboard.writeText(props.msg.content)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                </svg>
+              </button>
+              <SpeechControl messageId={speechMessageId()} content={props.msg.content} />
+              <Show when={speechState() === 'speaking' || speechState() === 'paused'}>
+                <div class="px-2 py-1 rounded-md border border-primary/20 bg-primary/5 text-[10px] font-semibold text-primary flex items-center gap-1.5">
+                  <span class={`w-1.5 h-1.5 rounded-full ${speechState() === 'speaking' ? 'bg-primary animate-pulse' : 'bg-primary/60'}`}></span>
+                  {speechState() === 'speaking' ? 'Speaking' : 'Paused'}
+                </div>
+              </Show>
+               <button 
+                 class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
+                 title="Download/Export"
+                 onClick={handleExportClick}
+               >
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                 </svg>
+              </button>
+              <button 
+                class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
+                title="Regenerate" 
+                onClick={() => props.handleRegenerate(props.index)}
+              >
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                 </svg>
+              </button>
+            </div>
             
-            <div class="h-4 w-[1px] bg-border/50 mx-1"></div>
-            
-            <button 
-              class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
-              title="Regenerate" 
-              onClick={() => props.handleRegenerate(props.index)}
-            >
-               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-               </svg>
-            </button>
+            <div class="flex items-center gap-2">
+              {renderMetaBadges(props.msg)}
+            </div>
           </div>
         </Show>
-        {renderMetaBadges(props.msg)}
       </div>
       <Show when={exportMenuPos()}>
         <MessageExportMenu 
