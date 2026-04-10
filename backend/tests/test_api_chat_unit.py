@@ -25,11 +25,24 @@ def mock_chat_service():
 def test_list_chats(client, mock_chat_service):
     now = datetime.now()
     mock_chat_service.list_chats.return_value = [
-        {"id": "1", "title": "Chat 1", "created_at": now, "updated_at": now, "messages": []}
+        {"id": "1", "title": "Chat 1", "created_at": now, "updated_at": now, "messages": [], "tags": ["api"]}
     ]
     response = client.get("/api/chat/history")
     assert response.status_code == 200
     assert response.json()[0]["id"] == "1"
+    mock_chat_service.list_chats.assert_called_once_with(tags=None, tag_mode="any", date_from=None, date_to=None)
+
+def test_list_chats_with_filters(client, mock_chat_service):
+    now = datetime.now()
+    mock_chat_service.list_chats.return_value = [
+        {"id": "2", "title": "Filtered", "created_at": now, "updated_at": now, "messages": [], "tags": ["backend", "api"]}
+    ]
+    response = client.get("/api/chat/history?tags=backend,api&tag_mode=all")
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == "2"
+    called_kwargs = mock_chat_service.list_chats.call_args.kwargs
+    assert called_kwargs["tags"] == ["backend", "api"]
+    assert called_kwargs["tag_mode"] == "all"
 
 def test_get_chat_success(client, mock_chat_service):
     now = datetime.now()
@@ -106,6 +119,19 @@ def test_generate_summary_updates_session(client, mock_chat_service):
     assert response.status_code == 200
     assert response.json()["summary"] == "new summary"
     mock_chat_service.update_chat_summary.assert_called_once_with("1", "new summary")
+
+def test_generate_chat_tags_not_found(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = None
+    response = client.post("/api/chat/missing/tags/generate")
+    assert response.status_code == 404
+
+def test_generate_chat_tags_success(client, mock_chat_service):
+    mock_chat_service.get_chat.return_value = MagicMock(id="1")
+    mock_chat_service.generate_chat_tags.return_value = ["api", "backend"]
+    response = client.post("/api/chat/1/tags/generate")
+    assert response.status_code == 200
+    assert response.json() == {"tags": ["api", "backend"]}
+    mock_chat_service.generate_chat_tags.assert_called_once_with("1")
 
 def test_get_chat_meta_not_found(client, mock_chat_service):
     mock_chat_service.get_chat.return_value = None

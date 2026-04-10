@@ -97,6 +97,13 @@ export function useChatState(
   requestedSkill: () => string | null,
   setShowLLMSelector: (v: boolean) => void
 ) {
+  type HistoryFilters = {
+    tags?: string[];
+    tagMode?: 'any' | 'all';
+    dateFrom?: string;
+    dateTo?: string;
+  };
+
   const toast = useToast();
   const [chats, setChats] = createSignal<ChatSession[]>([]);
   const [currentChatId, setCurrentChatId] = createSignal<string | null>(null);
@@ -119,7 +126,7 @@ export function useChatState(
   let lastHistoryFetchAt = 0;
   const historyFetchMinIntervalMs = 800;
 
-  const loadHistory = async (force: boolean = false) => {
+  const loadHistory = async (force: boolean = false, filters?: HistoryFilters) => {
     if (historyFetchInFlight) {
       await historyFetchInFlight;
       return;
@@ -130,7 +137,21 @@ export function useChatState(
     }
     historyFetchInFlight = (async () => {
       try {
-        const res = await fetch('/api/chat/history');
+        const params = new URLSearchParams();
+        if (filters?.tags && filters.tags.length > 0) {
+          params.set('tags', filters.tags.join(','));
+        }
+        if (filters?.tagMode) {
+          params.set('tag_mode', filters.tagMode);
+        }
+        if (filters?.dateFrom) {
+          params.set('date_from', filters.dateFrom);
+        }
+        if (filters?.dateTo) {
+          params.set('date_to', filters.dateTo);
+        }
+        const query = params.toString();
+        const res = await fetch(query ? `/api/chat/history?${query}` : '/api/chat/history');
         const data = await res.json();
         setChats(data);
         lastHistoryFetchAt = Date.now();

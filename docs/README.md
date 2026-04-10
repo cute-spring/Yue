@@ -39,6 +39,7 @@
 - **[CONFIGURATION.md](guides/developer/CONFIGURATION.md)** - 开发环境配置
 - **[TESTING.md](guides/developer/TESTING.md)** - 测试框架与执行指南
 - **[Azure OpenAI Intranet Config](guides/developer/Azure_OpenAI_Intranet_Config.md)** - 企业内网配置
+- **[Chat History Tags Schema Upgrade](guides/developer/CHAT_HISTORY_TAGS_SCHEMA_UPGRADE.md)** - 历史标签功能升级与迁移
 - **Deployment Guide** - 部署指南（待创建）
 
 #### 🔧 管理员指南 ([guides/admin/](guides/admin/))

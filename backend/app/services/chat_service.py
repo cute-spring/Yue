@@ -1,8 +1,9 @@
 import json
 import os
+import re
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from sqlalchemy import select, desc, func, case, inspect, text
@@ -28,6 +29,25 @@ from app.models.chat import (
 DATA_DIR = os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))
 OLD_CHATS_FILE = os.path.join(DATA_DIR, "chats.json")
 logger = logging.getLogger(__name__)
+
+TAG_MAX_COUNT = 8
+TAG_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "i", "in", "is", "it",
+    "of", "on", "or", "that", "the", "this", "to", "we", "with", "you", "your",
+}
+TAG_SYNONYMS = {
+    "authentication": "auth",
+    "authorize": "auth",
+    "authorization": "auth",
+    "bug": "bugfix",
+    "bugs": "bugfix",
+    "fix": "bugfix",
+    "fixes": "bugfix",
+    "frontend": "ui-ux",
+    "ui": "ui-ux",
+    "ux": "ui-ux",
+    "tests": "testing",
+}
 
 class Message(BaseModel):
     role: str
@@ -130,6 +150,7 @@ class ChatSession(BaseModel):
     agent_id: Optional[str] = None
     active_skill_name: Optional[str] = None
     active_skill_version: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
     messages: List[Message] = []
     created_at: datetime
     updated_at: datetime
@@ -139,6 +160,15 @@ class ChatService:
         self._ensure_db()
         self._migrate_from_json()
 
+    @staticmethod
+    def _to_api_datetime(value: Optional[datetime]) -> Optional[datetime]:
+        """Return timezone-aware UTC datetimes for API payloads."""
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
     def _ensure_db(self):
         # We now rely on Alembic for migrations, but for local SQLite we can still do create_all
         # to ensure tables exist if someone doesn't run migrations.
@@ -146,6 +176,7 @@ class ChatService:
         try:
             Base.metadata.create_all(bind=engine)
             self._ensure_action_state_schema()
+            self._ensure_session_tags_schema()
         except OperationalError as exc:
             logger.warning("ChatService create_all skipped due to database operational error: %s", exc)
 
@@ -169,6 +200,60 @@ class ChatService:
         with engine.begin() as connection:
             for statement in statements:
                 connection.execute(text(statement))
+
+    def _ensure_session_tags_schema(self) -> None:
+        try:
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("sessions")}
+        except Exception:
+            return
+
+        if "tags_json" in columns:
+            return
+
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE sessions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"))
+
+    @staticmethod
+    def _normalize_tag(tag: str) -> str:
+        lowered = TAG_SYNONYMS.get(tag.strip().lower(), tag.strip().lower())
+        normalized = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
+        return normalized
+
+    def _normalize_tags(self, tags: List[str]) -> List[str]:
+        seen: set[str] = set()
+        normalized_tags: List[str] = []
+        for tag in tags:
+            norm = self._normalize_tag(tag)
+            if not norm or norm in TAG_STOPWORDS or norm in seen:
+                continue
+            seen.add(norm)
+            normalized_tags.append(norm)
+            if len(normalized_tags) >= TAG_MAX_COUNT:
+                break
+        return normalized_tags
+
+    def _parse_tags(self, raw_tags: Optional[str]) -> List[str]:
+        if not raw_tags:
+            return []
+        try:
+            parsed = json.loads(raw_tags)
+            if not isinstance(parsed, list):
+                return []
+        except Exception:
+            return []
+        return self._normalize_tags([str(item) for item in parsed if isinstance(item, (str, int, float))])
+
+    def _derive_tags_from_texts(self, texts: List[str]) -> List[str]:
+        keywords: List[str] = []
+        for text_block in texts:
+            words = re.findall(r"\b[a-zA-Z][a-zA-Z0-9_-]{2,}\b", text_block.lower())
+            for word in words:
+                if word in TAG_STOPWORDS:
+                    continue
+                keywords.append(word)
+
+        return self._normalize_tags(keywords)
 
     def _migrate_from_json(self):
         if not os.path.exists(OLD_CHATS_FILE):
@@ -213,18 +298,39 @@ class ChatService:
         except Exception as e:
             print(f"Migration error: {e}")
 
-    def list_chats(self) -> List[ChatSession]:
+    def list_chats(
+        self,
+        tags: Optional[List[str]] = None,
+        tag_mode: str = "any",
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> List[ChatSession]:
+        normalized_filter_tags = self._normalize_tags(tags or [])
+        normalized_tag_mode = "all" if (tag_mode or "").lower() == "all" else "any"
         with SessionLocal() as db:
-            sessions_query = db.query(SessionModel).order_by(desc(SessionModel.updated_at)).all()
+            sessions_stmt = db.query(SessionModel)
+            if date_from is not None:
+                sessions_stmt = sessions_stmt.filter(SessionModel.updated_at >= date_from)
+            if date_to is not None:
+                sessions_stmt = sessions_stmt.filter(SessionModel.updated_at <= date_to)
+            sessions_query = sessions_stmt.order_by(desc(SessionModel.updated_at)).all()
             result = []
             for s in sessions_query:
+                parsed_tags = self._parse_tags(getattr(s, "tags_json", "[]"))
+                if normalized_filter_tags:
+                    if normalized_tag_mode == "all":
+                        if not all(tag in parsed_tags for tag in normalized_filter_tags):
+                            continue
+                    elif not any(tag in parsed_tags for tag in normalized_filter_tags):
+                        continue
+
                 messages_query = db.query(MessageModel).filter(MessageModel.session_id == s.id).order_by(MessageModel.timestamp).all()
                 messages = []
                 for m in messages_query:
                     msg_dict = {
                         "role": m.role,
                         "content": m.content,
-                        "timestamp": m.timestamp,
+                        "timestamp": self._to_api_datetime(m.timestamp),
                         "assistant_turn_id": m.assistant_turn_id,
                         "run_id": m.run_id,
                         "thought_duration": m.thought_duration,
@@ -254,9 +360,10 @@ class ChatService:
                     agent_id=s.agent_id,
                     active_skill_name=s.active_skill_name,
                     active_skill_version=s.active_skill_version,
+                    tags=parsed_tags,
                     messages=messages,
-                    created_at=s.created_at,
-                    updated_at=s.updated_at
+                    created_at=self._to_api_datetime(s.created_at),
+                    updated_at=self._to_api_datetime(s.updated_at)
                 ))
             return result
 
@@ -283,7 +390,7 @@ class ChatService:
                     "id": m.id,
                     "role": m.role,
                     "content": m.content,
-                    "timestamp": m.timestamp,
+                    "timestamp": self._to_api_datetime(m.timestamp),
                     "assistant_turn_id": m.assistant_turn_id,
                     "run_id": m.run_id,
                     "thought_duration": m.thought_duration,
@@ -321,9 +428,10 @@ class ChatService:
                 agent_id=s.agent_id,
                 active_skill_name=s.active_skill_name,
                 active_skill_version=s.active_skill_version,
+                tags=self._parse_tags(getattr(s, "tags_json", "[]")),
                 messages=messages,
-                created_at=s.created_at,
-                updated_at=s.updated_at
+                created_at=self._to_api_datetime(s.created_at),
+                updated_at=self._to_api_datetime(s.updated_at)
             )
 
     def create_chat(self, agent_id: Optional[str] = None, title: str = "New Chat") -> ChatSession:
@@ -348,9 +456,10 @@ class ChatService:
             agent_id=agent_id,
             active_skill_name=None,
             active_skill_version=None,
+            tags=[],
             messages=[],
-            created_at=now,
-            updated_at=now
+            created_at=self._to_api_datetime(now),
+            updated_at=self._to_api_datetime(now)
         )
 
     def update_chat_title(self, chat_id: str, title: str) -> bool:
@@ -369,9 +478,26 @@ class ChatService:
             if not s:
                 return False
             s.summary = summary
+            messages_query = db.query(MessageModel).filter(MessageModel.session_id == chat_id).order_by(desc(MessageModel.timestamp)).limit(12).all()
+            source_texts = [s.title or "", summary or ""] + [m.content for m in messages_query if m.content]
+            s.tags_json = json.dumps(self._derive_tags_from_texts(source_texts))
             s.updated_at = datetime.utcnow()
             db.commit()
             return True
+
+    def generate_chat_tags(self, chat_id: str) -> Optional[List[str]]:
+        with SessionLocal() as db:
+            s = db.query(SessionModel).filter(SessionModel.id == chat_id).first()
+            if not s:
+                return None
+
+            messages_query = db.query(MessageModel).filter(MessageModel.session_id == chat_id).order_by(desc(MessageModel.timestamp)).limit(12).all()
+            source_texts = [s.title or "", s.summary or ""] + [m.content for m in messages_query if m.content]
+            derived_tags = self._derive_tags_from_texts(source_texts)
+            s.tags_json = json.dumps(derived_tags)
+            s.updated_at = datetime.utcnow()
+            db.commit()
+            return derived_tags
 
     def get_session_skill(self, chat_id: str) -> tuple[Optional[str], Optional[str]]:
         with SessionLocal() as db:
@@ -451,6 +577,11 @@ class ChatService:
                 if msg_count == 0 and s.title == "New Chat":  # 0 because new_msg is not flushed yet
                     new_title = content[:30] + "..." if len(content) > 30 else content
                     s.title = new_title
+
+            if role in {"user", "assistant"}:
+                seed_texts = [s.title or "", s.summary or "", content or ""]
+                existing_tags = self._parse_tags(getattr(s, "tags_json", "[]"))
+                s.tags_json = json.dumps(self._normalize_tags(existing_tags + self._derive_tags_from_texts(seed_texts)))
             
             s.updated_at = now
             db.commit()

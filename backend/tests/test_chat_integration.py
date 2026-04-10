@@ -2,6 +2,7 @@ import pytest
 import os
 import tempfile
 import shutil
+from datetime import datetime
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from sqlalchemy import create_engine
@@ -9,6 +10,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.services.chat_service import ChatService
+from app.models.chat import Session as SessionModel, Message as MessageModel
+import app.services.chat_service as chat_service_module
 
 @pytest.fixture
 def temp_chat_service():
@@ -115,3 +118,134 @@ async def test_chat_history_and_deletion(client, temp_chat_service):
     # 5. Verify deletion
     response = client.get(f"/api/chat/{session_id}")
     assert response.status_code == 404
+
+
+def test_history_returns_utc_aware_timestamps(client, temp_chat_service):
+    session = temp_chat_service.create_chat(agent_id="default")
+
+    # Simulate legacy naive UTC timestamps near day boundary.
+    with chat_service_module.SessionLocal() as db:
+        row = db.query(SessionModel).filter(SessionModel.id == session.id).first()
+        assert row is not None
+        row.created_at = datetime(2026, 4, 10, 17, 30, 0)  # naive UTC
+        row.updated_at = datetime(2026, 4, 10, 17, 30, 0)  # naive UTC
+        db.commit()
+
+    response = client.get("/api/chat/history")
+    assert response.status_code == 200
+    sessions = response.json()
+    target = next(s for s in sessions if s["id"] == session.id)
+
+    # Contract: API returns timezone-aware UTC timestamps.
+    assert target["updated_at"].endswith("+00:00") or target["updated_at"].endswith("Z")
+    assert target["created_at"].endswith("+00:00") or target["created_at"].endswith("Z")
+
+
+def test_timestamp_contract_history_get_chat_and_meta(client, temp_chat_service):
+    session = temp_chat_service.create_chat(agent_id="default")
+    temp_chat_service.add_message(session.id, "user", "contract test")
+
+    with chat_service_module.SessionLocal() as db:
+        row = db.query(SessionModel).filter(SessionModel.id == session.id).first()
+        msg = db.query(MessageModel).filter(MessageModel.session_id == session.id).first()
+        assert row is not None
+        assert msg is not None
+        # Simulate legacy naive UTC values.
+        row.created_at = datetime(2026, 4, 10, 16, 0, 0)
+        row.updated_at = datetime(2026, 4, 10, 16, 30, 0)
+        msg.timestamp = datetime(2026, 4, 10, 16, 15, 0)
+        db.commit()
+
+    def is_utc_aware(value: str) -> bool:
+        return value.endswith("+00:00") or value.endswith("Z")
+
+    history_res = client.get("/api/chat/history")
+    assert history_res.status_code == 200
+    history = history_res.json()
+    target = next(s for s in history if s["id"] == session.id)
+    assert is_utc_aware(target["created_at"])
+    assert is_utc_aware(target["updated_at"])
+
+    get_res = client.get(f"/api/chat/{session.id}")
+    assert get_res.status_code == 200
+    chat_payload = get_res.json()
+    assert is_utc_aware(chat_payload["created_at"])
+    assert is_utc_aware(chat_payload["updated_at"])
+    assert len(chat_payload["messages"]) == 1
+    assert is_utc_aware(chat_payload["messages"][0]["timestamp"])
+
+    meta_res = client.get(f"/api/chat/{session.id}/meta")
+    assert meta_res.status_code == 200
+    meta_payload = meta_res.json()
+    assert is_utc_aware(meta_payload["updated_at"])
+
+
+def test_history_date_from_date_to_filters(client, temp_chat_service):
+    inside = temp_chat_service.create_chat(agent_id="default")
+    outside = temp_chat_service.create_chat(agent_id="default")
+
+    with chat_service_module.SessionLocal() as db:
+        in_row = db.query(SessionModel).filter(SessionModel.id == inside.id).first()
+        out_row = db.query(SessionModel).filter(SessionModel.id == outside.id).first()
+        assert in_row is not None
+        assert out_row is not None
+        in_row.title = "In Window"
+        in_row.updated_at = datetime(2026, 4, 10, 12, 0, 0)
+        out_row.title = "Out Window"
+        out_row.updated_at = datetime(2026, 4, 8, 12, 0, 0)
+        db.commit()
+
+    response = client.get(
+        "/api/chat/history",
+        params={
+            "date_from": "2026-04-10T00:00:00",
+            "date_to": "2026-04-10T23:59:59",
+        },
+    )
+    assert response.status_code == 200
+    sessions = response.json()
+    ids = {s["id"] for s in sessions}
+    assert inside.id in ids
+    assert outside.id not in ids
+
+
+def test_history_tag_and_date_combo_filters(client, temp_chat_service):
+    api_in = temp_chat_service.create_chat(agent_id="default")
+    api_out = temp_chat_service.create_chat(agent_id="default")
+    design_in = temp_chat_service.create_chat(agent_id="default")
+
+    with chat_service_module.SessionLocal() as db:
+        rows = {
+            api_in.id: db.query(SessionModel).filter(SessionModel.id == api_in.id).first(),
+            api_out.id: db.query(SessionModel).filter(SessionModel.id == api_out.id).first(),
+            design_in.id: db.query(SessionModel).filter(SessionModel.id == design_in.id).first(),
+        }
+        assert all(v is not None for v in rows.values())
+        rows[api_in.id].title = "API In Window"
+        rows[api_in.id].tags_json = '["api","backend"]'
+        rows[api_in.id].updated_at = datetime(2026, 4, 10, 10, 0, 0)
+
+        rows[api_out.id].title = "API Out Window"
+        rows[api_out.id].tags_json = '["api","backend"]'
+        rows[api_out.id].updated_at = datetime(2026, 4, 8, 10, 0, 0)
+
+        rows[design_in.id].title = "Design In Window"
+        rows[design_in.id].tags_json = '["design","frontend"]'
+        rows[design_in.id].updated_at = datetime(2026, 4, 10, 11, 0, 0)
+        db.commit()
+
+    response = client.get(
+        "/api/chat/history",
+        params={
+            "tags": "api,backend",
+            "tag_mode": "all",
+            "date_from": "2026-04-10T00:00:00",
+            "date_to": "2026-04-10T23:59:59",
+        },
+    )
+    assert response.status_code == 200
+    sessions = response.json()
+    ids = {s["id"] for s in sessions}
+    assert api_in.id in ids
+    assert api_out.id not in ids
+    assert design_in.id not in ids

@@ -28,6 +28,14 @@
 cd frontend && npx playwright test e2e/voice-input.spec.ts
 ```
 
+### Real E2E: History Date Grouping (No Mock)
+
+This scenario runs browser + real backend + real sqlite data, and does not mock `/api/chat/history`.
+
+```bash
+cd frontend && npm run test:e2e:real-history
+```
+
 ### 1) Backend Integration Suite
 - **Location**: `backend/tests/test_comprehensive_api.py`
 - **Command**: `export PYTHONPATH=$PYTHONPATH:$(pwd)/backend && pytest backend/tests/test_comprehensive_api.py`

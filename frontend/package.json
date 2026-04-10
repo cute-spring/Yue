@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:real-history": "playwright test --config=playwright.real.config.ts"
   },
   "dependencies": {
     "@solidjs/router": "^0.10.10",

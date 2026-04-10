@@ -86,6 +86,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from typing import List, Optional, Dict, Any, Tuple, AsyncIterator
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -302,8 +303,14 @@ async def _refine_title_once(
 router = APIRouter()
 
 @router.get("/history", response_model=list[ChatSession])
-async def list_chats():
-    return chat_service.list_chats()
+async def list_chats(
+    tags: Optional[str] = Query(default=None, description="Comma-separated tags to filter"),
+    tag_mode: str = Query(default="any", pattern="^(any|all)$"),
+    date_from: Optional[datetime] = Query(default=None),
+    date_to: Optional[datetime] = Query(default=None),
+):
+    parsed_tags = [tag.strip() for tag in tags.split(",")] if tags else None
+    return chat_service.list_chats(tags=parsed_tags, tag_mode=tag_mode, date_from=date_from, date_to=date_to)
 
 @router.get("/{chat_id}", response_model=ChatSession)
 async def get_chat(chat_id: str):
@@ -422,6 +429,15 @@ async def generate_chat_summary(chat_id: str, request: Optional[SummaryGenerateR
         return {"summary": existing_summary or ""}
     chat_service.update_chat_summary(chat_id, summary)
     return {"summary": summary}
+
+
+@router.post("/{chat_id}/tags/generate")
+async def generate_chat_tags(chat_id: str):
+    chat = chat_service.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    tags = chat_service.generate_chat_tags(chat_id)
+    return {"tags": tags or []}
 
 @router.get("/{chat_id}/meta")
 async def get_chat_meta(chat_id: str):
