@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { renderMath, normalizeMermaidCode, promoteExportPathsToLinks, renderMarkdown } from './markdown';
+import { describe, it, expect, vi } from 'vitest';
+import { copyCodeBlockText, renderMath, normalizeMermaidCode, promoteExportPathsToLinks, renderMarkdown } from './markdown';
 
 describe('Markdown Utils', () => {
   describe('normalizeMermaidCode', () => {
@@ -78,6 +78,34 @@ describe('Markdown Utils', () => {
       const input = '下载地址：`sandbox:/mnt/data/report.pptx`';
       const output = renderMarkdown(input);
       expect(output).toContain('href="/exports/report.pptx"');
+    });
+  });
+
+  describe('copyCodeBlockText', () => {
+    it('copies the nearest code block text to the clipboard', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const originalNavigator = globalThis.navigator;
+      const codeNode = { textContent: 'console.log("hello");\n' };
+      const button = {
+        closest: vi.fn().mockReturnValue({
+          querySelector: vi.fn().mockReturnValue(codeNode),
+        }),
+      } as any;
+
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { clipboard: { writeText } },
+        configurable: true,
+      });
+
+      try {
+        await expect(copyCodeBlockText(button)).resolves.toBe(true);
+        expect(writeText).toHaveBeenCalledWith('console.log("hello");\n');
+      } finally {
+        Object.defineProperty(globalThis, 'navigator', {
+          value: originalNavigator,
+          configurable: true,
+        });
+      }
     });
   });
 

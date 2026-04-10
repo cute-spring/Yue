@@ -30,6 +30,7 @@ import { SpeechControllerProvider, useSpeechController } from '../context/Speech
 import { DEFAULT_PREFERENCES, Preferences, normalizePreferences } from './settings/types';
 import { getSpeechMessageId } from '../utils/speech';
 import { composeVoiceInputText, useVoiceInput } from '../hooks/useVoiceInput';
+import { copyCodeBlockText } from '../utils/markdown';
 
 function ChatContent(props: {
   speechPrefs: () => Preferences;
@@ -408,6 +409,7 @@ function ChatContent(props: {
         toast.error("Failed to open artifact preview");
       }
     };
+    (window as any).copyToClipboard = copyCodeBlockText;
 
     const handleGlobalClick = () => {
       setShowLLMSelector(false);
@@ -441,6 +443,9 @@ function ChatContent(props: {
       document.removeEventListener('pointermove', handleMermaidPointerMove as any);
       document.removeEventListener('pointerup', handleMermaidPointerUp);
       document.removeEventListener('keydown', handleGlobalKeyDown);
+      if ((window as any).copyToClipboard === copyCodeBlockText) {
+        delete (window as any).copyToClipboard;
+      }
       closeMermaidExportModal();
       closeMermaidOverlay();
     };

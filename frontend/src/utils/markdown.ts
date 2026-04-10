@@ -125,6 +125,23 @@ export function normalizeLinkHref(href: string): string {
   return href;
 }
 
+export const copyCodeBlockText = async (
+  button: Pick<HTMLElement, 'closest'>,
+) => {
+  try {
+    const container = button.closest('.code-block-container') as HTMLElement | null;
+    const code = container?.querySelector('pre code') as HTMLElement | null;
+    const text = code?.textContent ?? '';
+    if (!text) return false;
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false;
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    console.error('Failed to copy code block text:', error);
+    return false;
+  }
+};
+
 function downloadLinkLabel(path: string): string {
   const normalized = normalizeLinkHref(path);
   const filename = normalized.split('/').pop();
