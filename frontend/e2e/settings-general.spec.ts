@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { mockAgentsList, mockConfigPreferences, mockDocAccess, mockMcpTools, mockModelProviders } from './chat-test-helpers';
 
 test('General settings save path commits updated preferences', async ({ page }) => {
   let prefsState = {
@@ -10,34 +11,11 @@ test('General settings save path commits updated preferences', async ({ page }) 
     { id: 'agent-1', name: 'Agent One', system_prompt: 'sys', provider: 'openai', model: 'gpt-4o', enabled_tools: [] },
   ];
 
-  await page.route('**/api/config/preferences', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(prefsState) });
-      return;
-    }
-    if (route.request().method() === 'POST') {
-      prefsState = route.request().postDataJSON() as typeof prefsState;
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(prefsState) });
-      return;
-    }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
-  });
-  await page.route('**/api/config/doc_access', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ allow_roots: [], deny_roots: [] }) });
-  });
-  await page.route('**/api/agents/', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(agents) });
-  });
-  await page.route('**/api/mcp/**', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-      return;
-    }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
-  });
-  await page.route('**/api/models/providers**', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-  });
+  await mockConfigPreferences(page, prefsState);
+  await mockDocAccess(page, { allow_roots: [], deny_roots: [] });
+  await mockAgentsList(page, agents);
+  await mockMcpTools(page, []);
+  await mockModelProviders(page, []);
   await page.route('**/api/models/custom', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
   });

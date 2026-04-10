@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { mockBasicChatBootstrap } from './chat-test-helpers'
 
 test('chat title is refined in sidebar after first assistant response', async ({ page }) => {
   test.setTimeout(120000)
@@ -8,27 +9,7 @@ test('chat title is refined in sidebar after first assistant response', async ({
   let historyCalls = 0
   let metaCalls = 0
 
-  await page.route('**/api/models/providers**', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          name: 'openai',
-          configured: true,
-          available_models: ['gpt-4o-mini'],
-          models: ['gpt-4o-mini']
-        }
-      ])
-    })
-  })
-  await page.route('**/api/agents/**', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([])
-    })
-  })
+  await mockBasicChatBootstrap(page)
   await page.route('**/api/chat/history', async route => {
     historyCalls += 1
     await route.fulfill({

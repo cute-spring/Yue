@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mockChatBootstrap } from './chat-test-helpers';
 
 type BrowserScenario = {
   steps: Array<
@@ -16,20 +17,6 @@ type AzureScenario = {
     | { delay: number; type: 'sessionStopped' }
   >;
 };
-
-const defaultProviders = [
-  {
-    name: 'openai',
-    configured: true,
-    requirements: [],
-    current_model: 'gpt-4o-mini',
-    available_models: ['gpt-4o-mini'],
-    models: ['gpt-4o-mini'],
-    model_capabilities: {
-      'gpt-4o-mini': ['chat'],
-    },
-  },
-];
 
 const installVoiceMocks = async (page: Page) => {
   await page.addInitScript(() => {
@@ -195,76 +182,6 @@ const installVoiceMocks = async (page: Page) => {
 
     (window as any).SpeechRecognition = MockSpeechRecognition;
     (window as any).webkitSpeechRecognition = MockSpeechRecognition;
-  });
-};
-
-const mockChatBootstrap = async (
-  page: Page,
-  {
-    prefs,
-    agents,
-    tokenResponse,
-  }: {
-    prefs: Record<string, unknown>;
-    agents: Array<Record<string, unknown>>;
-    tokenResponse?: { status: number; body: Record<string, unknown> | string };
-  },
-) => {
-  await page.route('**/api/config/preferences', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(prefs),
-      });
-      return;
-    }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(prefs) });
-  });
-  await page.route('**/api/agents/', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(agents),
-    });
-  });
-  await page.route('**/api/models/providers**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(defaultProviders),
-    });
-  });
-  await page.route('**/api/chat/history', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-  });
-  await page.route('**/api/skills', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-  });
-  await page.route('**/api/chat/stream', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      body: [
-        'event: content.delta',
-        `data: ${JSON.stringify({ delta: 'ok' })}`,
-        '',
-        'event: content.done',
-        `data: ${JSON.stringify({})}`,
-        '',
-      ].join('\n'),
-    });
-  });
-  await page.route('**/api/speech/stt/token**', async (route) => {
-    if (!tokenResponse) {
-      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'missing mock' }) });
-      return;
-    }
-    await route.fulfill({
-      status: tokenResponse.status,
-      contentType: typeof tokenResponse.body === 'string' ? 'text/plain' : 'application/json',
-      body: typeof tokenResponse.body === 'string' ? tokenResponse.body : JSON.stringify(tokenResponse.body),
-    });
   });
 };
 
