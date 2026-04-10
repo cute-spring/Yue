@@ -12,6 +12,7 @@ class Session(Base):
     agent_id = Column(String, nullable=True)
     active_skill_name = Column(String, nullable=True)
     active_skill_version = Column(String, nullable=True)
+    tags_json = Column(Text, nullable=False, default="[]")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -4,7 +4,7 @@ import sqlite3
 import json
 import tempfile
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -84,6 +84,25 @@ def test_list_chats(temp_db):
     chats = service.list_chats()
     assert len(chats) == 2
     assert chats[0].title == "Chat 2" # Ordered by updated_at DESC
+
+def test_generate_chat_tags_and_filtering(temp_db):
+    service, _ = temp_db
+    chat1 = service.create_chat(title="API backend auth issue")
+    service.add_message(chat1.id, "user", "Need auth API fix for backend")
+    tags = service.generate_chat_tags(chat1.id)
+    assert tags is not None
+    assert "api" in tags
+
+    chat2 = service.create_chat(title="Frontend visual polish")
+    service.add_message(chat2.id, "user", "Need UI design improvements")
+    service.generate_chat_tags(chat2.id)
+
+    api_chats = service.list_chats(tags=["api"], tag_mode="any")
+    assert len(api_chats) >= 1
+    assert all("api" in c.tags for c in api_chats)
+
+    strict_chats = service.list_chats(tags=["api", "auth"], tag_mode="all")
+    assert any(c.id == chat1.id for c in strict_chats)
 
 def test_get_chat_not_found(temp_db):
     service, _ = temp_db
@@ -781,6 +800,43 @@ def test_migrate_from_json(temp_dir_with_json):
         assert len(chats_after) == 1 # still 1
         
     test_engine.dispose()
+
+
+def test_migrate_from_json_with_naive_timestamps_returns_utc_aware_datetimes():
+    temp_dir = tempfile.mkdtemp()
+    json_file = os.path.join(temp_dir, "chats.json")
+    db_file = os.path.join(temp_dir, "test_yue.db")
+    old_data = [{
+        "id": "legacy-naive",
+        "title": "Legacy Naive Chat",
+        "agent_id": "agent1",
+        "created_at": "2026-04-10T16:00:00",
+        "updated_at": "2026-04-10T16:30:00",
+        "messages": [{"role": "user", "content": "legacy message", "timestamp": "2026-04-10T16:15:00"}],
+    }]
+    with open(json_file, "w") as f:
+        json.dump(old_data, f)
+
+    test_engine = create_engine(f"sqlite:///{db_file}")
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    try:
+        with patch("app.services.chat_service.engine", test_engine), \
+             patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
+             patch("app.services.chat_service.DATA_DIR", temp_dir), \
+             patch("app.services.chat_service.OLD_CHATS_FILE", json_file):
+            service = ChatService()
+            chat = service.get_chat("legacy-naive")
+            assert chat is not None
+            assert chat.created_at.tzinfo is not None
+            assert chat.created_at.utcoffset() == timedelta(0)
+            assert chat.updated_at.tzinfo is not None
+            assert chat.updated_at.utcoffset() == timedelta(0)
+            assert len(chat.messages) == 1
+            assert chat.messages[0].timestamp.tzinfo is not None
+            assert chat.messages[0].timestamp.utcoffset() == timedelta(0)
+    finally:
+        test_engine.dispose()
+        shutil.rmtree(temp_dir)
 
 @pytest.fixture
 def temp_dir_with_json():

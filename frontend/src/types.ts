@@ -71,6 +71,7 @@ export type ChatSession = {
   id: string;
   title: string;
   summary?: string | null;
+  tags?: string[];
   updated_at: string;
   active_skill_name?: string | null;
   active_skill_version?: string | null;

@@ -82,6 +82,7 @@
 ### Epic 10: 聊天历史与用户体验优化 (Chat History & UX)
 > **状态**: 待启动
 > **详情文档**: [2026-03-26-chat-history-management-improvement-plan.md](./2026-03-26-chat-history-management-improvement-plan.md)
+> **2026-04 设计交付**: [2026-04-10-chat-history-date-tag-execution-plan.md](./2026-04-10-chat-history-date-tag-execution-plan.md), [2026-04-10-chat-history-date-tag-ui-ux-detail-design.md](./2026-04-10-chat-history-date-tag-ui-ux-detail-design.md), [2026-04-10-chat-history-date-tag-visual-direction.md](./2026-04-10-chat-history-date-tag-visual-direction.md)
 > **目标**: 实现用户隔离、搜索过滤、虚拟滚动等体验优化，提升历史会话查找与管理效率。
 - [ ] **Phase 1: 用户隔离基础** (Session owner 字段、API 过滤参数)
 - [ ] **Phase 2: 前端搜索与过滤** (虚拟滚动、日期分组、搜索栏)
