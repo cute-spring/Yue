@@ -8,6 +8,7 @@ import Chat from './pages/Chat';
 import Agents from './pages/Agents';
 import SkillGroups from './pages/SkillGroups';
 import Settings from './pages/Settings';
+import MemoryAnimation from './pages/MemoryAnimation';
 
 import Notebook from './pages/Notebook';
 
@@ -27,6 +28,7 @@ render(() => (
       <Route path="/skill-groups" component={SkillGroups} />
       <Route path="/settings" component={Settings} />
       <Route path="/notebook" component={Notebook} />
+      <Route path="/memory-animation" component={MemoryAnimation} />
     </Router>
   </ToastProvider>
 ), root!);
