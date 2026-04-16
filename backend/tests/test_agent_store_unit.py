@@ -39,12 +39,13 @@ def test_no_legacy_path_uses_runtime_data_only(temp_dirs):
 
 def test_list_agents(agent_store):
     agents = agent_store.list_agents()
-    assert len(agents) >= 7
+    assert len(agents) >= 8
     assert agents[0].id == "builtin-docs"
     assert any(a.id == "builtin-excel-analyst" for a in agents)
     assert any(a.id == "builtin-pdf-research" for a in agents)
     assert any(a.id == "builtin-ppt-builder" for a in agents)
     assert any(a.id == "builtin-action-lab" for a in agents)
+    assert any(a.id == "builtin-translator" for a in agents)
 
 def test_create_agent(agent_store):
     new_agent = AgentConfig(name="New Agent", system_prompt="You are a helper")
