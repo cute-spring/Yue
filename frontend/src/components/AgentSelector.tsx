@@ -13,8 +13,8 @@ export default function AgentSelector(props: AgentSelectorProps) {
     <Show when={props.show}>
       <div class="absolute bottom-full left-0 mb-4 w-80 bg-surface border border-border rounded-[24px] shadow-2xl overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-300 backdrop-blur-xl">
         <div class="bg-primary/5 px-5 py-3 border-b border-border flex items-center justify-between">
-          <span class="text-[10px] font-bold text-primary uppercase tracking-[0.2em]">Mention Intelligence Agent</span>
-          <span class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">@</span>
+          <span class="text-[10px] font-bold text-primary uppercase tracking-[0.2em]">Slash Agent Picker</span>
+          <span class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">/</span>
         </div>
         <div class="max-h-72 overflow-y-auto p-2 scrollbar-thin">
           <For each={props.agents}>

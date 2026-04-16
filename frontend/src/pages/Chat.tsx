@@ -23,7 +23,7 @@ import IntelligencePanel from '../components/IntelligencePanel';
 import ChatTraceShell from '../components/ChatTraceShell';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { modelSupportsVision, useLLMProviders } from '../hooks/useLLMProviders';
-import { useAgents } from '../hooks/useAgents';
+import { deriveSlashAgentSelectorState, getAgentSelectorKeyAction, useAgents } from '../hooks/useAgents';
 import { canSubmitChatRequest, getAgentVisibleSkills, useChatState } from '../hooks/useChatState';
 import { useMermaid } from '../hooks/useMermaid';
 import { SpeechControllerProvider, useSpeechController } from '../context/SpeechControllerContext';
@@ -568,12 +568,10 @@ function ChatContent(props: {
     }
     
     const pos = target.selectionStart || 0;
-    const textBefore = value.substring(0, pos);
-    const lastAtPos = textBefore.lastIndexOf('@');
-
-    if (lastAtPos !== -1 && (lastAtPos === 0 || textBefore[lastAtPos - 1] === ' ')) {
+    const slashState = deriveSlashAgentSelectorState(value, pos);
+    if (slashState.show) {
       setShowAgentSelector(true);
-      setAgentFilter(textBefore.substring(lastAtPos + 1));
+      setAgentFilter(slashState.filter);
       setSelectedIndex(0);
     } else {
       setShowAgentSelector(false);
@@ -677,17 +675,21 @@ function ChatContent(props: {
     if (handleVoiceDraftShortcut(e)) return;
     if (showAgentSelector()) {
       const list = filteredAgents();
-      if (e.key === 'ArrowDown') {
+      const action = getAgentSelectorKeyAction(showAgentSelector(), list.length, e.key, e.shiftKey);
+      if (action === 'next') {
         e.preventDefault();
         setSelectedIndex((selectedIndex() + 1) % list.length);
-      } else if (e.key === 'ArrowUp') {
+      } else if (action === 'previous') {
         e.preventDefault();
         setSelectedIndex((selectedIndex() - 1 + list.length) % list.length);
-      } else if (e.key === 'Enter' && list.length > 0) {
+      } else if (action === 'select') {
         e.preventDefault();
         handleMentionSelect(list[selectedIndex()]);
-      } else if (e.key === 'Escape') {
+      } else if (action === 'close') {
         setShowAgentSelector(false);
+      } else if (action === 'submit') {
+        e.preventDefault();
+        handleSubmit(e);
       }
     } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

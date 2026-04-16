@@ -94,7 +94,18 @@ const App: Component<{children?: any}> = (props) => {
              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h10M7 12h10M7 17h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
              </svg>
-            <span class={isSidebarExpanded() ? 'block font-bold text-sm' : 'hidden'}>Skill Groups</span>
+           <span class={isSidebarExpanded() ? 'block font-bold text-sm' : 'hidden'}>Skill Groups</span>
+           </A>
+          <A
+            href="/memory-animation"
+            title="Memory Animation"
+            class={`group flex items-center ${isSidebarExpanded() ? 'gap-3 px-4' : 'justify-center px-0'} py-2.5 rounded-xl hover:bg-primary/10 text-text-secondary hover:text-primary transition-colors`}
+            activeClass="bg-primary/10 text-primary font-semibold"
+          >
+             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8h.01M12 8h.01M16 8h.01M5 12h14M5 16h14" />
+             </svg>
+            <span class={isSidebarExpanded() ? 'block font-bold text-sm' : 'hidden'}>Memory Demo</span>
            </A>
           </nav>
 
