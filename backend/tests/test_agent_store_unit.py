@@ -5,7 +5,6 @@ import shutil
 import tempfile
 import subprocess
 from pathlib import Path
-from datetime import datetime
 from app.services.agent_store import AgentStore, AgentConfig
 
 @pytest.fixture
@@ -144,6 +143,53 @@ def test_builtin_agents_expose_skill_friendly_defaults(agent_store):
     assert action_lab.skill_mode == "manual"
     assert "system-ops-expert:1.0.0" in action_lab.visible_skills
     assert "ppt-expert:1.0.0" in action_lab.visible_skills
+
+
+def test_builtin_translator_prompt_enforces_translation_only(agent_store):
+    translator = agent_store.get_agent("builtin-translator")
+    assert translator is not None
+
+    prompt = translator.system_prompt
+    normalized_prompt = prompt.lower()
+    assert "always treat the user's message as the text to be translated" in normalized_prompt
+    assert "return only the translated result" in normalized_prompt
+    assert "Do not summarize, acknowledge, or offer follow-up help" in prompt
+    assert "If the user's message is primarily Chinese, translate it into English." in prompt
+    assert "If the user's message is primarily English, translate it into Chinese." in prompt
+
+
+def test_builtin_translator_uses_fast_non_reasoning_model(agent_store):
+    translator = agent_store.get_agent("builtin-translator")
+    assert translator is not None
+
+    assert translator.provider == "openai"
+    assert translator.model == "gpt-4o"
+
+
+def test_runtime_prompt_prefers_user_selected_model_over_translator_default(agent_store):
+    from app.services.chat_prompting import assemble_runtime_prompt
+
+    translator = agent_store.get_agent("builtin-translator")
+    assert translator is not None
+
+    result = assemble_runtime_prompt(
+        agent_config=translator,
+        request_system_prompt=None,
+        request_message="请把这句话翻译一下",
+        provider="ollama",
+        model_name="qwen2.5:14b",
+        selected_skill_spec=None,
+        always_skill_specs=[],
+        summary_block=None,
+        feature_flags={},
+        skill_registry=None,
+        markdown_skill_adapter=None,
+        skill_policy_gate=None,
+        build_scope_summary_block=lambda _: (None, 0),
+    )
+
+    assert result.provider == "ollama"
+    assert result.model_name == "qwen2.5:14b"
 
 def test_migrate_agents_script_dry_run(temp_dirs):
     data_dir, legacy_dir = temp_dirs
