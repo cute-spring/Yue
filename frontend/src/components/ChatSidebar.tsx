@@ -93,28 +93,36 @@ export default function ChatSidebar(props: ChatSidebarProps) {
   });
 
   const groupedChats = createMemo(() => {
-    const groups = new Map<string, { label: string; isToday: boolean; chats: ChatSession[]; sortDate: number }>();
     const now = new Date();
-    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    
+    const startOfLast7Days = new Date(startOfToday);
+    startOfLast7Days.setDate(startOfLast7Days.getDate() - 7);
+
+    const groups = [
+      { key: 'today', label: 'Today', type: 'today', isToday: true, chats: [] as ChatSession[] },
+      { key: 'yesterday', label: 'Yesterday', type: 'yesterday', isToday: false, chats: [] as ChatSession[] },
+      { key: 'last7days', label: 'Last 7 Days', type: 'last7days', isToday: false, chats: [] as ChatSession[] },
+      { key: 'earlier', label: 'Earlier', type: 'earlier', isToday: false, chats: [] as ChatSession[] }
+    ];
 
     for (const chat of filteredChats()) {
       const dt = parseServerDate(chat.updated_at);
-      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-      const isToday = key === todayKey;
-      if (!groups.has(key)) {
-        groups.set(key, {
-          label: dt.toLocaleDateString(),
-          isToday,
-          chats: [],
-          sortDate: new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime(),
-        });
+      if (dt >= startOfToday) {
+        groups[0].chats.push(chat);
+      } else if (dt >= startOfYesterday) {
+        groups[1].chats.push(chat);
+      } else if (dt >= startOfLast7Days) {
+        groups[2].chats.push(chat);
+      } else {
+        groups[3].chats.push(chat);
       }
-      groups.get(key)!.chats.push(chat);
     }
 
-    return [...groups.entries()]
-      .sort((a, b) => b[1].sortDate - a[1].sortDate)
-      .map(([key, value]) => ({ key, ...value }));
+    return groups.filter(g => g.chats.length > 0);
   });
 
   const clearFilters = () => {
@@ -234,67 +242,78 @@ export default function ChatSidebar(props: ChatSidebarProps) {
     return count;
   });
 
+  const formatChatTime = (iso: string, groupType: string) => {
+    const dt = parseServerDate(iso);
+    if (groupType === 'today') {
+      return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    if (groupType === 'yesterday') {
+      return 'Yesterday';
+    }
+    return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
   return (
     <div 
       class={`
-        fixed lg:relative inset-y-0 left-0 bg-surface border-r border-border transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-30
-        ${props.showHistory ? 'translate-x-0 w-sidebar opacity-100' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
+        fixed lg:relative inset-y-0 left-0 bg-white border-r border-slate-200 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-30
+        ${props.showHistory ? 'translate-x-0 w-[300px] opacity-100 shadow-2xl lg:shadow-none' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
       `}
     >
-      <div class="w-sidebar h-full flex flex-col">
-        <div class="p-4 bg-slate-50/80 border-b border-border flex items-center gap-2 sticky top-0 z-20 backdrop-blur-md">
+      <div class="w-[300px] h-full flex flex-col bg-white">
+        <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
           <div class="flex-1 relative">
             <input 
               type="text" 
               value={searchQuery()}
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
               placeholder="Search chats..." 
-              class="w-full bg-white border border-border rounded-lg pl-9 pr-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all shadow-sm" 
+              class="w-full bg-white border border-slate-200 rounded-lg px-8 py-2 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none transition-all shadow-sm" 
             />
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-3 top-2.5 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
           <button 
             onClick={props.onNewChat} 
-            class="bg-primary hover:bg-primary-dark text-white p-2.5 rounded-lg transition-all active:scale-95 shadow-sm shadow-primary/20"
+            class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition-colors active:scale-95 shadow-sm"
             title="New Chat"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
           </button>
         </div>
 
-        <div class="px-4 py-3 border-b border-border bg-white flex gap-2 overflow-x-auto no-scrollbar scroll-smooth">
+        <div class="px-4 py-3 border-b border-slate-100 bg-white flex gap-2 overflow-x-auto no-scrollbar">
           <button
             onClick={() => setDatePreset('all')}
-            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === 'all' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             ALL
           </button>
           <button
             onClick={() => setDatePreset('today')}
-            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === 'today' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === 'today' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             TODAY
           </button>
           <button
             onClick={() => setDatePreset('7d')}
-            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === '7d' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === '7d' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             7D
           </button>
           <button
             onClick={() => setDatePreset('30d')}
-            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === '30d' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === '30d' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             30D
@@ -302,16 +321,16 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           <Show when={activeFilterCount() > 0}>
             <button 
               onClick={clearFilters} 
-              class="px-2.5 py-1 text-[10px] font-bold rounded bg-rose-50 text-rose-600 hover:bg-rose-100 transition-all whitespace-nowrap border border-rose-100"
+              class="px-2 py-1 text-[10px] font-bold rounded bg-rose-50 text-rose-600 hover:bg-rose-100 transition-all whitespace-nowrap"
             >
               CLEAR
             </button>
           </Show>
         </div>
 
-        <div class="overflow-y-auto flex-1 no-scrollbar scroll-smooth pb-20">
-          <Show when={props.chats.length > 0}>
-            <div class="px-4 py-2 text-[10px] border-b border-border bg-slate-50/30 text-text-secondary flex items-center justify-between font-medium">
+        <div class="overflow-y-auto flex-1 no-scrollbar bg-white relative">
+          <Show when={props.chats.length > 0 && activeFilterCount() > 0}>
+            <div class="px-4 py-2 text-[10px] border-b border-slate-100 bg-slate-50/50 text-slate-500 flex items-center justify-between font-medium">
               <span>
                 {filteredChats().length} sessions · {activeFilterCount()} active
               </span>
@@ -322,88 +341,92 @@ export default function ChatSidebar(props: ChatSidebarProps) {
               <section>
                 <button
                   onClick={() => toggleGroup(group.key)}
-                  class={`w-full px-4 py-2 sticky top-0 z-10 text-left flex items-center justify-between border-b transition-colors backdrop-blur-md ${
-                    group.isToday 
-                      ? 'bg-blue-50/90 border-blue-100 text-blue-600' 
-                      : 'bg-slate-50/90 border-slate-100 text-slate-500'
+                  class={`w-full sticky top-0 z-10 px-4 py-2 text-[10px] font-black uppercase tracking-widest border-y flex justify-between items-center ${
+                    group.type === 'today' 
+                      ? 'text-blue-600 border-blue-100 bg-white/95 backdrop-blur-sm' 
+                      : 'text-slate-500 border-slate-100 bg-slate-50/90 backdrop-blur-sm'
                   }`}
-                  aria-expanded={!(collapsedGroups()[group.key] ?? !group.isToday)}
+                  aria-expanded={!(collapsedGroups()[group.key] ?? false)}
                   aria-label={`Toggle date group ${group.label}`}
                 >
-                  <span class="text-[10px] font-black uppercase tracking-[0.15em] flex items-center gap-2">
+                  <span class="flex items-center gap-2">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
-                      class={`w-3 h-3 transition-transform duration-300 ${(collapsedGroups()[group.key] ?? !group.isToday) ? 'rotate-0' : 'rotate-90'}`}
+                      class={`w-3 h-3 transition-transform duration-200 ${(collapsedGroups()[group.key] ?? false) ? 'rotate-90' : 'rotate-0'}`}
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
                     >
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
                     </svg>
-                    {group.isToday ? 'Today' : group.label}
+                    {group.label}
                   </span>
-                  <span class={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                    group.isToday ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+                  <span class={`px-1.5 py-0.5 rounded text-[9px] ${
+                    group.type === 'today' ? 'bg-blue-50' : 'bg-slate-200 text-slate-600'
                   }`}>
-                    {group.chats.length}
+                    {group.chats.length} {group.chats.length === 1 ? 'chat' : 'chats'}
                   </span>
                 </button>
-                <Show when={!(collapsedGroups()[group.key] ?? !group.isToday)}>
+                <Show when={!(collapsedGroups()[group.key] ?? false)}>
                   <div class="divide-y divide-slate-50">
                     <For each={group.chats}>
                       {chat => (
                         <div 
-                          class={`px-4 py-3 cursor-pointer group flex justify-between items-start transition-all border-l-2 ${
+                          class={`px-4 py-3 cursor-pointer group flex justify-between items-start transition-colors relative border-l-4 ${
                             props.currentChatId === chat.id 
-                              ? 'bg-blue-50/40 border-l-blue-500' 
-                              : 'bg-white border-l-transparent hover:bg-slate-50/80 hover:border-l-slate-200'
+                              ? 'bg-blue-50/40 border-l-blue-600' 
+                              : 'bg-white border-l-transparent hover:bg-slate-50'
                           }`}
                           onClick={() => props.onLoadChat(chat.id)}
                         >
                           <div class="flex-1 min-w-0">
-                            <div class="flex justify-between items-start mb-0.5">
-                              <h3 class={`text-sm truncate pr-2 ${
-                                props.currentChatId === chat.id ? 'font-bold text-slate-900' : 'font-semibold text-slate-700 group-hover:text-blue-600'
+                            <div class="flex justify-between items-start mb-1">
+                              <h3 class={`text-sm truncate pr-2 transition-colors ${
+                                props.currentChatId === chat.id ? 'font-bold text-slate-800' : 'font-semibold text-slate-700 group-hover:text-blue-600'
                               }`}>
                                 {chat.title}
                               </h3>
-                              <span class="text-[9px] text-slate-400 font-medium whitespace-nowrap pt-0.5">
-                                {parseServerDate(chat.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              <span class="text-[9px] text-slate-400 font-medium whitespace-nowrap shrink-0 pt-0.5">
+                                {formatChatTime(chat.updated_at, group.type)}
                               </span>
                             </div>
                             
                             <Show when={chat.summary}>
-                              <p class="text-[11px] text-slate-500 line-clamp-2 leading-relaxed mb-2">
+                              <div class="text-[11px] text-slate-500 line-clamp-1 mb-2">
                                 {chat.summary}
-                              </p>
+                              </div>
                             </Show>
                             
                             <div class="flex flex-wrap gap-1 items-center">
                               <Show when={chat.tags && chat.tags.length > 0}>
                                 <For each={(chat.tags || []).slice(0, 3)}>
-                                  {(tag) => (
-                                    <span class="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-bold rounded uppercase tracking-tighter group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                                  {(tag, i) => (
+                                    <span class={`px-1.5 py-0.5 text-[9px] font-semibold rounded uppercase tracking-tighter ${
+                                      i() % 2 === 0 ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-600'
+                                    }`}>
                                       {tag}
                                     </span>
                                   )}
                                 </For>
                               </Show>
                               <Show when={chat.tags && chat.tags.length > 3}>
-                                <span class="text-[9px] text-slate-400 font-bold">+{chat.tags!.length - 3}</span>
+                                <span class="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-semibold rounded">
+                                  +{chat.tags!.length - 3}
+                                </span>
                               </Show>
                             </div>
                           </div>
                           
-                          <div class="flex flex-col gap-1 ml-2 translate-x-2 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 transition-all duration-200">
+                          <div class="absolute right-2 bottom-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 props.onGenerateSummary(chat.id);
                               }}
-                              class="text-slate-400 hover:text-blue-600 p-1 bg-white shadow-sm border border-slate-100 rounded-md transition-colors"
+                              class="p-1.5 bg-white text-slate-400 hover:text-blue-600 rounded shadow-sm border border-slate-200"
                               title="Generate summary"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8M8 14h5M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3V8a2 2 0 012-2z" />
                               </svg>
                             </button>
@@ -412,10 +435,10 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                                 e.stopPropagation();
                                 props.onDeleteChat(chat.id);
                               }}
-                              class="text-slate-400 hover:text-red-500 p-1 bg-white shadow-sm border border-slate-100 rounded-md transition-colors"
+                              class="p-1.5 bg-white text-slate-400 hover:text-rose-500 rounded shadow-sm border border-slate-200"
                               title="Delete session"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             </button>
@@ -429,11 +452,14 @@ export default function ChatSidebar(props: ChatSidebarProps) {
             )}
           </For>
           <Show when={filteredChats().length === 0}>
-             <div class="p-8 text-center text-sm text-text-secondary italic">No chats match your current filters</div>
+             <div class="p-8 text-center text-sm text-slate-400 italic">No chats match your current filters</div>
           </Show>
           <Show when={props.chats.length === 0}>
-             <div class="p-8 text-center text-sm text-text-secondary italic">No recent chats</div>
+             <div class="p-8 text-center text-sm text-slate-400 italic">No recent chats</div>
           </Show>
+        </div>
+        <div class="p-3 bg-slate-50 border-t border-slate-200 text-center">
+            <span class="text-[10px] text-slate-400 font-medium italic">Showing {filteredChats().length} sessions</span>
         </div>
       </div>
     </div>
