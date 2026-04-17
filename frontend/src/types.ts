@@ -1,9 +1,14 @@
+export type AgentModelSelectionMode = 'tier' | 'direct';
+export type ModelTier = 'light' | 'balanced' | 'heavy';
+
 export type Agent = {
   id: string;
   name: string;
   system_prompt: string;
   provider: string;
   model: string;
+  model_selection_mode?: AgentModelSelectionMode;
+  model_tier?: ModelTier;
   enabled_tools: string[];
   voice_input_enabled?: boolean;
   voice_input_provider?: 'browser' | 'azure';

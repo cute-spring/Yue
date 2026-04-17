@@ -1,9 +1,19 @@
+export type ModelTier = 'light' | 'balanced' | 'heavy';
+export type ModelTierConfigEntry = {
+  provider: string;
+  model: string;
+};
+
+export type ModelTierConfig = Record<ModelTier, ModelTierConfigEntry>;
+
 export type Agent = {
   id: string;
   name: string;
   system_prompt: string;
   provider: string;
   model: string;
+  model_selection_mode?: 'tier' | 'direct';
+  model_tier?: ModelTier;
   enabled_tools: string[];
   voice_input_enabled?: boolean;
   voice_input_provider?: 'browser' | 'azure';
@@ -62,6 +72,7 @@ export type Preferences = {
   theme: string;
   language: string;
   default_agent: string;
+  advanced_mode: boolean;
   voice_input_enabled: boolean;
   voice_input_provider: 'browser' | 'azure';
   voice_input_language: string;
@@ -79,6 +90,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'light',
   language: 'en',
   default_agent: 'default',
+  advanced_mode: false,
   voice_input_enabled: true,
   voice_input_provider: 'browser',
   voice_input_language: 'auto',
@@ -101,6 +113,7 @@ export const normalizePreferences = (value: any): Preferences => {
     theme: typeof value?.theme === 'string' ? value.theme : DEFAULT_PREFERENCES.theme,
     language: typeof value?.language === 'string' ? value.language : DEFAULT_PREFERENCES.language,
     default_agent: typeof value?.default_agent === 'string' ? value.default_agent : DEFAULT_PREFERENCES.default_agent,
+    advanced_mode: typeof value?.advanced_mode === 'boolean' ? value.advanced_mode : DEFAULT_PREFERENCES.advanced_mode,
     voice_input_enabled: typeof value?.voice_input_enabled === 'boolean'
       ? value.voice_input_enabled
       : DEFAULT_PREFERENCES.voice_input_enabled,
@@ -140,6 +153,12 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   chat_trace_raw_enabled: false,
 };
 
+export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
+  light: { provider: 'openai', model: 'gpt-4o-mini' },
+  balanced: { provider: 'openai', model: 'gpt-4o' },
+  heavy: { provider: 'openai', model: 'gpt-4.1' },
+};
+
 export const normalizeFeatureFlags = (value: any): FeatureFlags => ({
   chat_trace_ui_enabled: typeof value?.chat_trace_ui_enabled === 'boolean'
     ? value.chat_trace_ui_enabled
@@ -147,6 +166,17 @@ export const normalizeFeatureFlags = (value: any): FeatureFlags => ({
   chat_trace_raw_enabled: typeof value?.chat_trace_raw_enabled === 'boolean'
     ? value.chat_trace_raw_enabled
     : DEFAULT_FEATURE_FLAGS.chat_trace_raw_enabled,
+});
+
+const normalizeModelTierEntry = (value: any, fallback: ModelTierConfigEntry): ModelTierConfigEntry => ({
+  provider: typeof value?.provider === 'string' && value.provider.trim() ? value.provider : fallback.provider,
+  model: typeof value?.model === 'string' && value.model.trim() ? value.model : fallback.model,
+});
+
+export const normalizeModelTierConfig = (value: any): ModelTierConfig => ({
+  light: normalizeModelTierEntry(value?.light, DEFAULT_MODEL_TIER_CONFIG.light),
+  balanced: normalizeModelTierEntry(value?.balanced, DEFAULT_MODEL_TIER_CONFIG.balanced),
+  heavy: normalizeModelTierEntry(value?.heavy, DEFAULT_MODEL_TIER_CONFIG.heavy),
 });
 
 export type LlmForm = Record<string, any>;

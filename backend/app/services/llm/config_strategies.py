@@ -47,14 +47,6 @@ class OpenAIStrategy(ProviderConfigStrategy):
             "model": "OPENAI_MODEL"
         })
 
-class ZhipuStrategy(ProviderConfigStrategy):
-    def __init__(self):
-        super().__init__("zhipu", {
-            "api_key": "ZHIPU_API_KEY",
-            "base_url": "ZHIPU_BASE_URL",
-            "model": "ZHIPU_MODEL"
-        })
-
 class DeepseekStrategy(ProviderConfigStrategy):
     def __init__(self):
         super().__init__("deepseek", {
@@ -69,19 +61,6 @@ class OllamaStrategy(ProviderConfigStrategy):
             "model": "OLLAMA_MODEL"
         })
 
-class AzureStrategy(ProviderConfigStrategy):
-    def __init__(self):
-        super().__init__("azure_openai", {
-            "endpoint": "AZURE_OPENAI_ENDPOINT",
-            "base_url": "AZURE_OPENAI_BASE_URL",
-            "deployment": "AZURE_OPENAI_DEPLOYMENT",
-            "api_version": "AZURE_OPENAI_API_VERSION",
-            "token": "AZURE_OPENAI_TOKEN",
-            "client_id": "AZURE_CLIENT_ID",
-            "client_secret": "AZURE_CLIENT_SECRET",
-            "tenant_id": "AZURE_TENANT_ID"
-        })
-
 class LiteLLMStrategy(ProviderConfigStrategy):
     def __init__(self):
         super().__init__("litellm", {
@@ -93,9 +72,7 @@ class LiteLLMStrategy(ProviderConfigStrategy):
 # 策略注册表
 STRATEGIES: Dict[str, ProviderConfigStrategy] = {
     "openai": OpenAIStrategy(),
-    "zhipu": ZhipuStrategy(),
     "deepseek": DeepseekStrategy(),
     "ollama": OllamaStrategy(),
-    "azure_openai": AzureStrategy(),
     "litellm": LiteLLMStrategy()
 }

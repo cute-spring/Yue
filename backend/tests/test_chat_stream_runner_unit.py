@@ -79,8 +79,9 @@ def _make_deps() -> StreamRunnerDeps:
 def _make_request(**overrides):
     base = {
         "message": "hello",
-        "provider": "openai",
-        "model": "gpt-4o",
+        "provider": None,
+        "model": None,
+        "model_role": None,
         "system_prompt": "system",
         "agent_id": "agent-1",
         "requested_skill": None,
@@ -103,7 +104,7 @@ def test_create_stream_runtime_sets_expected_context_and_tracker():
     }
     tracker = MagicMock()
     deps.tool_event_tracker_cls.return_value = tracker
-    request = _make_request()
+    request = _make_request(provider="openai", model="gpt-4o")
 
     ctx, metrics, emitter, created_tracker = _create_stream_runtime(
         chat_id="chat-1",
@@ -249,6 +250,459 @@ def test_prepare_prompt_runtime_snapshot_persistence_is_fail_open():
     asyncio.run(run_test())
 
 
+def test_prepare_prompt_runtime_applies_request_model_role_resolution():
+    async def run_test():
+        deps = _make_deps()
+        deps.config_service.resolve_model_role.side_effect = (
+            lambda role: {"provider": "deepseek", "model": "deepseek-reasoner"} if role == "reasoning" else None
+        )
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=[],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+
+        deps.config_service.get_feature_flags.return_value = {}
+        request = _make_request(agent_id=None, provider=None, model=None, model_role="reasoning")
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        async for item in _prepare_prompt_runtime(
+            ctx=ctx,
+            emitter=emitter,
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(item)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert isinstance(outputs[1], PromptPreparation)
+        assert ctx.provider == "deepseek"
+        assert ctx.model_name == "deepseek-reasoner"
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_respects_request_provider_model_override():
+    async def run_test():
+        deps = _make_deps()
+        deps.config_service.resolve_model_role.return_value = {"provider": "openai", "model": "gpt-4o-mini"}
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=[],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.config_service.get_feature_flags.return_value = {}
+        request = _make_request(provider="zhipu", model="glm-4.6v", model_role="reasoning")
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        async for item in _prepare_prompt_runtime(
+            ctx=ctx,
+            emitter=emitter,
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(item)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert isinstance(outputs[1], PromptPreparation)
+        assert ctx.provider == "zhipu"
+        assert ctx.model_name == "glm-4.6v"
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_force_direct_agent_policy_beats_agent_role():
+    async def run_test():
+        deps = _make_deps()
+        deps.config_service.resolve_model_role.side_effect = (
+            lambda role: {"provider": "deepseek", "model": "deepseek-reasoner"} if role == "reasoning" else None
+        )
+        deps.agent_store.get_agent.return_value = SimpleNamespace(
+            provider="anthropic",
+            model="claude-3-7-sonnet",
+            model_policy="force_direct",
+            model_role="reasoning",
+            enabled_tools=["builtin:docs_read"],
+            system_prompt="agent prompt",
+            doc_roots=[],
+            skill_mode="off",
+        )
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=["builtin:docs_read"],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.config_service.get_feature_flags.return_value = {}
+        request = _make_request(agent_id="agent-1", provider=None, model=None)
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        async for item in _prepare_prompt_runtime(
+            ctx=ctx,
+            emitter=emitter,
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(item)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert isinstance(outputs[1], PromptPreparation)
+        assert ctx.provider == "anthropic"
+        assert ctx.model_name == "claude-3-7-sonnet"
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_uses_agent_tier_and_records_model_resolution_meta():
+    async def run_test():
+        deps = _make_deps()
+        deps.config_service.resolve_model_tier.side_effect = (
+            lambda tier: {"provider": "anthropic", "model": "claude-3-7-sonnet", "tier": tier}
+            if tier == "heavy"
+            else None
+        )
+        deps.config_service.resolve_model_role.side_effect = (
+            lambda role: {"provider": "deepseek", "model": "deepseek-reasoner"} if role == "reasoning" else None
+        )
+        deps.agent_store.get_agent.return_value = SimpleNamespace(
+            provider="openai",
+            model="gpt-4o-mini",
+            model_selection_mode="tier",
+            model_tier="heavy",
+            model_policy="prefer_role",
+            model_role="reasoning",
+            enabled_tools=[],
+            system_prompt="agent prompt",
+            doc_roots=[],
+            skill_mode="off",
+        )
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o-mini",
+            system_prompt="assembled prompt",
+            final_tools_list=[],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.config_service.get_feature_flags.return_value = {}
+        request = _make_request(agent_id="agent-1", provider=None, model=None)
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        async for item in _prepare_prompt_runtime(
+            ctx=ctx,
+            emitter=emitter,
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(item)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert isinstance(outputs[1], PromptPreparation)
+        assert ctx.provider == "anthropic"
+        assert ctx.model_name == "claude-3-7-sonnet"
+        assert ctx.model_resolution["tier"] == "heavy"
+        assert ctx.model_resolution["resolution_source"] == "agent_tier"
+
+    asyncio.run(run_test())
+
+
+def test_prepare_runtime_dependencies_runtime_meta_includes_tier_resolution():
+    async def run_test():
+        deps = _make_deps()
+        deps.config_service.resolve_model_tier.side_effect = (
+            lambda tier: {"provider": "anthropic", "model": "claude-3-7-sonnet", "tier": tier}
+            if tier == "heavy"
+            else None
+        )
+        deps.agent_store.get_agent.return_value = SimpleNamespace(
+            provider="openai",
+            model="gpt-4o-mini",
+            model_selection_mode="tier",
+            model_tier="heavy",
+            model_policy="prefer_role",
+            model_role=None,
+            enabled_tools=[],
+            system_prompt="agent prompt",
+            doc_roots=[],
+            skill_mode="off",
+        )
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o-mini",
+            system_prompt="assembled prompt",
+            final_tools_list=[],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.config_service.get_feature_flags.return_value = {}
+        deps.tool_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        deps.collect_tool_names.return_value = []
+        deps.config_service.get_model_capabilities.return_value = []
+        deps.resolve_reasoning_state.return_value = (False, "DEEP_THINKING_DISABLED")
+        deps.build_system_prompt.return_value = "assembled prompt"
+        deps.get_model.return_value = object()
+        deps.build_agent_deps.return_value = {}
+        deps.ensure_ollama_model_available = AsyncMock(return_value=("claude-3-7-sonnet", None))
+        deps.config_service.get_model_settings.return_value = {}
+        deps.config_service.get_usage_limits.return_value = {"request_limit": 12, "tool_calls_limit": 8}
+        multimodal_service = MagicMock()
+        multimodal_service.decide_vision.return_value = {
+            "supports_vision": False,
+            "vision_enabled": False,
+            "fallback_mode": "disabled",
+        }
+        request = _make_request(agent_id="agent-1", provider=None, model=None)
+        ctx, metrics, emitter, tool_tracker = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        from app.api.chat_stream_runner import _prepare_runtime_dependencies
+
+        async for step in _prepare_runtime_dependencies(
+            ctx=ctx,
+            metrics=metrics,
+            emitter=emitter,
+            tool_tracker=tool_tracker,
+            multimodal_service=multimodal_service,
+            validated_images=[],
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(step)
+            if isinstance(step, PreparedRuntime):
+                break
+
+        meta_call = deps.build_runtime_meta_payload.call_args
+        assert meta_call is not None
+        assert meta_call.kwargs["model_resolution"]["tier"] == "heavy"
+        assert meta_call.kwargs["model_resolution"]["resolution_source"] == "agent_tier"
+        assert outputs[0]["event"] == "skill_effectiveness"
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_reassembles_skill_prompt_with_resolved_model_role():
+    async def run_test():
+        deps = _make_deps()
+        deps.config_service.resolve_model_role.side_effect = (
+            lambda role: {"provider": "deepseek", "model": "deepseek-reasoner"} if role == "reasoning" else None
+        )
+        deps.agent_store.get_agent.return_value = SimpleNamespace(
+            provider="openai",
+            model="gpt-4o-mini",
+            model_policy="prefer_role",
+            model_role=None,
+            enabled_tools=["builtin:docs_read"],
+            system_prompt="agent prompt",
+            doc_roots=[],
+            skill_mode="manual",
+        )
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": SimpleNamespace(name="skill-a", version="1.0.0"),
+            "always_skill_specs": [SimpleNamespace(name="always-a", version="1.0.0")],
+            "selection_reason_code": "skill_selected",
+            "selection_source": "explicit",
+            "selection_score": 9,
+            "visible_skill_count": 1,
+            "available_skill_count": 1,
+            "always_injected_count": 1,
+            "selected_group_ids": ["group-1"],
+            "resolved_skill_count": 1,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.side_effect = [
+            SimpleNamespace(
+                selected_skill_spec=SimpleNamespace(name="skill-a", version="1.0.0"),
+                provider="openai",
+                model_name="gpt-4o-mini",
+                system_prompt="assembled with default model",
+                final_tools_list=["builtin:docs_read"],
+                always_injected_count=1,
+                emitted_event=None,
+                summary_injected=False,
+                scope_summary_injected=False,
+                effective_scope_count=0,
+            ),
+            SimpleNamespace(
+                selected_skill_spec=SimpleNamespace(name="skill-a", version="1.0.0"),
+                provider="deepseek",
+                model_name="deepseek-reasoner",
+                system_prompt="assembled with resolved model",
+                final_tools_list=["builtin:docs_read"],
+                always_injected_count=1,
+                emitted_event=None,
+                summary_injected=False,
+                scope_summary_injected=False,
+                effective_scope_count=0,
+            ),
+        ]
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.config_service.get_feature_flags.return_value = {}
+        request = _make_request(agent_id="agent-1", model_role="reasoning")
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        async for item in _prepare_prompt_runtime(
+            ctx=ctx,
+            emitter=emitter,
+            request=request,
+            deps=deps,
+        ):
+            outputs.append(item)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert isinstance(outputs[1], PromptPreparation)
+        assert ctx.provider == "deepseek"
+        assert ctx.model_name == "deepseek-reasoner"
+        assert ctx.system_prompt == "assembled with resolved model"
+        assert deps.prompt.assemble_runtime_prompt.call_count == 2
+        first_call = deps.prompt.assemble_runtime_prompt.call_args_list[0]
+        second_call = deps.prompt.assemble_runtime_prompt.call_args_list[1]
+        assert first_call.kwargs["provider"] is None
+        assert first_call.kwargs["model_name"] is None
+        assert second_call.kwargs["provider"] == "deepseek"
+        assert second_call.kwargs["model_name"] == "deepseek-reasoner"
+
+    asyncio.run(run_test())
+
+
 def test_prepare_runtime_dependencies_requested_action_resume_after_approval():
     async def run_test():
         deps = _make_deps()
@@ -375,6 +829,119 @@ def test_prepare_runtime_dependencies_requested_action_resume_after_approval():
         assert any(isinstance(item, dict) and item.get("content") == "approval summary" for item in outputs)
         assert any(isinstance(item, dict) and item.get("content") == "execution summary" for item in outputs)
         assert any(isinstance(item, dict) and "tool execution output" in str(item.get("content")) for item in outputs)
+
+    asyncio.run(run_test())
+
+
+def test_prepare_runtime_dependencies_requested_action_uses_resolved_request_model_role():
+    async def run_test():
+        deps = _make_deps()
+        deps.config_service.resolve_model_role.side_effect = (
+            lambda role: {"provider": "deepseek", "model": "deepseek-reasoner"} if role == "reasoning" else None
+        )
+        deps.build_agent_deps.return_value = {}
+        deps.config_service.get_feature_flags.return_value = {}
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": SimpleNamespace(name="skill-a", version="1.0.0"),
+            "always_skill_specs": [],
+            "selection_reason_code": "skill_selected",
+            "selection_source": "explicit",
+            "selection_score": 9,
+            "visible_skill_count": 1,
+            "available_skill_count": 1,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 1,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.side_effect = [
+            SimpleNamespace(
+                selected_skill_spec=SimpleNamespace(name="skill-a", version="1.0.0"),
+                provider="openai",
+                model_name="gpt-4o-mini",
+                system_prompt="assembled prompt",
+                final_tools_list=["builtin:exec"],
+                always_injected_count=0,
+                selected_group_ids=[],
+                resolved_skill_count=1,
+                summary_injected=False,
+                scope_summary_injected=False,
+                effective_scope_count=0,
+                emitted_event=None,
+            ),
+            SimpleNamespace(
+                selected_skill_spec=SimpleNamespace(name="skill-a", version="1.0.0"),
+                provider="deepseek",
+                model_name="deepseek-reasoner",
+                system_prompt="assembled prompt",
+                final_tools_list=["builtin:exec"],
+                always_injected_count=0,
+                selected_group_ids=[],
+                resolved_skill_count=1,
+                summary_injected=False,
+                scope_summary_injected=False,
+                effective_scope_count=0,
+                emitted_event=None,
+            ),
+        ]
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.prompt.skill_action_execution_service.preflight.return_value = SimpleNamespace(
+            event_payloads=[],
+            lifecycle_status="preflight_ready",
+            invocation=SimpleNamespace(
+                action_id="generate",
+                skill_name="skill-a",
+                skill_version="1.0.0",
+                mapped_tool="builtin:exec",
+            ),
+            request_id="req-action",
+            metadata={"validated_arguments": {"command": "pwd"}},
+        )
+        deps.prompt.skill_action_execution_service.build_transition_result.side_effect = (
+            lambda **kwargs: SimpleNamespace(
+                event_payloads=[],
+                lifecycle_status=kwargs.get("lifecycle_status"),
+                metadata=kwargs.get("metadata") or {},
+                invocation=kwargs["invocation"],
+            )
+        )
+        deps.tool_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+        ctx, metrics, emitter, tool_tracker = _create_stream_runtime(
+            chat_id="chat-1",
+            request=_make_request(
+                requested_action="generate",
+                requested_action_arguments={"command": "pwd"},
+                model_role="reasoning",
+            ),
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        outputs = []
+        from app.api.chat_stream_runner import _prepare_runtime_dependencies
+
+        async for step in _prepare_runtime_dependencies(
+            ctx=ctx,
+            metrics=metrics,
+            emitter=emitter,
+            tool_tracker=tool_tracker,
+            multimodal_service=MagicMock(),
+            validated_images=[],
+            request=_make_request(
+                requested_action="generate",
+                requested_action_arguments={"command": "pwd"},
+                model_role="reasoning",
+            ),
+            deps=deps,
+        ):
+            outputs.append(step)
+
+        invocation_request = deps.prompt.skill_action_execution_service.preflight.call_args.args[0]
+        assert invocation_request.invocation.provider == "deepseek"
+        assert invocation_request.invocation.model_name == "deepseek-reasoner"
+        assert outputs[0]["event"] == "skill_effectiveness"
 
     asyncio.run(run_test())
 

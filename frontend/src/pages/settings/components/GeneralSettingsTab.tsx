@@ -132,6 +132,7 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
       theme: String(formData.get('theme') || props.prefs().theme),
       language: String(formData.get('language') || props.prefs().language),
       default_agent: String(formData.get('default_agent') || props.prefs().default_agent),
+      advanced_mode: formData.get('advanced_mode') !== null,
       voice_input_enabled: formData.get('voice_input_enabled') !== null,
       voice_input_provider: formData.get('voice_input_provider') === 'azure' ? 'azure' : 'browser',
       voice_input_language: String(formData.get('voice_input_language') || 'auto'),
@@ -217,10 +218,25 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
           </select>
         </div>
         <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
-          <h4 class="text-sm font-semibold text-gray-800">Voice Input</h4>
-          <div class="text-xs text-gray-500">
-            Voice input now works in two steps: listen first, then review a voice draft and insert it into the composer when it looks right.
-          </div>
+          <h4 class="text-sm font-semibold text-gray-800">Advanced Mode</h4>
+          <label class="flex items-center justify-between gap-3 cursor-pointer">
+            <div class="flex-1">
+              <span class="text-sm font-medium text-gray-700 block">Enable advanced mode</span>
+              <span class="text-xs text-gray-500">Show granular controls for model selection, routing roles, and trace details.</span>
+            </div>
+            <input
+              type="checkbox"
+              name="advanced_mode"
+              class="h-4 w-4 accent-emerald-600"
+              checked={props.prefs().advanced_mode}
+            />
+          </label>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
+           <h4 class="text-sm font-semibold text-gray-800">Voice Input</h4>
+           <div class="text-xs text-gray-500">
+             Voice input now works in two steps: listen first, then review a voice draft and insert it into the composer when it looks right.
+           </div>
           <label class="flex items-center justify-between gap-3">
             <span class="text-sm font-medium text-gray-700">Enable voice input</span>
             <input

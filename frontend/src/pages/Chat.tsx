@@ -856,6 +856,7 @@ function ChatContent(props: {
           voiceInputPreviewText={props.speechPrefs().voice_input_show_interim ? voiceInput.previewText() : ''}
           voiceInputInterimTranscript={voiceInput.interimTranscript()}
           voiceInputError={voiceInput.error()}
+          advancedMode={props.speechPrefs().advanced_mode}
           voiceInputFallbackMessage={voiceInput.fallbackMessage()}
           onToggleVoiceInput={() => { void handleToggleVoiceInput(); }}
           onCancelVoiceInput={handleCancelVoiceInput}

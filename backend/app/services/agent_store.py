@@ -20,6 +20,12 @@ class AgentConfig(BaseModel):
     system_prompt: str
     provider: str = "openai"
     model: str = "gpt-4o"
+    model_selection_mode: str = "direct"  # direct | tier
+    model_tier: str = "balanced"  # light | balanced | heavy
+    model_role: Optional[str] = None
+    model_policy: str = "prefer_role"  # prefer_role | force_direct | system_default
+    upgrade_on_tools: bool = True
+    upgrade_on_multi_skill: bool = True
     enabled_tools: List[str] = [] # List of tool names
     doc_roots: List[str] = []
     doc_file_patterns: List[str] = []

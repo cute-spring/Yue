@@ -11,11 +11,40 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from app.api.chat_trace_schemas import RequestAttachmentItem, RequestHistoryItem, RequestSnapshotRecord
 from app.api.chat_stream_types import StreamRunContext, StreamRunMetrics
 from app.services.chat_streaming import StreamEventEmitter, StreamState
+from app.services.llm.routing import RoutingContext, resolve_runtime_model
 from app.services.skills.models import (
     RuntimeSkillActionApprovalRequest,
     RuntimeSkillActionExecutionRequest,
     RuntimeSkillActionInvocationRequest,
 )
+
+
+def _safe_text(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    return None
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _safe_role_lookup(config_service: Any, role_name: str) -> Optional[dict[str, str]]:
+    resolver = getattr(config_service, "resolve_model_role", None)
+    if not callable(resolver):
+        return None
+    resolved = resolver(role_name)
+    if not isinstance(resolved, dict):
+        return None
+    provider = _safe_text(resolved.get("provider"))
+    model = _safe_text(resolved.get("model"))
+    if not provider or not model:
+        return None
+    return {"provider": provider, "model": model}
 
 
 @dataclass
@@ -434,8 +463,75 @@ async def _prepare_prompt_runtime(
         build_scope_summary_block=deps.prompt.build_scope_summary_block,
     )
     selected_skill_spec = prompt_result.selected_skill_spec
-    ctx.provider = prompt_result.provider
-    ctx.model_name = prompt_result.model_name
+    agent_provider = _safe_text(getattr(ctx.agent_config, "provider", None))
+    agent_model = _safe_text(getattr(ctx.agent_config, "model", None))
+    agent_model_selection_mode = _safe_text(getattr(ctx.agent_config, "model_selection_mode", None)) or "direct"
+    agent_model_tier = _safe_text(getattr(ctx.agent_config, "model_tier", None))
+    agent_model_role = _safe_text(getattr(ctx.agent_config, "model_role", None))
+    agent_model_policy = _safe_text(getattr(ctx.agent_config, "model_policy", None)) or "prefer_role"
+    upgrade_on_tools = bool(getattr(ctx.agent_config, "upgrade_on_tools", True))
+    upgrade_on_multi_skill = bool(getattr(ctx.agent_config, "upgrade_on_multi_skill", True))
+    routing_config = {}
+    get_routing_config = getattr(deps.config_service, "get_llm_routing_config", None)
+    if callable(get_routing_config):
+        loaded_routing_config = get_routing_config()
+        if isinstance(loaded_routing_config, dict):
+            routing_config = loaded_routing_config
+    routing_rules = routing_config.get("rules", {}) if isinstance(routing_config.get("rules"), dict) else {}
+    resolved_model = resolve_runtime_model(
+        RoutingContext(
+            request_provider=getattr(request, "provider", None),
+            request_model=getattr(request, "model", None),
+            request_model_role=getattr(request, "model_role", None),
+            agent_provider=agent_provider,
+            agent_model=agent_model,
+            agent_model_selection_mode=agent_model_selection_mode,
+            agent_model_tier=agent_model_tier,
+            agent_model_role=agent_model_role,
+            agent_model_policy=agent_model_policy,
+            routing_default_mode=_safe_text(routing_config.get("default_mode")) or "legacy",
+            routing_fallback_policy=_safe_text(routing_config.get("fallback_policy")) or "use_legacy_agent_model",
+            auto_upgrade_enabled=bool(routing_config.get("auto_upgrade_enabled", True)),
+            tool_call_requires_role=_safe_text(routing_rules.get("tool_call_requires_role")) or "tool_use",
+            multi_skill_requires_role=_safe_text(routing_rules.get("multi_skill_requires_role")) or "reasoning",
+            upgrade_on_tools=upgrade_on_tools,
+            upgrade_on_multi_skill=upgrade_on_multi_skill,
+            has_tools=bool(prompt_result.final_tools_list),
+            selected_tool_count=len(prompt_result.final_tools_list or []),
+            skill_count=max(0, _safe_int(resolved_skill_count, 0)),
+            has_images=bool(ctx.validated_images),
+            task_hints=[],
+        ),
+        role_lookup=lambda role_name: _safe_role_lookup(deps.config_service, role_name),
+        tier_lookup=lambda tier_name: getattr(deps.config_service, "resolve_model_tier", lambda _name: None)(tier_name),
+        default_provider=prompt_result.provider or "openai",
+        default_model=prompt_result.model_name or "gpt-4o",
+    )
+    prompt_provider = _safe_text(getattr(prompt_result, "provider", None))
+    prompt_model_name = _safe_text(getattr(prompt_result, "model_name", None))
+    if (
+        resolved_model.provider != (prompt_provider or resolved_model.provider)
+        or resolved_model.model != (prompt_model_name or resolved_model.model)
+    ):
+        prompt_result = deps.prompt.assemble_runtime_prompt(
+            agent_config=ctx.agent_config,
+            request_system_prompt=ctx.system_prompt,
+            request_message=request.message,
+            provider=resolved_model.provider,
+            model_name=resolved_model.model,
+            selected_skill_spec=selected_skill_spec,
+            always_skill_specs=always_skill_specs,
+            summary_block=summary_block,
+            feature_flags=ctx.feature_flags,
+            skill_registry=deps.prompt.skill_registry,
+            markdown_skill_adapter=deps.prompt.markdown_skill_adapter,
+            skill_policy_gate=deps.prompt.skill_policy_gate,
+            build_scope_summary_block=deps.prompt.build_scope_summary_block,
+        )
+        selected_skill_spec = prompt_result.selected_skill_spec
+    ctx.provider = resolved_model.provider
+    ctx.model_name = resolved_model.model
+    ctx.model_resolution = resolved_model.model_dump(mode="json")
     ctx.system_prompt = prompt_result.system_prompt
     _persist_request_snapshot(
         ctx=ctx,
@@ -853,6 +949,7 @@ async def _prepare_runtime_dependencies(
         deps.build_runtime_meta_payload(
             provider=ctx.provider,
             model_name=ctx.model_name,
+            model_resolution=getattr(ctx, "model_resolution", None),
             tool_names=tool_names,
             chat_id=ctx.chat_id,
             agent_id=request.agent_id,
