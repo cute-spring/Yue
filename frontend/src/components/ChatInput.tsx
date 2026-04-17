@@ -103,6 +103,29 @@ export const removeImageAttachmentAt = (files: File[], index: number): File[] =>
   return files.filter((_, i) => i !== index);
 };
 
+type ClipboardFileLike = {
+  kind: string;
+  type: string;
+  getAsFile: () => File | null;
+};
+
+type ClipboardDataLike = {
+  files?: ArrayLike<File>;
+  items?: ArrayLike<ClipboardFileLike>;
+};
+
+export const extractClipboardImageFiles = (clipboardData: ClipboardDataLike | null | undefined): File[] => {
+  if (!clipboardData) return [];
+
+  const fromFiles = Array.from(clipboardData.files || []).filter((file) => file.type.startsWith('image/'));
+  if (fromFiles.length > 0) return fromFiles;
+
+  return Array.from(clipboardData.items || [])
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file instanceof File);
+};
+
 export const getVisionCapabilityHint = (
   hasSelectedModel: boolean,
   supportsVision: boolean,
@@ -171,6 +194,24 @@ export default function ChatInput(props: ChatInputProps) {
     if (props.voiceInputIsProcessing) return `Processing speech with ${getVoiceInputProviderLabel(props.voiceInputProvider)}...`;
     return `Voice input via ${getVoiceInputProviderLabel(props.voiceInputPreferredProvider)}`;
   };
+  const handlePaste = (e: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) => {
+    if (inputLocked()) return;
+    const pastedImages = extractClipboardImageFiles(e.clipboardData);
+    if (pastedImages.length === 0) return;
+
+    e.preventDefault();
+    const maxCount = 10;
+    const maxSize = 10 * 1024 * 1024;
+    const merged = mergeImageAttachments(props.imageAttachments, pastedImages, maxCount, maxSize);
+    if (merged.overflowCount > 0) {
+      toast.warning(`最多选择 ${maxCount} 张图片`);
+    }
+    if (merged.oversizedCount > 0) {
+      toast.warning('部分文件超过 10MB 大小限制，已忽略');
+    }
+    props.setImageAttachments(merged.files);
+    toast.success('已粘贴图片，可直接发送');
+  };
 
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
@@ -231,6 +272,7 @@ export default function ChatInput(props: ChatInputProps) {
                   ref={props.textareaRef}
                   value={props.input}
                   onInput={props.onInput}
+                  onPaste={handlePaste}
                   onKeyDown={props.onKeyDown}
                   readOnly={inputLocked()}
                   placeholder={`You are chatting with ${props.activeAgentName} now`}
@@ -279,16 +321,16 @@ export default function ChatInput(props: ChatInputProps) {
               {/* Right Side: Tools + Action */}
               <div class="flex items-center gap-3">
                 {/* Tools Group */}
-                <div class="flex items-center gap-1.5">
-                  <div class="relative group/tooltip">
-                    <button type="button" class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach files">
+                  <div class="flex items-center gap-1.5">
+                    <div class="relative group/tooltip">
+                    <button type="button" class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach or paste images">
                       <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
                     </button>
                     <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                      <span class="font-bold text-white/90">快速理解总结文件</span>
-                      <span class="block text-[11px] text-white/50 mt-1">PDF, Word, Excel, PPT, Code</span>
+                      <span class="font-bold text-white/90">上传图片或直接粘贴截图</span>
+                      <span class="block text-[11px] text-white/50 mt-1">支持文件选择、剪贴板粘贴，`Ctrl+V` 即可</span>
                       <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
                     </div>
                   </div>
@@ -322,7 +364,7 @@ export default function ChatInput(props: ChatInputProps) {
                       </button>
                       <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
                         <span class="font-bold text-white/90">上传图片</span>
-                        <span class="block text-[11px] text-white/50 mt-1">JPG, PNG (Max 10)</span>
+                        <span class="block text-[11px] text-white/50 mt-1">JPG, PNG, 也支持截图后 `Ctrl+V` 粘贴</span>
                         <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
                       </div>
                     </div>

@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { canSubmitFromInput, getUploadButtonClass, getVisionCapabilityHint, getVoiceInputButtonClass, getVoiceInputProviderLabel, mergeImageAttachments, removeImageAttachmentAt } from './ChatInput';
+import { canSubmitFromInput, extractClipboardImageFiles, getUploadButtonClass, getVisionCapabilityHint, getVoiceInputButtonClass, getVoiceInputProviderLabel, mergeImageAttachments, removeImageAttachmentAt } from './ChatInput';
 
 const makeFile = (name: string, size: number): File => {
   const content = new Array(size).fill('a').join('');
   return new File([content], name, { type: 'image/png' });
 };
+
+const makeClipboardItem = (file: File | null, type = 'image/png') => ({
+  kind: 'file',
+  type,
+  getAsFile: () => file,
+});
 
 describe('ChatInput multimodal helpers', () => {
   it('allows submit with images only', () => {
@@ -32,6 +38,32 @@ describe('ChatInput multimodal helpers', () => {
     expect(idleClass).not.toContain('border');
     expect(activeClass).toContain('bg-primary/20');
     expect(activeClass).toContain('border-primary/30');
+  });
+
+  it('extracts pasted image files from clipboard files first', () => {
+    const image = makeFile('shot.png', 10);
+    const text = new File(['hello'], 'note.txt', { type: 'text/plain' });
+    const result = extractClipboardImageFiles({
+      files: [text, image],
+      items: [makeClipboardItem(null)],
+    });
+    expect(result.map((item) => item.name)).toEqual(['shot.png']);
+  });
+
+  it('falls back to clipboard items when files are unavailable', () => {
+    const image = makeFile('pasted.png', 10);
+    const result = extractClipboardImageFiles({
+      items: [makeClipboardItem(image), makeClipboardItem(null, 'text/plain')],
+    });
+    expect(result.map((item) => item.name)).toEqual(['pasted.png']);
+  });
+
+  it('ignores non-image clipboard payloads', () => {
+    const result = extractClipboardImageFiles({
+      files: [new File(['hello'], 'note.txt', { type: 'text/plain' })],
+      items: [makeClipboardItem(null, 'text/plain')],
+    });
+    expect(result).toEqual([]);
   });
 
   it('removes single attachment by index', () => {

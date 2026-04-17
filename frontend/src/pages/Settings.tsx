@@ -10,6 +10,7 @@ import {
   parseMcpManualText,
   splitRootsText,
 } from './settings/settingsUtils';
+import { publishFeatureFlagsUpdate, publishPreferencesUpdate } from '../utils/preferencesSync';
 import type {
   Agent,
   CustomModel,
@@ -175,6 +176,7 @@ type Tab = 'general' | 'mcp' | 'llm';
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+    publishPreferencesUpdate(payload);
     showToast('success', 'Preferences saved');
   };
 
@@ -215,7 +217,9 @@ type Tab = 'general' | 'mcp' | 'llm';
       return;
     }
     const saved = await res.json();
-    setFeatureFlags(normalizeFeatureFlags(saved));
+    const normalized = normalizeFeatureFlags(saved);
+    setFeatureFlags(normalized);
+    publishFeatureFlagsUpdate(normalized);
     showToast('success', 'Feature flags saved');
   };
 

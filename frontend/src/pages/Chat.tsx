@@ -27,10 +27,16 @@ import { deriveSlashAgentSelectorState, getAgentSelectorKeyAction, useAgents } f
 import { canSubmitChatRequest, getAgentVisibleSkills, useChatState } from '../hooks/useChatState';
 import { useMermaid } from '../hooks/useMermaid';
 import { SpeechControllerProvider, useSpeechController } from '../context/SpeechControllerContext';
-import { DEFAULT_PREFERENCES, Preferences, normalizePreferences } from './settings/types';
+import { DEFAULT_PREFERENCES, Preferences, normalizeFeatureFlags, normalizePreferences } from './settings/types';
 import { getSpeechMessageId } from '../utils/speech';
 import { composeVoiceInputText, useVoiceInput } from '../hooks/useVoiceInput';
 import { copyCodeBlockText } from '../utils/markdown';
+import {
+  readCachedFeatureFlags,
+  readCachedPreferences,
+  subscribeToFeatureFlagsUpdates,
+  subscribeToPreferencesUpdates,
+} from '../utils/preferencesSync';
 
 function ChatContent(props: {
   speechPrefs: () => Preferences;
@@ -921,7 +927,29 @@ function ChatContent(props: {
 
 export default function Chat() {
   const [speechPrefs, setSpeechPrefs] = createSignal<Preferences>(DEFAULT_PREFERENCES);
-  const [featureFlags, setFeatureFlags] = createSignal<FeatureFlags>({});
+  const [featureFlags, setFeatureFlags] = createSignal<FeatureFlags>(normalizeFeatureFlags({}));
+
+  onMount(() => {
+    const cachedPrefs = readCachedPreferences();
+    if (cachedPrefs) {
+      setSpeechPrefs(normalizePreferences(cachedPrefs));
+    }
+    const unsubscribe = subscribeToPreferencesUpdates((prefs) => {
+      setSpeechPrefs(normalizePreferences(prefs));
+    });
+    onCleanup(unsubscribe);
+  });
+
+  onMount(() => {
+    const cachedFlags = readCachedFeatureFlags();
+    if (cachedFlags) {
+      setFeatureFlags(normalizeFeatureFlags(cachedFlags));
+    }
+    const unsubscribe = subscribeToFeatureFlagsUpdates((flags) => {
+      setFeatureFlags(normalizeFeatureFlags(flags));
+    });
+    onCleanup(unsubscribe);
+  });
 
   onMount(async () => {
     try {
@@ -934,7 +962,7 @@ export default function Chat() {
 
       if (featureFlagsRes.ok) {
         const flags = (await featureFlagsRes.json()) as FeatureFlags;
-        setFeatureFlags(flags);
+        setFeatureFlags(normalizeFeatureFlags(flags));
       }
     } catch (e) {
       console.warn('Failed to load chat configuration', e);
@@ -945,7 +973,7 @@ export default function Chat() {
     <SpeechControllerProvider prefs={speechPrefs}>
       <ChatContent
         speechPrefs={speechPrefs}
-        traceUiEnabled={!!featureFlags().chat_trace_ui_enabled}
+        traceUiEnabled={speechPrefs().advanced_mode || !!featureFlags().chat_trace_ui_enabled}
         traceRawEnabled={!!featureFlags().chat_trace_raw_enabled}
       />
     </SpeechControllerProvider>

@@ -46,6 +46,20 @@ describe('preferences normalization', () => {
     expect(normalized.voice_input_show_interim).toBe(false);
   });
 
+  it('normalizes boolean-like string preferences', () => {
+    const normalized = normalizePreferences({
+      advanced_mode: 'true',
+      voice_input_enabled: '0',
+      voice_input_show_interim: 'off',
+      auto_speech_enabled: 'yes',
+    });
+
+    expect(normalized.advanced_mode).toBe(true);
+    expect(normalized.voice_input_enabled).toBe(false);
+    expect(normalized.voice_input_show_interim).toBe(false);
+    expect(normalized.auto_speech_enabled).toBe(true);
+  });
+
   it('fills missing feature flag values with defaults', () => {
     expect(normalizeFeatureFlags({})).toEqual(DEFAULT_FEATURE_FLAGS);
   });
