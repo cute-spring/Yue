@@ -105,6 +105,16 @@ export const DEFAULT_PREFERENCES: Preferences = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const toBoolean = (value: unknown, fallback: boolean): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  }
+  if (value === null || value === undefined) return fallback;
+  return Boolean(value);
+};
 
 export const normalizePreferences = (value: any): Preferences => {
   const rate = typeof value?.speech_rate === 'number' ? value.speech_rate : Number(value?.speech_rate);
@@ -113,18 +123,14 @@ export const normalizePreferences = (value: any): Preferences => {
     theme: typeof value?.theme === 'string' ? value.theme : DEFAULT_PREFERENCES.theme,
     language: typeof value?.language === 'string' ? value.language : DEFAULT_PREFERENCES.language,
     default_agent: typeof value?.default_agent === 'string' ? value.default_agent : DEFAULT_PREFERENCES.default_agent,
-    advanced_mode: typeof value?.advanced_mode === 'boolean' ? value.advanced_mode : DEFAULT_PREFERENCES.advanced_mode,
-    voice_input_enabled: typeof value?.voice_input_enabled === 'boolean'
-      ? value.voice_input_enabled
-      : DEFAULT_PREFERENCES.voice_input_enabled,
+    advanced_mode: toBoolean(value?.advanced_mode, DEFAULT_PREFERENCES.advanced_mode),
+    voice_input_enabled: toBoolean(value?.voice_input_enabled, DEFAULT_PREFERENCES.voice_input_enabled),
     voice_input_provider: value?.voice_input_provider === 'azure' ? 'azure' : 'browser',
     voice_input_language: typeof value?.voice_input_language === 'string' && value.voice_input_language.trim()
       ? value.voice_input_language
       : DEFAULT_PREFERENCES.voice_input_language,
-    voice_input_show_interim: typeof value?.voice_input_show_interim === 'boolean'
-      ? value.voice_input_show_interim
-      : DEFAULT_PREFERENCES.voice_input_show_interim,
-    auto_speech_enabled: typeof value?.auto_speech_enabled === 'boolean' ? value.auto_speech_enabled : DEFAULT_PREFERENCES.auto_speech_enabled,
+    voice_input_show_interim: toBoolean(value?.voice_input_show_interim, DEFAULT_PREFERENCES.voice_input_show_interim),
+    auto_speech_enabled: toBoolean(value?.auto_speech_enabled, DEFAULT_PREFERENCES.auto_speech_enabled),
     speech_voice: typeof value?.speech_voice === 'string' ? value.speech_voice : DEFAULT_PREFERENCES.speech_voice,
     speech_rate: Number.isFinite(rate) ? clamp(rate, 0.5, 2.0) : DEFAULT_PREFERENCES.speech_rate,
     speech_volume: Number.isFinite(volume) ? clamp(volume, 0, 1) : DEFAULT_PREFERENCES.speech_volume,

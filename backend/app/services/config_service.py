@@ -691,10 +691,11 @@ class ConfigService:
         return models
 
     def get_preferences(self) -> Dict[str, Any]:
-        return self._config.get("preferences", {
+        defaults = {
             "theme": "light",
             "language": "en",
             "default_agent": "default",
+            "advanced_mode": False,
             "voice_input_enabled": True,
             "voice_input_provider": "browser",
             "voice_input_language": "auto",
@@ -706,7 +707,33 @@ class ConfigService:
             "speech_engine": "browser",
             "speech_openai_voice": "alloy",
             "speech_openai_model": "gpt-4o-mini-tts",
-        })
+        }
+        current = self._config.get("preferences", {})
+        if not isinstance(current, dict):
+            current = {}
+
+        def _coerce_bool(value: Any, default: bool) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"true", "1", "yes", "on"}:
+                    return True
+                if lowered in {"false", "0", "no", "off"}:
+                    return False
+            if value is None:
+                return default
+            return bool(value)
+
+        normalized = {
+            **defaults,
+            **current,
+            "advanced_mode": _coerce_bool(current.get("advanced_mode"), defaults["advanced_mode"]),
+            "voice_input_enabled": _coerce_bool(current.get("voice_input_enabled"), defaults["voice_input_enabled"]),
+            "voice_input_show_interim": _coerce_bool(current.get("voice_input_show_interim"), defaults["voice_input_show_interim"]),
+            "auto_speech_enabled": _coerce_bool(current.get("auto_speech_enabled"), defaults["auto_speech_enabled"]),
+        }
+        return normalized
 
     def get_doc_access(self) -> Dict[str, Any]:
         from app.core.settings import AppSettings
@@ -760,7 +787,9 @@ class ConfigService:
     def update_preferences(self, prefs: Dict[str, Any]) -> Dict[str, Any]:
         if "preferences" not in self._config:
             self._config["preferences"] = {}
-        self._config["preferences"].update(prefs)
+        if isinstance(prefs, dict):
+            self._config["preferences"].update(prefs)
+        self._config["preferences"] = self.get_preferences()
         self.update_config(self._config)
         return self._config["preferences"]
 

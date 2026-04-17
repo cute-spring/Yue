@@ -8,39 +8,84 @@ const imageFile: { name: string; mimeType: string; buffer: any } = {
   buffer: (globalThis as any).Buffer.from(pngBase64, 'base64'),
 };
 
+const pasteImageIntoInput = async (page: any, selector: string) => {
+  await page.evaluate(
+    async ({ targetSelector, base64 }) => {
+      const target = document.querySelector(targetSelector) as HTMLTextAreaElement | null;
+      if (!target) throw new Error(`Target not found: ${targetSelector}`);
+
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const file = new File([bytes], 'clipboard-shot.png', { type: 'image/png' });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+
+      target.focus();
+      const event = new ClipboardEvent('paste', {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      } as ClipboardEventInit);
+      target.dispatchEvent(event);
+    },
+    { targetSelector: selector, base64: pngBase64 },
+  );
+};
+
 const resolveModelCandidates = async (page: any) => {
   return page.evaluate(async () => {
     const res = await fetch('/api/models/providers');
     const providers = await res.json();
     let visionModel = '';
+    let visionProvider = '';
     let nonVisionModel = '';
+    let nonVisionProvider = '';
     for (const provider of providers || []) {
       const models = (provider.available_models?.length ? provider.available_models : provider.models) || [];
       for (const model of models) {
         const caps = provider.model_capabilities?.[model] || [];
         if (!visionModel && caps.includes('vision')) {
           visionModel = model;
+          visionProvider = provider.name;
         }
         if (!nonVisionModel && !caps.includes('vision')) {
           nonVisionModel = model;
+          nonVisionProvider = provider.name;
         }
         if (visionModel && nonVisionModel) break;
       }
       if (visionModel && nonVisionModel) break;
     }
-    return { visionModel, nonVisionModel };
+    return { visionModel, visionProvider, nonVisionModel, nonVisionProvider };
   });
 };
 
-const selectModel = async (page: any, modelName: string) => {
-  const selectorButton = page.getByRole('button', { name: /Select Model|QWN|QWEN|GPT|DEEPSEEK|VISION/i }).first();
-  await selectorButton.click();
-  const toggleAll = page.getByRole('button', { name: 'All' }).first();
-  if (await toggleAll.isVisible()) {
-    await toggleAll.click();
+const selectModel = async (page: any, providerName: string, modelName: string) => {
+  const selectorButton = page
+    .locator('button')
+    .filter({ hasText: /Select Model|QWN|QWEN|GPT|DEEPSEEK|VISION/i })
+    .first();
+  const selectorVisible = await selectorButton.isVisible({ timeout: 1500 }).catch(() => false);
+
+  if (selectorVisible) {
+    await selectorButton.click();
+    const toggleAll = page.getByRole('button', { name: 'All' }).first();
+    if (await toggleAll.isVisible()) {
+      await toggleAll.click();
+    }
+    const dropdown = page.locator('div').filter({ hasText: /All Models|Enabled Models/ }).first();
+    await dropdown.getByRole('button', { name: new RegExp(modelName, 'i') }).first().click();
+    return;
   }
-  const dropdown = page.locator('div').filter({ hasText: /All Models|Enabled Models/ }).first();
-  await dropdown.getByRole('button', { name: new RegExp(modelName, 'i') }).first().click();
+
+  await page.evaluate(({ provider, model }) => {
+    localStorage.setItem('yue_selected_provider', provider);
+    localStorage.setItem('yue_selected_model', model);
+  }, { provider: providerName, model: modelName });
+  await page.reload();
 };
 
 test('uploads image with text using a vision-capable model', async ({ page }) => {
@@ -48,9 +93,10 @@ test('uploads image with text using a vision-capable model', async ({ page }) =>
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
 
-  const { visionModel } = await resolveModelCandidates(page);
+  const { visionModel, visionProvider } = await resolveModelCandidates(page);
   expect(visionModel, 'No vision-capable model available for E2E').toBeTruthy();
-  await selectModel(page, visionModel);
+  expect(visionProvider, 'No vision-capable provider available for E2E').toBeTruthy();
+  await selectModel(page, visionProvider, visionModel);
 
   const uploadButton = page.getByRole('button', { name: 'Upload images' });
   await expect(uploadButton).toBeVisible();
@@ -69,12 +115,32 @@ test('sends image-only message using a vision-capable model', async ({ page }) =
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
 
-  const { visionModel } = await resolveModelCandidates(page);
+  const { visionModel, visionProvider } = await resolveModelCandidates(page);
   expect(visionModel, 'No vision-capable model available for E2E').toBeTruthy();
-  await selectModel(page, visionModel);
+  expect(visionProvider, 'No vision-capable provider available for E2E').toBeTruthy();
+  await selectModel(page, visionProvider, visionModel);
 
   const fileInput = page.locator('input[type="file"][accept="image/*"]');
   await fileInput.setInputFiles(imageFile);
+  await page.locator('button[type="submit"]').click();
+
+  await expect(page.locator('img[alt="User upload"]').first()).toBeVisible();
+});
+
+test('pastes screenshot with Ctrl+V flow and sends successfully', async ({ page }) => {
+  await page.goto('/');
+  const input = page.getByPlaceholder(/You are chatting with/i);
+  await expect(input).toBeVisible();
+
+  const { visionModel, visionProvider } = await resolveModelCandidates(page);
+  expect(visionModel, 'No vision-capable model available for E2E').toBeTruthy();
+  expect(visionProvider, 'No vision-capable provider available for E2E').toBeTruthy();
+  await selectModel(page, visionProvider, visionModel);
+
+  const inputSelector = 'textarea[placeholder*="You are chatting with"]';
+  await pasteImageIntoInput(page, inputSelector);
+
+  await expect(page.getByText('clipboard-shot.png').first()).toBeVisible();
   await page.locator('button[type="submit"]').click();
 
   await expect(page.locator('img[alt="User upload"]').first()).toBeVisible();
@@ -85,9 +151,10 @@ test('shows vision-off badge when model lacks vision capability', async ({ page 
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
 
-  const { nonVisionModel } = await resolveModelCandidates(page);
+  const { nonVisionModel, nonVisionProvider } = await resolveModelCandidates(page);
   expect(nonVisionModel, 'No non-vision model available for E2E').toBeTruthy();
-  await selectModel(page, nonVisionModel);
+  expect(nonVisionProvider, 'No non-vision provider available for E2E').toBeTruthy();
+  await selectModel(page, nonVisionProvider, nonVisionModel);
 
   await input.fill('E2E non-vision text');
   await page.locator('button[type="submit"]').click();

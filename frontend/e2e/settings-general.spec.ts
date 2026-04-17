@@ -32,6 +32,7 @@ test('General settings save path commits updated preferences', async ({ page }) 
   await setSelectValue('settings-theme-select', 'dark');
   await setSelectValue('settings-language-select', 'zh');
   await setSelectValue('settings-default-agent-select', 'agent-1');
+  await page.locator('input[name="advanced_mode"]').check();
 
   const requestPromise = page.waitForRequest(
     (req) => req.url().includes('/api/config/preferences') && req.method() === 'POST',
@@ -43,4 +44,5 @@ test('General settings save path commits updated preferences', async ({ page }) 
   expect(body.theme).toBe('dark');
   expect(body.language).toBe('zh');
   expect(body.default_agent).toBe('agent-1');
+  expect(body.advanced_mode).toBe(true);
 });

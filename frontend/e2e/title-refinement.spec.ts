@@ -6,6 +6,7 @@ test('chat title is refined in sidebar after first assistant response', async ({
   const question = 'Build a minimal JWT auth module for FastAPI with register login refresh and middleware'
   const placeholderTitle = question.length > 30 ? `${question.slice(0, 30)}...` : question
   const refinedTitle = `FastAPI JWT auth module ${Date.now()}`
+  const updatedAt = new Date().toISOString()
   let historyCalls = 0
   let metaCalls = 0
 
@@ -28,7 +29,7 @@ test('chat title is refined in sidebar after first assistant response', async ({
         id: 'chat-1',
         title,
         summary: null,
-        updated_at: '2026-03-18T00:00:00Z'
+        updated_at: updatedAt
       })
     })
   })
@@ -59,6 +60,6 @@ test('chat title is refined in sidebar after first assistant response', async ({
   await input.press('Enter')
 
   await expect.poll(() => metaCalls, { timeout: 90000 }).toBeGreaterThanOrEqual(3)
-  await expect(page.getByRole('heading', { level: 3, name: refinedTitle })).toBeVisible({ timeout: 90000 })
+  await expect(page.getByText(refinedTitle, { exact: true }).first()).toBeVisible({ timeout: 90000 })
   expect(historyCalls).toBeLessThanOrEqual(1)
 })

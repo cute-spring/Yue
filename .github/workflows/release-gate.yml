@@ -40,7 +40,7 @@ jobs:
         run: |
           pytest backend/tests/test_contract_gate_unit.py
 
-  smoke-e2e-title-refinement:
+  smoke-e2e-frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +73,7 @@ jobs:
           echo "Frontend failed to start"
           cat /tmp/yue-frontend.log || true
           exit 1
-      - name: Run smoke e2e for title refinement
+      - name: Run frontend smoke e2e
         run: |
           cd frontend
-          npx playwright test e2e/title-refinement.spec.ts --reporter=line
+          npx playwright test e2e/title-refinement.spec.ts e2e/chat-paste-image.spec.ts e2e/advanced-mode-sync.spec.ts e2e/feature-flags-sync.spec.ts --reporter=line

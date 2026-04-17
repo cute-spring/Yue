@@ -140,6 +140,26 @@ def test_update_feature_flags_round_trip(temp_config_file):
     assert persisted["feature_flags"]["chat_trace_ui_enabled"] is True
     assert persisted["feature_flags"]["chat_trace_raw_enabled"] is True
 
+
+def test_get_preferences_defaults_include_advanced_mode(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+    prefs = service.get_preferences()
+    assert prefs["advanced_mode"] is False
+
+
+def test_update_preferences_coerces_boolean_like_fields(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+    updated = service.update_preferences({
+        "advanced_mode": "true",
+        "voice_input_enabled": "0",
+        "voice_input_show_interim": "off",
+        "auto_speech_enabled": "yes",
+    })
+    assert updated["advanced_mode"] is True
+    assert updated["voice_input_enabled"] is False
+    assert updated["voice_input_show_interim"] is False
+    assert updated["auto_speech_enabled"] is True
+
 def test_update_llm_config_protects_secrets(temp_config_file, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # 使用新的结构化配置格式
