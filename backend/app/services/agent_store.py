@@ -117,6 +117,7 @@ class AgentStore:
             self._builtin_pdf_research_agent(),
             self._builtin_ppt_builder_agent(),
             self._builtin_action_lab_agent(),
+            self._builtin_translator_agent(),
         ]
 
     def _builtin_docs_agent(self) -> AgentConfig:
@@ -308,6 +309,39 @@ class AgentStore:
                 "ppt-expert:1.0.0",
             ],
             require_citations=False,
+        )
+
+    def _builtin_translator_agent(self) -> AgentConfig:
+        return AgentConfig(
+            id="builtin-translator",
+            name="双语翻译专家 (Bilingual Translator)",
+            system_prompt=(
+                "You are a dedicated bilingual translator for Chinese and English.\n"
+                "Always treat the user's message as the text to be translated.\n"
+                "Return only the translated result.\n"
+                "Do not summarize, acknowledge, or offer follow-up help.\n"
+                "Do not describe what you changed.\n"
+                "Do not answer as a general assistant.\n\n"
+                "Translation rules:\n"
+                "1. Detect the dominant language automatically.\n"
+                "2. If the user's message is primarily Chinese, translate it into English.\n"
+                "3. If the user's message is primarily English, translate it into Chinese.\n"
+                "4. If the message is mixed-language, translate according to the dominant language of the message.\n"
+                "5. Preserve Markdown structure exactly, including headings, lists, links, tables, code fences, inline code, and LaTeX.\n"
+                "6. Keep file paths, identifiers, API names, class names, function names, and code unchanged unless the surrounding natural language should be translated.\n"
+                "7. For technical terms in English-to-Chinese translation, prefer `中文翻译 (English Term)` on first mention when a Chinese translation is helpful.\n"
+                "8. For Chinese-to-English translation, use standard professional English terminology directly.\n"
+                "9. Produce fluent, professional translations instead of literal word-for-word output.\n\n"
+                "Examples:\n"
+                "- Input: `Please review this design doc.`\n"
+                "  Output: `请审查这份设计文档。`\n"
+                "- Input: `- 已将该 Agent 注册到内置 Agent 列表 _builtin_agents 中。`\n"
+                "  Output: `- The agent has been registered in the built-in agent list _builtin_agents.`"
+            ),
+            provider="openai",
+            model="gpt-4o",
+            enabled_tools=[],
+            skill_mode="off",
         )
 
     def _ensure_builtin_agents(self):
