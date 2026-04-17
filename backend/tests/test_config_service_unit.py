@@ -264,6 +264,173 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
     assert result["deny_roots"] == ["/env/x", "/env/y"]
 
 
+def test_get_llm_routing_config_defaults_to_legacy_runtime_model(temp_config_file):
+    data = {
+        "llm": {
+            "provider": "deepseek",
+            "providers": {
+                "deepseek": {
+                    "default_model": "deepseek-chat"
+                }
+            }
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    service = ConfigService(str(temp_config_file))
+
+    routing = service.get_llm_routing_config()
+    assert routing["default_mode"] == "legacy"
+    assert routing["fallback_policy"] == "use_legacy_agent_model"
+    assert routing["roles"]["general_chat"]["provider"] == "deepseek"
+    assert routing["roles"]["general_chat"]["model"] == "deepseek-chat"
+
+
+def test_get_llm_routing_config_merges_custom_roles_and_rules(temp_config_file):
+    data = {
+        "llm": {
+            "provider": "openai",
+            "providers": {"openai": {"default_model": "gpt-4o-mini"}},
+            "routing": {
+                "default_mode": "role_based",
+                "auto_upgrade_enabled": False,
+                "roles": {
+                    "general_chat": {"provider": "openai", "model": "gpt-4o-mini"},
+                    "tool_use": {"provider": "openai", "model": "gpt-4o"},
+                    "reasoning": {"inherit": "tool_use"},
+                },
+                "rules": {
+                    "tool_call_requires_role": "tool_use",
+                    "multi_skill_requires_role": "reasoning",
+                },
+            },
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    service = ConfigService(str(temp_config_file))
+
+    routing = service.get_llm_routing_config()
+    assert routing["default_mode"] == "role_based"
+    assert routing["auto_upgrade_enabled"] is False
+    assert routing["roles"]["tool_use"]["model"] == "gpt-4o"
+    assert routing["roles"]["reasoning"]["inherit"] == "tool_use"
+    assert routing["rules"]["multi_skill_requires_role"] == "reasoning"
+
+
+def test_update_llm_config_supports_routing_payload(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+    payload = {
+        "routing": {
+            "default_mode": "role_based",
+            "roles": {
+                "general_chat": {"provider": "openai", "model": "gpt-4o-mini"},
+                "tool_use": {"provider": "openai", "model": "gpt-4o"},
+            },
+        }
+    }
+    updated = service.update_llm_config(payload)
+    assert updated["routing"]["default_mode"] == "role_based"
+    assert updated["routing"]["roles"]["tool_use"]["model"] == "gpt-4o"
+
+
+def test_resolve_model_role_works_with_inherit(temp_config_file):
+    data = {
+        "llm": {
+            "routing": {
+                "roles": {
+                    "general_chat": {"provider": "openai", "model": "gpt-4o-mini"},
+                    "reasoning": {"inherit": "general_chat"},
+                }
+            }
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    service = ConfigService(str(temp_config_file))
+    resolved = service.resolve_model_role("reasoning")
+    assert resolved is not None
+    assert resolved["provider"] == "openai"
+    assert resolved["model"] == "gpt-4o-mini"
+
+
+def test_get_model_tiers_defaults_to_legacy_runtime_model(temp_config_file):
+    data = {
+        "llm": {
+            "provider": "deepseek",
+            "providers": {
+                "deepseek": {
+                    "default_model": "deepseek-chat"
+                }
+            }
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    service = ConfigService(str(temp_config_file))
+
+    tiers = service.get_model_tiers()
+    assert tiers["light"]["provider"] == "deepseek"
+    assert tiers["light"]["model"] == "deepseek-chat"
+    assert tiers["balanced"]["provider"] == "deepseek"
+    assert tiers["heavy"]["model"] == "deepseek-chat"
+
+
+def test_resolve_model_tier_returns_configured_mapping(temp_config_file):
+    data = {
+        "llm": {
+            "model_tiers": {
+                "light": {"provider": "openai", "model": "gpt-4o-mini"},
+                "balanced": {"provider": "deepseek", "model": "deepseek-chat"},
+                "heavy": {"provider": "openai", "model": "gpt-4.1"},
+            }
+        }
+    }
+    temp_config_file.write_text(json.dumps(data))
+    service = ConfigService(str(temp_config_file))
+
+    resolved = service.resolve_model_tier("heavy")
+    assert resolved is not None
+    assert resolved["provider"] == "openai"
+    assert resolved["model"] == "gpt-4.1"
+    assert service.resolve_model_tier("unknown") is None
+
+
+def test_update_llm_config_supports_model_tiers_payload(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+    payload = {
+        "model_tiers": {
+            "light": {"provider": "openai", "model": "gpt-4o-mini"},
+            "balanced": {"provider": "deepseek", "model": "deepseek-chat"},
+            "heavy": {"provider": "openai", "model": "gpt-4.1"},
+        }
+    }
+    updated = service.update_llm_config(payload)
+    assert updated["model_tiers"]["light"]["model"] == "gpt-4o-mini"
+    assert updated["model_tiers"]["heavy"]["provider"] == "openai"
+
+
+def test_update_llm_config_preserves_existing_model_tiers_when_payload_is_partial(temp_config_file):
+    temp_config_file.write_text(json.dumps({
+        "llm": {
+            "model_tiers": {
+                "light": {"provider": "openai", "model": "gpt-4o-mini"},
+                "balanced": {"provider": "deepseek", "model": "deepseek-chat"},
+                "heavy": {"provider": "openai", "model": "gpt-4.1"},
+            }
+        }
+    }))
+    service = ConfigService(str(temp_config_file))
+
+    service.update_llm_config({
+        "model_tiers": {
+            "light": {"provider": "openai", "model": "gpt-4o"},
+        }
+    })
+
+    reloaded = ConfigService(str(temp_config_file))
+    tiers = reloaded.get_model_tiers()
+    assert tiers["light"]["model"] == "gpt-4o"
+    assert tiers["balanced"]["provider"] == "deepseek"
+    assert tiers["heavy"]["model"] == "gpt-4.1"
+
+
 def test_preferences_include_speech_defaults(temp_config_file):
     service = ConfigService(str(temp_config_file))
     prefs = service.get_preferences()

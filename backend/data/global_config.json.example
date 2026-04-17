@@ -10,9 +10,8 @@
   },
   "llm": {
     "provider": "deepseek",
-    "enabled_providers": "openai,azure_openai,deepseek,ollama,zhipu",
+    "enabled_providers": "openai,deepseek,ollama",
     "openai_enabled_models_mode": "allowlist",
-    "zhipu_enabled_models_mode": "allowlist",
     "settings": {
       "request_timeout": 300,
       "meta_enabled": true,
@@ -21,6 +20,41 @@
       "meta_timeout_ms": 1800,
       "meta_max_tokens": 96,
       "meta_use_runtime_model_for_title": false
+    },
+    "routing": {
+      "default_mode": "legacy",
+      "fallback_policy": "use_legacy_agent_model",
+      "auto_upgrade_enabled": true,
+      "roles": {
+        "general_chat": {
+          "provider": "deepseek",
+          "model": "deepseek-chat"
+        },
+        "tool_use": {
+          "inherit": "general_chat"
+        },
+        "reasoning": {
+          "inherit": "general_chat"
+        }
+      },
+      "rules": {
+        "tool_call_requires_role": "tool_use",
+        "multi_skill_requires_role": "reasoning"
+      }
+    },
+    "model_tiers": {
+      "light": {
+        "provider": "deepseek",
+        "model": "deepseek-chat"
+      },
+      "balanced": {
+        "provider": "deepseek",
+        "model": "deepseek-chat"
+      },
+      "heavy": {
+        "provider": "deepseek",
+        "model": "deepseek-reasoner"
+      }
     },
     "providers": {
       "openai": {
@@ -32,15 +66,6 @@
         ],
         "api_key": "YOUR_OPENAI_API_KEY"
       },
-      "zhipu": {
-        "default_model": "glm-4.6v",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
-        "max_output_tokens": 4096,
-        "enabled_models": [
-          "zhipu/glm-4.6v"
-        ],
-        "api_key": "YOUR_ZHIPU_API_KEY"
-      },
       "deepseek": {
         "default_model": "deepseek-chat",
         "max_output_tokens": 8192,
@@ -50,13 +75,6 @@
         "default_model": "deepseek-r1:1.5b",
         "base_url": "http://localhost:11434",
         "max_output_tokens": 8192
-      },
-      "azure_openai": {
-        "default_model": "gpt4o",
-        "endpoint": "https://your-resource.openai.azure.com",
-        "api_version": "2024-06-01",
-        "max_output_tokens": 8192,
-        "api_key": "YOUR_AZURE_API_KEY"
       }
     },
     "models": {
@@ -81,17 +99,6 @@
           "text",
           "vision",
           "function_calling"
-        ],
-        "enabled": true
-      },
-      "zhipu/glm-4.6v": {
-        "display_name": "GLM-4.6V",
-        "description": "Vision-capable model example with text + image input",
-        "context_window": 128000,
-        "max_output_tokens": 4096,
-        "capabilities": [
-          "text",
-          "vision"
         ],
         "enabled": true
       },

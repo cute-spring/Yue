@@ -9,7 +9,7 @@ import type {
   FeatureFlags,
   Preferences,
 } from './types';
-import { DEFAULT_PREFERENCES, normalizeFeatureFlags, normalizePreferences } from './types';
+import { DEFAULT_PREFERENCES, normalizeFeatureFlags, normalizeModelTierConfig, normalizePreferences } from './types';
 
 export type SettingsDataSnapshot = {
   mcpConfigText: string;
@@ -46,7 +46,11 @@ export function useSettingsData() {
     const providers = (await providersRes.json()) as LLMProvider[];
 
     const llmConfigRes = await fetch('/api/config/llm');
-    const llmForm = (await llmConfigRes.json()) as LlmForm;
+    const llmFormRaw = (await llmConfigRes.json()) as LlmForm;
+    const llmForm = {
+      ...llmFormRaw,
+      model_tiers: normalizeModelTierConfig(llmFormRaw?.model_tiers),
+    } as LlmForm;
 
     const customModelsRes = await fetch('/api/models/custom');
     const customModels = (await customModelsRes.json()) as CustomModel[];

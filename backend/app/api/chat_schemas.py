@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     system_prompt: str | None = None
     provider: str | None = None
     model: str | None = None
+    model_role: str | None = None
     deep_thinking_enabled: bool = False
 
 

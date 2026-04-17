@@ -221,6 +221,12 @@ def test_migrate_agents_script_dry_run(temp_dirs):
 def test_agent_config_defaults_include_agent_kind():
     cfg = AgentConfig(name="x", system_prompt="y")
     assert cfg.agent_kind == "traditional"
+    assert cfg.model_selection_mode == "direct"
+    assert cfg.model_tier == "balanced"
+    assert cfg.model_role is None
+    assert cfg.model_policy == "prefer_role"
+    assert cfg.upgrade_on_tools is True
+    assert cfg.upgrade_on_multi_skill is True
     assert cfg.skill_groups == []
     assert cfg.extra_visible_skills == []
     assert cfg.voice_input_enabled is True
@@ -252,6 +258,12 @@ def test_agent_store_loads_legacy_record_with_new_defaults(temp_dirs):
     loaded = store.get_agent("legacy-agent")
     assert loaded is not None
     assert loaded.agent_kind == "traditional"
+    assert loaded.model_selection_mode == "direct"
+    assert loaded.model_tier == "balanced"
+    assert loaded.model_role is None
+    assert loaded.model_policy == "prefer_role"
+    assert loaded.upgrade_on_tools is True
+    assert loaded.upgrade_on_multi_skill is True
     assert loaded.skill_groups == []
     assert loaded.extra_visible_skills == []
     assert loaded.voice_input_enabled is True

@@ -33,12 +33,53 @@ def test_get_llm_config_redacted(client, mock_config_service):
     assert data["provider"] == "openai"
     assert data["other_param"] == "visible"
 
+def test_get_llm_config_includes_model_tiers(client, mock_config_service):
+    mock_config_service.get_llm_config.return_value = {
+        "provider": "openai",
+        "model_tiers": {
+            "light": {"provider": "openai", "model": "gpt-4o-mini"},
+            "balanced": {"provider": "deepseek", "model": "deepseek-chat"},
+            "heavy": {"provider": "openai", "model": "gpt-4.1"},
+        },
+        "other_param": "visible",
+    }
+
+    response = client.get("/api/config/llm")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model_tiers"]["light"]["model"] == "gpt-4o-mini"
+    assert data["model_tiers"]["heavy"]["provider"] == "openai"
+    assert data["other_param"] == "visible"
+
 def test_update_llm_config(client, mock_config_service):
     mock_config_service.update_llm_config.return_value = {"status": "ok"}
     response = client.post("/api/config/llm", json={"provider": "ollama"})
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     mock_config_service.update_llm_config.assert_called_once_with({"provider": "ollama"})
+
+def test_update_llm_config_forwards_model_tiers(client, mock_config_service):
+    mock_config_service.update_llm_config.return_value = {
+        "model_tiers": {
+            "light": {"provider": "openai", "model": "gpt-4o-mini"},
+            "balanced": {"provider": "deepseek", "model": "deepseek-chat"},
+            "heavy": {"provider": "openai", "model": "gpt-4.1"},
+        }
+    }
+    payload = {
+        "model_tiers": {
+            "light": {"provider": "openai", "model": "gpt-4o-mini"},
+            "balanced": {"provider": "deepseek", "model": "deepseek-chat"},
+            "heavy": {"provider": "openai", "model": "gpt-4.1"},
+        }
+    }
+
+    response = client.post("/api/config/llm", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["model_tiers"]["heavy"]["model"] == "gpt-4.1"
+    mock_config_service.update_llm_config.assert_called_once_with(payload)
 
 def test_get_preferences(client, mock_config_service):
     mock_config_service.get_preferences.return_value = {"theme": "dark"}

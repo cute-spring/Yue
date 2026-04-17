@@ -69,6 +69,9 @@ interface ChatInputProps {
   onCancelVoiceInput: () => void;
   onInsertVoiceInput: () => void;
   onSendVoiceInput: () => void;
+
+  // Advanced Mode
+  advancedMode?: boolean;
 }
 
 export const canSubmitFromInput = (inputText: string, imageCount: number): boolean => {
@@ -241,18 +244,20 @@ export default function ChatInput(props: ChatInputProps) {
             <div class="absolute bottom-3 left-4 right-4 flex items-center justify-between">
               {/* Left Side: Configuration */}
               <div class="flex items-center gap-2">
-                <LLMSelector 
-                  show={props.showLLMSelector}
-                  setShow={props.setShowLLMSelector}
-                  selectedModel={props.selectedModel}
-                  onSelectModel={props.onSelectModel}
-                  selectedProvider={props.selectedProvider}
-                  providers={props.providers}
-                  showAllModels={props.showAllModels}
-                  setShowAllModels={props.setShowAllModels}
-                  isRefreshingModels={props.isRefreshingModels}
-                  onRefreshModels={props.onRefreshModels}
-                />
+                <Show when={props.advancedMode}>
+                  <LLMSelector 
+                    show={props.showLLMSelector}
+                    setShow={props.setShowLLMSelector}
+                    selectedModel={props.selectedModel}
+                    onSelectModel={props.onSelectModel}
+                    selectedProvider={props.selectedProvider}
+                    providers={props.providers}
+                    showAllModels={props.showAllModels}
+                    setShowAllModels={props.setShowAllModels}
+                    isRefreshingModels={props.isRefreshingModels}
+                    onRefreshModels={props.onRefreshModels}
+                  />
+                </Show>
 
                 {/* Deep Thinking Toggle */}
                 <button

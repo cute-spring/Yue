@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from copy import deepcopy
 from typing import Dict, Any, Optional, List
 
 class ConfigService:
@@ -30,6 +31,173 @@ class ConfigService:
         self.config_path = Path(config_path)
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self._config = self._load_config()
+
+    _ROUTING_DEFAULT_MODE = "legacy"
+    _ROUTING_DEFAULT_FALLBACK_POLICY = "use_legacy_agent_model"
+    _MODEL_TIERS = ("light", "balanced", "heavy")
+
+    def _legacy_runtime_provider_model(self) -> tuple[str, str]:
+        llm_section = self._config.get("llm", {})
+        provider = llm_section.get("provider")
+        if not isinstance(provider, str) or not provider.strip():
+            provider = "openai"
+        provider = provider.strip()
+
+        providers_cfg = llm_section.get("providers", {})
+        provider_cfg = providers_cfg.get(provider, {}) if isinstance(providers_cfg, dict) else {}
+        if not isinstance(provider_cfg, dict):
+            provider_cfg = {}
+
+        model = provider_cfg.get("model") or provider_cfg.get("default_model")
+        if not isinstance(model, str) or not model.strip():
+            model = "gpt-4o"
+        return provider, model.strip()
+
+    def _default_llm_routing_config(self) -> Dict[str, Any]:
+        provider, model = self._legacy_runtime_provider_model()
+        return {
+            "default_mode": self._ROUTING_DEFAULT_MODE,
+            "fallback_policy": self._ROUTING_DEFAULT_FALLBACK_POLICY,
+            "auto_upgrade_enabled": True,
+            "roles": {
+                "general_chat": {"provider": provider, "model": model},
+                "tool_use": {"inherit": "general_chat"},
+                "reasoning": {"inherit": "general_chat"},
+            },
+            "rules": {
+                "tool_call_requires_role": "tool_use",
+                "multi_skill_requires_role": "reasoning",
+            },
+        }
+
+    def _default_model_tiers(self) -> Dict[str, Any]:
+        provider, model = self._legacy_runtime_provider_model()
+        base = {"provider": provider, "model": model}
+        return {
+            "light": deepcopy(base),
+            "balanced": deepcopy(base),
+            "heavy": deepcopy(base),
+        }
+
+    def _normalize_model_tier_entry(self, tier_name: str, tier_value: Any) -> Dict[str, str]:
+        defaults = self._default_model_tiers()
+        default_entry = defaults.get(tier_name, defaults["balanced"])
+        if not isinstance(tier_value, dict):
+            return deepcopy(default_entry)
+
+        provider = tier_value.get("provider")
+        model = tier_value.get("model")
+
+        if not isinstance(provider, str) or not provider.strip():
+            provider = default_entry["provider"]
+        if not isinstance(model, str) or not model.strip():
+            model = default_entry["model"]
+
+        return {
+            "provider": str(provider).strip(),
+            "model": str(model).strip(),
+        }
+
+    def _normalize_routing_role(self, role_name: str, role_value: Any) -> Dict[str, Any]:
+        defaults = self._default_llm_routing_config()["roles"]
+        default_role = defaults.get(role_name, defaults["general_chat"])
+
+        if not isinstance(role_value, dict):
+            return deepcopy(default_role)
+
+        inherit = role_value.get("inherit")
+        if isinstance(inherit, str) and inherit.strip():
+            return {"inherit": inherit.strip()}
+
+        provider = role_value.get("provider")
+        model = role_value.get("model")
+
+        default_provider = default_role.get("provider", defaults["general_chat"].get("provider", "openai"))
+        default_model = default_role.get("model", defaults["general_chat"].get("model", "gpt-4o"))
+
+        if not isinstance(provider, str) or not provider.strip():
+            provider = default_provider
+        if not isinstance(model, str) or not model.strip():
+            model = default_model
+
+        return {"provider": str(provider).strip(), "model": str(model).strip()}
+
+    def get_llm_routing_config(self) -> Dict[str, Any]:
+        llm_section = self._config.get("llm", {})
+        raw = llm_section.get("routing", {})
+        if not isinstance(raw, dict):
+            raw = {}
+
+        merged = self._default_llm_routing_config()
+
+        default_mode = raw.get("default_mode")
+        if isinstance(default_mode, str) and default_mode.strip() in {"legacy", "role_based"}:
+            merged["default_mode"] = default_mode.strip()
+
+        fallback_policy = raw.get("fallback_policy")
+        allowed_fallbacks = {"use_general_chat", "use_legacy_agent_model", "fail_closed"}
+        if isinstance(fallback_policy, str) and fallback_policy.strip() in allowed_fallbacks:
+            merged["fallback_policy"] = fallback_policy.strip()
+
+        auto_upgrade_enabled = raw.get("auto_upgrade_enabled")
+        if isinstance(auto_upgrade_enabled, bool):
+            merged["auto_upgrade_enabled"] = auto_upgrade_enabled
+        elif auto_upgrade_enabled is not None:
+            merged["auto_upgrade_enabled"] = bool(auto_upgrade_enabled)
+
+        raw_roles = raw.get("roles")
+        if isinstance(raw_roles, dict):
+            for role_name in ["general_chat", "tool_use", "reasoning", "translation", "writing", "meta"]:
+                if role_name in raw_roles:
+                    merged["roles"][role_name] = self._normalize_routing_role(role_name, raw_roles.get(role_name))
+
+        raw_rules = raw.get("rules")
+        if isinstance(raw_rules, dict):
+            for key in [
+                "tool_call_requires_role",
+                "multi_skill_requires_role",
+                "translation_prefers_role",
+                "vision_prefers_capability",
+            ]:
+                value = raw_rules.get(key)
+                if isinstance(value, str) and value.strip():
+                    merged["rules"][key] = value.strip()
+
+        return merged
+
+    def resolve_model_role(self, role_name: str) -> Optional[Dict[str, Any]]:
+        from app.services.llm.routing import resolve_role_config
+
+        if not isinstance(role_name, str) or not role_name.strip():
+            return None
+        return resolve_role_config(self.get_llm_routing_config(), role_name.strip())
+
+    def get_model_tiers(self) -> Dict[str, Any]:
+        llm_section = self._config.get("llm", {})
+        raw = llm_section.get("model_tiers", {})
+        if not isinstance(raw, dict):
+            raw = {}
+
+        merged = self._default_model_tiers()
+        for tier_name in self._MODEL_TIERS:
+            if tier_name in raw:
+                merged[tier_name] = self._normalize_model_tier_entry(tier_name, raw.get(tier_name))
+        return merged
+
+    def resolve_model_tier(self, tier_name: str) -> Optional[Dict[str, Any]]:
+        if not isinstance(tier_name, str) or not tier_name.strip():
+            return None
+        normalized = tier_name.strip().lower()
+        if normalized not in self._MODEL_TIERS:
+            return None
+        resolved = self.get_model_tiers().get(normalized)
+        if not isinstance(resolved, dict):
+            return None
+        return {
+            "provider": resolved.get("provider"),
+            "model": resolved.get("model"),
+            "tier": normalized,
+        }
 
     def _load_config(self) -> Dict[str, Any]:
         """从磁盘加载 JSON 配置文件"""
@@ -174,8 +342,6 @@ class ConfigService:
             provider_cfg = strategy.get_config(llm_section)
             for k, v in provider_cfg.items():
                 flat_key = f"{provider_name}_{k}" if k != "model" else f"{provider_name}_model"
-                if provider_name == "azure_openai" and k == "token":
-                    flat_key = "azure_openai_token"
                 json_kwargs[flat_key] = v
 
         # 实例化 AppSettings (Env > JSON)
@@ -199,6 +365,8 @@ class ConfigService:
         # 4. 列表字段兼容性补全
         config["custom_models"] = llm_section.get("custom_models", [])
         config["models"] = llm_section.get("models", {})
+        config["model_tiers"] = self.get_model_tiers()
+        config["routing"] = self.get_llm_routing_config()
         for k, v in llm_section.items():
             if not isinstance(k, str):
                 continue
@@ -410,7 +578,7 @@ class ConfigService:
 
         for k, v in llm_config.items():
             # 脱敏保护逻辑
-            is_secret = k.endswith("_api_key") or k in ["azure_client_secret", "azure_openai_token"]
+            is_secret = k.endswith("_api_key")
             if is_secret:
                 if v is None or (isinstance(v, str) and (v.strip() == "" or v.startswith("****"))):
                     continue
@@ -424,6 +592,25 @@ class ConfigService:
                 llm["settings"]["request_timeout"] = v
             elif k in {"meta_enabled", "meta_provider", "meta_model", "meta_timeout_ms", "meta_max_tokens", "meta_use_runtime_model_for_title"}:
                 llm["settings"][k] = v
+            elif k in {"routing", "llm_routing"} and isinstance(v, dict):
+                llm["routing"] = v
+            elif k == "model_tiers" and isinstance(v, dict):
+                existing_tiers = llm.get("model_tiers", {})
+                if not isinstance(existing_tiers, dict):
+                    existing_tiers = {}
+                merged_tiers = {
+                    tier_name: self._normalize_model_tier_entry(tier_name, existing_tiers.get(tier_name))
+                    for tier_name in self._MODEL_TIERS
+                    if tier_name in existing_tiers
+                }
+                llm["model_tiers"] = {
+                    **merged_tiers,
+                    **{
+                        tier_name: self._normalize_model_tier_entry(tier_name, v.get(tier_name))
+                        for tier_name in self._MODEL_TIERS
+                        if tier_name in v
+                    },
+                }
             elif k.endswith("_enabled_models_mode"):
                 llm["settings"][k] = v
             elif k == "custom_models":
@@ -445,9 +632,7 @@ class ConfigService:
                         if p_name not in llm["providers"]: llm["providers"][p_name] = {}
                         
                         # 特殊映射处理
-                        if p_name == "azure_openai" and p_key == "token":
-                            llm["providers"][p_name]["token"] = v
-                        elif p_key == "model":
+                        if p_key == "model":
                             llm["providers"][p_name]["model"] = v
                         else:
                             llm["providers"][p_name][p_key] = v

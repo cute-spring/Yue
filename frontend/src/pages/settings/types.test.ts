@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_FEATURE_FLAGS, DEFAULT_PREFERENCES, normalizeFeatureFlags, normalizePreferences } from './types';
+import {
+  DEFAULT_FEATURE_FLAGS,
+  DEFAULT_MODEL_TIER_CONFIG,
+  DEFAULT_PREFERENCES,
+  normalizeFeatureFlags,
+  normalizeModelTierConfig,
+  normalizePreferences,
+} from './types';
 
 describe('preferences normalization', () => {
   it('fills missing speech fields with defaults', () => {
@@ -51,5 +58,22 @@ describe('preferences normalization', () => {
 
     expect(normalized.chat_trace_ui_enabled).toBe(true);
     expect(normalized.chat_trace_raw_enabled).toBe(false);
+  });
+
+  it('fills missing model tier mappings with defaults', () => {
+    expect(normalizeModelTierConfig({})).toEqual(DEFAULT_MODEL_TIER_CONFIG);
+  });
+
+  it('normalizes model tier mappings from partial payloads', () => {
+    expect(
+      normalizeModelTierConfig({
+        light: { provider: 'openai', model: 'gpt-4o-mini' },
+        heavy: { provider: 'anthropic', model: 'claude-3-7-sonnet' },
+      }),
+    ).toEqual({
+      light: { provider: 'openai', model: 'gpt-4o-mini' },
+      balanced: DEFAULT_MODEL_TIER_CONFIG.balanced,
+      heavy: { provider: 'anthropic', model: 'claude-3-7-sonnet' },
+    });
   });
 });

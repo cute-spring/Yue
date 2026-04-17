@@ -26,6 +26,12 @@ class AgentConfigPublic(BaseModel):
     system_prompt: str
     provider: str = "openai"
     model: str = "gpt-4o"
+    model_selection_mode: str = "direct"
+    model_tier: str = "balanced"
+    model_role: Optional[str] = None
+    model_policy: str = "prefer_role"
+    upgrade_on_tools: bool = True
+    upgrade_on_multi_skill: bool = True
     enabled_tools: list[str] = []
     doc_roots: list[str] = []
     doc_file_patterns: list[str] = []
@@ -61,6 +67,34 @@ def _normalize_voice_input_provider(value: object) -> str:
     return "azure" if raw == "azure" else "browser"
 
 
+def _normalize_model_policy(value: object) -> str:
+    raw = str(value or "prefer_role").strip().lower()
+    if raw in {"prefer_role", "force_direct", "system_default"}:
+        return raw
+    return "prefer_role"
+
+
+def _normalize_model_selection_mode(value: object) -> str:
+    raw = str(value or "direct").strip().lower()
+    if raw in {"tier", "direct"}:
+        return raw
+    return "direct"
+
+
+def _normalize_model_tier(value: object) -> str:
+    raw = str(value or "balanced").strip().lower()
+    if raw in {"light", "balanced", "heavy"}:
+        return raw
+    return "balanced"
+
+
+def _normalize_model_role(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    return raw or None
+
+
 def _merge_voice_config(existing: Optional[dict], incoming: object) -> Optional[dict]:
     if incoming is None:
         return existing if isinstance(existing, dict) else None
@@ -89,6 +123,18 @@ def _prepare_agent_payload(existing: Optional[AgentConfig], payload: dict) -> di
     normalized["voice_input_provider"] = _normalize_voice_input_provider(payload.get("voice_input_provider"))
     if "voice_input_enabled" in normalized:
         normalized["voice_input_enabled"] = bool(normalized["voice_input_enabled"])
+    if "model_selection_mode" in payload:
+        normalized["model_selection_mode"] = _normalize_model_selection_mode(payload.get("model_selection_mode"))
+    if "model_tier" in payload:
+        normalized["model_tier"] = _normalize_model_tier(payload.get("model_tier"))
+    if "model_policy" in payload:
+        normalized["model_policy"] = _normalize_model_policy(payload.get("model_policy"))
+    if "model_role" in payload:
+        normalized["model_role"] = _normalize_model_role(payload.get("model_role"))
+    if "upgrade_on_tools" in payload:
+        normalized["upgrade_on_tools"] = bool(payload.get("upgrade_on_tools"))
+    if "upgrade_on_multi_skill" in payload:
+        normalized["upgrade_on_multi_skill"] = bool(payload.get("upgrade_on_multi_skill"))
     normalized["voice_azure_config"] = _merge_voice_config(
         existing.voice_azure_config if existing else None,
         payload.get("voice_azure_config"),

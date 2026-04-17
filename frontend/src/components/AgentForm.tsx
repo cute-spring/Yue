@@ -1,11 +1,15 @@
 import { For, Show, createMemo, createSignal } from 'solid-js';
-import { McpTool, SkillSpec, SkillGroup } from '../types';
+import { AgentModelSelectionMode, McpTool, ModelTier, SkillSpec, SkillGroup } from '../types';
 import defaultSkillAgentPrompt from '../prompts/default_skill_agent_prompt.md?raw';
 
 interface AgentFormProps {
   editingId: () => string | null;
   formName: () => string;
   setFormName: (name: string) => void;
+  formModelSelectionMode: () => AgentModelSelectionMode;
+  setFormModelSelectionMode: (mode: AgentModelSelectionMode) => void;
+  formModelTier: () => ModelTier;
+  setFormModelTier: (tier: ModelTier) => void;
   formProvider: () => string;
   setFormProvider: (provider: string) => void;
   formModel: () => string;
@@ -72,10 +76,32 @@ interface AgentFormProps {
   loadSkills: (refresh?: boolean) => Promise<void>;
 }
 
+export const MODEL_TIER_OPTIONS: Array<{
+  value: ModelTier;
+  label: string;
+  description: string;
+}> = [
+  { value: 'light', label: 'Light', description: 'Fast and economical for routine tasks.' },
+  { value: 'balanced', label: 'Balanced', description: 'General-purpose default for most agents.' },
+  { value: 'heavy', label: 'Heavy', description: 'Stronger reasoning for harder workflows.' },
+];
+
+export const resolveAgentModelUiState = (
+  selectionMode: AgentModelSelectionMode,
+  showAdvancedModelSettings: boolean,
+) => ({
+  showTierCards: selectionMode === 'tier',
+  showDirectPicker: selectionMode === 'direct' || showAdvancedModelSettings,
+});
+
 export function AgentForm(props: AgentFormProps) {
   const [showAdvancedTools, setShowAdvancedTools] = createSignal(false);
   const [showGroupOverrides, setShowGroupOverrides] = createSignal(false);
+  const [showAdvancedModelSettings, setShowAdvancedModelSettings] = createSignal(false);
   const normalizedDefaultSkillPrompt = defaultSkillAgentPrompt.trim();
+  const modelUiState = createMemo(() =>
+    resolveAgentModelUiState(props.formModelSelectionMode(), showAdvancedModelSettings()),
+  );
 
   type AgentTemplate = 'traditional' | 'skills_direct' | 'skill_groups';
   const selectedTemplate = createMemo<AgentTemplate>(() => {
@@ -166,106 +192,184 @@ export function AgentForm(props: AgentFormProps) {
               required
             />
           </div>
-          <div class="relative">
+          <div class="md:col-span-1">
             <label class="block text-sm font-semibold text-gray-700 mb-2">Intelligence Model</label>
-            <button 
-              type="button"
-              onClick={(e) => { 
-                e.stopPropagation();
-                props.setShowLLMSelector(!props.showLLMSelector());
-              }}
-              class="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-gray-200 hover:border-emerald-500 rounded-lg transition-all active:scale-[0.98] shadow-sm group"
-            >
-              <div class="flex items-center gap-2.5 overflow-hidden">
-                <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
-                <div class="flex flex-col items-start overflow-hidden">
-                  <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-none mb-0.5">{props.formProvider() || "Select Provider"}</span>
-                  <span class="text-sm font-bold text-gray-800 truncate">{props.formModel() || "Select Model"}</span>
-                </div>
+            <div class="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 space-y-4">
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.setFormModelSelectionMode('tier');
+                    setShowAdvancedModelSettings(false);
+                  }}
+                  class={`px-3 py-2 rounded-lg text-xs font-bold border transition-all ${
+                    props.formModelSelectionMode() === 'tier'
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-400'
+                  }`}
+                >
+                  Tier Preference
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.setFormModelSelectionMode('direct');
+                    setShowAdvancedModelSettings(true);
+                  }}
+                  class={`px-3 py-2 rounded-lg text-xs font-bold border transition-all ${
+                    props.formModelSelectionMode() === 'direct'
+                      ? 'bg-gray-900 text-white border-gray-900'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  Direct Override
+                </button>
               </div>
-              <svg xmlns="http://www.w3.org/2000/svg" class={`h-4 w-4 text-gray-400 transition-transform duration-300 ${props.showLLMSelector() ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
 
-            <Show when={props.showLLMSelector()}>
-              <div class="absolute top-full left-0 mt-2 w-full min-w-[280px] bg-white border border-gray-100 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                <div class="p-3 border-b border-gray-50 flex items-center justify-between bg-gray-50/50">
-                  <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">{props.showAllModels() ? 'All Models' : 'Enabled Models'}</span>
-                  <div class="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        props.setShowAllModels(!props.showAllModels());
-                      }}
-                      class="text-[10px] px-2 py-1 rounded-md border bg-white hover:bg-gray-50 text-gray-700 font-bold uppercase tracking-wider"
-                    >
-                      {props.showAllModels() ? 'Enabled' : 'All'}
-                    </button>
-                    <Show when={props.isRefreshingModels()}>
-                      <div class="w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
-                    </Show>
-                  </div>
-                </div>
-                <div class="p-2 max-h-72 overflow-y-auto space-y-1 scrollbar-thin">
-                  <For each={props.providers().filter(p => {
-                    const list = props.showAllModels() ? (p.models || []) : (p.available_models || []);
-                    return Array.isArray(list) && list.length > 0;
-                  })}>
-                    {provider => (
-                      <div class="space-y-1">
-                        <div class="flex items-center justify-between gap-2 px-3 py-1.5 text-[9px] font-black text-emerald-600 uppercase bg-emerald-50 rounded-md tracking-widest">
-                          <span>{provider.name}</span>
-                          <button
-                            type="button"
-                            disabled={!provider.supports_model_refresh || props.isRefreshingModels()}
-                            title={provider.supports_model_refresh ? 'Refresh models for this provider' : 'This provider does not support model refresh'}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!provider.supports_model_refresh) return;
-                              props.setIsRefreshingModels(true);
-                              props.loadProviders(true).finally(() => props.setIsRefreshingModels(false));
-                            }}
-                            class={`text-[9px] px-2 py-1 rounded-md border font-black tracking-widest ${
-                              provider.supports_model_refresh && !props.isRefreshingModels()
-                                ? 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200'
-                                : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                            }`}
-                          >
-                            Refresh
-                          </button>
-                        </div>
-                        <For each={(props.showAllModels() ? provider.models : provider.available_models) || []}>
-                          {model => (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                props.setFormProvider(provider.name);
-                                props.setFormModel(model);
-                                props.setShowLLMSelector(false);
-                              }}
-                              class={`w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all flex items-center justify-between group ${
-                                props.formModel() === model
-                                  ? 'bg-emerald-600 text-white font-bold shadow-md shadow-emerald-200'
-                                  : 'hover:bg-gray-50 text-gray-600 hover:text-gray-900'
-                              }`}
-                            >
-                              <span class="truncate">{model}</span>
-                              <Show when={props.formModel() === model}>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                </svg>
-                              </Show>
-                            </button>
-                          )}
-                        </For>
-                      </div>
+              <Show when={modelUiState().showTierCards}>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <For each={MODEL_TIER_OPTIONS}>
+                    {(tier) => (
+                      <button
+                        type="button"
+                        onClick={() => props.setFormModelTier(tier.value)}
+                        class={`text-left rounded-xl border p-3 transition-all ${
+                          props.formModelTier() === tier.value
+                            ? 'border-emerald-500 bg-white shadow-sm'
+                            : 'border-emerald-100 bg-white/70 hover:border-emerald-300'
+                        }`}
+                      >
+                        <div class="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">{tier.label}</div>
+                        <div class="text-xs text-gray-600 mt-2">{tier.description}</div>
+                      </button>
                     )}
                   </For>
                 </div>
+              </Show>
+
+              <div class="rounded-xl border border-dashed border-gray-200 bg-white/70 p-3 space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-bold text-gray-700">Advanced model override</div>
+                    <div class="text-[11px] text-gray-500 mt-1">
+                      Tier mode is the default path. Use direct override only when you need a fixed provider/model.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedModelSettings(!showAdvancedModelSettings())}
+                    class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                  >
+                    {modelUiState().showDirectPicker ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+
+                <Show when={modelUiState().showDirectPicker}>
+                  <div class="relative space-y-3">
+                    <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5">
+                      <div class="flex items-center gap-2.5 overflow-hidden">
+                        <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
+                        <div class="flex flex-col items-start overflow-hidden">
+                          <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-none mb-0.5">
+                            {props.formProvider() || "Select Provider"}
+                          </span>
+                          <span class="text-sm font-bold text-gray-800 truncate">{props.formModel() || "Select Model"}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.setShowLLMSelector(!props.showLLMSelector());
+                        }}
+                        class="text-xs px-3 py-1.5 rounded-md border bg-white hover:bg-gray-50 text-gray-700"
+                      >
+                        Choose
+                      </button>
+                    </div>
+
+                    <Show when={props.showLLMSelector()}>
+                      <div class="border border-gray-100 rounded-xl shadow-lg overflow-hidden bg-white">
+                        <div class="p-3 border-b border-gray-50 flex items-center justify-between bg-gray-50/50">
+                          <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">{props.showAllModels() ? 'All Models' : 'Enabled Models'}</span>
+                          <div class="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.setShowAllModels(!props.showAllModels());
+                              }}
+                              class="text-[10px] px-2 py-1 rounded-md border bg-white hover:bg-gray-50 text-gray-700 font-bold uppercase tracking-wider"
+                            >
+                              {props.showAllModels() ? 'Enabled' : 'All'}
+                            </button>
+                            <Show when={props.isRefreshingModels()}>
+                              <div class="w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                            </Show>
+                          </div>
+                        </div>
+                        <div class="p-2 max-h-72 overflow-y-auto space-y-1 scrollbar-thin">
+                          <For each={props.providers().filter(p => {
+                            const list = props.showAllModels() ? (p.models || []) : (p.available_models || []);
+                            return Array.isArray(list) && list.length > 0;
+                          })}>
+                            {provider => (
+                              <div class="space-y-1">
+                                <div class="flex items-center justify-between gap-2 px-3 py-1.5 text-[9px] font-black text-emerald-600 uppercase bg-emerald-50 rounded-md tracking-widest">
+                                  <span>{provider.name}</span>
+                                  <button
+                                    type="button"
+                                    disabled={!provider.supports_model_refresh || props.isRefreshingModels()}
+                                    title={provider.supports_model_refresh ? 'Refresh models for this provider' : 'This provider does not support model refresh'}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!provider.supports_model_refresh) return;
+                                      props.setIsRefreshingModels(true);
+                                      props.loadProviders(true).finally(() => props.setIsRefreshingModels(false));
+                                    }}
+                                    class={`text-[9px] px-2 py-1 rounded-md border font-black tracking-widest ${
+                                      provider.supports_model_refresh && !props.isRefreshingModels()
+                                        ? 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200'
+                                        : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                    }`}
+                                  >
+                                    Refresh
+                                  </button>
+                                </div>
+                                <For each={(props.showAllModels() ? provider.models : provider.available_models) || []}>
+                                  {model => (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        props.setFormProvider(provider.name);
+                                        props.setFormModel(model);
+                                        props.setShowLLMSelector(false);
+                                      }}
+                                      class={`w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all flex items-center justify-between group ${
+                                        props.formProvider() === provider.name && props.formModel() === model
+                                          ? 'bg-emerald-600 text-white font-bold shadow-md shadow-emerald-200'
+                                          : 'hover:bg-gray-50 text-gray-600 hover:text-gray-900'
+                                      }`}
+                                    >
+                                      <span class="truncate">{model}</span>
+                                      <Show when={props.formProvider() === provider.name && props.formModel() === model}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                        </svg>
+                                      </Show>
+                                    </button>
+                                  )}
+                                </For>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
               </div>
-            </Show>
+            </div>
           </div>
         </div>
 

@@ -25,6 +25,12 @@ def test_list_agents(client, mock_agent_store):
             id="1",
             name="Agent 1",
             system_prompt="Prompt 1",
+            model_selection_mode="tier",
+            model_tier="heavy",
+            model_role="reasoning",
+            model_policy="prefer_role",
+            upgrade_on_tools=False,
+            upgrade_on_multi_skill=True,
             voice_input_provider="azure",
             voice_azure_config={"region": "eastus", "api_key": "secret", "endpoint_id": "endpoint-1"},
         )
@@ -33,6 +39,10 @@ def test_list_agents(client, mock_agent_store):
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["id"] == "1"
+    assert response.json()[0]["model_selection_mode"] == "tier"
+    assert response.json()[0]["model_tier"] == "heavy"
+    assert response.json()[0]["model_role"] == "reasoning"
+    assert response.json()[0]["upgrade_on_tools"] is False
     assert response.json()[0]["voice_azure_config"]["api_key_configured"] is True
     assert "api_key" not in response.json()[0]["voice_azure_config"]
 
@@ -53,6 +63,12 @@ async def test_create_agent(client, mock_agent_store, mock_mcp_manager):
     agent_data = {
         "name": "New Agent",
         "system_prompt": "Test Prompt",
+        "model_selection_mode": "tier",
+        "model_tier": "light",
+        "model_role": "reasoning",
+        "model_policy": "force_direct",
+        "upgrade_on_tools": True,
+        "upgrade_on_multi_skill": False,
         "enabled_tools": [],
         "voice_input_provider": "azure",
         "voice_azure_config": {"region": "eastus", "api_key": "secret"},
@@ -62,6 +78,10 @@ async def test_create_agent(client, mock_agent_store, mock_mcp_manager):
     response = client.post("/api/agents/", json=agent_data)
     assert response.status_code == 200
     assert response.json()["id"] == "new-id"
+    assert response.json()["model_selection_mode"] == "tier"
+    assert response.json()["model_tier"] == "light"
+    assert response.json()["model_policy"] == "force_direct"
+    assert response.json()["upgrade_on_multi_skill"] is False
     assert response.json()["voice_azure_config"]["api_key_configured"] is True
 
 
@@ -86,10 +106,21 @@ def test_update_agent_preserves_existing_azure_key_when_blank(client, mock_agent
 
     response = client.put(
         "/api/agents/1",
-        json={"voice_input_provider": "azure", "voice_azure_config": {"region": "eastus2", "api_key": "", "endpoint_id": "ep2"}},
+        json={
+            "voice_input_provider": "azure",
+            "model_selection_mode": "invalid",
+            "model_tier": "super-heavy",
+            "model_policy": "invalid-policy",
+            "upgrade_on_tools": 0,
+            "voice_azure_config": {"region": "eastus2", "api_key": "", "endpoint_id": "ep2"},
+        },
     )
     assert response.status_code == 200
     args = mock_agent_store.update_agent.call_args[0]
+    assert args[1]["model_selection_mode"] == "direct"
+    assert args[1]["model_tier"] == "balanced"
+    assert args[1]["model_policy"] == "prefer_role"
+    assert args[1]["upgrade_on_tools"] is False
     assert args[1]["voice_azure_config"]["api_key"] == "existing-key"
 
 def test_delete_agent_success(client, mock_agent_store):

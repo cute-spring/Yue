@@ -1,9 +1,11 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
-import { Agent, McpTool, SkillSpec, SmartDraft, SkillGroup } from '../types';
+import { Agent, AgentModelSelectionMode, McpTool, ModelTier, SkillSpec, SmartDraft, SkillGroup } from '../types';
 
 type BuildAgentPayloadInput = {
   name: string;
   systemPrompt: string;
+  modelSelectionMode: AgentModelSelectionMode;
+  modelTier: ModelTier;
   provider: string;
   model: string;
   enabledTools: string[];
@@ -21,6 +23,32 @@ type BuildAgentPayloadInput = {
   docFilePatternsText: string;
 };
 
+type AgentModelFormState = {
+  modelSelectionMode: AgentModelSelectionMode;
+  modelTier: ModelTier;
+  provider: string;
+  model: string;
+};
+
+export const resolveAgentModelFormState = (agent?: Partial<Agent> | null): AgentModelFormState => {
+  const provider = typeof agent?.provider === 'string' && agent.provider.trim() ? agent.provider : 'openai';
+  const model = typeof agent?.model === 'string' && agent.model.trim() ? agent.model : 'gpt-4o';
+  const modelTier = agent?.model_tier === 'light' || agent?.model_tier === 'heavy' || agent?.model_tier === 'balanced'
+    ? agent.model_tier
+    : 'balanced';
+  const hasExplicitTier = agent?.model_tier === 'light' || agent?.model_tier === 'heavy' || agent?.model_tier === 'balanced';
+  const modelSelectionMode = agent?.model_selection_mode === 'direct'
+    ? 'direct'
+    : (agent?.model_selection_mode === 'tier' || hasExplicitTier ? 'tier' : (agent ? 'direct' : 'tier'));
+
+  return {
+    modelSelectionMode,
+    modelTier,
+    provider,
+    model,
+  };
+};
+
 export const buildAgentPayload = (input: BuildAgentPayloadInput) => {
   const parsedPatterns = input.docFilePatternsText
     .split('\n')
@@ -30,6 +58,8 @@ export const buildAgentPayload = (input: BuildAgentPayloadInput) => {
   return {
     name: input.name,
     system_prompt: input.systemPrompt,
+    model_selection_mode: input.modelSelectionMode,
+    model_tier: input.modelTier,
     provider: input.provider,
     model: input.model,
     enabled_tools: input.enabledTools,
@@ -91,6 +121,8 @@ export function useAgentsState() {
   // Form state
   const [formName, setFormName] = createSignal("");
   const [formPrompt, setFormPrompt] = createSignal("");
+  const [formModelSelectionMode, setFormModelSelectionMode] = createSignal<AgentModelSelectionMode>('tier');
+  const [formModelTier, setFormModelTier] = createSignal<ModelTier>('balanced');
   const [formProvider, setFormProvider] = createSignal("openai");
   const [formModel, setFormModel] = createSignal("gpt-4o");
   const [formTools, setFormTools] = createSignal<string[]>([]);
@@ -219,10 +251,13 @@ export function useAgentsState() {
     loadTools(); // Auto refresh tools when opening form
     loadSkills();
     loadSkillGroups();
+    const modelState = resolveAgentModelFormState();
     setFormName("");
     setFormPrompt("");
-    setFormProvider("openai");
-    setFormModel("gpt-4o");
+    setFormModelSelectionMode(modelState.modelSelectionMode);
+    setFormModelTier(modelState.modelTier);
+    setFormProvider(modelState.provider);
+    setFormModel(modelState.model);
     setFormTools([]);
     setFormVoiceInputEnabled(true);
     setFormVoiceInputProvider('browser');
@@ -247,10 +282,13 @@ export function useAgentsState() {
     loadTools(); // Auto refresh tools when opening form
     loadSkills();
     loadSkillGroups();
+    const modelState = resolveAgentModelFormState(agent);
     setFormName(agent.name);
     setFormPrompt(agent.system_prompt);
-    setFormProvider(agent.provider);
-    setFormModel(agent.model);
+    setFormModelSelectionMode(modelState.modelSelectionMode);
+    setFormModelTier(modelState.modelTier);
+    setFormProvider(modelState.provider);
+    setFormModel(modelState.model);
     setFormTools(agent.enabled_tools);
     setFormVoiceInputEnabled(agent.voice_input_enabled ?? true);
     setFormVoiceInputProvider(agent.voice_input_provider === 'azure' ? 'azure' : 'browser');
@@ -365,6 +403,8 @@ export function useAgentsState() {
     const payload = buildAgentPayload({
       name: formName(),
       systemPrompt: formPrompt(),
+      modelSelectionMode: formModelSelectionMode(),
+      modelTier: formModelTier(),
       provider: formProvider(),
       model: formModel(),
       enabledTools: formTools(),
@@ -486,7 +526,7 @@ export function useAgentsState() {
     showLLMSelector, isRefreshingModels, isRefreshingTools, showAllModels, showSmartGenerate,
     smartDescription, smartUpdateTools, smartIsGenerating, smartError, smartDraft,
     smartApplyName, smartApplyPrompt, smartApplyTools, formName, formPrompt,
-    formProvider, formModel, formTools, formVoiceInputEnabled, formVoiceInputProvider, formVoiceAzureRegion, formVoiceAzureEndpointId, formVoiceAzureApiKey, formVoiceAzureApiKeyConfigured, isTestingVoiceAzure, voiceAzureTestResult, formSkillMode, formVisibleSkills, formAgentKind, formSkillGroups, formExtraVisibleSkills, formDocRoots, formDocRootInput,
+    formModelSelectionMode, formModelTier, formProvider, formModel, formTools, formVoiceInputEnabled, formVoiceInputProvider, formVoiceAzureRegion, formVoiceAzureEndpointId, formVoiceAzureApiKey, formVoiceAzureApiKeyConfigured, isTestingVoiceAzure, voiceAzureTestResult, formSkillMode, formVisibleSkills, formAgentKind, formSkillGroups, formExtraVisibleSkills, formDocRoots, formDocRootInput,
     formDocFilePatternsText, expandedGroups, allowDocRoots, denyDocRoots,
     setAgents, setAvailableTools, setIsEditing, setEditingId, setProviders,
     setSkills,
@@ -494,7 +534,7 @@ export function useAgentsState() {
     setShowLLMSelector, setIsRefreshingModels, setIsRefreshingTools, setShowAllModels, setShowSmartGenerate,
     setSmartDescription, setSmartUpdateTools, setSmartIsGenerating, setSmartError,
     setSmartDraft, setSmartApplyName, setSmartApplyPrompt, setSmartApplyTools,
-    setFormName, setFormPrompt, setFormProvider, setFormModel, setFormTools, setFormVoiceInputEnabled, setFormVoiceInputProvider, setFormVoiceAzureRegion, setFormVoiceAzureEndpointId, setFormVoiceAzureApiKey, setFormVoiceAzureApiKeyConfigured, setFormSkillMode, setFormVisibleSkills, setFormAgentKind, setFormSkillGroups, setFormExtraVisibleSkills,
+    setFormName, setFormPrompt, setFormModelSelectionMode, setFormModelTier, setFormProvider, setFormModel, setFormTools, setFormVoiceInputEnabled, setFormVoiceInputProvider, setFormVoiceAzureRegion, setFormVoiceAzureEndpointId, setFormVoiceAzureApiKey, setFormVoiceAzureApiKeyConfigured, setFormSkillMode, setFormVisibleSkills, setFormAgentKind, setFormSkillGroups, setFormExtraVisibleSkills,
     setFormDocRoots, setFormDocRootInput, setFormDocFilePatternsText,
     setExpandedGroups, setAllowDocRoots, setDenyDocRoots,
     toggleGroupExpand, loadAgents, loadProviders, loadTools, loadDocAccess, loadSkills, loadSkillGroups,

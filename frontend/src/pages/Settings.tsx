@@ -505,6 +505,7 @@ type Tab = 'general' | 'mcp' | 'llm';
             setLlmForm={setLlmForm}
             customModels={customModels}
             setCustomModels={setCustomModels}
+            prefs={prefs}
             isRefreshingProviders={isRefreshingProviders}
             setIsRefreshingProviders={setIsRefreshingProviders}
             showAddCustom={showAddCustom}

@@ -1467,6 +1467,49 @@ async def test_chat_stream_with_agent_config(client, mock_chat_service):
         assert "### Scope Summary" in kwargs["system_prompt"]
         assert "docs" in kwargs["system_prompt"]
 
+
+@pytest.mark.asyncio
+async def test_chat_stream_request_model_role_routes_runtime_model(client, mock_chat_service):
+    with patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model") as mock_get_model, \
+         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat.config_service") as mock_config_service:
+
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = None
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        mock_config_service.get_config.return_value = {}
+        mock_config_service.get_feature_flags.return_value = {}
+        mock_config_service.resolve_model_role.side_effect = (
+            lambda role: {"provider": "deepseek", "model": "deepseek-reasoner"} if role == "reasoning" else None
+        )
+        mock_config_service.get_model_capabilities.return_value = []
+        mock_config_service.get_model_settings.return_value = {}
+        mock_config_service.get_usage_limits.return_value = {"request_limit": 10, "tool_calls_limit": 5}
+
+        mock_model = MagicMock()
+        mock_get_model.return_value = mock_model
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+
+        async def mock_stream():
+            yield "Result"
+
+        mock_result.stream_text.return_value = mock_stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
+
+        response = client.post("/api/chat/stream", json={"message": "hi", "model_role": "reasoning"})
+
+        assert response.status_code == 200
+        lines = [line for line in response.iter_lines() if line.startswith("data: ")]
+        assert any('"provider": "deepseek"' in line for line in lines)
+        assert any('"model": "deepseek-reasoner"' in line for line in lines)
+        mock_get_model.assert_called_with("deepseek", "deepseek-reasoner")
+
 @pytest.mark.asyncio
 async def test_chat_stream_with_thought_tags(client, mock_chat_service):
     with patch("app.api.chat.agent_store"), \
