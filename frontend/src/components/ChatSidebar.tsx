@@ -50,24 +50,6 @@ export default function ChatSidebar(props: ChatSidebarProps) {
   const [collapsedGroups, setCollapsedGroups] = createSignal<Record<string, boolean>>({});
   const [savedPresets, setSavedPresets] = createSignal<SavedPreset[]>([]);
   const [prefsReady, setPrefsReady] = createSignal(false);
-  const [filtersCollapsed, setFiltersCollapsed] = createSignal(true);
-  const [showAllAvailableTags, setShowAllAvailableTags] = createSignal(false);
-
-  const availableTags = createMemo(() => {
-    const counts = new Map<string, number>();
-    for (const chat of props.chats) {
-      for (const tag of chat.tags || []) {
-        counts.set(tag, (counts.get(tag) || 0) + 1);
-      }
-    }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([tag]) => tag)
-      .slice(0, 12);
-  });
-  const visibleAvailableTags = createMemo(() =>
-    showAllAvailableTags() ? availableTags() : availableTags().slice(0, 6)
-  );
 
   const matchesDatePreset = (iso: string) => {
     const preset = datePreset();
@@ -135,10 +117,6 @@ export default function ChatSidebar(props: ChatSidebarProps) {
       .map(([key, value]) => ({ key, ...value }));
   });
 
-  const toggleTag = (tag: string) => {
-    setSelectedTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
-  };
-
   const clearFilters = () => {
     setSearchQuery('');
     setSelectedTags([]);
@@ -168,12 +146,6 @@ export default function ChatSidebar(props: ChatSidebarProps) {
     setTagMode(state.tagMode);
     setDatePreset(state.datePreset);
   };
-
-  const hasActiveFilters = (state: FilterState) =>
-    Boolean(state.query.trim()) ||
-    state.selectedTags.length > 0 ||
-    state.tagMode !== 'any' ||
-    state.datePreset !== 'all';
 
   const loadFilterPreferences = async () => {
     try {
@@ -211,8 +183,6 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           }));
         setSavedPresets(parsedPresets.slice(0, 12));
       }
-      // Filters should start collapsed by default; only auto-expand when a saved filter is active.
-      setFiltersCollapsed(!hasActiveFilters(nextState));
     } catch (e) {
       console.warn('Failed to load chat history filter preferences', e);
     } finally {
@@ -255,31 +225,6 @@ export default function ChatSidebar(props: ChatSidebarProps) {
     if (persistTimer) window.clearTimeout(persistTimer);
   });
 
-  const saveCurrentPreset = () => {
-    const defaultName = `Preset ${savedPresets().length + 1}`;
-    const name = window.prompt('Preset name', defaultName)?.trim();
-    if (!name) return;
-    const nextPreset: SavedPreset = {
-      id: crypto.randomUUID(),
-      name,
-      ...buildCurrentFilterState(),
-    };
-    setSavedPresets(prev => [nextPreset, ...prev].slice(0, 12));
-  };
-
-  const applySavedPreset = (preset: SavedPreset) => {
-    applyFilterState({
-      query: preset.query,
-      selectedTags: preset.selectedTags,
-      tagMode: preset.tagMode,
-      datePreset: preset.datePreset,
-    });
-  };
-
-  const deleteSavedPreset = (id: string) => {
-    setSavedPresets(prev => prev.filter(p => p.id !== id));
-  };
-
   const activeFilterCount = createMemo(() => {
     let count = 0;
     if (searchQuery().trim()) count += 1;
@@ -297,176 +242,79 @@ export default function ChatSidebar(props: ChatSidebarProps) {
       `}
     >
       <div class="w-sidebar h-full flex flex-col">
-        <div class="p-5 border-b border-border flex justify-between items-center bg-surface/50 backdrop-blur-md sticky top-0 z-10">
-          <h2 class="font-black text-text-primary text-xs uppercase tracking-[0.2em] flex items-center gap-2.5">
-            <div class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
-            Chat History
-          </h2>
+        <div class="p-4 bg-slate-50/80 border-b border-border flex items-center gap-2 sticky top-0 z-20 backdrop-blur-md">
+          <div class="flex-1 relative">
+            <input 
+              type="text" 
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+              placeholder="Search chats..." 
+              class="w-full bg-white border border-border rounded-lg pl-9 pr-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all shadow-sm" 
+            />
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-3 top-2.5 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
           <button 
             onClick={props.onNewChat} 
-            class="group relative p-2 bg-primary/10 hover:bg-primary text-primary hover:text-white rounded-xl transition-all duration-300 active:scale-90 shadow-sm hover:shadow-primary/20"
-            title="New Chat Session"
+            class="bg-primary hover:bg-primary-dark text-white p-2.5 rounded-lg transition-all active:scale-95 shadow-sm shadow-primary/20"
+            title="New Chat"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transform group-hover:rotate-90 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
             </svg>
           </button>
         </div>
-        <div class="px-4 py-2 border-b border-border bg-surface/70">
+
+        <div class="px-4 py-3 border-b border-border bg-white flex gap-2 overflow-x-auto no-scrollbar scroll-smooth">
           <button
-            onClick={() => setFiltersCollapsed(v => !v)}
-            class="w-full flex items-center justify-between text-left py-1.5 px-1 rounded hover:bg-primary/5 transition-colors"
-            aria-expanded={!filtersCollapsed()}
-            aria-label={filtersCollapsed() ? 'Expand filters panel' : 'Collapse filters panel'}
+            onClick={() => setDatePreset('all')}
+            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === 'all' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
           >
-            <span class="text-[11px] uppercase tracking-[0.12em] font-semibold text-text-secondary">
-              Filters
-            </span>
-            <span class="text-text-secondary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class={`w-4 h-4 transition-transform duration-200 ${filtersCollapsed() ? 'rotate-0' : 'rotate-90'}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 6l6 6-6 6" />
-              </svg>
-            </span>
+            ALL
           </button>
-          <Show when={!filtersCollapsed()}>
-          <div class="space-y-2">
-          <input
-            value={searchQuery()}
-            onInput={(e) => setSearchQuery(e.currentTarget.value)}
-            class="w-full text-sm rounded-lg border border-border bg-surface px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            placeholder="Search title, summary, tags..."
-          />
-          <div class="flex items-center gap-1.5">
-            <button
-              onClick={() => setDatePreset('all')}
-              class={`text-[10px] px-2 py-1 rounded ${datePreset() === 'all' ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}
+          <button
+            onClick={() => setDatePreset('today')}
+            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === 'today' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            TODAY
+          </button>
+          <button
+            onClick={() => setDatePreset('7d')}
+            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === '7d' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            7D
+          </button>
+          <button
+            onClick={() => setDatePreset('30d')}
+            class={`px-2.5 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
+              datePreset() === '30d' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            30D
+          </button>
+          <Show when={activeFilterCount() > 0}>
+            <button 
+              onClick={clearFilters} 
+              class="px-2.5 py-1 text-[10px] font-bold rounded bg-rose-50 text-rose-600 hover:bg-rose-100 transition-all whitespace-nowrap border border-rose-100"
             >
-              All
+              CLEAR
             </button>
-            <button
-              onClick={() => setDatePreset('today')}
-              class={`text-[10px] px-2 py-1 rounded ${datePreset() === 'today' ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}
-            >
-              Today
-            </button>
-            <button
-              onClick={() => setDatePreset('7d')}
-              class={`text-[10px] px-2 py-1 rounded ${datePreset() === '7d' ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}
-            >
-              7d
-            </button>
-            <button
-              onClick={() => setDatePreset('30d')}
-              class={`text-[10px] px-2 py-1 rounded ${datePreset() === '30d' ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}
-            >
-              30d
-            </button>
-          </div>
-          <Show when={selectedTags().length > 0}>
-            <div class="flex flex-wrap gap-1.5">
-              <For each={selectedTags()}>
-                {(tag) => (
-                  <button
-                    onClick={() => toggleTag(tag)}
-                    class="text-[10px] px-2 py-1 rounded bg-primary text-white hover:bg-primary/90"
-                    title={`Remove #${tag}`}
-                  >
-                    #{tag} ×
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={availableTags().length > 0}>
-            <div class="flex flex-wrap gap-1.5">
-              <For each={visibleAvailableTags()}>
-                {(tag) => (
-                  <button
-                    onClick={() => toggleTag(tag)}
-                    class={`text-[10px] px-2 py-1 rounded transition-colors ${
-                      selectedTags().includes(tag) ? 'hidden' : 'bg-primary/10 text-primary hover:bg-primary/20'
-                    }`}
-                    aria-pressed={selectedTags().includes(tag)}
-                  >
-                    #{tag}
-                  </button>
-                )}
-              </For>
-              <Show when={availableTags().length > 6}>
-                <button
-                  onClick={() => setShowAllAvailableTags(v => !v)}
-                  class="text-[10px] px-2 py-1 rounded border border-border text-text-secondary hover:text-primary hover:border-primary/30"
-                >
-                  {showAllAvailableTags() ? 'Collapse' : `+More (${availableTags().length - 6})`}
-                </button>
-              </Show>
-            </div>
-          </Show>
-          <div class="flex items-center justify-between">
-            <button
-              onClick={() => setTagMode(tagMode() === 'any' ? 'all' : 'any')}
-              class="text-[10px] px-2 py-1 rounded bg-surface border border-border text-text-secondary hover:text-primary"
-              title="Toggle tag matching mode"
-            >
-              Tag mode: {tagMode().toUpperCase()}
-            </button>
-            <Show when={searchQuery() || selectedTags().length > 0 || datePreset() !== 'all'}>
-              <button onClick={clearFilters} class="text-[10px] text-primary hover:underline">
-                Clear
-              </button>
-            </Show>
-          </div>
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-[10px] uppercase tracking-[0.1em] text-text-secondary">Presets</span>
-            <button
-              onClick={saveCurrentPreset}
-              class="text-[10px] px-2 py-1 rounded border border-border text-text-secondary hover:text-primary hover:border-primary/30"
-            >
-              Save Current
-            </button>
-          </div>
-          <Show when={savedPresets().length > 0}>
-            <div class="space-y-1 max-h-24 overflow-y-auto pr-1">
-              <For each={savedPresets()}>
-                {(preset) => (
-                  <div class="flex items-center justify-between gap-1 rounded border border-border px-2 py-1">
-                    <button
-                      onClick={() => applySavedPreset(preset)}
-                      class="text-[10px] text-text-primary hover:text-primary truncate text-left flex-1"
-                      title={`Apply preset: ${preset.name}`}
-                    >
-                      {preset.name}
-                    </button>
-                    <button
-                      onClick={() => deleteSavedPreset(preset.id)}
-                      class="text-[10px] text-text-secondary hover:text-red-500"
-                      aria-label={`Delete preset ${preset.name}`}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-          </div>
           </Show>
         </div>
-        <div class="overflow-y-auto flex-1 pb-20 scrollbar-thin scrollbar-thumb-border">
+
+        <div class="overflow-y-auto flex-1 no-scrollbar scroll-smooth pb-20">
           <Show when={props.chats.length > 0}>
-            <div class="px-3 py-1.5 text-[10px] border-b border-border bg-surface/60 text-text-secondary flex items-center justify-between">
+            <div class="px-4 py-2 text-[10px] border-b border-border bg-slate-50/30 text-text-secondary flex items-center justify-between font-medium">
               <span>
-                {filteredChats().length} chats · filters: {activeFilterCount()} · {datePreset().toUpperCase()}
+                {filteredChats().length} sessions · {activeFilterCount()} active
               </span>
-              <Show when={activeFilterCount() > 0}>
-                <button onClick={clearFilters} class="text-primary hover:underline">Clear</button>
-              </Show>
             </div>
           </Show>
           <For each={groupedChats()}>
@@ -474,80 +322,108 @@ export default function ChatSidebar(props: ChatSidebarProps) {
               <section>
                 <button
                   onClick={() => toggleGroup(group.key)}
-                  class="w-full px-3 py-2 sticky top-0 z-[1] bg-background/95 backdrop-blur text-left flex items-center justify-between border-b border-border hover:bg-primary/5 active:bg-primary/10 transition-colors"
+                  class={`w-full px-4 py-2 sticky top-0 z-10 text-left flex items-center justify-between border-b transition-colors backdrop-blur-md ${
+                    group.isToday 
+                      ? 'bg-blue-50/90 border-blue-100 text-blue-600' 
+                      : 'bg-slate-50/90 border-slate-100 text-slate-500'
+                  }`}
                   aria-expanded={!(collapsedGroups()[group.key] ?? !group.isToday)}
                   aria-label={`Toggle date group ${group.label}`}
                 >
-                  <span class="text-[10px] uppercase tracking-[0.12em] font-semibold text-text-secondary flex items-center gap-1.5">
-                    <span class="text-text-secondary">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class={`w-3.5 h-3.5 transition-transform duration-200 ${(collapsedGroups()[group.key] ?? !group.isToday) ? 'rotate-0' : 'rotate-90'}`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 6l6 6-6 6" />
-                      </svg>
-                    </span>
-                    {group.label} ({group.chats.length})
+                  <span class="text-[10px] font-black uppercase tracking-[0.15em] flex items-center gap-2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class={`w-3 h-3 transition-transform duration-300 ${(collapsedGroups()[group.key] ?? !group.isToday) ? 'rotate-0' : 'rotate-90'}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
+                    </svg>
+                    {group.isToday ? 'Today' : group.label}
+                  </span>
+                  <span class={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    group.isToday ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {group.chats.length}
                   </span>
                 </button>
                 <Show when={!(collapsedGroups()[group.key] ?? !group.isToday)}>
-                  <For each={group.chats}>
-                    {chat => (
-                      <div 
-                        class={`px-3 py-2 border-b border-border cursor-pointer hover:bg-primary/5 group flex justify-between items-start transition-colors ${
-                          props.currentChatId === chat.id ? 'bg-primary/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent'
-                        }`}
-                        onClick={() => props.onLoadChat(chat.id)}
-                      >
-                        <div class="flex-1 min-w-0">
-                          <h3 class={`text-sm font-medium truncate ${props.currentChatId === chat.id ? 'text-primary' : 'text-text-primary'}`}>{chat.title}</h3>
-                          <Show when={chat.summary}>
-                            <p class="text-[10px] text-text-secondary mt-1 line-clamp-2">{chat.summary}</p>
-                          </Show>
-                          <Show when={chat.tags && chat.tags.length > 0}>
-                            <div class="mt-1 flex flex-wrap gap-1">
-                              <For each={(chat.tags || []).slice(0, 3)}>
-                                {(tag) => (
-                                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                                    #{tag}
-                                  </span>
-                                )}
-                              </For>
+                  <div class="divide-y divide-slate-50">
+                    <For each={group.chats}>
+                      {chat => (
+                        <div 
+                          class={`px-4 py-3 cursor-pointer group flex justify-between items-start transition-all border-l-2 ${
+                            props.currentChatId === chat.id 
+                              ? 'bg-blue-50/40 border-l-blue-500' 
+                              : 'bg-white border-l-transparent hover:bg-slate-50/80 hover:border-l-slate-200'
+                          }`}
+                          onClick={() => props.onLoadChat(chat.id)}
+                        >
+                          <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-start mb-0.5">
+                              <h3 class={`text-sm truncate pr-2 ${
+                                props.currentChatId === chat.id ? 'font-bold text-slate-900' : 'font-semibold text-slate-700 group-hover:text-blue-600'
+                              }`}>
+                                {chat.title}
+                              </h3>
+                              <span class="text-[9px] text-slate-400 font-medium whitespace-nowrap pt-0.5">
+                                {parseServerDate(chat.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
                             </div>
-                          </Show>
-                          <p class="text-[10px] text-text-secondary mt-1">{parseServerDate(chat.updated_at).toLocaleDateString()}</p>
+                            
+                            <Show when={chat.summary}>
+                              <p class="text-[11px] text-slate-500 line-clamp-2 leading-relaxed mb-2">
+                                {chat.summary}
+                              </p>
+                            </Show>
+                            
+                            <div class="flex flex-wrap gap-1 items-center">
+                              <Show when={chat.tags && chat.tags.length > 0}>
+                                <For each={(chat.tags || []).slice(0, 3)}>
+                                  {(tag) => (
+                                    <span class="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-bold rounded uppercase tracking-tighter group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                                      {tag}
+                                    </span>
+                                  )}
+                                </For>
+                              </Show>
+                              <Show when={chat.tags && chat.tags.length > 3}>
+                                <span class="text-[9px] text-slate-400 font-bold">+{chat.tags!.length - 3}</span>
+                              </Show>
+                            </div>
+                          </div>
+                          
+                          <div class="flex flex-col gap-1 ml-2 translate-x-2 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 transition-all duration-200">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onGenerateSummary(chat.id);
+                              }}
+                              class="text-slate-400 hover:text-blue-600 p-1 bg-white shadow-sm border border-slate-100 rounded-md transition-colors"
+                              title="Generate summary"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8M8 14h5M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3V8a2 2 0 012-2z" />
+                              </svg>
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onDeleteChat(chat.id);
+                              }}
+                              class="text-slate-400 hover:text-red-500 p-1 bg-white shadow-sm border border-slate-100 rounded-md transition-colors"
+                              title="Delete session"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
-                        <div class="flex items-start gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              props.onGenerateSummary(chat.id);
-                            }}
-                            class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-primary p-1 transition-all"
-                            title="Generate summary"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8M8 14h5M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3V8a2 2 0 012-2z" />
-                            </svg>
-                          </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              props.onDeleteChat(chat.id);
-                            }}
-                            class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 p-1 transition-all"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </For>
+                      )}
+                    </For>
+                  </div>
                 </Show>
               </section>
             )}
