@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yue - UI 设计方案对比 (日期分组增强版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', 'PingFang SC', sans-serif; }
+        .glass-sidebar { backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .sidebar-container { height: 800px; width: 300px; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Sticky header enhancement */
+        .sticky-date { position: sticky; top: 0; z-index: 10; background-color: rgba(248, 250, 252, 0.95); backdrop-filter: blur(4px); }
+    </style>
+</head>
+<body class="bg-gray-100 p-10">
+    <h1 class="text-3xl font-bold mb-10 text-slate-800 text-center">Yue 侧边栏 UI 设计方案对比 (日期分组增强)</h1>
+    
+    <div class="flex flex-wrap gap-12 justify-center">
+        
+        <!-- 方案一：精致极简 (Refined Minimalist) -->
+        <div class="flex flex-col items-center opacity-50">
+            <h2 class="mb-4 font-semibold text-slate-600 italic">方案一 (未变动)</h2>
+            <div class="sidebar-container bg-slate-50 border border-slate-200 shadow-sm flex flex-col overflow-hidden rounded-lg">
+                <!-- Header -->
+                <div class="p-6 pb-2 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+                        <span class="text-[10px] font-bold tracking-[0.1em] text-slate-400 uppercase">Chat History</span>
+                    </div>
+                </div>
+                <div class="p-8 text-center text-xs text-slate-400">见上一个版本</div>
+            </div>
+        </div>
+
+        <!-- 方案二：高效生产力 (High-Efficiency) - 日期分组增强版 -->
+        <div class="flex flex-col items-center">
+            <h2 class="mb-4 font-bold text-blue-600 border-b-2 border-blue-600 pb-1">方案二：高效生产力 (多日期分组增强)</h2>
+            <div class="sidebar-container bg-white border-r border-slate-200 flex flex-col overflow-hidden rounded-lg shadow-2xl">
+                <!-- Compact Header + New Chat -->
+                <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+                    <div class="flex-1 relative">
+                        <input type="text" placeholder="Search chats..." class="w-full bg-white border border-slate-200 rounded-lg px-8 py-2 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none transition-all">
+                        <svg class="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition-colors shadow-sm active:scale-95">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    </button>
+                </div>
+                
+                <!-- Filters (Chip style) -->
+                <div class="px-4 py-3 border-b border-slate-100 flex gap-2 overflow-x-auto no-scrollbar">
+                    <span class="px-2 py-1 bg-blue-600 text-white text-[10px] font-bold rounded cursor-pointer shadow-sm">ALL</span>
+                    <span class="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded cursor-pointer hover:bg-slate-200">WORK</span>
+                    <span class="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded cursor-pointer hover:bg-slate-200">RESEARCH</span>
+                    <span class="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded cursor-pointer hover:bg-slate-200">IDEA</span>
+                </div>
+
+                <!-- Dense Scrollable List with Grouping -->
+                <div class="flex-1 overflow-y-auto no-scrollbar bg-white">
+                    
+                    <!-- Today Group -->
+                    <div class="sticky-date px-4 py-2 text-[10px] font-black text-blue-600 uppercase tracking-widest border-b border-blue-100 flex justify-between items-center">
+                        <span>Today</span>
+                        <span class="bg-blue-50 px-1.5 py-0.5 rounded text-[9px]">3 chats</span>
+                    </div>
+                    
+                    <div class="px-4 py-3 border-b border-slate-50 bg-blue-50/40 border-l-4 border-l-blue-600 cursor-pointer hover:bg-blue-50 transition-colors">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-bold text-slate-800 truncate">Project Architecture</span>
+                            <span class="text-[9px] text-slate-400 font-medium">14:20</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 line-clamp-1">Discussing the 12-factor app compliance...</div>
+                        <div class="flex gap-1 mt-2">
+                            <span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] font-semibold rounded">Backend</span>
+                            <span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-semibold rounded">Arch</span>
+                        </div>
+                    </div>
+
+                    <div class="px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">Sidebar layout shift</span>
+                            <span class="text-[9px] text-slate-400">10:45</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 line-clamp-1">Fixed the jumpy animation on hover...</div>
+                    </div>
+
+                    <div class="px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">Morning Standup Notes</span>
+                            <span class="text-[9px] text-slate-400">09:15</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 line-clamp-1">Reviewing tasks for the new UI sprint...</div>
+                    </div>
+
+                    <!-- Yesterday Group -->
+                    <div class="sticky-date px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest border-y border-slate-100 flex justify-between items-center bg-slate-50/90 backdrop-blur-sm">
+                        <span>Yesterday</span>
+                        <span class="bg-slate-200 px-1.5 py-0.5 rounded text-[9px] text-slate-600">1 chat</span>
+                    </div>
+
+                    <div class="px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">Export to PDF Bug</span>
+                            <span class="text-[9px] text-slate-400">Yesterday</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 line-clamp-1">Implementation using jsPDF library...</div>
+                        <div class="flex gap-1 mt-2">
+                            <span class="px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[9px] font-semibold rounded">Bug</span>
+                        </div>
+                    </div>
+
+                    <!-- Previous 7 Days Group -->
+                    <div class="sticky-date px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest border-y border-slate-100 flex justify-between items-center bg-slate-50/90 backdrop-blur-sm mt-0">
+                        <span>Last 7 Days</span>
+                        <span class="bg-slate-200 px-1.5 py-0.5 rounded text-[9px] text-slate-600">2 chats</span>
+                    </div>
+
+                    <div class="px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">API Documentation Review</span>
+                            <span class="text-[9px] text-slate-400">Apr 15</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 line-clamp-1">Swagger and OpenAPI spec updates...</div>
+                    </div>
+
+                    <div class="px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">Voice Input Testing</span>
+                            <span class="text-[9px] text-slate-400">Apr 13</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 line-clamp-1">Testing Whisper API integration latency...</div>
+                    </div>
+
+                    <!-- Earlier Group -->
+                    <div class="sticky-date px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest border-y border-slate-100 flex justify-between items-center bg-slate-50/90 backdrop-blur-sm">
+                        <span>Earlier</span>
+                    </div>
+                    <div class="px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">System Setup Guide</span>
+                            <span class="text-[9px] text-slate-400">Mar 28</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 line-clamp-1">Initial configuration for Yue backend...</div>
+                    </div>
+                </div>
+                
+                <!-- Footer Info -->
+                <div class="p-3 bg-slate-50 border-t border-slate-200 text-center">
+                    <span class="text-[10px] text-slate-400 font-medium italic">Showing 340 sessions</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 方案三：毛玻璃现代感 (Glassmorphism) -->
+        <div class="flex flex-col items-center opacity-50">
+            <h2 class="mb-4 font-semibold text-slate-600 italic">方案三 (未变动)</h2>
+            <div class="sidebar-container relative rounded-2xl overflow-hidden shadow-2xl bg-gradient-to-br from-indigo-100 to-emerald-100 p-3">
+                <div class="p-8 text-center text-xs text-slate-600">见上一个版本</div>
+            </div>
+        </div>
+        
+    </div>
+
+    <div class="mt-16 text-center max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+        <h3 class="text-xl font-bold text-slate-800 mb-4">方案二：多日期分组设计说明</h3>
+        <div class="text-left space-y-4 text-slate-600 text-sm">
+            <p><strong>1. 粘性页眉 (Sticky Headers)</strong>：<br>
+            当您向上滚动列表时，日期分组（如 Today, Yesterday）会“粘”在顶部，直到下一个分组将其顶替。这能让您在翻阅大量记录时始终明确当前的日期范围。</p>
+            
+            <p><strong>2. 视觉差异化 (Visual Hierarchy)</strong>：<br>
+            - <strong>Today</strong>: 使用了蓝色主题强调，并增加了聊天计数，突出“当前活跃”的状态。<br>
+            - <strong>Yesterday & Earlier</strong>: 使用了中性的浅灰色背景，降低视觉疲劳，让您的注意力集中在今天的工作上。</p>
+            
+            <p><strong>3. 信息层级</strong>：<br>
+            每个对话项现在包含：<strong>标题、时间/日期、摘要预览、彩色标签</strong>。这种布局大大提升了扫描效率，无需打开对话即可定位目标。</p>
+        </div>
+        <p class="mt-6 text-blue-600 font-bold">这个多日期的分组展示符合您的预期吗？如果满意，我可以开始准备将这种风格应用到代码库中。</p>
+    </div>
+</body>
+</html>
