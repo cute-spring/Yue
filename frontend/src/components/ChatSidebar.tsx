@@ -132,13 +132,20 @@ export default function ChatSidebar(props: ChatSidebarProps) {
     setDatePreset('all');
   };
 
+  const isGroupCollapsed = (group: { key: string, chats: ChatSession[] }) => {
+    const manualState = collapsedGroups()[group.key];
+    if (manualState !== undefined) return manualState;
+    // Auto-expand group containing the active chat
+    if (props.currentChatId && group.chats.some(c => c.id === props.currentChatId)) return false;
+    // Default strategy: expand Today and Yesterday, collapse older groups to reduce cognitive load
+    return group.key !== 'today' && group.key !== 'yesterday';
+  };
+
   const toggleGroup = (key: string) => {
     const group = groupedChats().find(g => g.key === key);
-    const defaultCollapsed = group ? !group.isToday : false;
-    setCollapsedGroups(prev => {
-      const current = prev[key] ?? defaultCollapsed;
-      return { ...prev, [key]: !current };
-    });
+    if (!group) return;
+    const currentlyCollapsed = isGroupCollapsed(group);
+    setCollapsedGroups(prev => ({ ...prev, [key]: !currentlyCollapsed }));
   };
 
   const buildCurrentFilterState = (): FilterState => ({
@@ -257,10 +264,10 @@ export default function ChatSidebar(props: ChatSidebarProps) {
     <div 
       class={`
         fixed lg:relative inset-y-0 left-0 bg-white border-r border-slate-200 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-30
-        ${props.showHistory ? 'translate-x-0 w-[300px] opacity-100 shadow-2xl lg:shadow-none' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
+        ${props.showHistory ? 'translate-x-0 w-[260px] opacity-100 shadow-2xl lg:shadow-none' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
       `}
     >
-      <div class="w-[300px] h-full flex flex-col bg-white">
+      <div class="w-[260px] h-full flex flex-col bg-white">
         <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
           <div class="flex-1 relative">
             <input 
@@ -268,7 +275,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
               value={searchQuery()}
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
               placeholder="Search chats..." 
-              class="w-full bg-white border border-slate-200 rounded-lg px-8 py-2 text-xs focus:ring-2 focus:ring-blue-500/20 outline-none transition-all shadow-sm" 
+              class="w-full bg-white border border-slate-200 rounded-lg px-8 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none transition-all shadow-sm" 
             />
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -276,7 +283,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           </div>
           <button 
             onClick={props.onNewChat} 
-            class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition-colors active:scale-95 shadow-sm"
+            class="bg-primary hover:bg-primary-hover text-white p-2 rounded-lg transition-colors active:scale-95 shadow-sm"
             title="New Chat"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -289,7 +296,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           <button
             onClick={() => setDatePreset('all')}
             class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              datePreset() === 'all' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             ALL
@@ -297,7 +304,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           <button
             onClick={() => setDatePreset('today')}
             class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === 'today' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              datePreset() === 'today' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             TODAY
@@ -305,7 +312,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           <button
             onClick={() => setDatePreset('7d')}
             class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === '7d' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              datePreset() === '7d' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             7D
@@ -313,7 +320,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           <button
             onClick={() => setDatePreset('30d')}
             class={`px-2 py-1 text-[10px] font-bold rounded transition-all whitespace-nowrap shadow-sm ${
-              datePreset() === '30d' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              datePreset() === '30d' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             30D
@@ -343,16 +350,16 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                   onClick={() => toggleGroup(group.key)}
                   class={`w-full sticky top-0 z-10 px-4 py-2 text-[10px] font-black uppercase tracking-widest border-y flex justify-between items-center ${
                     group.type === 'today' 
-                      ? 'text-blue-600 border-blue-100 bg-white/95 backdrop-blur-sm' 
+                      ? 'text-primary border-primary/10 bg-surface/95 backdrop-blur-sm' 
                       : 'text-slate-500 border-slate-100 bg-slate-50/90 backdrop-blur-sm'
                   }`}
-                  aria-expanded={!(collapsedGroups()[group.key] ?? false)}
+                  aria-expanded={!isGroupCollapsed(group)}
                   aria-label={`Toggle date group ${group.label}`}
                 >
                   <span class="flex items-center gap-2">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
-                      class={`w-3 h-3 transition-transform duration-200 ${(collapsedGroups()[group.key] ?? false) ? 'rotate-90' : 'rotate-0'}`}
+                      class={`w-3 h-3 transition-transform duration-200 ${isGroupCollapsed(group) ? 'rotate-90' : 'rotate-0'}`}
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -362,19 +369,19 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                     {group.label}
                   </span>
                   <span class={`px-1.5 py-0.5 rounded text-[9px] ${
-                    group.type === 'today' ? 'bg-blue-50' : 'bg-slate-200 text-slate-600'
+                    group.type === 'today' ? 'bg-primary/10 text-primary' : 'bg-slate-200 text-slate-600'
                   }`}>
                     {group.chats.length} {group.chats.length === 1 ? 'chat' : 'chats'}
                   </span>
                 </button>
-                <Show when={!(collapsedGroups()[group.key] ?? false)}>
+                <Show when={!isGroupCollapsed(group)}>
                   <div class="divide-y divide-slate-50">
                     <For each={group.chats}>
                       {chat => (
                         <div 
                           class={`px-4 py-3 cursor-pointer group flex justify-between items-start transition-colors relative border-l-4 ${
                             props.currentChatId === chat.id 
-                              ? 'bg-blue-50/40 border-l-blue-600' 
+                              ? 'bg-primary/5 border-l-primary' 
                               : 'bg-white border-l-transparent hover:bg-slate-50'
                           }`}
                           onClick={() => props.onLoadChat(chat.id)}
@@ -382,7 +389,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                           <div class="flex-1 min-w-0">
                             <div class="flex justify-between items-start mb-1">
                               <h3 class={`text-sm truncate pr-2 transition-colors ${
-                                props.currentChatId === chat.id ? 'font-bold text-slate-800' : 'font-semibold text-slate-700 group-hover:text-blue-600'
+                                props.currentChatId === chat.id ? 'font-bold text-slate-800' : 'font-semibold text-slate-700 group-hover:text-primary'
                               }`}>
                                 {chat.title}
                               </h3>
@@ -401,16 +408,14 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                               <Show when={chat.tags && chat.tags.length > 0}>
                                 <For each={(chat.tags || []).slice(0, 3)}>
                                   {(tag, i) => (
-                                    <span class={`px-1.5 py-0.5 text-[9px] font-semibold rounded uppercase tracking-tighter ${
-                                      i() % 2 === 0 ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-600'
-                                    }`}>
+                                    <span class={`px-1.5 py-0.5 text-[9px] font-semibold rounded uppercase tracking-tighter bg-slate-100 text-slate-500 border border-slate-200/60`}>
                                       {tag}
                                     </span>
                                   )}
                                 </For>
                               </Show>
                               <Show when={chat.tags && chat.tags.length > 3}>
-                                <span class="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-semibold rounded">
+                                <span class="px-1.5 py-0.5 bg-slate-100 text-slate-400 border border-slate-200/60 text-[9px] font-semibold rounded">
                                   +{chat.tags!.length - 3}
                                 </span>
                               </Show>
@@ -423,7 +428,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                                 e.stopPropagation();
                                 props.onGenerateSummary(chat.id);
                               }}
-                              class="p-1.5 bg-white text-slate-400 hover:text-blue-600 rounded shadow-sm border border-slate-200"
+                              class="p-1.5 bg-white text-slate-400 hover:text-primary rounded shadow-sm border border-slate-200"
                               title="Generate summary"
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

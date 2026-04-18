@@ -365,7 +365,7 @@ export default function MessageItem(props: MessageItemProps) {
               ? 'bg-rose-500/5 border-rose-500/20 text-rose-500' 
               : responseStatus(msg) === 'Generating' 
                 ? 'bg-amber-500/5 border-amber-500/20 text-amber-500' 
-                : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-500 shadow-sm shadow-emerald-500/5'
+                : 'bg-primary/5 border-primary/20 text-primary shadow-sm shadow-primary/5'
           }`}>
             <Show when={responseStatus(msg) === 'Generating'}>
               <div class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div>
@@ -476,18 +476,13 @@ export default function MessageItem(props: MessageItemProps) {
         aria-label={props.msg.role === 'assistant' ? 'Assistant message. Press R to read aloud or stop.' : undefined}
         class={`group relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
         props.msg.role === 'user' 
-          ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-primary/20 rounded-[26px] rounded-br-none overflow-hidden max-w-[85%] lg:max-w-[75%]' 
+          ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-border/40 rounded-[26px] rounded-br-none max-w-[85%] lg:max-w-[75%]' 
           : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none max-w-[85%] lg:max-w-[75%]'
       }`}
       >
         {props.msg.role === 'user' ? (
            <>
              <Show when={!isEditing()}>
-               <div class="absolute inset-0 pointer-events-none overflow-hidden">
-                 <div class="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-primary/10 blur-3xl"></div>
-                 <div class="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl"></div>
-                 <div class="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_55%,rgba(16,185,129,0.06))]"></div>
-               </div>
                <Show when={props.msg.images && props.msg.images.length > 0}>
                  <div class="flex flex-wrap gap-2 mb-2 relative z-10">
                    <For each={props.msg.images}>
@@ -680,7 +675,7 @@ export default function MessageItem(props: MessageItemProps) {
                           </Show>
                           <div class={`relative w-2.5 h-2.5 rounded-full transition-all duration-1000 ${
                             isThinking 
-                              ? 'bg-gradient-to-tr from-primary to-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.8)] scale-110' 
+                              ? 'bg-gradient-to-tr from-primary to-primary shadow-[0_0_15px_rgba(16,185,129,0.8)] scale-110' 
                               : 'bg-text-secondary/20'
                           }`}></div>
                         </div>
@@ -692,8 +687,8 @@ export default function MessageItem(props: MessageItemProps) {
                                 : 'Reasoning Chain'}
                             </span>
                             <Show when={thoughtSource === 'structured'}>
-                              <div class="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20" title="Structured reasoning from model API">
-                                <span class="text-[8px] font-black uppercase tracking-wider text-emerald-500/80">Structured</span>
+                              <div class="px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20" title="Structured reasoning from model API">
+                                <span class="text-[8px] font-black uppercase tracking-wider text-primary">Structured</span>
                               </div>
                             </Show>
                           </div>
@@ -802,7 +797,7 @@ export default function MessageItem(props: MessageItemProps) {
                       prose-a:text-primary prose-a:font-bold hover:prose-a:text-primary-hover prose-a:no-underline border-b border-transparent hover:border-primary
                       prose-strong:text-text-primary prose-strong:font-bold
                       prose-code:text-primary prose-code:bg-primary/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-code:font-bold prose-code:break-words prose-code:break-all
-                      prose-pre:p-0 prose-pre:bg-transparent
+                      prose-pre:bg-[#1E1E1E] prose-pre:text-slate-300 prose-pre:p-4 prose-pre:rounded-xl prose-pre:shadow-inner prose-pre:my-6 prose-pre:border prose-pre:border-slate-800
                       prose-ol:my-4 prose-ul:my-4 prose-li:my-1
                       prose-table:w-full prose-table:border-collapse prose-table:my-6 prose-table:table-fixed
                       prose-th:bg-primary/5 prose-th:text-primary prose-th:p-3 prose-th:text-left prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-wider prose-th:border prose-th:border-border/60 prose-th:break-words prose-th:break-all
