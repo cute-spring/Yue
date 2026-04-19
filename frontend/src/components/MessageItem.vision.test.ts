@@ -83,4 +83,23 @@ describe('MessageItem vision feedback helpers', () => {
     expect(result[0].mime_type).toBe('image/png');
     expect(result[0].source).not.toBe('legacy_images');
   });
+
+  it('deduplicates data-url legacy images when uploaded image attachments already exist', () => {
+    const result = getRenderableUserAttachments({
+      attachments: [
+        {
+          id: 'att_img_1',
+          kind: 'file',
+          display_name: 'photo.png',
+          mime_type: 'image/png',
+          url: '/files/chat/att_img_1.png',
+        },
+      ],
+      images: ['data:image/png;base64,AAA'],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].url).toBe('/files/chat/att_img_1.png');
+    expect(result[0].source).not.toBe('legacy_images');
+  });
 });
