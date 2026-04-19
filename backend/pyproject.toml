@@ -8,7 +8,6 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
-    "pydantic-ai",
     "pydantic-ai-slim[openai,google]",
     "python-dotenv",
     "httpx",
@@ -31,6 +30,9 @@ dependencies = [
     "pandas",
     "sqlalchemy>=2.0.48",
     "alembic>=1.18.4",
+    "python-json-logger",
+    "pyyaml",
+    "sqlite-vec",
 ]
 
 [dependency-groups]
