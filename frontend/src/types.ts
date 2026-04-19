@@ -87,6 +87,7 @@ export type Message = {
   content: string;
   thought?: string;
   images?: string[];
+  attachments?: Attachment[];
   thought_duration?: number;
   ttft?: number;
   total_duration?: number;
@@ -116,6 +117,19 @@ export type Message = {
   finish_reason?: string;
   active_skill_name?: string;
   active_skill_version?: string;
+};
+
+export type Attachment = {
+  id?: string;
+  kind: string;
+  display_name?: string | null;
+  storage_path?: string | null;
+  url?: string | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+  extension?: string | null;
+  source?: string | null;
+  status?: string | null;
 };
 
 export type ToolCall = {

@@ -12,6 +12,7 @@ from typing import Iterable, List, Optional, Dict, Any, Tuple, Set
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from app.utils.upload_storage import build_dated_upload_subdir, build_files_url, ensure_upload_dir
 
 @dataclass(frozen=True)
 class DocSnippet:
@@ -783,13 +784,13 @@ def pdf_page_render_image(
     matrix = fitz.Matrix(zoom, zoom)
     page_obj = doc.load_page(idx)
     pix = page_obj.get_pixmap(matrix=matrix)
-    upload_dir = os.path.join(get_project_root(), "backend", "data", "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
+    upload_subdir = build_dated_upload_subdir("doc-preview")
+    upload_dir = ensure_upload_dir(upload_subdir)
     filename = f"{uuid.uuid4()}.png"
-    file_path = os.path.join(upload_dir, filename)
-    pix.save(file_path)
+    file_path = upload_dir / filename
+    pix.save(str(file_path))
     doc.close()
-    return abs_path, idx + 1, f"/files/{filename}"
+    return abs_path, idx + 1, build_files_url(f"{upload_subdir}/{filename}")
 
 def _make_snippet(text: str, idx: int, *, window: int = 160) -> str:
     if idx < 0:

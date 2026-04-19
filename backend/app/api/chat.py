@@ -478,7 +478,14 @@ async def chat_stream(request: ChatRequest):
             safe_json_log(_build_chat_request_log_payload(chat_id, request)),
         )
 
-    chat_service.add_message(chat_id, "user", request.message, images=stored_images if stored_images else None)
+    attachments_payload = [item.model_dump(mode="json") for item in (request.attachments or [])]
+    chat_service.add_message(
+        chat_id,
+        "user",
+        request.message,
+        images=stored_images if stored_images else None,
+        attachments=attachments_payload if attachments_payload else None,
+    )
 
     deps = StreamRunnerDeps(
         logger=logger,

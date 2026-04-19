@@ -53,6 +53,7 @@ class Message(BaseModel):
     role: str
     content: str
     images: Optional[List[str]] = None
+    attachments: Optional[List[Dict[str, Any]]] = None
     timestamp: datetime = Field(default_factory=datetime.now)
     thought_duration: Optional[float] = None
     ttft: Optional[float] = None
@@ -177,6 +178,7 @@ class ChatService:
             Base.metadata.create_all(bind=engine)
             self._ensure_action_state_schema()
             self._ensure_session_tags_schema()
+            self._ensure_message_attachments_schema()
         except OperationalError as exc:
             logger.warning("ChatService create_all skipped due to database operational error: %s", exc)
 
@@ -213,6 +215,19 @@ class ChatService:
 
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE sessions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"))
+
+    def _ensure_message_attachments_schema(self) -> None:
+        try:
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("messages")}
+        except Exception:
+            return
+
+        if "attachments" in columns:
+            return
+
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE messages ADD COLUMN attachments TEXT"))
 
     @staticmethod
     def _normalize_tag(tag: str) -> str:
@@ -346,6 +361,11 @@ class ChatService:
                             msg_dict['images'] = json.loads(m.images)
                         except:
                             msg_dict['images'] = []
+                    if m.attachments:
+                        try:
+                            msg_dict['attachments'] = json.loads(m.attachments)
+                        except:
+                            msg_dict['attachments'] = []
                     
                     msg_dict['supports_reasoning'] = bool(m.supports_reasoning) if m.supports_reasoning is not None else None
                     msg_dict['deep_thinking_enabled'] = bool(m.deep_thinking_enabled) if m.deep_thinking_enabled is not None else None
@@ -407,6 +427,11 @@ class ChatService:
                         msg_dict['images'] = json.loads(m.images)
                     except:
                         msg_dict['images'] = []
+                if m.attachments:
+                    try:
+                        msg_dict['attachments'] = json.loads(m.attachments)
+                    except:
+                        msg_dict['attachments'] = []
                 
                 msg_dict['supports_reasoning'] = bool(m.supports_reasoning) if m.supports_reasoning is not None else None
                 msg_dict['deep_thinking_enabled'] = bool(m.deep_thinking_enabled) if m.deep_thinking_enabled is not None else None
@@ -531,6 +556,7 @@ class ChatService:
         content: str, 
         thought_duration: Optional[float] = None, 
         images: Optional[List[str]] = None, 
+        attachments: Optional[List[Dict[str, Any]]] = None,
         ttft: Optional[float] = None, 
         total_duration: Optional[float] = None,
         prompt_tokens: Optional[int] = None,
@@ -550,12 +576,14 @@ class ChatService:
                 return None
             
             images_json = json.dumps(images) if images else None
+            attachments_json = json.dumps(attachments) if attachments else None
             
             new_msg = MessageModel(
                 session_id=chat_id,
                 role=role,
                 content=content,
                 images=images_json,
+                attachments=attachments_json,
                 timestamp=now,
                 assistant_turn_id=assistant_turn_id,
                 run_id=run_id,

@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, export, speech
+from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, export, speech, files
 from app.mcp.manager import mcp_manager
 from app.services.skill_service import skill_registry
 from app.services.skills import SkillDirectoryResolver
@@ -94,6 +94,7 @@ app.include_router(speech.router, prefix="/api/speech", tags=["speech"])
 app.include_router(notebook.router, prefix="/api/notebook", tags=["notebook"])
 app.include_router(health.router, prefix="/api/health", tags=["health"])
 app.include_router(export.router, prefix="/api", tags=["export"])
+app.include_router(files.router, prefix="/api/files", tags=["files"])
 
 # Mount Uploads & Exports Directory
 data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data")))

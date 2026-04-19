@@ -1,5 +1,5 @@
 import { createSignal, For, Show, onCleanup, createEffect, createMemo } from 'solid-js';
-import { Message } from '../types';
+import { Attachment, Message } from '../types';
 import { renderMarkdown } from '../utils/markdown';
 import { getAdaptedThought } from "../utils/thoughtParser";
 import ToolCallItem from './ToolCallItem';
@@ -81,6 +81,59 @@ export const getVisionFeedbackText = (
     return '已自动降级为纯文本模式，本次回复不会分析图片内容。';
   }
   return '';
+};
+
+const getAttachmentDisplayName = (attachment: Attachment): string => {
+  if (attachment.display_name && attachment.display_name.trim().length > 0) return attachment.display_name;
+  if (attachment.url) {
+    const path = attachment.url.split('?')[0];
+    const tail = path.split('/').pop();
+    if (tail && tail.trim().length > 0) return tail;
+  }
+  return 'attachment';
+};
+
+const getAttachmentMimeType = (attachment: Attachment): string => {
+  if (attachment.mime_type && attachment.mime_type.trim().length > 0) return attachment.mime_type;
+  return 'application/octet-stream';
+};
+
+const isImageAttachment = (attachment: Attachment): boolean => getAttachmentMimeType(attachment).startsWith('image/');
+
+export const getRenderableUserAttachments = (
+  msg: Pick<Message, 'attachments' | 'images'>,
+): Attachment[] => {
+  const typed = Array.isArray(msg.attachments) ? msg.attachments.filter(Boolean) : [];
+  const legacyImageUrls = Array.isArray(msg.images) ? msg.images : [];
+  const normalizedLegacy = legacyImageUrls
+    .filter((url) => !!url)
+    .map((url) => ({
+      kind: 'file',
+      display_name: url.split('?')[0].split('/').pop() || 'legacy-image',
+      url,
+      mime_type: 'image/*',
+      source: 'legacy_images',
+      status: 'ready',
+    } satisfies Attachment));
+
+  const dedup = new Set<string>();
+  const getAttachmentKeys = (attachment: Attachment): string[] => {
+    const keys: string[] = [];
+    const id = typeof attachment.id === 'string' ? attachment.id.trim() : '';
+    if (id.length > 0) keys.push(`id:${id}`);
+    const url = typeof attachment.url === 'string' ? attachment.url.trim() : '';
+    if (url.length > 0) keys.push(`url:${url}`);
+    return keys;
+  };
+
+  const renderable: Attachment[] = [];
+  [...typed, ...normalizedLegacy].forEach((attachment) => {
+    const keys = getAttachmentKeys(attachment);
+    if (keys.some((key) => dedup.has(key))) return;
+    keys.forEach((key) => dedup.add(key));
+    renderable.push(attachment);
+  });
+  return renderable;
 };
 
 export default function MessageItem(props: MessageItemProps) {
@@ -210,6 +263,7 @@ export default function MessageItem(props: MessageItemProps) {
   };
   const visionBadge = () => getVisionBadge(props.msg);
   const visionFeedbackText = () => getVisionFeedbackText(props.msg);
+  const userAttachments = createMemo(() => getRenderableUserAttachments(props.msg));
   const speechMessageId = () => getSpeechMessageId(props.msg, props.index);
   const speechState = () => speechController?.getMessageState(speechMessageId()) || 'idle';
   const handleSpeechShortcut = (e: KeyboardEvent) => {
@@ -483,11 +537,31 @@ export default function MessageItem(props: MessageItemProps) {
         {props.msg.role === 'user' ? (
            <>
              <Show when={!isEditing()}>
-               <Show when={props.msg.images && props.msg.images.length > 0}>
+               <Show when={userAttachments().length > 0}>
                  <div class="flex flex-wrap gap-2 mb-2 relative z-10">
-                   <For each={props.msg.images}>
-                     {(img) => (
-                       <img src={img} class="max-w-full h-auto max-h-64 rounded-lg border border-white/10 shadow-sm" alt="User upload" />
+                   <For each={userAttachments()}>
+                     {(attachment) => (
+                       <Show
+                         when={isImageAttachment(attachment) && !!attachment.url}
+                         fallback={
+                           <a
+                             href={attachment.url || '#'}
+                             target="_blank"
+                             rel="noreferrer"
+                             class="flex min-w-[220px] max-w-[320px] items-center gap-3 rounded-lg border border-white/10 bg-black/5 px-3 py-2 text-left hover:border-primary/30"
+                           >
+                             <div class="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary text-[11px] font-bold uppercase">
+                               {getAttachmentDisplayName(attachment).split('.').pop() || 'file'}
+                             </div>
+                             <div class="min-w-0">
+                               <div class="truncate text-[13px] font-semibold text-text-primary">{getAttachmentDisplayName(attachment)}</div>
+                               <div class="truncate text-[11px] text-text-secondary/70">{getAttachmentMimeType(attachment)}</div>
+                             </div>
+                           </a>
+                         }
+                       >
+                         <img src={attachment.url!} class="max-w-full h-auto max-h-64 rounded-lg border border-white/10 shadow-sm" alt="User upload" />
+                       </Show>
                      )}
                    </For>
                  </div>

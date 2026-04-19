@@ -523,10 +523,13 @@ function ChatContent(props: {
     localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
     localStorage.setItem(MODEL_STORAGE_KEY, model);
 
-    // If switched to a model that doesn't support vision, clear image attachments
+    // If switched to a model that doesn't support vision, only clear image attachments.
     if (imageAttachments().length > 0 && !modelSupportsVision(providers(), provider, model)) {
-      setImageAttachments([]);
-      toast.info('已自动清空图片，当前模型不支持视觉能力。', 3500);
+      const kept = imageAttachments().filter((file) => !file.type.startsWith('image/'));
+      if (kept.length !== imageAttachments().length) {
+        setImageAttachments(kept);
+        toast.info('已自动移除图片附件，当前模型不支持视觉能力。', 3500);
+      }
     }
   };
 

@@ -407,7 +407,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                             <div class="flex flex-wrap gap-1 items-center">
                               <Show when={chat.tags && chat.tags.length > 0}>
                                 <For each={(chat.tags || []).slice(0, 3)}>
-                                  {(tag, i) => (
+                                  {(tag) => (
                                     <span class={`px-1.5 py-0.5 text-[9px] font-semibold rounded uppercase tracking-tighter bg-slate-100 text-slate-500 border border-slate-200/60`}>
                                       {tag}
                                     </span>

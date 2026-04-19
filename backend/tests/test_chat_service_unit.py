@@ -66,6 +66,38 @@ def test_add_message(temp_db):
     # Check if title updated
     assert updated.title == "Hello world"
 
+
+def test_add_message_with_attachments(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    attachments = [
+        {
+            "id": "att_demo_1",
+            "kind": "file",
+            "display_name": "report.pdf",
+            "storage_path": "uploads/chat/2026/04/19/att_demo_1.pdf",
+            "url": "/files/chat/2026/04/19/att_demo_1.pdf",
+            "mime_type": "application/pdf",
+            "size_bytes": 2048,
+            "extension": ".pdf",
+            "source": "upload",
+            "status": "ready",
+        }
+    ]
+
+    updated = service.add_message(
+        chat.id,
+        "user",
+        "Please check attachment",
+        images=["img1.png"],
+        attachments=attachments,
+    )
+    assert updated is not None
+    assert len(updated.messages) == 1
+    msg = updated.messages[0]
+    assert msg.images == ["img1.png"]
+    assert msg.attachments == attachments
+
 def test_update_chat_title_and_summary(temp_db):
     service, _ = temp_db
     chat = service.create_chat(title="Old")
