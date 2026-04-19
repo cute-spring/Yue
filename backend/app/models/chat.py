@@ -30,6 +30,7 @@ class Message(Base):
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     images = Column(Text, nullable=True)  # JSON string of images
+    attachments = Column(Text, nullable=True)  # JSON string of generic attachments
     timestamp = Column(DateTime, default=datetime.utcnow)
     assistant_turn_id = Column(String, nullable=True)
     run_id = Column(String, nullable=True)

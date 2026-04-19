@@ -329,17 +329,18 @@ class TestDocRetrieval(unittest.TestCase):
             doc.__len__.return_value = 1
             doc.load_page.return_value = page_obj
             with patch("fitz.open", return_value=doc):
-                abs_path, page_num, image_path = pdf_page_render_image(
-                    "a.pdf",
-                    page=1,
-                    dpi=72,
-                    docs_root=docs_root,
-                )
+                with patch.dict(os.environ, {"YUE_DATA_DIR": tmp}):
+                    abs_path, page_num, image_path = pdf_page_render_image(
+                        "a.pdf",
+                        page=1,
+                        dpi=72,
+                        docs_root=docs_root,
+                    )
             self.assertTrue(abs_path.endswith("a.pdf"))
             self.assertEqual(page_num, 1)
-            self.assertTrue(image_path.startswith("/files/"))
-            filename = image_path.replace("/files/", "")
-            file_path = os.path.join(get_project_root(), "backend", "data", "uploads", filename)
+            self.assertTrue(image_path.startswith("/files/doc-preview/"))
+            relative = image_path.replace("/files/", "")
+            file_path = os.path.join(tmp, "uploads", relative)
             self.assertTrue(os.path.exists(file_path))
             os.remove(file_path)
 

@@ -4,9 +4,23 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class Attachment(BaseModel):
+    id: str | None = None
+    kind: str = "file"
+    display_name: str | None = None
+    storage_path: str | None = None
+    url: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
+    extension: str | None = None
+    source: str | None = None
+    status: str | None = None
+
+
 class ChatRequest(BaseModel):
     message: str
     images: list[str] | None = None
+    attachments: list[Attachment] | None = None
     agent_id: str | None = None
     requested_skill: str | None = None
     requested_action: str | None = None

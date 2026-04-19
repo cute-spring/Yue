@@ -26,6 +26,7 @@
 - [ ] **Phase 3: 仅图片发送支持** (前端发送逻辑重构)
 - [ ] **Phase 4: 消息导出功能** (见 [2026-03-20-message-export-plan.md](./2026-03-20-message-export-plan.md))
 - [ ] **Phase 5: 文件上传集成** (见 [upload_file_integration_plan_20260324.md](./upload_file_integration_plan_20260324.md))
+- [ ] **Phase 5A: 聊天附件上传与 Excel/PDF 可读能力落实** (见 [2026-04-19-chat-attachment-file-support-execution-plan.md](./2026-04-19-chat-attachment-file-support-execution-plan.md))
 
 ### Epic 6: 发布质量与工程门禁 (Quality & Release Gates)
 > **状态**: 推进中 (约 85%)

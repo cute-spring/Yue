@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js';
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { Agent, Provider, SkillMode, VisibleSkillChip } from '../types';
 import LLMSelector from './LLMSelector';
 import AgentSelector from './AgentSelector';
@@ -78,18 +78,143 @@ export const canSubmitFromInput = (inputText: string, imageCount: number): boole
   return inputText.trim().length > 0 || imageCount > 0;
 };
 
-export const mergeImageAttachments = (
+export const MAX_ATTACHMENT_COUNT = 10;
+export const MAX_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024;
+const DEFAULT_SUPPORTED_ATTACHMENT_MIME_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+];
+const DEFAULT_SUPPORTED_ATTACHMENT_EXTENSIONS = [
+  '.pdf',
+  '.xlsx',
+  '.xls',
+  '.csv',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+];
+
+export type UploadPolicy = {
+  maxFiles: number;
+  maxFileSizeBytes: number;
+  allowedMimeTypes: string[];
+  allowedExtensions: string[];
+};
+
+type UploadPolicyPayload = {
+  max_files?: number;
+  max_file_size_bytes?: number;
+  allowed_mime_types?: string[];
+  allowed_extensions?: string[];
+};
+
+export const DEFAULT_UPLOAD_POLICY: UploadPolicy = {
+  maxFiles: MAX_ATTACHMENT_COUNT,
+  maxFileSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+  allowedMimeTypes: [...DEFAULT_SUPPORTED_ATTACHMENT_MIME_TYPES],
+  allowedExtensions: [...DEFAULT_SUPPORTED_ATTACHMENT_EXTENSIONS],
+};
+
+const getFileExtension = (name: string): string => {
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return '';
+  return name.slice(dot).toLowerCase();
+};
+
+export const isImageFile = (file: Pick<File, 'type'>): boolean => file.type.startsWith('image/');
+
+const normalizeAllowedList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length > 0);
+};
+
+const uniqueOrdered = (items: string[]): string[] => {
+  const dedup = new Set<string>();
+  items.forEach((item) => dedup.add(item));
+  return Array.from(dedup.values());
+};
+
+export const resolveUploadPolicy = (payload?: UploadPolicyPayload | null): UploadPolicy => {
+  const maxFiles = typeof payload?.max_files === 'number' && payload.max_files > 0
+    ? payload.max_files
+    : DEFAULT_UPLOAD_POLICY.maxFiles;
+  const maxFileSizeBytes = typeof payload?.max_file_size_bytes === 'number' && payload.max_file_size_bytes > 0
+    ? payload.max_file_size_bytes
+    : DEFAULT_UPLOAD_POLICY.maxFileSizeBytes;
+  const allowedMimeTypes = normalizeAllowedList(payload?.allowed_mime_types);
+  const allowedExtensions = normalizeAllowedList(payload?.allowed_extensions);
+  return {
+    maxFiles,
+    maxFileSizeBytes,
+    allowedMimeTypes: allowedMimeTypes.length > 0 ? uniqueOrdered(allowedMimeTypes) : [...DEFAULT_UPLOAD_POLICY.allowedMimeTypes],
+    allowedExtensions: allowedExtensions.length > 0 ? uniqueOrdered(allowedExtensions) : [...DEFAULT_UPLOAD_POLICY.allowedExtensions],
+  };
+};
+
+const createSupportSets = (policy: UploadPolicy): { mimeTypes: Set<string>; extensions: Set<string> } => ({
+  mimeTypes: new Set(policy.allowedMimeTypes.map((item) => item.toLowerCase())),
+  extensions: new Set(policy.allowedExtensions.map((item) => item.toLowerCase())),
+});
+
+const formatLimitMb = (bytes: number): string => {
+  const value = bytes / 1024 / 1024;
+  return Number.isInteger(value) ? `${value}MB` : `${value.toFixed(2)}MB`;
+};
+
+export const getTooManyFilesWarningMessage = (maxFiles: number): string => `最多选择 ${maxFiles} 个附件`;
+export const getOversizedWarningMessage = (maxFileSizeBytes: number): string =>
+  `部分文件超过 ${formatLimitMb(maxFileSizeBytes)} 大小限制，已忽略`;
+
+export const getAcceptAttributeFromPolicy = (policy: UploadPolicy): string => {
+  const extensions = policy.allowedExtensions.map((item) => item.toLowerCase());
+  const mimeTypes = policy.allowedMimeTypes.map((item) => item.toLowerCase());
+  return [...extensions, ...mimeTypes].join(',');
+};
+
+export const isSupportedAttachment = (
+  file: Pick<File, 'name' | 'type'>,
+  policy: UploadPolicy = DEFAULT_UPLOAD_POLICY,
+): boolean => {
+  const sets = createSupportSets(policy);
+  const mime = (file.type || '').toLowerCase();
+  const extension = getFileExtension(file.name || '');
+  if (mime.startsWith('image/')) return true;
+  return sets.mimeTypes.has(mime) || sets.extensions.has(extension);
+};
+
+export const filterSupportedAttachments = (
+  files: File[],
+  policy: UploadPolicy = DEFAULT_UPLOAD_POLICY,
+): { accepted: File[]; rejectedCount: number } => {
+  const accepted = files.filter((file) => isSupportedAttachment(file, policy));
+  return { accepted, rejectedCount: files.length - accepted.length };
+};
+
+export const mergeAttachments = (
   existing: File[],
   incoming: File[],
   maxCount: number,
   maxSizeBytes: number,
-): { files: File[]; oversizedCount: number; overflowCount: number } => {
-  const validIncoming = incoming.filter((file) => file.size <= maxSizeBytes);
-  const oversizedCount = incoming.length - validIncoming.length;
+  policy: UploadPolicy = DEFAULT_UPLOAD_POLICY,
+): { files: File[]; oversizedCount: number; overflowCount: number; unsupportedCount: number } => {
+  const { accepted, rejectedCount } = filterSupportedAttachments(incoming, policy);
+  const validIncoming = accepted.filter((file) => file.size <= maxSizeBytes);
+  const oversizedCount = accepted.length - validIncoming.length;
   const merged = [...existing, ...validIncoming];
   const files = merged.slice(0, maxCount);
   const overflowCount = Math.max(0, merged.length - maxCount);
-  return { files, oversizedCount, overflowCount };
+  return { files, oversizedCount, overflowCount, unsupportedCount: rejectedCount };
 };
 
 export const getUploadButtonClass = (attachmentCount: number): string => {
@@ -99,7 +224,7 @@ export const getUploadButtonClass = (attachmentCount: number): string => {
   return 'relative p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90';
 };
 
-export const removeImageAttachmentAt = (files: File[], index: number): File[] => {
+export const removeAttachmentAt = (files: File[], index: number): File[] => {
   return files.filter((_, i) => i !== index);
 };
 
@@ -114,25 +239,55 @@ type ClipboardDataLike = {
   items?: ArrayLike<ClipboardFileLike>;
 };
 
-export const extractClipboardImageFiles = (clipboardData: ClipboardDataLike | null | undefined): File[] => {
+export const extractClipboardFiles = (clipboardData: ClipboardDataLike | null | undefined): File[] => {
   if (!clipboardData) return [];
 
-  const fromFiles = Array.from(clipboardData.files || []).filter((file) => file.type.startsWith('image/'));
-  if (fromFiles.length > 0) return fromFiles;
-
-  return Array.from(clipboardData.items || [])
-    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+  const fromFiles = Array.from(clipboardData.files || []).filter((file) => isSupportedAttachment(file));
+  const fromItems = Array.from(clipboardData.items || [])
+    .filter((item) => item.kind === 'file')
     .map((item) => item.getAsFile())
-    .filter((file): file is File => file instanceof File);
+    .filter((file): file is File => file instanceof File)
+    .filter((file) => isSupportedAttachment(file));
+  const dedup = new Map<string, File>();
+  [...fromFiles, ...fromItems].forEach((file) => {
+    const key = `${file.name}::${file.type}::${file.size}`;
+    dedup.set(key, file);
+  });
+  return Array.from(dedup.values());
+};
+
+export const splitAttachmentsByType = (files: File[]): { imageFiles: File[]; nonImageFiles: File[] } => {
+  const imageFiles = files.filter(isImageFile);
+  const nonImageFiles = files.filter((file) => !isImageFile(file));
+  return { imageFiles, nonImageFiles };
 };
 
 export const getVisionCapabilityHint = (
   hasSelectedModel: boolean,
   supportsVision: boolean,
-  attachmentCount: number,
+  imageCount: number,
 ): string => {
-  if (!hasSelectedModel || attachmentCount === 0 || supportsVision) return '';
-  return '当前模型不支持视觉能力，图片请求将被拒绝或降级为纯文本。';
+  if (!hasSelectedModel || imageCount === 0 || supportsVision) return '';
+  return '当前模型不支持图片理解能力，本次图片不会被分析；PDF/表格附件不受这条提示直接约束。';
+};
+
+export const getAttachmentCompositionHint = (imageCount: number, documentCount: number): string => {
+  const totalCount = imageCount + documentCount;
+  if (totalCount === 0) return '';
+
+  const parts: string[] = [];
+  if (imageCount > 0) {
+    parts.push(`${imageCount} 张图片`);
+  }
+  if (documentCount > 0) {
+    parts.push(`${documentCount} 个文档`);
+  }
+  return `已选择 ${totalCount} 个附件：${parts.join('，')}`;
+};
+
+export const getModelCapabilityBadge = (hasSelectedModel: boolean, supportsVision: boolean): string => {
+  if (!hasSelectedModel) return '';
+  return supportsVision ? 'Vision' : 'Text Only';
 };
 
 export const getVoiceInputButtonClass = (
@@ -162,6 +317,10 @@ export default function ChatInput(props: ChatInputProps) {
   const canSubmit = () => canSubmitFromInput(props.input, props.imageAttachments.length);
   const inputLocked = () => !!props.inputReadOnly;
   const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(2)}MB`;
+  const [uploadPolicy, setUploadPolicy] = createSignal<UploadPolicy>(DEFAULT_UPLOAD_POLICY);
+  const uploadAccept = () => getAcceptAttributeFromPolicy(uploadPolicy());
+  const maxAttachmentCount = () => uploadPolicy().maxFiles;
+  const maxAttachmentSizeBytes = () => uploadPolicy().maxFileSizeBytes;
   const supportsVision = () => modelSupportsVision(props.providers, props.selectedProvider, props.selectedModel);
   const [previewUrls, setPreviewUrls] = createSignal<string[]>([]);
   let trackedPreviewUrls: string[] = [];
@@ -176,7 +335,11 @@ export default function ChatInput(props: ChatInputProps) {
   onCleanup(() => {
     trackedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
   });
-  const visionCapabilityHint = () => getVisionCapabilityHint(!!props.selectedModel, supportsVision(), props.imageAttachments.length);
+  const imageAttachmentCount = () => props.imageAttachments.filter(isImageFile).length;
+  const documentAttachmentCount = () => props.imageAttachments.length - imageAttachmentCount();
+  const visionCapabilityHint = () => getVisionCapabilityHint(!!props.selectedModel, supportsVision(), imageAttachmentCount());
+  const attachmentCompositionHint = () => getAttachmentCompositionHint(imageAttachmentCount(), documentAttachmentCount());
+  const modelCapabilityBadge = () => getModelCapabilityBadge(!!props.selectedModel, supportsVision());
   const voiceInputLabel = () => {
     if (!props.voiceInputEnabled) return 'Voice input disabled in settings';
     if (!props.voiceInputSupported) return 'Voice input unavailable in this browser';
@@ -196,22 +359,43 @@ export default function ChatInput(props: ChatInputProps) {
   };
   const handlePaste = (e: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) => {
     if (inputLocked()) return;
-    const pastedImages = extractClipboardImageFiles(e.clipboardData);
-    if (pastedImages.length === 0) return;
+    const pastedFiles = extractClipboardFiles(e.clipboardData);
+    if (pastedFiles.length === 0) return;
 
     e.preventDefault();
-    const maxCount = 10;
-    const maxSize = 10 * 1024 * 1024;
-    const merged = mergeImageAttachments(props.imageAttachments, pastedImages, maxCount, maxSize);
+    const policy = uploadPolicy();
+    const merged = mergeAttachments(
+      props.imageAttachments,
+      pastedFiles,
+      maxAttachmentCount(),
+      maxAttachmentSizeBytes(),
+      policy,
+    );
     if (merged.overflowCount > 0) {
-      toast.warning(`最多选择 ${maxCount} 张图片`);
+      toast.warning(getTooManyFilesWarningMessage(maxAttachmentCount()));
     }
     if (merged.oversizedCount > 0) {
-      toast.warning('部分文件超过 10MB 大小限制，已忽略');
+      toast.warning(getOversizedWarningMessage(maxAttachmentSizeBytes()));
+    }
+    if (merged.unsupportedCount > 0) {
+      toast.warning('部分文件类型不支持，已忽略');
     }
     props.setImageAttachments(merged.files);
-    toast.success('已粘贴图片，可直接发送');
+    toast.success('已粘贴附件，可直接发送');
   };
+
+  onMount(() => {
+    void (async () => {
+      try {
+        const response = await fetch('/api/files/policy');
+        if (!response.ok) return;
+        const payload = (await response.json()) as UploadPolicyPayload;
+        setUploadPolicy(resolveUploadPolicy(payload));
+      } catch {
+        setUploadPolicy(DEFAULT_UPLOAD_POLICY);
+      }
+    })();
+  });
 
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
@@ -323,52 +507,63 @@ export default function ChatInput(props: ChatInputProps) {
                 {/* Tools Group */}
                   <div class="flex items-center gap-1.5">
                     <div class="relative group/tooltip">
-                    <button type="button" class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90" aria-label="Attach or paste images">
+                    <button
+                      type="button"
+                      class="p-2.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-2xl transition-all active:scale-90"
+                      aria-label="Attach or paste files"
+                      onClick={props.onImageClick}
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
                     </button>
                     <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                      <span class="font-bold text-white/90">上传图片或直接粘贴截图</span>
-                      <span class="block text-[11px] text-white/50 mt-1">支持文件选择、剪贴板粘贴，`Ctrl+V` 即可</span>
+                      <span class="font-bold text-white/90">上传附件或直接粘贴</span>
+                      <span class="block text-[11px] text-white/50 mt-1">支持图片、PDF、Excel、CSV，`Ctrl+V` 即可</span>
                       <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
                     </div>
                   </div>
-                  <Show when={supportsVision()}>
-                    <div class="relative group/tooltip">
-                      <input ref={props.imageInputRef} type="file" accept="image/*" multiple class="hidden" 
-                        onChange={e => {
-                          const files = Array.from(e.currentTarget.files || []);
-                          const maxCount = 10;
-                          const maxSize = 10 * 1024 * 1024;
-                          const merged = mergeImageAttachments(props.imageAttachments, files, maxCount, maxSize);
-                          if (merged.overflowCount > 0) {
-                            toast.warning(`最多选择 ${maxCount} 张图片`);
-                          }
-                          if (merged.oversizedCount > 0) {
-                            toast.warning('部分文件超过 10MB 大小限制，已忽略');
-                          }
-                          props.setImageAttachments(merged.files);
-                          e.currentTarget.value = '';
-                        }} />
-                      <button type="button" class={getUploadButtonClass(props.imageAttachments.length)} aria-label="Upload images"
-                        onClick={props.onImageClick}>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-width="2" />
-                          <circle cx="8.5" cy="8.5" r="1.5" stroke-width="2" />
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15l-5-5L5 21" />
-                        </svg>
-                        <Show when={props.imageAttachments.length > 0}>
-                          <span class="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-primary text-white rounded-full px-1 border-2 border-surface shadow-sm">{props.imageAttachments.length}</span>
-                        </Show>
-                      </button>
-                      <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
-                        <span class="font-bold text-white/90">上传图片</span>
-                        <span class="block text-[11px] text-white/50 mt-1">JPG, PNG, 也支持截图后 `Ctrl+V` 粘贴</span>
-                        <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
-                      </div>
+                  <div class="relative group/tooltip">
+                    <input ref={props.imageInputRef} type="file" accept={uploadAccept()} multiple class="hidden" 
+                      onChange={e => {
+                        const files = Array.from(e.currentTarget.files || []);
+                        const policy = uploadPolicy();
+                        const merged = mergeAttachments(
+                          props.imageAttachments,
+                          files,
+                          maxAttachmentCount(),
+                          maxAttachmentSizeBytes(),
+                          policy,
+                        );
+                        if (merged.overflowCount > 0) {
+                          toast.warning(getTooManyFilesWarningMessage(maxAttachmentCount()));
+                        }
+                        if (merged.oversizedCount > 0) {
+                          toast.warning(getOversizedWarningMessage(maxAttachmentSizeBytes()));
+                        }
+                        if (merged.unsupportedCount > 0) {
+                          toast.warning('部分文件类型不支持，已忽略');
+                        }
+                        props.setImageAttachments(merged.files);
+                        e.currentTarget.value = '';
+                      }} />
+                    <button type="button" class={getUploadButtonClass(props.imageAttachments.length)} aria-label="Upload files"
+                      onClick={props.onImageClick}>
+                      <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-width="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" stroke-width="2" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15l-5-5L5 21" />
+                      </svg>
+                      <Show when={props.imageAttachments.length > 0}>
+                        <span class="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-primary text-white rounded-full px-1 border-2 border-surface shadow-sm">{props.imageAttachments.length}</span>
+                      </Show>
+                    </button>
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max max-w-[280px] bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl px-5 py-3 text-xs font-medium text-white whitespace-normal text-center pointer-events-none opacity-0 translate-y-2 group-hover/tooltip:opacity-100 group-hover/tooltip:translate-y-0 transition-all duration-200 z-50">
+                      <span class="font-bold text-white/90">上传附件</span>
+                      <span class="block text-[11px] text-white/50 mt-1">图片、PDF、Excel、CSV，支持 `Ctrl+V` 粘贴</span>
+                      <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-3 h-3 bg-slate-900/95 border-r border-b border-white/10 rotate-45"></div>
                     </div>
-                  </Show>
+                  </div>
                   <div class="relative group/tooltip">
                     <button
                       type="button"
@@ -430,11 +625,26 @@ export default function ChatInput(props: ChatInputProps) {
         </form>
 
         <Show when={props.imageAttachments.length > 0}>
-          <div class="mt-2 px-2 flex items-center gap-2 overflow-x-auto">
+          <div class="mt-2 px-2">
+            <Show when={attachmentCompositionHint()}>
+              <div class="mb-2 px-1 text-[12px] font-medium text-text-secondary">
+                {attachmentCompositionHint()}
+              </div>
+            </Show>
+            <div class="flex items-center gap-2 overflow-x-auto">
             <For each={props.imageAttachments}>
               {(file: File, index: () => number) => (
                 <div class="flex items-center gap-2 px-2 py-1.5 rounded-xl border border-border bg-surface text-xs min-w-[200px]">
-                  <img src={previewUrls()[index()]} alt={file.name} class="w-10 h-10 rounded-lg object-cover border border-border/60 bg-background/50 shrink-0" />
+                  <Show
+                    when={isImageFile(file)}
+                    fallback={
+                      <div class="w-10 h-10 rounded-lg border border-border/60 bg-background/50 shrink-0 flex items-center justify-center text-[10px] font-bold text-text-secondary uppercase">
+                        {getFileExtension(file.name).replace('.', '') || 'file'}
+                      </div>
+                    }
+                  >
+                    <img src={previewUrls()[index()]} alt={file.name} class="w-10 h-10 rounded-lg object-cover border border-border/60 bg-background/50 shrink-0" />
+                  </Show>
                   <div class="min-w-0 flex-1">
                     <div class="max-w-[150px] truncate font-semibold text-text-primary">{file.name}</div>
                     <div class="text-text-secondary">{formatSize(file.size)}</div>
@@ -442,7 +652,7 @@ export default function ChatInput(props: ChatInputProps) {
                   <button
                     type="button"
                     class="text-text-secondary hover:text-rose-500"
-                    onClick={() => props.setImageAttachments(removeImageAttachmentAt(props.imageAttachments, index()))}
+                    onClick={() => props.setImageAttachments(removeAttachmentAt(props.imageAttachments, index()))}
                   >
                     ×
                   </button>
@@ -456,6 +666,18 @@ export default function ChatInput(props: ChatInputProps) {
             >
               Clear
             </button>
+            </div>
+          </div>
+        </Show>
+        <Show when={modelCapabilityBadge()}>
+          <div class="mt-2 px-2">
+            <div class={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+              supportsVision()
+                ? 'border-emerald-300/50 bg-emerald-500/10 text-emerald-700'
+                : 'border-slate-300/70 bg-slate-100/90 text-slate-600'
+            }`}>
+              {modelCapabilityBadge()}
+            </div>
           </div>
         </Show>
         <Show when={visionCapabilityHint()}>
@@ -488,3 +710,7 @@ export default function ChatInput(props: ChatInputProps) {
     </div>
   );
 }
+
+export const mergeImageAttachments = mergeAttachments;
+export const removeImageAttachmentAt = removeAttachmentAt;
+export const extractClipboardImageFiles = extractClipboardFiles;

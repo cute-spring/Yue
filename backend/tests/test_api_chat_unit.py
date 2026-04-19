@@ -1330,6 +1330,50 @@ async def test_chat_stream_with_images(client, mock_chat_service):
         mock_save.assert_called_once()
         mock_load.assert_called_once()
 
+
+@pytest.mark.asyncio
+async def test_chat_stream_persists_attachments(client, mock_chat_service):
+    with patch("app.api.chat.agent_store"), \
+         patch("app.api.chat.tool_registry") as mock_registry, \
+         patch("app.api.chat.get_model"), \
+         patch("app.api.chat.Agent") as mock_agent_cls:
+        mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+        mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
+        mock_chat_service.get_chat.return_value = MagicMock(messages=[])
+
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+
+        async def mock_stream():
+            yield "Hi"
+
+        mock_result.stream_text.return_value = mock_stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+
+        payload = {
+            "message": "check file",
+            "chat_id": "chat-id",
+            "attachments": [
+                {
+                    "id": "att_123",
+                    "kind": "file",
+                    "display_name": "report.pdf",
+                    "storage_path": "uploads/chat/2026/04/19/att_123.pdf",
+                    "url": "/files/chat/2026/04/19/att_123.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 1234,
+                    "extension": ".pdf",
+                    "source": "upload",
+                    "status": "ready",
+                }
+            ],
+        }
+        response = client.post("/api/chat/stream", json=payload)
+        assert response.status_code == 200
+        _, kwargs = mock_chat_service.add_message.call_args_list[0]
+        assert kwargs["attachments"][0]["id"] == "att_123"
+
 @pytest.mark.asyncio
 async def test_refine_title_once_updates_only_placeholder_title():
     from app.api import chat as chat_api
