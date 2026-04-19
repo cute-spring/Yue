@@ -105,8 +105,20 @@ export const getRenderableUserAttachments = (
 ): Attachment[] => {
   const typed = Array.isArray(msg.attachments) ? msg.attachments.filter(Boolean) : [];
   const legacyImageUrls = Array.isArray(msg.images) ? msg.images : [];
+  const uploadedImageCount = typed.filter(isImageAttachment).length;
+  let consumedUploadedImageSlots = 0;
   const normalizedLegacy = legacyImageUrls
     .filter((url) => !!url)
+    .filter((url) => {
+      const normalized = typeof url === 'string' ? url.trim() : '';
+      const isDataImageUrl = normalized.startsWith('data:image/');
+      if (!isDataImageUrl) return true;
+      if (consumedUploadedImageSlots < uploadedImageCount) {
+        consumedUploadedImageSlots += 1;
+        return false;
+      }
+      return true;
+    })
     .map((url) => ({
       kind: 'file',
       display_name: url.split('?')[0].split('/').pop() || 'legacy-image',
