@@ -439,15 +439,10 @@ class TestDocRetrieval(unittest.TestCase):
             roots = resolve_docs_roots_for_search(None, doc_roots=["", " "], allow_roots=[tmp])
             self.assertEqual(len(roots), 1) # Fallback to default
             
-            # Test DocAccessError during resolution
-            # We want to fail for "/invalid" but succeed for the fallback (None)
-            def side_effect(root, **kwargs):
-                if root == "/invalid": raise DocAccessError("invalid")
-                return "/mocked-root"
-                
-            with unittest.mock.patch("app.services.doc_retrieval.resolve_docs_root", side_effect=side_effect):
-                roots = resolve_docs_roots_for_search(None, doc_roots=["/invalid"], allow_roots=[tmp])
-                self.assertEqual(roots, ["/mocked-root"])
+            # Test DocAccessError during resolution with a non-empty doc_roots list:
+            # should fail closed instead of falling back to global defaults.
+            with self.assertRaises(DocAccessError):
+                resolve_docs_roots_for_search(None, doc_roots=["/invalid"], allow_roots=[tmp])
 
     def test_resolve_docs_root_for_read_misc(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -568,6 +563,35 @@ class TestDocRetrieval(unittest.TestCase):
             allow = [tmp]
             res = resolve_docs_roots_for_search(tmp, allow_roots=allow)
             self.assertEqual(res, [os.path.realpath(tmp)])
+
+    def test_resolve_docs_roots_for_search_requested_root_must_respect_doc_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            allowed_root = os.path.join(tmp, "allowed")
+            restricted_root = os.path.join(allowed_root, "restricted")
+            bypass_root = os.path.join(allowed_root, "bypass")
+            os.makedirs(restricted_root, exist_ok=True)
+            os.makedirs(bypass_root, exist_ok=True)
+
+            with self.assertRaises(DocAccessError):
+                resolve_docs_roots_for_search(
+                    bypass_root,
+                    doc_roots=[restricted_root],
+                    allow_roots=[allowed_root],
+                )
+
+    def test_resolve_docs_roots_for_search_fails_closed_when_doc_roots_all_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            allowed_root = os.path.join(tmp, "allowed")
+            restricted_root = os.path.join(allowed_root, "restricted")
+            os.makedirs(restricted_root, exist_ok=True)
+
+            with self.assertRaises(DocAccessError):
+                resolve_docs_roots_for_search(
+                    None,
+                    doc_roots=[restricted_root],
+                    allow_roots=[allowed_root],
+                    deny_roots=[restricted_root],
+                )
 
     def test_resolve_docs_root_for_read_abs_path(self):
         with tempfile.TemporaryDirectory() as tmp:

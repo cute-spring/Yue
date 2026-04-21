@@ -10,7 +10,7 @@ CAP_WEB_SEARCH = "web_search"
 # Vision patterns (model name regexes or tokens)
 VISION_TOKENS = [
     "vision", "vl", "multimodal", "gpt-4o", "gpt-4.5", "claude-3", "gemini", 
-    "glm-4v", "qwen-vl", "internvl", "llava", "cogvlm", "pixtral"
+    "qwen-vl", "internvl", "llava", "cogvlm", "pixtral"
 ]
 
 # Text-only explicit exclusions (to prevent false positives)
@@ -26,7 +26,7 @@ REASONING_TOKENS = [
 # Function calling patterns
 FUNCTION_CALLING_TOKENS = [
     "gpt-4", "gpt-3.5", "claude-3", "gemini", "mistral-large", "mixtral-8x7b",
-    "glm-4", "deepseek-v3", "qwen-max", "llama-3"
+    "deepseek-v3", "qwen-max", "llama-3"
 ]
 
 def infer_capabilities(provider: str, model_name: str, explicit_caps: Optional[List[str]] = None) -> List[str]:

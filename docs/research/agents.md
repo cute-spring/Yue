@@ -364,7 +364,7 @@ Slash Commands 分为 **内置命令**、**静态命令** 和 **自定义命令 
 | **内置** | `/help` | 显示帮助信息 | - | 列出所有可用命令 |
 | **静态** | `/init` | 初始化项目配置 | 默认 Agent | 使用 `initialize.txt` 模板 |
 | **静态** | `/review` | 审查代码变更 | 默认 Agent | 使用 `review.txt` 模板 |
-| **Markdown** | `/commit` | Git 提交并推送 | 默认 Agent | 指定模型: `opencode/glm-4.6` |
+| **Markdown** | `/commit` | Git 提交并推送 | 默认 Agent | 指定模型: `openai/gpt-4o` |
 | **Markdown** | `/issues` | 在 GitHub 上查找相关 Issue | 默认 Agent | 指定模型: `opencode/haiku-4-5` |
 | **Markdown** | `/rmslop` | 移除 AI 生成的冗余代码 | 默认 Agent | 清理 Code Slop |
 | **Markdown** | `/spellcheck`| Markdown 拼写/语法检查 | 默认 Agent | 针对文档优化 |

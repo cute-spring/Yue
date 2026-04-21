@@ -284,6 +284,23 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
     assert result["deny_roots"] == ["/env/x", "/env/y"]
 
 
+def test_get_doc_access_roots_returns_tuple(temp_config_file, monkeypatch):
+    monkeypatch.delenv("DOC_ACCESS_ALLOW_ROOTS", raising=False)
+    monkeypatch.delenv("DOC_ACCESS_DENY_ROOTS", raising=False)
+    service = ConfigService(str(temp_config_file))
+    service.update_doc_access(
+        {
+            "allow_roots": ["/json/a"],
+            "deny_roots": ["/json/b"],
+        }
+    )
+
+    expected = service.get_doc_access()
+    allow_roots, deny_roots = service.get_doc_access_roots()
+    assert allow_roots == expected.get("allow_roots", [])
+    assert deny_roots == expected.get("deny_roots", [])
+
+
 def test_get_llm_routing_config_defaults_to_legacy_runtime_model(temp_config_file):
     data = {
         "llm": {

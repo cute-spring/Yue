@@ -40,7 +40,7 @@
 ### 3.1 视觉能力 (Vision)
 
 **正向匹配 (Tokens)：**
-包含 `"vision", "vl", "multimodal", "gpt-4o", "gpt-4.5", "claude-3", "gemini", "glm-4v", "qwen-vl", "internvl", "llava", "cogvlm", "pixtral"`。
+包含 `"vision", "vl", "multimodal", "gpt-4o", "gpt-4.5", "claude-3", "gemini", "qwen-vl", "internvl", "llava", "cogvlm", "pixtral"`。
 
 **排他策略 (Exclusions) - 防止误判：**
 任何包含以下关键字的模型均被判定为**纯文本模型**，即使符合上面的正则：
@@ -55,7 +55,7 @@
 ### 3.3 函数调用能力 (Function Calling)
 
 **正向匹配 (Tokens)：**
-包含 `"gpt-4", "gpt-3.5", "claude-3", "gemini", "mistral-large", "mixtral-8x7b", "glm-4", "deepseek-v3", "qwen-max", "llama-3"`。
+包含 `"gpt-4", "gpt-3.5", "claude-3", "gemini", "mistral-large", "mixtral-8x7b", "deepseek-v3", "qwen-max", "llama-3"`。
 - **Provider 兜底**：如果 `provider` 是 `openai`, `anthropic`, `google` 中的任何一个，默认赋予 `function_calling` 能力。
 
 ---

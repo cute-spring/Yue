@@ -37,7 +37,7 @@ class AgentConfig(BaseModel):
     extra_visible_skills: List[str] = []
     resolved_visible_skills: List[str] = []
     voice_input_enabled: bool = True
-    voice_input_provider: str = "browser"  # browser | azure
+    voice_input_provider: str = "browser"
     voice_azure_config: Optional[dict] = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

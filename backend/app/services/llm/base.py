@@ -6,11 +6,10 @@ from pydantic import BaseModel
 class LLMProvider(str, Enum):
     DEEPSEEK = "deepseek"
     OPENAI = "openai"
+    AZURE_OPENAI = "azure_openai"
     OLLAMA = "ollama"
     GEMINI = "gemini"
-    ZHIPU = "zhipu"
     CUSTOM = "custom"
-    AZURE_OPENAI = "azure_openai"
     LITELLM = "litellm"
 
 class SimpleProvider(ABC):

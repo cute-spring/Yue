@@ -85,7 +85,6 @@ async def test_provider_filtering_logic(mock_config):
     assert "openai" in provider_names
     assert "azure_openai" in provider_names
     assert "deepseek" not in provider_names
-    assert "zhipu" not in provider_names
     
     # 模拟开启全部 (空字符串或 None)
     mock_config["factory"].get_llm_config.return_value["enabled_providers"] = ""

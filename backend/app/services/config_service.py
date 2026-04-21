@@ -462,7 +462,7 @@ class ConfigService:
         """
         获取可用模型列表
         
-        :param provider: 可选，指定 Provider 名称（如 "openai"、"zhipu"），不传则返回所有
+        :param provider: 可选，指定 Provider 名称（如 "openai"），不传则返回所有
         :param enabled_only: 是否只返回启用的模型，默认 True
         :return: 模型信息列表，每个包含 id、display_name、context_window 等字段
         """
@@ -748,6 +748,12 @@ class ConfigService:
             "allow_roots": app_settings.doc_access_allow_roots,
             "deny_roots": app_settings.doc_access_deny_roots
         }
+
+    def get_doc_access_roots(self) -> tuple[list[str], list[str]]:
+        doc_access = self.get_doc_access()
+        allow_roots = doc_access.get("allow_roots") if isinstance(doc_access, dict) else None
+        deny_roots = doc_access.get("deny_roots") if isinstance(doc_access, dict) else None
+        return (allow_roots or [], deny_roots or [])
 
     def get_exec_tool_config(self) -> Dict[str, Any]:
         exec_cfg = self._config.get("exec_tool", {})

@@ -69,5 +69,4 @@ class SpeechService:
             response.raise_for_status()
             return response.text.strip()
 
-
 speech_service = SpeechService()

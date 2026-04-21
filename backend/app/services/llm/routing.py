@@ -206,7 +206,12 @@ def resolve_runtime_model(
             )
 
     # 5) direct model on agent
-    if (selection_mode == "direct" or policy == "force_direct") and agent_provider and agent_model:
+    if (
+        (selection_mode == "direct" or policy == "force_direct")
+        and agent_provider
+        and agent_model
+        and fallback_policy != "use_general_chat"
+    ):
         return _build_resolved(
             agent_provider,
             agent_model,
