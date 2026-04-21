@@ -12,10 +12,7 @@ from .registry import builtin_tool_registry
 logger = logging.getLogger(__name__)
 
 def _get_doc_access() -> tuple[List[str], List[str]]:
-    cfg = config_service.get_config().get("doc_access", {})
-    allow_roots = cfg.get("allow_roots") if isinstance(cfg, dict) else None
-    deny_roots = cfg.get("deny_roots") if isinstance(cfg, dict) else None
-    return allow_roots or [], deny_roots or []
+    return config_service.get_doc_access_roots()
 
 
 def _root_dir_param_schema() -> Dict[str, Any]:

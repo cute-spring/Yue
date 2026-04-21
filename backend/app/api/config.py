@@ -13,8 +13,10 @@ async def get_llm_config():
     # Return a redacted view of LLM config to avoid leaking secrets
     raw = config_service.get_llm_config()
     redacted = {}
+    sensitive_suffixes = ("_api_key", "_secret", "_token", "_password")
     for k, v in raw.items():
-        if k.endswith("_api_key"):
+        key = k.lower()
+        if key.endswith(sensitive_suffixes):
             # Do not expose secrets via GET
             redacted[k] = ""
         else:

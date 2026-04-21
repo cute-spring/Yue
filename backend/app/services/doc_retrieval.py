@@ -12,6 +12,7 @@ from typing import Iterable, List, Optional, Dict, Any, Tuple, Set
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from app.services.doc_access_policy import DocAccessPolicyResolver
 from app.utils.upload_storage import build_dated_upload_subdir, build_files_url, ensure_upload_dir
 
 @dataclass(frozen=True)
@@ -94,21 +95,26 @@ def resolve_docs_root(
     allow_roots: Optional[List[str]] = None,
     deny_roots: Optional[List[str]] = None,
 ) -> str:
-    allow = allow_roots or [get_docs_root()]
-    allow = [_realpath(p) for p in allow if isinstance(p, str) and p.strip()]
-    deny = _default_deny_roots()
-    if deny_roots:
-        deny.extend([p for p in deny_roots if isinstance(p, str) and p.strip()])
-    deny = [_realpath(p) for p in deny]
-    candidate = requested_root or allow[0]
-    if not os.path.isabs(candidate):
-        candidate = os.path.join(get_project_root(), candidate)
-    candidate = _realpath(candidate)
-    if not any(_is_under(a, candidate) for a in allow):
+    project_root = get_project_root()
+    policy = DocAccessPolicyResolver.build_policy(
+        base_allow_roots=allow_roots or [get_docs_root()],
+        base_deny_roots=_default_deny_roots(),
+        restrict_deny_roots=deny_roots,
+        project_root=project_root,
+    )
+    if not policy.allow_roots:
         raise DocAccessError("Root is outside allowed docs roots")
-    if any(_is_under(d, candidate) for d in deny):
+    candidate = requested_root or policy.allow_roots[0]
+    explain = DocAccessPolicyResolver.explain(
+        candidate,
+        policy=policy,
+        project_root=project_root,
+    )
+    if not explain["allowed"]:
+        if explain["reason"] == "outside_allow":
+            raise DocAccessError("Root is outside allowed docs roots")
         raise DocAccessError("Root is under denied paths")
-    return candidate
+    return explain["normalized_path"]
 
 
 def resolve_docs_roots_for_search(
@@ -118,17 +124,28 @@ def resolve_docs_roots_for_search(
     allow_roots: Optional[List[str]] = None,
     deny_roots: Optional[List[str]] = None,
 ) -> List[str]:
-    if requested_root:
-        return [resolve_docs_root(requested_root, allow_roots=allow_roots, deny_roots=deny_roots)]
-    roots = []
+    has_doc_roots = bool(doc_roots and any(isinstance(root, str) and root.strip() for root in doc_roots))
+    resolved_doc_roots: List[str] = []
     if doc_roots:
         for root in doc_roots:
             if not isinstance(root, str) or not root.strip():
                 continue
             try:
-                roots.append(resolve_docs_root(root, allow_roots=allow_roots, deny_roots=deny_roots))
+                resolved_doc_roots.append(resolve_docs_root(root, allow_roots=allow_roots, deny_roots=deny_roots))
             except DocAccessError:
                 continue
+
+    if has_doc_roots and not resolved_doc_roots:
+        raise DocAccessError("No valid docs roots available")
+
+    if requested_root:
+        resolved_requested_root = resolve_docs_root(requested_root, allow_roots=allow_roots, deny_roots=deny_roots)
+        if resolved_doc_roots and not any(_is_under(root, resolved_requested_root) for root in resolved_doc_roots):
+            raise DocAccessError("Root is outside allowed docs roots")
+        return [resolved_requested_root]
+    roots = []
+    if resolved_doc_roots:
+        roots.extend(resolved_doc_roots)
     if roots:
         return roots
     return [resolve_docs_root(None, allow_roots=allow_roots, deny_roots=deny_roots)]
@@ -145,7 +162,13 @@ def resolve_docs_root_for_read(
     require_md: bool = True,
 ) -> str:
     if requested_root:
-        return resolve_docs_root(requested_root, allow_roots=allow_roots, deny_roots=deny_roots)
+        roots = resolve_docs_roots_for_search(
+            requested_root,
+            doc_roots=doc_roots,
+            allow_roots=allow_roots,
+            deny_roots=deny_roots,
+        )
+        return roots[0]
     roots = resolve_docs_roots_for_search(
         None,
         doc_roots=doc_roots,
