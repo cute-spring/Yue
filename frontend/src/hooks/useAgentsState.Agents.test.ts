@@ -1,6 +1,34 @@
-import { describe, expect, test } from 'vitest';
+import { createRoot } from 'solid-js';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { buildAgentPayload, resolveAgentModelFormState } from './useAgentsState';
+import type { Agent } from '../types';
+import { buildAgentPayload, resolveAgentModelFormState, useAgentsState } from './useAgentsState';
+
+const originalWindow = (globalThis as any).window;
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  (globalThis as any).window = {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  };
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/api/agents/')) return new Response(JSON.stringify([]));
+    if (url.includes('/api/mcp/tools')) return new Response(JSON.stringify([]));
+    if (url.includes('/api/models/providers')) return new Response(JSON.stringify([]));
+    if (url.includes('/api/config/doc_access')) return new Response(JSON.stringify({}));
+    if (url.includes('/api/skills/reload')) return new Response(JSON.stringify({}));
+    if (url.includes('/api/skills')) return new Response(JSON.stringify([]));
+    if (url.includes('/api/skill-groups/')) return new Response(JSON.stringify([]));
+    return new Response(JSON.stringify({}));
+  }) as typeof fetch;
+});
+
+afterEach(() => {
+  (globalThis as any).window = originalWindow;
+  globalThis.fetch = originalFetch;
+});
 
 
 describe('buildAgentPayload', () => {
@@ -93,6 +121,26 @@ describe('buildAgentPayload', () => {
       modelTier: 'heavy',
       provider: 'anthropic',
       model: 'claude-3-7-sonnet',
+    });
+  });
+
+  test('openEdit should preserve persisted voice input provider instead of forcing browser', () => {
+    const agent = {
+      id: 'a-1',
+      name: 'Agent A',
+      system_prompt: 'prompt',
+      provider: 'openai',
+      model: 'gpt-4o',
+      enabled_tools: [],
+      voice_input_enabled: true,
+      voice_input_provider: 'azure',
+    } as Agent;
+
+    createRoot(dispose => {
+      const state = useAgentsState();
+      state.openEdit(agent);
+      expect(state.formVoiceInputProvider()).toBe('azure');
+      dispose();
     });
   });
 });
