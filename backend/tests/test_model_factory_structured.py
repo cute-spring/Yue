@@ -39,7 +39,7 @@ class TestModelFactoryStructured(unittest.TestCase):
         if "ENABLED_PROVIDERS" in os.environ:
             os.environ.pop("ENABLED_PROVIDERS")
             
-        os.environ["ENABLED_PROVIDERS"] = "openai,deepseek,ollama,zhipu,azure_openai,dummy2"
+        os.environ["ENABLED_PROVIDERS"] = "openai,deepseek,ollama,azure_openai,dummy2"
         from app.core.settings import AppSettings
         import app.core.settings
         app.core.settings.settings = AppSettings()

@@ -134,20 +134,6 @@ def _build_no_proxy_value(no_proxy: Optional[str], llm_config: Dict[str, Any]) -
     # Use ::1 instead of [::1] for NO_PROXY normalization
     default_no_proxy = "localhost,127.0.0.1,::1,0.0.0.0"
     hosts = [h.strip() for h in default_no_proxy.split(',')]
-    
-    # Infer hostname from Azure OpenAI base URL
-    azure_url = llm_config.get("azure_openai_base_url") or llm_config.get("azure_openai_endpoint")
-    if azure_url:
-        try:
-            from urllib.parse import urlparse
-            netloc = urlparse(azure_url).netloc
-            if netloc:
-                # Remove port if present
-                hostname = netloc.split(':')[0]
-                if hostname not in hosts:
-                    hosts.append(hostname)
-        except Exception:
-            pass
 
     if no_proxy:
         # Filter out empty strings and strip spaces
@@ -289,4 +275,3 @@ def handle_llm_exception(e: Exception) -> str:
         )
 
     return error_str
-

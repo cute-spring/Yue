@@ -18,7 +18,7 @@
 
 | 参数名 | 作用 | 示例/取值 |
 | :--- | :--- | :--- |
-| `provider` | 系统默认使用的 LLM 供应商 | `zhipu`, `openai`, `ollama` |
+| `provider` | 系统默认使用的 LLM 供应商 | `openai`, `ollama`, `deepseek`, `gemini`, `azure_openai`, `litellm` |
 | `enabled_providers` | UI 界面上启用的供应商列表 | `"openai,azure_openai,ollama"` |
 | `llm_request_timeout` | 请求超时时间（秒） | `60` (建议内网环境适当调大) |
 | `proxy_url` | 全局 HTTP 代理 | `http://127.0.0.1:7890` |
