@@ -136,12 +136,22 @@ def test_validate_report_file_rejects_failed_rollback_drill(tmp_path):
 def test_check_memory_safe_patterns_rejects_response_decode(tmp_path):
     module = _load_module()
     test_file = tmp_path / "tests" / "test_api_chat_unit.py"
+    decode_expr = 'response.' + 'content' + '.decode("utf-8")'
     _write(
         test_file,
-        """def test_stream():
-    body = response.content.decode("utf-8")
+        f"""def test_stream():
+    body = {decode_expr}
     assert "event: content" in body
 """,
     )
     violations = module.check_memory_safe_patterns([test_file])
     assert violations
+
+
+def test_resolve_phase1_root_falls_back_to_docs_release_phase1(tmp_path):
+    module = _load_module()
+    (tmp_path / "docs" / "release" / "phase1").mkdir(parents=True)
+
+    resolved = module.resolve_phase1_root(tmp_path, module.DEFAULT_PHASE1_DIR)
+
+    assert resolved == (tmp_path / "docs" / "release" / "phase1").resolve()

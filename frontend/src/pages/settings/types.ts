@@ -5,6 +5,12 @@ export type ModelTierConfigEntry = {
 };
 
 export type ModelTierConfig = Record<ModelTier, ModelTierConfigEntry>;
+export type VoiceInputProvider = 'browser' | 'azure';
+export type AzureSpeechConfig = {
+  region?: string;
+  endpoint_id?: string;
+  api_key_configured?: boolean;
+};
 
 export type Agent = {
   id: string;
@@ -16,13 +22,8 @@ export type Agent = {
   model_tier?: ModelTier;
   enabled_tools: string[];
   voice_input_enabled?: boolean;
-  voice_input_provider?: 'browser' | 'azure';
-  voice_azure_config?: {
-    region?: string;
-    endpoint_id?: string;
-    api_key?: string;
-    api_key_configured?: boolean;
-  } | null;
+  voice_input_provider?: VoiceInputProvider;
+  voice_azure_config?: AzureSpeechConfig | null;
 };
 
 export type LLMProvider = {
@@ -74,7 +75,7 @@ export type Preferences = {
   default_agent: string;
   advanced_mode: boolean;
   voice_input_enabled: boolean;
-  voice_input_provider: 'browser' | 'azure';
+  voice_input_provider: VoiceInputProvider;
   voice_input_language: string;
   voice_input_show_interim: boolean;
   auto_speech_enabled: boolean;

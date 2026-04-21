@@ -67,6 +67,29 @@ def _normalize_voice_input_provider(value: object) -> str:
     return "azure" if raw == "azure" else "browser"
 
 
+def _merge_voice_config(existing: Optional[dict], incoming: object) -> Optional[dict]:
+    if incoming is None:
+        return existing if isinstance(existing, dict) else None
+    if not isinstance(incoming, dict):
+        return existing if isinstance(existing, dict) else None
+
+    region = str(incoming.get("region") or "").strip()
+    endpoint_id = str(incoming.get("endpoint_id") or "").strip()
+    api_key = str(incoming.get("api_key") or "").strip()
+    prev = existing if isinstance(existing, dict) else {}
+    if not api_key:
+        api_key = str(prev.get("api_key") or "").strip()
+
+    next_cfg = {
+        "region": region,
+        "endpoint_id": endpoint_id,
+        "api_key": api_key,
+    }
+    if not region and not endpoint_id and not api_key:
+        return None
+    return next_cfg
+
+
 def _normalize_model_policy(value: object) -> str:
     raw = str(value or "prefer_role").strip().lower()
     if raw in {"prefer_role", "force_direct", "system_default"}:
@@ -95,34 +118,15 @@ def _normalize_model_role(value: object) -> Optional[str]:
     return raw or None
 
 
-def _merge_voice_config(existing: Optional[dict], incoming: object) -> Optional[dict]:
-    if incoming is None:
-        return existing if isinstance(existing, dict) else None
-    if not isinstance(incoming, dict):
-        return existing if isinstance(existing, dict) else None
-
-    region = str(incoming.get("region") or "").strip()
-    endpoint_id = str(incoming.get("endpoint_id") or "").strip()
-    api_key = str(incoming.get("api_key") or "").strip()
-    prev = existing if isinstance(existing, dict) else {}
-    if not api_key:
-        api_key = str(prev.get("api_key") or "").strip()
-
-    next_cfg = {
-        "region": region,
-        "endpoint_id": endpoint_id,
-        "api_key": api_key,
-    }
-    if not region and not endpoint_id and not api_key:
-        return None
-    return next_cfg
-
-
 def _prepare_agent_payload(existing: Optional[AgentConfig], payload: dict) -> dict:
     normalized = dict(payload)
     normalized["voice_input_provider"] = _normalize_voice_input_provider(payload.get("voice_input_provider"))
     if "voice_input_enabled" in normalized:
         normalized["voice_input_enabled"] = bool(normalized["voice_input_enabled"])
+    normalized["voice_azure_config"] = _merge_voice_config(
+        existing.voice_azure_config if existing else None,
+        payload.get("voice_azure_config"),
+    )
     if "model_selection_mode" in payload:
         normalized["model_selection_mode"] = _normalize_model_selection_mode(payload.get("model_selection_mode"))
     if "model_tier" in payload:
@@ -135,10 +139,6 @@ def _prepare_agent_payload(existing: Optional[AgentConfig], payload: dict) -> di
         normalized["upgrade_on_tools"] = bool(payload.get("upgrade_on_tools"))
     if "upgrade_on_multi_skill" in payload:
         normalized["upgrade_on_multi_skill"] = bool(payload.get("upgrade_on_multi_skill"))
-    normalized["voice_azure_config"] = _merge_voice_config(
-        existing.voice_azure_config if existing else None,
-        payload.get("voice_azure_config"),
-    )
     return normalized
 
 
