@@ -21,8 +21,14 @@ from dotenv import load_dotenv
 from pathlib import Path
 from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, skill_imports, export, speech, files
 from app.mcp.manager import mcp_manager
-from app.services.skill_service import skill_registry
-from app.services.skills import SkillDirectoryResolver
+from app.services.skill_service import skill_import_store, skill_registry
+from app.services.skills import (
+    RUNTIME_MODE_IMPORT_GATE,
+    RUNTIME_MODE_LEGACY,
+    RuntimeSkillCatalogProjector,
+    SkillDirectoryResolver,
+    resolve_skill_runtime_mode,
+)
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
 # Load .env from backend directory
@@ -34,10 +40,26 @@ logger.info("Loading env from: %s", env_path.absolute())
 
 from app.services.health_monitor import health_monitor
 
+
+def _resolve_runtime_skill_directories(*, resolver: SkillDirectoryResolver, import_store, runtime_mode: str | None = None):
+    effective_mode = resolve_skill_runtime_mode(runtime_mode)
+    if effective_mode == RUNTIME_MODE_IMPORT_GATE:
+        projector = RuntimeSkillCatalogProjector(import_store=import_store)
+        projected = projector.project_active_import_dirs()
+        logger.info("Skill runtime mode import-gate enabled; projected active imports=%s", len(projected))
+        return projected
+    return resolver.resolve()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     resolver = SkillDirectoryResolver()
-    layered_dirs = resolver.resolve()
+    runtime_mode = resolve_skill_runtime_mode(os.getenv("YUE_SKILL_RUNTIME_MODE"))
+    layered_dirs = _resolve_runtime_skill_directories(
+        resolver=resolver,
+        import_store=skill_import_store,
+        runtime_mode=runtime_mode,
+    )
     for item in layered_dirs:
         if item.layer in {"workspace", "user"}:
             Path(item.path).mkdir(parents=True, exist_ok=True)
@@ -46,8 +68,10 @@ async def lifespan(app: FastAPI):
     skill_registry.load_all()
     watch_enabled = os.getenv("YUE_SKILLS_WATCH_ENABLED", "true").lower() not in {"0", "false", "off"}
     debounce_ms = int(os.getenv("YUE_SKILLS_RELOAD_DEBOUNCE_MS", "2000"))
-    if watch_enabled:
+    if watch_enabled and runtime_mode == RUNTIME_MODE_LEGACY:
         skill_registry.start_runtime_watch(layer="user", debounce_ms=debounce_ms)
+    elif watch_enabled and runtime_mode == RUNTIME_MODE_IMPORT_GATE:
+        logger.info("Skill directory watch skipped in import-gate runtime mode")
     
     # Initialize MCP Manager first
     await mcp_manager.initialize()

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import threading
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services.skill_service import skill_import_service, skill_import_store
+from app.services.skill_service import refresh_skill_runtime_catalog, skill_import_service, skill_import_store
 from app.services.skills.import_models import (
     SkillImportReport,
     SkillActivationStatus,
@@ -18,6 +19,7 @@ from app.services.skills.import_models import (
 )
 
 router = APIRouter()
+_runtime_mutation_lock = threading.RLock()
 
 
 class SkillImportCreateRequest(BaseModel):
@@ -152,25 +154,27 @@ async def get_skill_import(import_id: str):
 
 @router.post("/{import_id}/activate")
 async def activate_skill_import(import_id: str, _: SkillImportActivateRequest):
-    entry = _get_entry_or_404(import_id)
+    with _runtime_mutation_lock:
+        entry = _get_entry_or_404(import_id)
 
-    if entry.record.activation_status == SkillActivationStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail="skill_import_already_active")
+        if entry.record.activation_status == SkillActivationStatus.ACTIVE:
+            raise HTTPException(status_code=409, detail="skill_import_already_active")
 
-    if entry.record.lifecycle_state != SkillImportLifecycleState.ACTIVATION_READY:
-        raise HTTPException(status_code=422, detail="skill_activation_ineligible")
+        if entry.record.lifecycle_state != SkillImportLifecycleState.ACTIVATION_READY:
+            raise HTTPException(status_code=422, detail="skill_activation_ineligible")
 
-    for candidate in skill_import_store.list_entries():
-        if (
-            candidate.record.id != import_id
-            and candidate.record.skill_name == entry.record.skill_name
-            and candidate.record.activation_status == SkillActivationStatus.ACTIVE
-        ):
-            raise HTTPException(status_code=409, detail="skill_replacement_conflict")
+        for candidate in skill_import_store.list_entries():
+            if (
+                candidate.record.id != import_id
+                and candidate.record.skill_name == entry.record.skill_name
+                and candidate.record.activation_status == SkillActivationStatus.ACTIVE
+            ):
+                raise HTTPException(status_code=409, detail="skill_replacement_conflict")
 
-    entry.record.lifecycle_state = SkillImportLifecycleState.ACTIVE
-    entry.record.activation_status = SkillActivationStatus.ACTIVE
-    _save_entry(entry)
+        entry.record.lifecycle_state = SkillImportLifecycleState.ACTIVE
+        entry.record.activation_status = SkillActivationStatus.ACTIVE
+        _save_entry(entry)
+        refresh_skill_runtime_catalog()
 
     return {
         "import_id": entry.record.id,
@@ -183,14 +187,16 @@ async def activate_skill_import(import_id: str, _: SkillImportActivateRequest):
 
 @router.post("/{import_id}/deactivate")
 async def deactivate_skill_import(import_id: str, _: SkillImportActivateRequest):
-    entry = _get_entry_or_404(import_id)
+    with _runtime_mutation_lock:
+        entry = _get_entry_or_404(import_id)
 
-    if entry.record.activation_status != SkillActivationStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail="skill_import_not_active")
+        if entry.record.activation_status != SkillActivationStatus.ACTIVE:
+            raise HTTPException(status_code=409, detail="skill_import_not_active")
 
-    entry.record.lifecycle_state = SkillImportLifecycleState.INACTIVE
-    entry.record.activation_status = SkillActivationStatus.INACTIVE
-    _save_entry(entry)
+        entry.record.lifecycle_state = SkillImportLifecycleState.INACTIVE
+        entry.record.activation_status = SkillActivationStatus.INACTIVE
+        _save_entry(entry)
+        refresh_skill_runtime_catalog()
 
     return {
         "import_id": entry.record.id,
@@ -203,38 +209,40 @@ async def deactivate_skill_import(import_id: str, _: SkillImportActivateRequest)
 
 @router.post("/{import_id}/replace")
 async def replace_skill_import(import_id: str, request: SkillImportReplaceRequest):
-    if not request.target_skill_name:
-        raise HTTPException(status_code=400, detail="invalid_request")
+    with _runtime_mutation_lock:
+        if not request.target_skill_name:
+            raise HTTPException(status_code=400, detail="invalid_request")
 
-    entry = _get_entry_or_404(import_id)
+        entry = _get_entry_or_404(import_id)
 
-    if entry.record.activation_status == SkillActivationStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail="skill_import_already_active")
-    if entry.record.lifecycle_state != SkillImportLifecycleState.ACTIVATION_READY:
-        raise HTTPException(status_code=422, detail="skill_activation_ineligible")
-    if entry.record.skill_name != request.target_skill_name:
-        raise HTTPException(status_code=400, detail="invalid_request")
+        if entry.record.activation_status == SkillActivationStatus.ACTIVE:
+            raise HTTPException(status_code=409, detail="skill_import_already_active")
+        if entry.record.lifecycle_state != SkillImportLifecycleState.ACTIVATION_READY:
+            raise HTTPException(status_code=422, detail="skill_activation_ineligible")
+        if entry.record.skill_name != request.target_skill_name:
+            raise HTTPException(status_code=400, detail="invalid_request")
 
-    active_entries = [
-        item
-        for item in skill_import_store.list_entries()
-        if item.record.skill_name == request.target_skill_name
-        and item.record.activation_status == SkillActivationStatus.ACTIVE
-    ]
-    if len(active_entries) != 1:
-        raise HTTPException(status_code=409, detail="skill_replacement_conflict")
+        active_entries = [
+            item
+            for item in skill_import_store.list_entries()
+            if item.record.skill_name == request.target_skill_name
+            and item.record.activation_status == SkillActivationStatus.ACTIVE
+        ]
+        if len(active_entries) != 1:
+            raise HTTPException(status_code=409, detail="skill_replacement_conflict")
 
-    superseded_entry = active_entries[0]
-    superseded_entry.record.lifecycle_state = SkillImportLifecycleState.SUPERSEDED
-    superseded_entry.record.activation_status = SkillActivationStatus.SUPERSEDED
-    superseded_entry.record.superseded_by_import_id = entry.record.id
+        superseded_entry = active_entries[0]
+        superseded_entry.record.lifecycle_state = SkillImportLifecycleState.SUPERSEDED
+        superseded_entry.record.activation_status = SkillActivationStatus.SUPERSEDED
+        superseded_entry.record.superseded_by_import_id = entry.record.id
 
-    entry.record.lifecycle_state = SkillImportLifecycleState.ACTIVE
-    entry.record.activation_status = SkillActivationStatus.ACTIVE
-    entry.record.supersedes_import_id = superseded_entry.record.id
+        entry.record.lifecycle_state = SkillImportLifecycleState.ACTIVE
+        entry.record.activation_status = SkillActivationStatus.ACTIVE
+        entry.record.supersedes_import_id = superseded_entry.record.id
 
-    _save_entry(superseded_entry)
-    _save_entry(entry)
+        _save_entry(superseded_entry)
+        _save_entry(entry)
+        refresh_skill_runtime_catalog()
 
     return {
         "activated_import_id": entry.record.id,

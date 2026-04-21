@@ -51,6 +51,14 @@ from app.services.skills.parsing import SkillLoader, SkillValidator
 from app.services.skills.policy import SkillPolicyGate
 from app.services.skills.registry import SkillRegistry
 from app.services.skills.routing import SkillRouter
+from app.services.skills.runtime_catalog import (
+    RUNTIME_MODE_ENV_KEY,
+    RUNTIME_MODE_IMPORT_GATE,
+    RUNTIME_MODE_LEGACY,
+    RuntimeSkillCatalogProjector,
+    refresh_runtime_registry_for_import_gate,
+    resolve_skill_runtime_mode,
+)
 
 __all__ = [
     "LegacyAgentAdapter",
@@ -101,6 +109,12 @@ __all__ = [
     "SkillSummary",
     "SkillValidationResult",
     "SkillValidator",
+    "RUNTIME_MODE_ENV_KEY",
+    "RUNTIME_MODE_IMPORT_GATE",
+    "RUNTIME_MODE_LEGACY",
+    "RuntimeSkillCatalogProjector",
+    "refresh_runtime_registry_for_import_gate",
+    "resolve_skill_runtime_mode",
     "build_action_execution_result_event",
     "build_action_invocation_event",
 ]

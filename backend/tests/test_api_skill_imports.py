@@ -1,4 +1,6 @@
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import pytest
@@ -143,6 +145,45 @@ def test_activate_and_deactivate_import(client, tmp_path):
     assert deactivate_payload["activation_status"] == SkillActivationStatus.INACTIVE.value
 
 
+def test_activate_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    calls: list[str] = []
+    monkeypatch.setattr(skill_imports_module, "refresh_skill_runtime_catalog", lambda: calls.append("refresh"))
+
+    package_dir = _write_skill_package(str(tmp_path), skill_name="refresh-activate-skill")
+    create_response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": package_dir},
+    )
+    import_id = create_response.json()["import"]["id"]
+
+    response = client.post(f"/api/skill-imports/{import_id}/activate", json={})
+    assert response.status_code == 200
+    assert calls == ["refresh"]
+
+
+def test_deactivate_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    calls: list[str] = []
+    monkeypatch.setattr(skill_imports_module, "refresh_skill_runtime_catalog", lambda: calls.append("refresh"))
+
+    package_dir = _write_skill_package(str(tmp_path), skill_name="refresh-deactivate-skill")
+    create_response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": package_dir},
+    )
+    import_id = create_response.json()["import"]["id"]
+    activate_response = client.post(f"/api/skill-imports/{import_id}/activate", json={})
+    assert activate_response.status_code == 200
+    calls.clear()
+
+    response = client.post(f"/api/skill-imports/{import_id}/deactivate", json={})
+    assert response.status_code == 200
+    assert calls == ["refresh"]
+
+
 def test_get_unknown_import_returns_stable_not_found_code(client):
     response = client.get("/api/skill-imports/imp_missing")
     assert response.status_code == 404
@@ -218,6 +259,45 @@ def test_replace_promotes_new_import_and_supersedes_previous_active(client, tmp_
     assert new_import["lifecycle_state"] == SkillImportLifecycleState.ACTIVE.value
     assert new_import["activation_status"] == SkillActivationStatus.ACTIVE.value
     assert new_import["supersedes_import_id"] == old_import_id
+
+
+def test_replace_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    calls: list[str] = []
+    monkeypatch.setattr(skill_imports_module, "refresh_skill_runtime_catalog", lambda: calls.append("refresh"))
+
+    old_package_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="refresh-replace-skill",
+        skill_version="1.0.0",
+        dir_name="refresh-replace-skill-v1",
+    )
+    old_import_id = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": old_package_dir},
+    ).json()["import"]["id"]
+    activate_response = client.post(f"/api/skill-imports/{old_import_id}/activate", json={})
+    assert activate_response.status_code == 200
+    calls.clear()
+
+    new_package_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="refresh-replace-skill",
+        skill_version="1.1.0",
+        dir_name="refresh-replace-skill-v1_1",
+    )
+    new_import_id = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": new_package_dir},
+    ).json()["import"]["id"]
+
+    response = client.post(
+        f"/api/skill-imports/{new_import_id}/replace",
+        json={"target_skill_name": "refresh-replace-skill"},
+    )
+    assert response.status_code == 200
+    assert calls == ["refresh"]
 
 
 def test_replace_unknown_import_returns_stable_not_found_code(client):
@@ -547,6 +627,59 @@ def test_activate_conflicts_when_same_skill_has_another_active_import(client, tm
     response = client.post(f"/api/skill-imports/{v2_id}/activate", json={})
     assert response.status_code == 409
     assert response.json()["detail"] == "skill_replacement_conflict"
+
+
+def test_concurrent_activate_same_skill_versions_keeps_single_active(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    original_save_entry = skill_imports_module._save_entry
+
+    def delayed_save(entry):
+        time.sleep(0.05)
+        return original_save_entry(entry)
+
+    monkeypatch.setattr(skill_imports_module, "_save_entry", delayed_save)
+
+    v1_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="concurrent-activate-skill",
+        skill_version="1.0.0",
+        dir_name="concurrent-activate-v1",
+    )
+    v2_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="concurrent-activate-skill",
+        skill_version="1.1.0",
+        dir_name="concurrent-activate-v2",
+    )
+
+    v1_id = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": v1_dir},
+    ).json()["import"]["id"]
+    v2_id = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": v2_dir},
+    ).json()["import"]["id"]
+
+    def _activate(import_id: str):
+        return client.post(f"/api/skill-imports/{import_id}/activate", json={})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_activate, v1_id)
+        second = pool.submit(_activate, v2_id)
+        responses = [first.result(), second.result()]
+
+    status_codes = sorted(response.status_code for response in responses)
+    assert status_codes == [200, 409]
+    conflict_payload = next(response.json() for response in responses if response.status_code == 409)
+    assert conflict_payload["detail"] == "skill_replacement_conflict"
+
+    list_response = client.get("/api/skill-imports", params={"skill_name": "concurrent-activate-skill"})
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    active_items = [item for item in items if item["activation_status"] == SkillActivationStatus.ACTIVE.value]
+    assert len(active_items) == 1
 
 
 def test_replace_rejects_when_target_import_is_already_active(client, tmp_path):

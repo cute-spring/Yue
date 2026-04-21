@@ -46,6 +46,12 @@ from app.services.skills import (
     SkillSummary,
     SkillValidationResult,
     SkillValidator,
+    RUNTIME_MODE_ENV_KEY,
+    RUNTIME_MODE_IMPORT_GATE,
+    RUNTIME_MODE_LEGACY,
+    RuntimeSkillCatalogProjector,
+    refresh_runtime_registry_for_import_gate,
+    resolve_skill_runtime_mode,
     build_action_execution_result_event,
     build_action_invocation_event,
 )
@@ -60,6 +66,13 @@ skill_import_service = SkillImportService(
     import_store=skill_import_store,
     compatibility_evaluator=skill_compatibility_evaluator,
 )
+
+
+def refresh_skill_runtime_catalog() -> bool:
+    return refresh_runtime_registry_for_import_gate(
+        skill_registry=skill_registry,
+        import_store=skill_import_store,
+    )
 
 
 class SkillRouter(ExtractedSkillRouter):
@@ -130,6 +143,13 @@ __all__ = [
     "SkillSummary",
     "SkillValidationResult",
     "SkillValidator",
+    "RUNTIME_MODE_ENV_KEY",
+    "RUNTIME_MODE_IMPORT_GATE",
+    "RUNTIME_MODE_LEGACY",
+    "RuntimeSkillCatalogProjector",
+    "refresh_runtime_registry_for_import_gate",
+    "refresh_skill_runtime_catalog",
+    "resolve_skill_runtime_mode",
     "build_action_execution_result_event",
     "build_action_invocation_event",
     "skill_group_store",
