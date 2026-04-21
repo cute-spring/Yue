@@ -30,10 +30,10 @@ type Tab = 'general' | 'mcp' | 'llm';
   export default function Settings() {
     const { fetchSettingsData } = useSettingsData();
     const [activeTab, setActiveTab] = createSignal<Tab>('general');
-    const TAB_LABEL: Record<Tab, string> = {
-      general: 'General',
-      mcp: 'MCP',
-      llm: 'Models'
+    const TAB_LABEL: Record<Tab, { label: string; icon: string }> = {
+      general: { label: 'General', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z' },
+      mcp: { label: 'MCP', icon: 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z' },
+      llm: { label: 'Models', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z' }
     };
     
     // MCP State
@@ -427,122 +427,138 @@ type Tab = 'general' | 'mcp' | 'llm';
   return (
     <div class="p-8 h-full flex flex-col bg-gray-50 overflow-hidden">
       <div class="flex justify-between items-center mb-8">
-        <h2 class="text-3xl font-bold text-gray-800">System Configuration</h2>
-        <div class="text-sm text-gray-500 bg-white px-3 py-1 rounded-full border shadow-sm">
-          Unified Platform Settings
+        <div>
+          <h2 class="text-3xl font-bold text-gray-800">System Configuration</h2>
+          <p class="text-gray-500 mt-1">Manage your workspace, models, and platform settings.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="text-sm text-gray-500 bg-white px-3 py-1 rounded-full border shadow-sm flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            Unified Platform
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div class="flex space-x-1 mb-6 bg-gray-200 p-1 rounded-lg w-fit">
-        <For each={['general', 'mcp', 'llm']}>
-          {(tab) => (
-            <button
-              onClick={() => setActiveTab(tab as Tab)}
-              class={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-                activeTab() === tab 
-                ? 'bg-white text-emerald-600 shadow-sm' 
-                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
-              }`}
-            >
-              {TAB_LABEL[tab as Tab]}
-            </button>
-          )}
-        </For>
+      <div class="flex flex-1 gap-8 overflow-hidden">
+        {/* Sidebar Navigation */}
+        <div class="w-64 flex flex-col space-y-1">
+          <For each={['general', 'mcp', 'llm']}>
+            {(tab) => (
+              <button
+                onClick={() => setActiveTab(tab as Tab)}
+                class={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                  activeTab() === tab 
+                  ? 'bg-white text-emerald-600 shadow-sm border border-gray-100' 
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={TAB_LABEL[tab as Tab].icon} />
+                </svg>
+                {TAB_LABEL[tab as Tab].label}
+                <Show when={activeTab() === tab}>
+                  <div class="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
+
+        {/* Content Area */}
+        <div class="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto p-8 relative">
+          {/* General Tab */}
+          <Show when={activeTab() === 'general'}>
+            <GeneralSettingsTab
+              prefs={prefs}
+              setPrefs={setPrefs}
+              agents={agents}
+              savePrefs={savePrefs}
+              featureFlags={featureFlags}
+              setFeatureFlags={setFeatureFlags}
+              saveFeatureFlags={saveFeatureFlags}
+              docAccess={docAccess}
+              docAllowText={docAllowText}
+              setDocAllowText={setDocAllowText}
+              docDenyText={docDenyText}
+              setDocDenyText={setDocDenyText}
+              isSavingDocAccess={isSavingDocAccess}
+              saveDocAccess={saveDocAccess}
+            />
+          </Show>
+
+          {/* MCP Tab */}
+          <Show when={activeTab() === 'mcp'}>
+            <McpSettingsTab
+              mcpStatus={mcpStatus}
+              mcpTools={mcpTools}
+              expanded={expanded}
+              setExpanded={setExpanded}
+              hoveredServer={hoveredServer}
+              setHoveredServer={setHoveredServer}
+              showAddMenu={showAddMenu}
+              setShowAddMenu={setShowAddMenu}
+              showManual={showManual}
+              setShowManual={setShowManual}
+              manualText={manualText}
+              setManualText={setManualText}
+              showRaw={showRaw}
+              setShowRaw={setShowRaw}
+              showMarketplace={showMarketplace}
+              setShowMarketplace={setShowMarketplace}
+              mcpConfig={mcpConfig}
+              setMcpConfig={setMcpConfig}
+              reloadMcp={reloadMcp}
+              toggleMcpEnabled={toggleMcpEnabled}
+              deleteMcpServer={deleteMcpServer}
+              confirmManual={confirmManual}
+              saveMcp={saveMcp}
+            />
+          </Show>
+
+          {/* LLM Tab */}
+          <Show when={activeTab() === 'llm'}>
+            <LlmSettingsTab
+              providers={providers}
+              llmForm={llmForm}
+              setLlmForm={setLlmForm}
+              customModels={customModels}
+              setCustomModels={setCustomModels}
+              prefs={prefs}
+              isRefreshingProviders={isRefreshingProviders}
+              setIsRefreshingProviders={setIsRefreshingProviders}
+              showAddCustom={showAddCustom}
+              setShowAddCustom={setShowAddCustom}
+              newCM={newCM}
+              setNewCM={setNewCM}
+              newCMStatus={newCMStatus}
+              setNewCMStatus={setNewCMStatus}
+              showEditProvider={showEditProvider}
+              setShowEditProvider={setShowEditProvider}
+              editingProvider={editingProvider}
+              showModelManager={showModelManager}
+              setShowModelManager={setShowModelManager}
+              managingProvider={managingProvider}
+              managedModels={managedModels}
+              enabledModels={enabledModels}
+              setEnabledModels={setEnabledModels}
+              capabilityOverrides={capabilityOverrides}
+              setCapabilityOverrides={setCapabilityOverrides}
+              adminModelCapabilities={adminModelCapabilities}
+              isLoadingModels={isLoadingModels}
+              isSavingModels={isSavingModels}
+              refreshProviders={refreshProviders}
+              saveLlmConfig={saveLlmConfig}
+              testProvider={testProvider}
+              openProviderEditor={openProviderEditor}
+              saveProviderEditor={saveProviderEditor}
+              openModelManager={openModelManager}
+              saveManagedModels={saveManagedModels}
+              deleteCustomModel={deleteCustomModel}
+              testCustomModel={testCustomModel}
+            />
+          </Show>
+        </div>
       </div>
-
-      <div class="flex-1 bg-white rounded-xl border shadow-sm overflow-y-auto p-6">
-        {/* General Tab */}
-        <Show when={activeTab() === 'general'}>
-          <GeneralSettingsTab
-            prefs={prefs}
-            setPrefs={setPrefs}
-            agents={agents}
-            savePrefs={savePrefs}
-            featureFlags={featureFlags}
-            setFeatureFlags={setFeatureFlags}
-            saveFeatureFlags={saveFeatureFlags}
-            docAccess={docAccess}
-            docAllowText={docAllowText}
-            setDocAllowText={setDocAllowText}
-            docDenyText={docDenyText}
-            setDocDenyText={setDocDenyText}
-            isSavingDocAccess={isSavingDocAccess}
-            saveDocAccess={saveDocAccess}
-          />
-        </Show>
-
-        {/* MCP Tab */}
-        <Show when={activeTab() === 'mcp'}>
-          <McpSettingsTab
-            mcpStatus={mcpStatus}
-            mcpTools={mcpTools}
-            expanded={expanded}
-            setExpanded={setExpanded}
-            hoveredServer={hoveredServer}
-            setHoveredServer={setHoveredServer}
-            showAddMenu={showAddMenu}
-            setShowAddMenu={setShowAddMenu}
-            showManual={showManual}
-            setShowManual={setShowManual}
-            manualText={manualText}
-            setManualText={setManualText}
-            showRaw={showRaw}
-            setShowRaw={setShowRaw}
-            showMarketplace={showMarketplace}
-            setShowMarketplace={setShowMarketplace}
-            mcpConfig={mcpConfig}
-            setMcpConfig={setMcpConfig}
-            reloadMcp={reloadMcp}
-            toggleMcpEnabled={toggleMcpEnabled}
-            deleteMcpServer={deleteMcpServer}
-            confirmManual={confirmManual}
-            saveMcp={saveMcp}
-          />
-        </Show>
-
-        {/* LLM Tab */}
-        <Show when={activeTab() === 'llm'}>
-          <LlmSettingsTab
-            providers={providers}
-            llmForm={llmForm}
-            setLlmForm={setLlmForm}
-            customModels={customModels}
-            setCustomModels={setCustomModels}
-            prefs={prefs}
-            isRefreshingProviders={isRefreshingProviders}
-            setIsRefreshingProviders={setIsRefreshingProviders}
-            showAddCustom={showAddCustom}
-            setShowAddCustom={setShowAddCustom}
-            newCM={newCM}
-            setNewCM={setNewCM}
-            newCMStatus={newCMStatus}
-            setNewCMStatus={setNewCMStatus}
-            showEditProvider={showEditProvider}
-            setShowEditProvider={setShowEditProvider}
-            editingProvider={editingProvider}
-            showModelManager={showModelManager}
-            setShowModelManager={setShowModelManager}
-            managingProvider={managingProvider}
-            managedModels={managedModels}
-            enabledModels={enabledModels}
-            setEnabledModels={setEnabledModels}
-            capabilityOverrides={capabilityOverrides}
-            setCapabilityOverrides={setCapabilityOverrides}
-            adminModelCapabilities={adminModelCapabilities}
-            isLoadingModels={isLoadingModels}
-            isSavingModels={isSavingModels}
-            refreshProviders={refreshProviders}
-            saveLlmConfig={saveLlmConfig}
-            testProvider={testProvider}
-            openProviderEditor={openProviderEditor}
-            saveProviderEditor={saveProviderEditor}
-            openModelManager={openModelManager}
-            saveManagedModels={saveManagedModels}
-            deleteCustomModel={deleteCustomModel}
-            testCustomModel={testCustomModel}
-          />
-        </Show>
       <Show when={toast()}>
         <div class="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300" role="status" aria-live="polite">
           <div class={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border transition-all ${
@@ -593,7 +609,6 @@ type Tab = 'general' | 'mcp' | 'llm';
         }}
         onCancel={() => setConfirmDelete(null)}
       />
-    </div>
     </div>
   );
 }
