@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, export, speech, files
+from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, skill_imports, export, speech, files
 from app.mcp.manager import mcp_manager
 from app.services.skill_service import skill_registry
 from app.services.skills import SkillDirectoryResolver
@@ -86,6 +86,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
+app.include_router(skill_imports.router, prefix="/api/skill-imports", tags=["skill-imports"])
 app.include_router(skill_groups.router, prefix="/api/skill-groups", tags=["skill-groups"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])

@@ -1,14 +1,13 @@
-import logging
 import os
-import platform
+import logging
 import re
-import shutil
 import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from app.services.skills.directories import SKILL_LAYER_PRIORITY, SkillDirectoryResolver
+from app.services.skills.compatibility import SkillCompatibilityEvaluator
 from app.services.skills.models import (
     RuntimeSkillActionDescriptor,
     RuntimeSkillActionInvocationRequest,
@@ -36,6 +35,7 @@ class SkillRegistry:
         self._skills: Dict[str, Dict[str, SkillSpec]] = {}
         self._packages: Dict[str, Dict[str, SkillPackageSpec]] = {}
         self._latest_versions: Dict[str, str] = {}
+        self._compatibility_evaluator = SkillCompatibilityEvaluator()
         self._watch_thread: Optional[threading.Thread] = None
         self._watch_stop_event = threading.Event()
         self._watch_debounce_ms = 2000
@@ -245,22 +245,15 @@ class SkillRegistry:
         return val
 
     def _compute_availability(self, skill: SkillSpec) -> tuple[bool, Dict[str, List[str]]]:
+        report = self._compatibility_evaluator.evaluate_skill(skill)
         missing: Dict[str, List[str]] = {}
-        os_allowed = [self._normalize_os_name(o) for o in (skill.os or []) if o]
-        current_os = self._normalize_os_name(platform.system())
-        if os_allowed and current_os not in os_allowed:
-            missing["os"] = [current_os]
-
-        requires = skill.requires or {}
-        bins = requires.get("bins") or []
-        env = requires.get("env") or []
-        missing_bins = [b for b in bins if b and shutil.which(b) is None]
-        missing_env = [e for e in env if e and not os.getenv(e)]
-        if missing_bins:
-            missing["bins"] = missing_bins
-        if missing_env:
-            missing["env"] = missing_env
-        return len(missing) == 0, missing
+        if report.os_mismatch:
+            missing["os"] = list(report.os_mismatch)
+        if report.missing_bins:
+            missing["bins"] = list(report.missing_bins)
+        if report.missing_env:
+            missing["env"] = list(report.missing_env)
+        return report.status == "compatible", missing
 
     def list_summaries(self) -> List[SkillSummary]:
         summaries = []

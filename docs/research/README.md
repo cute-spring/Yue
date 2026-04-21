@@ -31,7 +31,7 @@
 
 | 报告 | 日期 | 主题 |
 |------|------|------|
-| **[Skills 现状解读与优化建议](skills_现状解读与优化建议_20260316.md)** | 2026-03-16 | 技能系统现状与优化方向 |
+| **[Yue Skill Strategy](skills_gap_comparison_and_roadmap_20260421.md)** | 2026-04-21 | 唯一标准、平台边界、Import Gate 与当前 gap |
 | **[Agent Web](agent_web.md)** | - | Agent Web 功能研究 |
 | **[Agents](agents.md)** | - | Agent 系统分析 |
 

@@ -12,7 +12,6 @@
 |------|------|------|
 | **[12-Factor App Guide](12_Factor_App_Guide.md)** | 云原生架构规范与实施指南 | ✅ 已完成 |
 | **[LLM Capability Inference](LLM_Capability_Inference_Architecture.md)** | 模型能力推理架构设计 | ✅ 已完成 |
-| **[Skill Architecture Analysis](Skill_Architecture_Analysis_Report.md)** | 技能系统架构分析报告 | ✅ 已完成 |
 
 ### 架构决策记录 (ADRs)
 

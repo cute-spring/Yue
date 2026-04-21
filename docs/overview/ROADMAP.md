@@ -194,7 +194,7 @@ This document serves as a structured task list for AI development. Each phase is
     - [ ] Tool Schema Versioning: Versioned tool input/output with backward-compatible adapters to prevent MCP updates breaking clients (工具协议锁定与版本化).
     - [ ] Developer Sandbox Mode: Local sandbox in Settings; write operations become Dry Run with planned API request output (开发者沙箱).
     - [ ] Expanded Test Matrix: Add backend coverage for unauthorized tool calls, missing citations, large scan timeout/limit (自动化测试矩阵扩展).
-    - [ ] Skill system compatibility: reference Claude Code skill format for loader/schema parity.
+    - [ ] Skill system compatibility: align to the Agent Skills open standard package contract and import path.
   - [x] **Intelligent Orchestration & UX (智能编排与体验)**:
     - [ ] Semantic Tool Retrieval: Vector index over tool name/description/schema, attach Top-K tools by intent (语义化工具检索).
     - [ ] Main agent ↔ sub-agent orchestration with live progress visibility.
@@ -271,12 +271,12 @@ This document serves as a structured task list for AI development. Each phase is
 
 - [ ] **6.1 Memory Evolution (记忆系统演进)**
   - [ ] Implement hierarchical memory structure: Short-term (session-level) + Long-term (persistent cross-session).
-  - [ ] Reference implementations: **OpenClaw** memory patterns or **Mem0** integration for entity-based retrieval.
+  - [ ] Reference implementations: **Mem0** integration or equivalent entity-based retrieval patterns.
   - [ ] Define memory decay and importance-based retrieval policies.
-- [ ] **6.2 Markdown-Defined Skills (Markdown 技能系统)**
-  - [ ] Support "Skills" as first-class citizens, referencing **Claude Code** and **OpenClaw** skill formats.
-  - [ ] Enable users to define/extend agent capabilities via Markdown files (Schema, Description, Prompting).
-  - [ ] Implement a skill loader and validator for dynamic capability injection.
+- [ ] **6.2 Agent Skills Import & Runtime (技能导入与运行时)**
+  - [ ] Align Yue to the Agent Skills open standard as the single external skill standard.
+  - [ ] Implement a strong skill import gate: import, validation, compatibility check, preview, activation.
+  - [ ] Improve runtime skill routing and selection quality.
 - [ ] **6.3 Observability & Transparency (执行透明化)**
   - [ ] Detailed implementation plan: [observability_transparency_plan.md](./plans/observability_transparency_plan.md)
   - [ ] Detailed tool call panel: display real-time MCP/tool inputs, outputs, and execution latency.

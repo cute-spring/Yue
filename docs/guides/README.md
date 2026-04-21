@@ -12,15 +12,14 @@
 
 | 文档 | 说明 |
 |------|------|
-| **[Agent Skills User Guide](user/Agent_Skills_User_Guide.md)** | 智能体技能使用手册 - 了解如何使用各类 Agent 技能 |
 | **Chat Usage Guide** | 聊天交互指南（待创建）- 掌握高效对话技巧 |
 | **MCP Usage Guide** | MCP 工具使用指南（待创建）- 学习使用外部工具 |
 | **Multi-modal Guide** | 多模态功能指南（待创建）- 图片问答与文件处理 |
 
 #### 快速开始
-1. 阅读 [Agent Skills User Guide](user/Agent_Skills_User_Guide.md) 了解核心技能
-2. 查看 [FEATURES.md](../overview/FEATURES.md) 了解完整功能列表
-3. 参考 [CONFIGURATION.md](developer/CONFIGURATION.md) 完成环境配置
+1. 查看 [FEATURES.md](../overview/FEATURES.md) 了解完整功能列表
+2. 参考 [CONFIGURATION.md](developer/CONFIGURATION.md) 完成环境配置
+3. 如需理解 Yue 的技能边界，请阅读 [Yue Skill Strategy](../research/skills_gap_comparison_and_roadmap_20260421.md)
 
 ---
 
@@ -72,7 +71,7 @@
 **开始使用 Yue**
 1. [配置开发环境](developer/CONFIGURATION.md)
 2. [了解功能特性](../overview/FEATURES.md)
-3. [学习 Agent 技能](user/Agent_Skills_User_Guide.md)
+3. [理解 Skill 边界与定位](../research/skills_gap_comparison_and_roadmap_20260421.md)
 
 **开发新功能**
 1. 查看 [执行计划总览](../plans/INDEX.md)

@@ -49,7 +49,7 @@ plans/
 
 1. **Epic 3**: [文件管理与存储抽象层重构](File_Management_Improvement_Review.md)
 2. **Epic 7**: [记忆与模型能力精细化管理](hierarchical_memory_foundation_plan_20260315.md)
-3. **Epic 8**: [技能系统深度增强](skill_creator_implementation_plan_20260319.md)
+3. **技能系统方向**: [Yue Skill Strategy](../research/skills_gap_comparison_and_roadmap_20260421.md)
 4. **Epic 9**: [代码库健康与 God Object 重构](codebase_refactor_plan_20260319.md)
 
 #### 已完成 (Done)
@@ -84,9 +84,10 @@ plans/
 - [代码重构](codebase_refactor_plan_20260319.md) 🟡
 
 #### 技能系统
-- [Skill Creator](skill_creator_implementation_plan_20260319.md) 🟡
-- [PPT 技能增强](ppt_skill_gap_enhancement_plan_20260307.md) 🟡
-- [Nanobot 技能](nanobot_skill_gap_plan_20260307.md) 🟡
+- [Yue Skill Strategy](../research/skills_gap_comparison_and_roadmap_20260421.md) ✅
+- [Skill Import Runtime Execution Plan](./skill_import_runtime_execution_plan_20260421.md) 🟡
+- [Skill Import Gate Implementation Design](./skill_import_gate_implementation_design_20260421.md) 🟡
+- [Skill Import Gate API Contract](./skill_import_gate_api_contract_20260421.md) 🟡
 
 ---
 

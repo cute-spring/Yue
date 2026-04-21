@@ -11,6 +11,16 @@ from app.services.skills import (
     build_action_execution_stub_message,
     build_action_preflight_message,
     RuntimeCapabilityDescriptor,
+    SkillCompatibilityEvaluator,
+    SkillImportLifecycleState,
+    SkillImportPreview,
+    SkillImportRecord,
+    SkillImportReport,
+    SkillImportResult,
+    SkillImportService,
+    SkillImportSource,
+    SkillImportSourceType,
+    SkillImportStore,
     RuntimeSkillActionApprovalRequest,
     RuntimeSkillActionApprovalResult,
     RuntimeSkillActionDescriptor,
@@ -44,6 +54,12 @@ from app.services.skills.routing import SkillRouter as ExtractedSkillRouter
 # Global registry instance
 skill_registry = SkillRegistry()
 skill_action_execution_service = SkillActionExecutionService(skill_registry)
+skill_import_store = SkillImportStore()
+skill_compatibility_evaluator = SkillCompatibilityEvaluator()
+skill_import_service = SkillImportService(
+    import_store=skill_import_store,
+    compatibility_evaluator=skill_compatibility_evaluator,
+)
 
 
 class SkillRouter(ExtractedSkillRouter):
@@ -71,6 +87,16 @@ skill_router = SkillRouter(skill_registry)
 __all__ = [
     "LegacyAgentAdapter",
     "MarkdownSkillAdapter",
+    "SkillCompatibilityEvaluator",
+    "SkillImportLifecycleState",
+    "SkillImportPreview",
+    "SkillImportRecord",
+    "SkillImportReport",
+    "SkillImportResult",
+    "SkillImportService",
+    "SkillImportSource",
+    "SkillImportSourceType",
+    "SkillImportStore",
     "SkillActionExecutionService",
     "build_action_approval_event",
     "build_action_approval_message",
@@ -108,6 +134,9 @@ __all__ = [
     "build_action_invocation_event",
     "skill_group_store",
     "skill_action_execution_service",
+    "skill_compatibility_evaluator",
+    "skill_import_service",
+    "skill_import_store",
     "skill_registry",
     "skill_router",
 ]

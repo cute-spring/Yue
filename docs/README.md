@@ -31,7 +31,6 @@
 分角色的详细使用与开发指南。
 
 #### 👤 最终用户指南 ([guides/user/](guides/user/))
-- **[Agent Skills User Guide](guides/user/Agent_Skills_User_Guide.md)** - 智能体技能使用手册
 - **Chat Usage Guide** - 聊天交互指南（待创建）
 - **MCP Usage Guide** - MCP 工具使用指南（待创建）
 
@@ -52,7 +51,6 @@
 
 - **[12-Factor App Guide](architecture/12_Factor_App_Guide.md)** - 云原生架构规范
 - **[LLM Capability Inference](architecture/LLM_Capability_Inference_Architecture.md)** - 模型能力推理架构
-- **[Skill Architecture Analysis](architecture/Skill_Architecture_Analysis_Report.md)** - 技能系统架构分析
 - **[Architecture Decisions](architecture/decisions/)** - 架构决策记录 (ADR)
 
 ### 3.5 💾 实现文档 ([implementation/](implementation/))
@@ -72,7 +70,7 @@
 - Epic 5: [消息交互与多模态增强](plans/multimodal_image_qa_enhancement_plan_20260317.md)
 - Epic 6: [发布质量与工程门禁](plans/release_readiness_gate_execution_plan_20260314.md)
 - Epic 7: [记忆与模型能力精细化管理](plans/hierarchical_memory_foundation_plan_20260315.md)
-- Epic 8: [技能系统深度增强](plans/skill_creator_implementation_plan_20260319.md)
+- Skill Strategy: [Yue Skill Strategy](research/skills_gap_comparison_and_roadmap_20260421.md)
 - Epic 9: [代码库健康与 God Object 重构](plans/codebase_refactor_plan_20260319.md)
 
 ### 5. 🔬 战略评估 ([assessments/](assessments/))
@@ -120,11 +118,8 @@
 
 ### 按主题查找
 
-**智能体 (Agents)**
-- [Agent Skills User Guide](Agent_Skills_User_Guide.md) - 用户手册
-- [Skill Architecture Analysis](architecture/Skill_Architecture_Analysis_Report.md) - 架构分析
-- [Skill Creator Plan](plans/skill_creator_implementation_plan_20260319.md) - 实现计划
-- [Agent Classification Plan](plans/archive/agent_classification_and_skill_group_plan_20260319.md) - 分类重构
+**技能系统 (Skills)**
+- [Yue Skill Strategy](research/skills_gap_comparison_and_roadmap_20260421.md) - 唯一标准、边界、Import Gate 与当前 gap
 
 **模型与 Provider**
 - [LLM Capability Inference](architecture/LLM_Capability_Inference_Architecture.md) - 能力推理
@@ -133,7 +128,6 @@
 
 **MCP 工具**
 - [Builtin Tools Refactor](plans/archive/builtin_tools_refactor_plan.md) - 内置工具重构
-- [OpenClaw Tool Calling](plans/openclaw_tool_calling_reference_execution_plan_20260308.md) - 参考执行
 
 **记忆系统**
 - [Hierarchical Memory Plan](plans/hierarchical_memory_foundation_plan_20260315.md) - 分层记忆设计

@@ -59,14 +59,16 @@
 - [ ] **Phase 2: 模型能力精细化管理 (UI)** (见 [ui_capability_management_plan_plan.md](./ui_capability_management_plan_plan.md))
 - [ ] **Phase 3: Providers API 重构** (合并 [llm_providers_api_refactoring_plan.md](./llm_providers_api_refactoring_plan.md))
 
-### Epic 8: 技能系统深度增强 (Skills Deep Dive)
-> **状态**: 推进中 (约 15%)
-> **详情文档**: [skill_creator_implementation_plan_20260319.md](./skill_creator_implementation_plan_20260319.md)
-> **目标**: 建立 Skill Creator 内置 Agent，并补齐 PPT/Nanobot 等领域技能差距。
-- [x] **Phase 0: 技能服务模块化** (见 [skill_service_modularization_plan_20260323.md](./skill_service_modularization_plan_20260323.md)) - Phase 1 已完成，测试全绿
-- [ ] **Phase 1: Skill Creator 实现** (AI 驱动的技能生成工作流)
-- [ ] **Phase 2: PPT 技能加固** (见 [ppt_skill_gap_enhancement_plan_20260307.md](./ppt_skill_gap_enhancement_plan_20260307.md)) - Blocked/Deprioritized
-- [ ] **Phase 3: Nanobot 技能演进** (见 [nanobot_skill_gap_plan_20260307.md](./nanobot_skill_gap_plan_20260307.md)) - Blocked/Deprioritized
+### Epic 8: Skill Import Gate 与 Runtime 路由增强
+> **状态**: 设计完成，待进入 Stage 1 实施
+> **策略文档**: [../research/skills_gap_comparison_and_roadmap_20260421.md](../research/skills_gap_comparison_and_roadmap_20260421.md)
+> **执行计划**: [skill_import_runtime_execution_plan_20260421.md](./skill_import_runtime_execution_plan_20260421.md)
+> **实施设计包**: [skill_import_gate_implementation_design_20260421.md](./skill_import_gate_implementation_design_20260421.md)
+> **API 契约**: [skill_import_gate_api_contract_20260421.md](./skill_import_gate_api_contract_20260421.md)
+> **目标**: 将 Yue 明确收敛为 Agent Skills 标准 skill 的导入、验收、激活、选择和运行平台。
+- [ ] **Phase 1: Skill Import Gate** (导入、静态校验、兼容性检查、预览、启停、smoke verification)
+- [ ] **Phase 2: Runtime 路由增强** (提升 skill 识别、召回、重排与回退质量)
+- [ ] **Phase 3: 标准对齐清理** (移除旧的多格式 / 创作平台叙事与产品假设)
 
 ### Epic 9: 代码库健康与 God Object 重构 (Refactoring)
 > **状态**: 推进中 (约 10%)
@@ -95,18 +97,14 @@
 - [x] **Epic 1: 配置与日志的云端演进** (见 [archive/Logging_Config_Evolution_Plan.md](./archive/Logging_Config_Evolution_Plan.md))
 - [x] **架构演进可行性与依赖关系分析** (完成了日志、数据库、文件管理的拆解与评估)
 - [x] **建立 AI 驱动的工程管理最佳实践** (见 [archive/AI_Driven_Project_Management_Best_Practices.md](./archive/AI_Driven_Project_Management_Best_Practices.md))
-- [x] **Agent 种类与技能组重构** (见 [archive/agent_classification_and_skill_group_plan_20260319.md](./archive/agent_classification_and_skill_group_plan_20260319.md))
 - [x] **内置工具架构重构** (见 [archive/builtin_tools_refactor_plan.md](./archive/builtin_tools_refactor_plan.md))
-- [x] **Markdown 技能系统实现 (Phase 6.2)** (见 [archive/markdown_defined_skills_plan.md](./archive/markdown_defined_skills_plan.md))
-- [x] **技能架构长线演进与清理** (见 [archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md](./archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md))
 - [x] **语音合成与自动朗读功能** (见 [archive/2026-03-24-auto-speech-synthesis.md](./archive/2026-03-24-auto-speech-synthesis.md))
 - [x] **语音输入功能（Azure Speech + Browser Fallback）** (见 [Voice_Input_Feature_Design.md](./Voice_Input_Feature_Design.md), [Voice_Input_Implementation_Plan.md](./Voice_Input_Implementation_Plan.md), [Voice_Input_Release_Checklist.md](./Voice_Input_Release_Checklist.md))
 
 > **归档说明**: 以下历史计划文档已归档至 `archive/` 目录，供参考查阅：
 > - 工具架构重构相关：`agent_tooling_refactor_plan.md`, `builtin_tools_refactor_plan.md`
-> - 技能系统演进相关：`skills_long_term_architecture_and_legacy_removal_plan_20260317.md`, `agent_classification_and_skill_group_plan_20260319.md`
 > - 已完成功能计划：`PDF_BUILTIN_TOOLS_HIGH_ROI.md`, `MS_EXCEL_SUPPORT_PLAN.md`, `2026-03-24-auto-speech-synthesis.md`
-> - 已被替代计划：`reasoning_tools_execution_enhancement_plan_20260308.md` (已被 Epic 4 替代), `Skill_Feature_Roadmap.md` (已被 Epic 8 替代)
+> - 已被替代计划：`reasoning_tools_execution_enhancement_plan_20260308.md` (已被 Epic 4 替代)
 > - 分析参考文档：`REASONING_CHAIN_OPTIMIZATION.md`, `SMART_DOC_PROCESSING_PLAN.md`, `Docs_Tooling_Enhancement_Plan.md`, `MCP_DOC_AGENT_PLAN.md`
 
 ---

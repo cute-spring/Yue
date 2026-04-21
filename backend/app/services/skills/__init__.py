@@ -8,6 +8,21 @@ from app.services.skills.actions import (
     build_action_execution_result_event,
     build_action_invocation_event,
 )
+from app.services.skills.compatibility import SkillCompatibilityEvaluator
+from app.services.skills.import_models import (
+    SkillActivationStatus,
+    SkillCompatibilityReport,
+    SkillImportLifecycleState,
+    SkillImportPreview,
+    SkillImportRecord,
+    SkillImportReport,
+    SkillImportResult,
+    SkillImportSource,
+    SkillImportSourceType,
+    SkillImportStoredEntry,
+)
+from app.services.skills.import_service import SkillImportService
+from app.services.skills.import_store import SkillImportStore
 from app.services.skills.adapters import LegacyAgentAdapter, MarkdownSkillAdapter
 from app.services.skills.directories import SKILL_LAYER_PRIORITY, SkillDirectoryResolver
 from app.services.skills.models import (
@@ -40,7 +55,20 @@ from app.services.skills.routing import SkillRouter
 __all__ = [
     "LegacyAgentAdapter",
     "MarkdownSkillAdapter",
+    "SkillActivationStatus",
     "SkillActionExecutionService",
+    "SkillCompatibilityEvaluator",
+    "SkillCompatibilityReport",
+    "SkillImportLifecycleState",
+    "SkillImportPreview",
+    "SkillImportRecord",
+    "SkillImportReport",
+    "SkillImportResult",
+    "SkillImportService",
+    "SkillImportSource",
+    "SkillImportSourceType",
+    "SkillImportStore",
+    "SkillImportStoredEntry",
     "build_action_approval_event",
     "build_action_approval_message",
     "build_action_execution_transition_event",
