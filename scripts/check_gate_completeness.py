@@ -25,6 +25,8 @@ ROLLBACK_TARGET_MINUTES = {
     "medium": 15.0,
     "high": 30.0,
 }
+DEFAULT_PHASE1_DIR = "docs/release_readiness_gate/phase1"
+FALLBACK_PHASE1_DIR = "docs/release/phase1"
 
 
 def normalize_value(raw: str) -> str:
@@ -316,7 +318,7 @@ def parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate release readiness gate completeness.")
     parser.add_argument(
         "--phase1-dir",
-        default="docs/release_readiness_gate/phase1",
+        default=DEFAULT_PHASE1_DIR,
         help="Path to phase1 directory relative to repository root.",
     )
     parser.add_argument(
@@ -334,10 +336,21 @@ def parse_cli_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_phase1_root(repo_root: Path, requested_phase1_dir: str) -> Path:
+    primary = (repo_root / requested_phase1_dir).resolve()
+    if primary.exists():
+        return primary
+    if requested_phase1_dir == DEFAULT_PHASE1_DIR:
+        fallback = (repo_root / FALLBACK_PHASE1_DIR).resolve()
+        if fallback.exists():
+            return fallback
+    return primary
+
+
 def main() -> int:
     args = parse_cli_args()
     repo_root = Path(__file__).resolve().parents[1]
-    phase1_root = (repo_root / args.phase1_dir).resolve()
+    phase1_root = resolve_phase1_root(repo_root, args.phase1_dir)
     if not phase1_root.exists():
         print(f"[ERROR] Phase 1 directory not found: {phase1_root}")
         return 1

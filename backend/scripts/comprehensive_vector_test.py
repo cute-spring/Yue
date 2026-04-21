@@ -16,6 +16,7 @@ import os
 import time
 import random
 import math
+import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.core.database import DB_FILE, engine
@@ -91,6 +92,8 @@ def test_query_performance():
     print("=" * 70)
     
     vector_search = get_vector_search_service()
+    if not vector_search.extension_loading_supported():
+        pytest.skip("sqlite extension loading is not supported by this Python sqlite3 build")
     
     # Warm up
     query_vec = generate_random_embedding(5)

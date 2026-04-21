@@ -94,8 +94,8 @@ async def test_generate_session_meta_uses_runtime_provider_override():
         title = await service.generate_session_meta(
             "chat-1",
             task="title",
-            provider_override="zhipu",
-            model_override="glm-4.6v"
+            provider_override="openai",
+            model_override="gpt-4o"
         )
         assert title == "运行时标题"
-        mock_get_model.assert_called_once_with("zhipu", "glm-4.6v")
+        mock_get_model.assert_called_once_with("openai", "gpt-4o")

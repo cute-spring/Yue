@@ -341,7 +341,7 @@ def test_prepare_prompt_runtime_respects_request_provider_model_override():
         )
         deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
         deps.config_service.get_feature_flags.return_value = {}
-        request = _make_request(provider="zhipu", model="glm-4.6v", model_role="reasoning")
+        request = _make_request(provider="openai", model="gpt-4o", model_role="reasoning")
         ctx, _, emitter, _ = _create_stream_runtime(
             chat_id="chat-1",
             request=request,
@@ -361,8 +361,8 @@ def test_prepare_prompt_runtime_respects_request_provider_model_override():
 
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
-        assert ctx.provider == "zhipu"
-        assert ctx.model_name == "glm-4.6v"
+        assert ctx.provider == "openai"
+        assert ctx.model_name == "gpt-4o"
 
     asyncio.run(run_test())
 

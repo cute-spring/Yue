@@ -13,7 +13,7 @@ export const deriveSlashAgentSelectorState = (input: string, cursorPos: number):
   const safeCursor = Math.max(0, Math.min(cursorPos, input.length));
   const textBefore = input.substring(0, safeCursor);
 
-  if (!textBefore.startsWith('/')) {
+  if (!textBefore.startsWith('/') && !textBefore.startsWith('@')) {
     return { show: false, filter: '' };
   }
 
@@ -50,7 +50,7 @@ export const getAgentSelectorKeyAction = (
 export const rewriteInputAfterSlashAgentSelection = (input: string, cursorPos: number): string => {
   const safeCursor = Math.max(0, Math.min(cursorPos, input.length));
   const textBefore = input.substring(0, safeCursor);
-  if (!textBefore.startsWith('/')) return input;
+  if (!textBefore.startsWith('/') && !textBefore.startsWith('@')) return input;
 
   const firstWhitespacePos = input.search(/\s/);
   const tokenEnd = firstWhitespacePos === -1 ? input.length : firstWhitespacePos;

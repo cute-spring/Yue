@@ -201,7 +201,8 @@ def test_get_chat_trace_bundle_rejects_unsupported_mode(client, mock_chat_servic
     mock_chat_service.get_chat.return_value = MagicMock(id="1")
     mock_chat_service.get_chat_trace_bundle.side_effect = ValueError("Unsupported trace bundle mode")
 
-    response = client.get("/api/chat/1/trace/bundle?mode=raw")
+    with patch("app.api.chat.config_service.get_feature_flags", return_value={"chat_trace_raw_enabled": False}):
+        response = client.get("/api/chat/1/trace/bundle?mode=raw")
 
     assert response.status_code == 403
     assert "Raw trace mode is disabled" in response.json()["detail"]
@@ -609,7 +610,7 @@ actions:
                 assert any('"mapped_tool": "builtin:exec"' in line for line in data_lines)
                 assert any("requires approval before any platform-tool continuation" in line for line in data_lines)
                 assert any("is awaiting approval before any platform-tool continuation can be considered" in line for line in data_lines)
-                assert mock_chat_service.add_action_event.call_count == 3
+                assert mock_chat_service.add_action_event.call_count == 4
                 mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
                 mock_get_model.assert_not_called()
                 mock_agent_cls.assert_not_called()
@@ -723,7 +724,7 @@ actions:
                 assert any('"tool_args": {"command": "pwd", "cwd": "/Users/gavinzhang/ws-ai-recharge-2026/Yue"}' in line for line in data_lines)
                 assert any("was approved. Platform-tool action flow can continue" in line for line in data_lines)
                 assert any("[Tool Result] `builtin:exec` returned:" in line for line in data_lines)
-                assert mock_chat_service.add_action_event.call_count == 6
+                assert mock_chat_service.add_action_event.call_count == 9
                 mock_chat_service.add_tool_call.assert_called_once()
                 mock_chat_service.update_tool_call.assert_called_once()
                 mock_registry.get_pydantic_ai_tools_for_agent.assert_not_called()
@@ -1426,11 +1427,11 @@ async def test_refine_title_once_forwards_runtime_provider_model():
          patch("app.api.chat.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": True}):
         mock_service.get_chat.return_value = chat_obj
         mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
-        await chat_api._refine_title_once("chat-id", provider_override="zhipu", model_override="glm-4.6v")
+        await chat_api._refine_title_once("chat-id", provider_override="openai", model_override="gpt-4o")
         mock_meta.generate_session_meta.assert_called_once()
         _, kwargs = mock_meta.generate_session_meta.call_args
-        assert kwargs.get("provider_override") == "zhipu"
-        assert kwargs.get("model_override") == "glm-4.6v"
+        assert kwargs.get("provider_override") == "openai"
+        assert kwargs.get("model_override") == "gpt-4o"
 
 @pytest.mark.asyncio
 async def test_refine_title_once_ignores_runtime_provider_model_when_disabled():
@@ -1446,7 +1447,7 @@ async def test_refine_title_once_ignores_runtime_provider_model_when_disabled():
          patch("app.api.chat.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": False}):
         mock_service.get_chat.return_value = chat_obj
         mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
-        await chat_api._refine_title_once("chat-id", provider_override="zhipu", model_override="glm-4.6v")
+        await chat_api._refine_title_once("chat-id", provider_override="openai", model_override="gpt-4o")
         mock_meta.generate_session_meta.assert_called_once()
         _, kwargs = mock_meta.generate_session_meta.call_args
         assert kwargs.get("provider_override") is None
@@ -1481,7 +1482,8 @@ async def test_chat_stream_with_agent_config(client, mock_chat_service):
          patch("app.api.chat.agent_store") as mock_agent_store, \
          patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat.config_service.get_doc_access", return_value={"allow_roots": ["/docs"], "deny_roots": []}):
         
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_agent_config = MagicMock()

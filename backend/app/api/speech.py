@@ -1,8 +1,7 @@
-from typing import Literal
-
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from app.services.agent_store import agent_store
 from app.services.speech_service import speech_service
@@ -93,9 +92,9 @@ async def issue_stt_token(agent_id: str = Query(..., min_length=1)):
 @router.post("/stt/test", response_model=SpeechSttTestResponse)
 async def test_stt_config(payload: SpeechSttTestRequest):
     if payload.provider != "azure":
-      raise HTTPException(status_code=400, detail="unsupported_stt_provider")
+        raise HTTPException(status_code=400, detail="unsupported_stt_provider")
     try:
-        _ = await speech_service.issue_azure_stt_token(region=payload.region, api_key=payload.api_key)
+        await speech_service.issue_azure_stt_token(region=payload.region, api_key=payload.api_key)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

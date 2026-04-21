@@ -446,7 +446,11 @@ export function useVoiceInput(config: Accessor<VoiceInputRuntimeConfig>): VoiceI
 
   const startRecording = async (_baseText = '') => {
     if (!supported()) {
-      setError(preferredProvider() === 'azure' ? 'Azure voice input is not available in this browser, and browser dictation is unavailable too.' : 'This browser does not support voice input.');
+      setError(
+        preferredProvider() === 'azure'
+          ? 'Azure voice input is not available in this browser, and browser dictation is unavailable too.'
+          : 'This browser does not support voice input.',
+      );
       setPhase('error');
       return false;
     }

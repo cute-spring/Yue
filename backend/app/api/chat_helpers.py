@@ -46,7 +46,7 @@ def build_runtime_meta_payload(
     *,
     provider: Optional[str],
     model_name: Optional[str],
-    model_resolution: Optional[Dict[str, Any]],
+    model_resolution: Optional[Dict[str, Any]] = None,
     tool_names: List[str],
     chat_id: str,
     agent_id: Optional[str],

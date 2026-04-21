@@ -10,9 +10,18 @@ class VectorSearchService:
     
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or DB_FILE
+
+    def extension_loading_supported(self) -> bool:
+        probe = sqlite3.connect(":memory:")
+        try:
+            return hasattr(probe, "enable_load_extension") and hasattr(probe, "load_extension")
+        finally:
+            probe.close()
     
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with sqlite-vec loaded"""
+        if not self.extension_loading_supported():
+            raise RuntimeError("sqlite extension loading is not supported by this Python sqlite3 build")
         conn = sqlite3.connect(self.db_path)
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
