@@ -15,8 +15,7 @@ from app.services.llm.capabilities import infer_capabilities, CAP_VISION, CAP_RE
         ("google", "gemini-1.5-pro", None, [CAP_FUNCTION_CALLING, CAP_VISION]),
         ("google", "gemini-1.5-flash", None, [CAP_FUNCTION_CALLING, CAP_VISION]),
         ("google", "gemini-1.0-pro", None, [CAP_FUNCTION_CALLING, CAP_VISION]),
-        ("custom", "gemini-ultra", None, [CAP_FUNCTION_CALLING, CAP_VISION]), 
-        ("zhipu", "glm-4v", None, [CAP_FUNCTION_CALLING, CAP_VISION]),
+        ("custom", "gemini-ultra", None, [CAP_FUNCTION_CALLING, CAP_VISION]),
         
         # Inference for reasoning
         ("google", "gemini-2.0-flash-thinking-exp", None, [CAP_FUNCTION_CALLING, CAP_REASONING, CAP_VISION]),

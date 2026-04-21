@@ -8,7 +8,6 @@ from app.services.llm.providers.ollama import OllamaProviderImpl, fetch_ollama_m
 from app.services.llm.providers.gemini import GeminiProviderImpl
 from app.services.llm.providers.litellm import LiteLLMProviderImpl
 from app.services.llm.providers.custom import CustomProviderImpl
-from app.services.llm.providers.zhipu import ZhipuProviderImpl
 from app.services.llm.providers.deepseek import DeepSeekProviderImpl
 
 @pytest.fixture
@@ -19,7 +18,6 @@ def mock_config():
          patch("app.services.llm.providers.gemini.config_service") as mock_gemini_cfg, \
          patch("app.services.llm.providers.litellm.config_service") as mock_litellm_cfg, \
          patch("app.services.llm.providers.custom.config_service") as mock_custom_cfg, \
-         patch("app.services.llm.providers.zhipu.config_service") as mock_zhipu_cfg, \
          patch("app.services.llm.providers.deepseek.config_service") as mock_deepseek_cfg:
         
         mock_openai_cfg.get_llm_config.return_value = {"openai_api_key": "sk-test"}
@@ -32,7 +30,6 @@ def mock_config():
         mock_gemini_cfg.get_llm_config.return_value = {"gemini_api_key": "test"}
         mock_litellm_cfg.get_llm_config.return_value = {"litellm_api_key": "test", "litellm_base_url": "http://test"}
         mock_custom_cfg.get_llm_config.return_value = {"custom_llm_configs": []}
-        mock_zhipu_cfg.get_llm_config.return_value = {"zhipu_api_key": "test"}
         mock_deepseek_cfg.get_llm_config.return_value = {"deepseek_api_key": "test"}
         
         yield
@@ -335,17 +332,6 @@ async def test_custom_provider(mock_config):
         
         model = provider.build("my-model")
         assert model.model_name == "my-model"
-
-@pytest.mark.asyncio
-async def test_zhipu_provider(mock_config):
-    provider = ZhipuProviderImpl()
-    models = await provider.list_models()
-    assert "glm-4v" in models
-    assert provider.configured()
-    
-    model = provider.build("glm-4v")
-    assert model.model_name == "glm-4v"
-    assert "ZHIPU_API_KEY" in provider.requirements()
 
 @pytest.mark.asyncio
 async def test_deepseek_provider(mock_config):

@@ -52,7 +52,7 @@ class TestModelFactoryRegistry(unittest.TestCase):
         # In test we must also mock the internal provider method which reads AppSettings if we use AppSettings
         # But wait, config_service._config["llm"] is modified above
         # Since AppSettings parses enabled_providers from environment and from json, we need to explicitly pass it
-        os.environ["ENABLED_PROVIDERS"] = "openai,deepseek,ollama,zhipu,azure_openai,dummy"
+        os.environ["ENABLED_PROVIDERS"] = "openai,deepseek,ollama,azure_openai,dummy"
         app.core.settings.settings = AppSettings()
         
         unregister_provider("dummy")
