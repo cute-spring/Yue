@@ -19,6 +19,36 @@ type GeneralSettingsTabProps = {
   saveDocAccess: () => void;
 };
 
+export const buildPreferencesFromFormData = (
+  formData: FormData,
+  currentPrefs: Preferences,
+): Preferences => {
+  const rate = Number(formData.get('speech_rate') ?? currentPrefs.speech_rate);
+  const volume = Number(formData.get('speech_volume') ?? currentPrefs.speech_volume);
+  const providerValue = formData.get('voice_input_provider');
+  const nextVoiceInputProvider = providerValue === 'azure' || providerValue === 'browser'
+    ? providerValue
+    : currentPrefs.voice_input_provider;
+
+  return {
+    theme: String(formData.get('theme') || currentPrefs.theme),
+    language: String(formData.get('language') || currentPrefs.language),
+    default_agent: String(formData.get('default_agent') || currentPrefs.default_agent),
+    advanced_mode: formData.get('advanced_mode') !== null,
+    voice_input_enabled: formData.get('voice_input_enabled') !== null,
+    voice_input_provider: nextVoiceInputProvider,
+    voice_input_language: String(formData.get('voice_input_language') || 'auto'),
+    voice_input_show_interim: formData.get('voice_input_show_interim') !== null,
+    auto_speech_enabled: formData.get('auto_speech_enabled') !== null,
+    speech_voice: String(formData.get('speech_voice') || ''),
+    speech_rate: Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1.0,
+    speech_volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1.0,
+    speech_engine: formData.get('speech_engine') === 'openai' ? 'openai' : 'browser',
+    speech_openai_voice: String(formData.get('speech_openai_voice') || 'alloy'),
+    speech_openai_model: String(formData.get('speech_openai_model') || 'gpt-4o-mini-tts'),
+  };
+};
+
 export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
   const speech = useSpeechSynthesis();
   const [isPreviewing, setIsPreviewing] = createSignal(false);
@@ -126,25 +156,7 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const formData = new FormData(form);
-    const rate = Number(formData.get('speech_rate') ?? props.prefs().speech_rate);
-    const volume = Number(formData.get('speech_volume') ?? props.prefs().speech_volume);
-    const next: Preferences = {
-      theme: String(formData.get('theme') || props.prefs().theme),
-      language: String(formData.get('language') || props.prefs().language),
-      default_agent: String(formData.get('default_agent') || props.prefs().default_agent),
-      advanced_mode: formData.get('advanced_mode') !== null,
-      voice_input_enabled: formData.get('voice_input_enabled') !== null,
-      voice_input_provider: formData.get('voice_input_provider') === 'azure' ? 'azure' : 'browser',
-      voice_input_language: String(formData.get('voice_input_language') || 'auto'),
-      voice_input_show_interim: formData.get('voice_input_show_interim') !== null,
-      auto_speech_enabled: formData.get('auto_speech_enabled') !== null,
-      speech_voice: String(formData.get('speech_voice') || ''),
-      speech_rate: Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1.0,
-      speech_volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1.0,
-      speech_engine: formData.get('speech_engine') === 'openai' ? 'openai' : 'browser',
-      speech_openai_voice: String(formData.get('speech_openai_voice') || 'alloy'),
-      speech_openai_model: String(formData.get('speech_openai_model') || 'gpt-4o-mini-tts'),
-    };
+    const next = buildPreferencesFromFormData(formData, props.prefs());
 
     props.setPrefs(next);
     props.savePrefs(next);

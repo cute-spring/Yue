@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildPreferencesFromFormData } from './components/GeneralSettingsTab';
 import {
   DEFAULT_FEATURE_FLAGS,
   DEFAULT_MODEL_TIER_CONFIG,
@@ -89,5 +90,20 @@ describe('preferences normalization', () => {
       balanced: DEFAULT_MODEL_TIER_CONFIG.balanced,
       heavy: { provider: 'anthropic', model: 'claude-3-7-sonnet' },
     });
+  });
+
+  it('preserves existing voice_input_provider when saving preferences without provider field', () => {
+    const formData = new FormData();
+    formData.set('theme', 'dark');
+    formData.set('language', 'zh');
+    formData.set('default_agent', 'agent_1');
+    formData.set('voice_input_language', 'zh-CN');
+
+    const next = buildPreferencesFromFormData(formData, {
+      ...DEFAULT_PREFERENCES,
+      voice_input_provider: 'azure',
+    });
+
+    expect(next.voice_input_provider).toBe('azure');
   });
 });
