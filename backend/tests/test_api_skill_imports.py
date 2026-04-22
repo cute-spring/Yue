@@ -75,6 +75,31 @@ def _write_unparseable_skill_directory(root: str, *, dir_name: str = "broken-ski
     return package_dir
 
 
+def _write_uploaded_skill_package(
+    root: str,
+    *,
+    upload_token: str = "upload_123",
+    skill_name: str = "uploaded-skill",
+    skill_version: str = "1.0.0",
+) -> str:
+    package_dir = os.path.join(root, "data", "uploads", upload_token)
+    os.makedirs(package_dir, exist_ok=True)
+    with open(os.path.join(package_dir, "SKILL.md"), "w", encoding="utf-8") as handle:
+        handle.write(
+            f"""---
+name: {skill_name}
+version: {skill_version}
+description: Uploaded skill
+capabilities: [\"analysis\"]
+entrypoint: system_prompt
+---
+## System Prompt
+You are an uploaded skill.
+"""
+        )
+    return package_dir
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     from app.api import skill_imports as skill_imports_module
@@ -105,6 +130,8 @@ def test_post_import_and_get_and_list(client, tmp_path):
     assert payload["import"]["skill_name"] == "imported-skill"
     assert payload["report"]["activation_eligibility"] == "eligible"
     assert payload["preview"]["skill_name"] == "imported-skill"
+    assert payload["import"]["lifecycle_state"] == SkillImportLifecycleState.ACTIVE.value
+    assert payload["import"]["activation_status"] == SkillActivationStatus.ACTIVE.value
 
     import_id = payload["import"]["id"]
 
@@ -130,13 +157,6 @@ def test_activate_and_deactivate_import(client, tmp_path):
     )
     import_id = create_response.json()["import"]["id"]
 
-    activate_response = client.post(f"/api/skill-imports/{import_id}/activate", json={})
-    assert activate_response.status_code == 200
-    activate_payload = activate_response.json()
-    assert activate_payload["import_id"] == import_id
-    assert activate_payload["lifecycle_state"] == SkillImportLifecycleState.ACTIVE.value
-    assert activate_payload["activation_status"] == SkillActivationStatus.ACTIVE.value
-
     deactivate_response = client.post(f"/api/skill-imports/{import_id}/deactivate", json={})
     assert deactivate_response.status_code == 200
     deactivate_payload = deactivate_response.json()
@@ -144,8 +164,15 @@ def test_activate_and_deactivate_import(client, tmp_path):
     assert deactivate_payload["lifecycle_state"] == SkillImportLifecycleState.INACTIVE.value
     assert deactivate_payload["activation_status"] == SkillActivationStatus.INACTIVE.value
 
+    activate_response = client.post(f"/api/skill-imports/{import_id}/activate", json={})
+    assert activate_response.status_code == 200
+    activate_payload = activate_response.json()
+    assert activate_payload["import_id"] == import_id
+    assert activate_payload["lifecycle_state"] == SkillImportLifecycleState.ACTIVE.value
+    assert activate_payload["activation_status"] == SkillActivationStatus.ACTIVE.value
 
-def test_activate_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch):
+
+def test_post_import_auto_activation_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch):
     from app.api import skill_imports as skill_imports_module
 
     calls: list[str] = []
@@ -156,10 +183,7 @@ def test_activate_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch):
         "/api/skill-imports",
         json={"source_type": "directory", "source_path": package_dir},
     )
-    import_id = create_response.json()["import"]["id"]
-
-    response = client.post(f"/api/skill-imports/{import_id}/activate", json={})
-    assert response.status_code == 200
+    assert create_response.status_code == 201
     assert calls == ["refresh"]
 
 
@@ -175,13 +199,69 @@ def test_deactivate_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch)
         json={"source_type": "directory", "source_path": package_dir},
     )
     import_id = create_response.json()["import"]["id"]
-    activate_response = client.post(f"/api/skill-imports/{import_id}/activate", json={})
-    assert activate_response.status_code == 200
     calls.clear()
 
     response = client.post(f"/api/skill-imports/{import_id}/deactivate", json={})
     assert response.status_code == 200
     assert calls == ["refresh"]
+
+
+def test_post_import_respects_auto_activation_flag_off(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_auto_activate_enabled": False},
+    )
+    package_dir = _write_skill_package(str(tmp_path), skill_name="manual-activate-skill")
+
+    response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": package_dir},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["import"]["lifecycle_state"] == SkillImportLifecycleState.ACTIVATION_READY.value
+    assert payload["import"]["activation_status"] == SkillActivationStatus.INACTIVE.value
+
+
+def test_post_import_auto_activate_does_not_replace_existing_active_import(client, tmp_path):
+    active_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="auto-activate-conflict-skill",
+        skill_version="1.0.0",
+        dir_name="auto-activate-conflict-v1",
+    )
+    active_response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": active_dir},
+    )
+    assert active_response.status_code == 201
+    active_import = active_response.json()["import"]
+    assert active_import["activation_status"] == SkillActivationStatus.ACTIVE.value
+
+    pending_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="auto-activate-conflict-skill",
+        skill_version="1.1.0",
+        dir_name="auto-activate-conflict-v2",
+    )
+    pending_response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": pending_dir},
+    )
+    assert pending_response.status_code == 201
+    pending_import = pending_response.json()["import"]
+    assert pending_import["lifecycle_state"] == SkillImportLifecycleState.ACTIVATION_READY.value
+    assert pending_import["activation_status"] == SkillActivationStatus.INACTIVE.value
+
+    list_response = client.get("/api/skill-imports", params={"skill_name": "auto-activate-conflict-skill"})
+    items = list_response.json()["items"]
+    active_items = [item for item in items if item["activation_status"] == SkillActivationStatus.ACTIVE.value]
+    assert len(active_items) == 1
+    assert active_items[0]["id"] == active_import["id"]
 
 
 def test_get_unknown_import_returns_stable_not_found_code(client):
@@ -204,6 +284,9 @@ def test_deactivate_inactive_import_returns_stable_conflict_code(client, tmp_pat
     )
     import_id = create_response.json()["import"]["id"]
 
+    first_response = client.post(f"/api/skill-imports/{import_id}/deactivate", json={})
+    assert first_response.status_code == 200
+
     response = client.post(f"/api/skill-imports/{import_id}/deactivate", json={})
     assert response.status_code == 409
     assert response.json()["detail"] == "skill_import_not_active"
@@ -221,9 +304,6 @@ def test_replace_promotes_new_import_and_supersedes_previous_active(client, tmp_
         json={"source_type": "directory", "source_path": old_package_dir},
     )
     old_import_id = old_create_response.json()["import"]["id"]
-
-    activate_response = client.post(f"/api/skill-imports/{old_import_id}/activate", json={})
-    assert activate_response.status_code == 200
 
     new_package_dir = _write_skill_package(
         str(tmp_path),
@@ -277,8 +357,6 @@ def test_replace_triggers_runtime_refresh_hook(client, tmp_path, monkeypatch):
         "/api/skill-imports",
         json={"source_type": "directory", "source_path": old_package_dir},
     ).json()["import"]["id"]
-    activate_response = client.post(f"/api/skill-imports/{old_import_id}/activate", json={})
-    assert activate_response.status_code == 200
     calls.clear()
 
     new_package_dir = _write_skill_package(
@@ -330,7 +408,14 @@ def test_replace_requires_activation_ready_state(client, tmp_path):
     assert response.json()["detail"] == "skill_activation_ineligible"
 
 
-def test_replace_requires_existing_active_import_for_target_skill(client, tmp_path):
+def test_replace_requires_existing_active_import_for_target_skill(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_auto_activate_enabled": False},
+    )
     package_dir = _write_skill_package(
         str(tmp_path),
         skill_name="replace-no-active-skill",
@@ -351,7 +436,14 @@ def test_replace_requires_existing_active_import_for_target_skill(client, tmp_pa
     assert response.json()["detail"] == "skill_replacement_conflict"
 
 
-def test_replace_returns_invalid_request_on_target_skill_mismatch(client, tmp_path):
+def test_replace_returns_invalid_request_on_target_skill_mismatch(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_auto_activate_enabled": False},
+    )
     package_dir = _write_skill_package(
         str(tmp_path),
         skill_name="replace-mismatch-skill",
@@ -404,9 +496,6 @@ def test_replace_conflict_when_multiple_active_imports_exist(client, tmp_path):
         json={"source_type": "directory", "source_path": old_package_dir},
     )
     old_import_id = old_create_response.json()["import"]["id"]
-    activate_response = client.post(f"/api/skill-imports/{old_import_id}/activate", json={})
-    assert activate_response.status_code == 200
-
     parallel_active_dir = _write_skill_package(
         str(tmp_path),
         skill_name="replace-multi-active-skill",
@@ -486,7 +575,7 @@ def test_list_skill_imports_filters_and_latest_only(client, tmp_path):
     by_activation = client.get("/api/skill-imports", params={"activation_status": "active"})
     assert by_activation.status_code == 200
     active_ids = {item["id"] for item in by_activation.json()["items"]}
-    assert active_ids == {alpha_v1}
+    assert active_ids == {alpha_v1, beta_id}
 
     latest_only = client.get("/api/skill-imports", params={"latest_only": "true"})
     assert latest_only.status_code == 200
@@ -562,13 +651,88 @@ def test_post_import_upload_requires_upload_token(client):
     assert response.json()["detail"] == "import_source_missing"
 
 
-def test_post_import_upload_returns_unpack_failed_for_placeholder_flow(client):
+def test_post_import_upload_returns_not_found_for_missing_upload_directory(client):
     response = client.post(
         "/api/skill-imports",
         json={"source_type": "upload", "upload_token": "upload_123"},
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "import_unpack_failed"
+
+
+def test_post_import_upload_resolves_upload_token_directory_package(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path / "data"))
+    from app.api import skill_imports as skill_imports_module
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_upload_enabled": True},
+    )
+    package_dir = _write_uploaded_skill_package(str(tmp_path), upload_token="upload_123", skill_name="upload-dir-skill")
+
+    response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "upload", "upload_token": "upload_123"},
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["import"]["skill_name"] == "upload-dir-skill"
+    assert payload["import"]["source_type"] == "upload"
+    assert payload["import"]["source_ref"] == package_dir
+    assert payload["report"]["activation_eligibility"] == "eligible"
+    assert payload["preview"]["skill_name"] == "upload-dir-skill"
+
+
+def test_post_import_upload_rejects_dot_segments_in_upload_token(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path / "data"))
+    from app.api import skill_imports as skill_imports_module
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_upload_enabled": True},
+    )
+
+    response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "upload", "upload_token": "../escape"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid_request"
+
+
+def test_post_import_upload_rejects_upload_root_token(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path / "data"))
+    (tmp_path / "data" / "uploads").mkdir(parents=True, exist_ok=True)
+    from app.api import skill_imports as skill_imports_module
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_upload_enabled": True},
+    )
+
+    response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "upload", "upload_token": "."},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid_request"
+
+
+def test_post_import_upload_rejects_url_encoded_dot_segments(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path / "data"))
+    from app.api import skill_imports as skill_imports_module
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_upload_enabled": True},
+    )
+
+    response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "upload", "upload_token": "%2e%2e/escape"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid_request"
 
 
 def test_activate_returns_already_active_when_import_is_active(client, tmp_path):
@@ -578,7 +742,6 @@ def test_activate_returns_already_active_when_import_is_active(client, tmp_path)
         json={"source_type": "directory", "source_path": package_dir},
     )
     import_id = create_response.json()["import"]["id"]
-    client.post(f"/api/skill-imports/{import_id}/activate", json={})
 
     response = client.post(f"/api/skill-imports/{import_id}/activate", json={})
     assert response.status_code == 409
@@ -610,7 +773,6 @@ def test_activate_conflicts_when_same_skill_has_another_active_import(client, tm
         json={"source_type": "directory", "source_path": v1_dir},
     )
     v1_id = v1_create.json()["import"]["id"]
-    client.post(f"/api/skill-imports/{v1_id}/activate", json={})
 
     v2_dir = _write_skill_package(
         str(tmp_path),
@@ -639,6 +801,11 @@ def test_concurrent_activate_same_skill_versions_keeps_single_active(client, tmp
         return original_save_entry(entry)
 
     monkeypatch.setattr(skill_imports_module, "_save_entry", delayed_save)
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_auto_activate_enabled": False},
+    )
 
     v1_dir = _write_skill_package(
         str(tmp_path),
@@ -682,6 +849,115 @@ def test_concurrent_activate_same_skill_versions_keeps_single_active(client, tmp
     assert len(active_items) == 1
 
 
+def test_concurrent_import_same_skill_versions_auto_activate_keeps_single_active(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    original_import = skill_imports_module.skill_import_service.import_from_directory
+
+    def delayed_import(*args, **kwargs):
+        time.sleep(0.05)
+        return original_import(*args, **kwargs)
+
+    monkeypatch.setattr(skill_imports_module.skill_import_service, "import_from_directory", delayed_import)
+
+    v1_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="concurrent-auto-import-skill",
+        skill_version="1.0.0",
+        dir_name="concurrent-auto-import-v1",
+    )
+    v2_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="concurrent-auto-import-skill",
+        skill_version="1.1.0",
+        dir_name="concurrent-auto-import-v2",
+    )
+
+    def _import(path: str):
+        return client.post("/api/skill-imports", json={"source_type": "directory", "source_path": path})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_import, v1_dir)
+        second = pool.submit(_import, v2_dir)
+        responses = [first.result(), second.result()]
+
+    assert sorted(response.status_code for response in responses) == [201, 201]
+    imports = [response.json()["import"] for response in responses]
+    active_imports = [item for item in imports if item["activation_status"] == SkillActivationStatus.ACTIVE.value]
+    pending_imports = [item for item in imports if item["activation_status"] == SkillActivationStatus.INACTIVE.value]
+    assert len(active_imports) == 1
+    assert len(pending_imports) == 1
+    assert pending_imports[0]["lifecycle_state"] == SkillImportLifecycleState.ACTIVATION_READY.value
+
+    list_response = client.get("/api/skill-imports", params={"skill_name": "concurrent-auto-import-skill"})
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    active_items = [item for item in items if item["activation_status"] == SkillActivationStatus.ACTIVE.value]
+    assert len(active_items) == 1
+
+
+def test_concurrent_deactivate_and_replace_keep_single_mutation_result(client, tmp_path, monkeypatch):
+    from app.api import skill_imports as skill_imports_module
+
+    original_save_entry = skill_imports_module._save_entry
+
+    def delayed_save(entry):
+        time.sleep(0.05)
+        return original_save_entry(entry)
+
+    monkeypatch.setattr(skill_imports_module, "_save_entry", delayed_save)
+    monkeypatch.setattr(
+        skill_imports_module.config_service,
+        "get_feature_flags",
+        lambda: {"skill_import_auto_activate_enabled": False},
+    )
+
+    active_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="concurrent-mutation-skill",
+        skill_version="1.0.0",
+        dir_name="concurrent-mutation-v1",
+    )
+    active_id = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": active_dir},
+    ).json()["import"]["id"]
+    activate_response = client.post(f"/api/skill-imports/{active_id}/activate", json={})
+    assert activate_response.status_code == 200
+
+    replacement_dir = _write_skill_package(
+        str(tmp_path),
+        skill_name="concurrent-mutation-skill",
+        skill_version="1.1.0",
+        dir_name="concurrent-mutation-v2",
+    )
+    replacement_id = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": replacement_dir},
+    ).json()["import"]["id"]
+
+    def _deactivate():
+        return client.post(f"/api/skill-imports/{active_id}/deactivate", json={})
+
+    def _replace():
+        return client.post(
+            f"/api/skill-imports/{replacement_id}/replace",
+            json={"target_skill_name": "concurrent-mutation-skill"},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_deactivate)
+        second = pool.submit(_replace)
+        responses = [first.result(), second.result()]
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    list_response = client.get("/api/skill-imports", params={"skill_name": "concurrent-mutation-skill"})
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    active_items = [item for item in items if item["activation_status"] == SkillActivationStatus.ACTIVE.value]
+    assert len(active_items) <= 1
+
+
 def test_replace_rejects_when_target_import_is_already_active(client, tmp_path):
     package_dir = _write_skill_package(str(tmp_path), skill_name="already-active-replace-skill")
     create_response = client.post(
@@ -689,7 +965,6 @@ def test_replace_rejects_when_target_import_is_already_active(client, tmp_path):
         json={"source_type": "directory", "source_path": package_dir},
     )
     import_id = create_response.json()["import"]["id"]
-    client.post(f"/api/skill-imports/{import_id}/activate", json={})
 
     response = client.post(
         f"/api/skill-imports/{import_id}/replace",
@@ -710,7 +985,6 @@ def test_list_skill_imports_filters_by_lifecycle_state_hit(client, tmp_path):
         "/api/skill-imports",
         json={"source_type": "directory", "source_path": active_dir},
     ).json()["import"]["id"]
-    client.post(f"/api/skill-imports/{active_id}/activate", json={})
 
     inactive_dir = _write_skill_package(
         str(tmp_path),

@@ -37,6 +37,7 @@ class SkillImportService:
         *,
         source_type: SkillImportSourceType = SkillImportSourceType.DIRECTORY,
         source_ref: Optional[str] = None,
+        auto_activate: bool = False,
     ) -> SkillImportResult:
         package_path = Path(package_dir).expanduser().resolve()
         display_source_ref = source_ref or str(package_path)
@@ -91,6 +92,8 @@ class SkillImportService:
             if compatibility.status == "compatible":
                 lifecycle_state = SkillImportLifecycleState.ACTIVATION_READY
                 activation_eligibility = "eligible"
+                if auto_activate and not self._has_active_import(package.name):
+                    lifecycle_state = SkillImportLifecycleState.ACTIVE
             else:
                 lifecycle_state = SkillImportLifecycleState.REJECTED
         else:
@@ -104,7 +107,11 @@ class SkillImportService:
             source_ref=display_source_ref,
             package_format=package.package_format,
             lifecycle_state=lifecycle_state,
-            activation_status=SkillActivationStatus.INACTIVE,
+            activation_status=(
+                SkillActivationStatus.ACTIVE
+                if lifecycle_state == SkillImportLifecycleState.ACTIVE
+                else SkillActivationStatus.INACTIVE
+            ),
         )
         report = SkillImportReport(
             import_id=record.id,
@@ -119,6 +126,18 @@ class SkillImportService:
         result = SkillImportResult(record=record, report=report, preview=preview)
         self.import_store.save_entry(SkillImportStoredEntry(**result.model_dump()))
         return result
+
+    def _has_active_import(self, skill_name: str) -> bool:
+        for entry in self.import_store.list_entries():
+            record = entry.record
+            if record.skill_name != skill_name:
+                continue
+            if record.lifecycle_state != SkillImportLifecycleState.ACTIVE:
+                continue
+            if record.activation_status != SkillActivationStatus.ACTIVE:
+                continue
+            return True
+        return False
 
     def _build_preview(self, package) -> SkillImportPreview:
         required_tools = sorted({action.tool for action in package.actions if action.tool})

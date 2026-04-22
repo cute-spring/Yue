@@ -21,6 +21,12 @@ It does **not** define:
 - RBAC APIs
 - release/signing/rollback workflows
 
+For current execution, Stage 3/4/5 follow a **Lite-first** policy:
+
+- keep API surface stable
+- reserve extension contracts first
+- avoid scope expansion in the current cycle
+
 ## 2. API Position
 
 The `Skill Import Gate` is the **admin acceptance surface** for skills.
@@ -57,6 +63,20 @@ Runtime-facing, selection-oriented:
 - select skill for an agent/task
 
 Current `/api/skills/select` remains in Plane B. [`backend/app/api/skills.py`](../../backend/app/api/skills.py)
+
+For Stage 3 Lite, runtime routing improvements should be API-neutral:
+
+- no new public endpoints are required
+- no endpoint-level contract should assume vector recall, LLM rerank, or multi-source federation
+- explanation fields may be added in response payloads in a backward-compatible way
+
+Current usability policy for small-skill-count deployment:
+
+- keep directory loading available
+- allow compatible imports to auto-activate by default
+- expose a config switch `skill_import_auto_activate_enabled` so operators can fall back to explicit activation
+- keep explicit deactivate/replace controls
+- keep runtime routing scoped to active skills only
 
 ## 3. Resource Model
 
@@ -224,7 +244,8 @@ Two supported request modes:
 
 - import should be idempotent only by explicit future policy, not by default
 - repeated imports of the same package may create different import records
-- import alone does not activate
+- default policy may auto-activate when evaluation is compatible and activation-eligible
+- explicit activation endpoint remains available for controlled/manual activation policy
 
 ## 5.2 List imports
 
@@ -328,10 +349,12 @@ Activates an accepted import record.
 
 ### Rules
 
-- only `activation_ready` imports may be activated
+- `activation_ready` imports may be activated
+- `inactive` imports may be re-activated after an explicit deactivate
 - activation should update persisted activation state
 - if another import for the same `skill_name` is active, activation policy must be explicit:
   - default recommendation: allow only one active import per `skill_name`
+- if import has already been auto-activated by policy, API may return conflict/idempotent semantics based on implementation choice
 
 ## 5.6 Deactivate import
 
@@ -404,8 +427,9 @@ Two possible paths:
 Recommendation:
 
 - Stage 1 keeps current `GET /api/skills`
-- Stage 2 makes `GET /api/skills` mean “active runtime skills”
+- Stage 2 keeps runtime listing aligned to active runtime skills
 - imported but inactive records stay under `/api/skill-imports`
+- directory-loaded compatible skills may be auto-activated into active runtime set by policy
 
 ## 6. Error Contract
 
@@ -480,15 +504,18 @@ Examples:
 
 ## 8. Persistence Contract
 
-The API contract assumes two persisted stores:
+The API contract requires durable persistence across restart for:
 
 - import records
-- activation state
+- activation semantics
 
-Suggested persistence files:
+Current Lite implementation may keep activation status inside import records.
+Future decoupled implementations may split activation into a dedicated store.
 
-- `~/.yue/data/skill_imports.json`
-- `~/.yue/data/skill_activation.json`
+Suggested persistence options:
+
+- minimal/current: `~/.yue/data/skill_imports.json`
+- reserved/future split: add `~/.yue/data/skill_activation.json`
 
 The API should not expose raw file layout, but the lifecycle contract depends on durable persistence across restart.
 
@@ -510,8 +537,8 @@ Current [`backend/app/api/skills.py`](../../backend/app/api/skills.py) should ev
 
 Reason:
 
-- reload is part of legacy directory-loader behavior
-- import-gate mode should not rely on manual reloading of watched folders
+- reload is an operator tool and should not be the primary user workflow
+- hybrid mode can keep directory watch/reload behavior while runtime routing still consumes active set semantics
 
 ### Add separately
 
@@ -538,6 +565,45 @@ Minimum endpoint set should exist:
 - `POST /api/skill-imports/{id}/deactivate`
 - `POST /api/skill-imports/{id}/replace`
 
+Policy note:
+
+- compatible imports may auto-activate by default in the current lightweight deployment policy
+- manual deactivate/replace must remain available for control
+
+## Stage 3 (Routing Lite)
+
+API contract remains stable. No new mandatory endpoints.
+
+Contract expectations:
+
+- runtime routing remains visibility-scoped
+- fallback semantics remain deterministic
+- future recall/rerank extensions must be additive and backward-compatible
+
+## Stage 4 (Decouple Lite)
+
+No immediate public API expansion is required.
+
+Reserve adapter-level seams behind existing API handlers:
+
+- `ToolCapabilityProvider`
+- `ActivationStateStore`
+- `RuntimeCatalogProjector`
+- `PromptInjectionAdapter`
+- `VisibilityResolver`
+
+These are internal integration contracts and should not be exposed as standalone HTTP resources in this phase.
+
+## Stage 5 (Externalization Prep Lite)
+
+No extraction-specific public API endpoints are required.
+
+Contract work in this stage is documentation-level:
+
+- draft future `skill_core` public API shape
+- keep current Yue API backward-compatible
+- validate boundaries through harness/tests without changing external endpoint topology
+
 ## 11. Acceptance Criteria
 
 This contract is acceptable when:
@@ -547,6 +613,9 @@ This contract is acceptable when:
 3. activation and replacement are explicit state transitions, not hidden side effects
 4. API semantics do not require runtime routing changes to be designed first
 5. future extraction of reusable `skill core` remains possible because the API surface is Yue adapter code, not core logic
+6. Stage 3/4/5 Lite can proceed without adding broad new endpoint surface area
+7. reserved interface seams can evolve internally without breaking current admin/runtime API consumers
+8. default auto-activation policy can coexist with explicit deactivation/replacement controls
 
 ## 12. Recommendation
 
@@ -555,4 +624,4 @@ For implementation, the safest order is:
 1. define import models and reports in service code
 2. implement import store and import service
 3. add API handlers under a new `/api/skill-imports` router
-4. only after that, switch runtime catalog consumption from directory loader to active accepted imports
+4. keep runtime consumption aligned to active-set semantics while preserving directory-loading usability in hybrid mode
