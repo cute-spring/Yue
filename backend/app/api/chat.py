@@ -31,7 +31,10 @@ from app.services.usage_service import calculate_usage
 from app.services.llm.utils import handle_llm_exception
 from app.services.multimodal_service import MultimodalService, MultimodalValidationError
 from app.services.session_meta_service import session_meta_service
-from app.services.skill_service import skill_action_execution_service, skill_registry, skill_router
+from app.services.skill_service import (
+    build_stage4_lite_runtime_seams,
+    get_stage4_lite_runtime_context,
+)
 from app.services.skills import (
     SkillPolicyGate,
     MarkdownSkillAdapter,
@@ -256,19 +259,50 @@ def _resolve_skill_runtime_state(
     chat_id: str,
     request_message: str,
     requested_skill: Optional[str],
+    runtime_seams: Any = None,
+    runtime_context: Any = None,
 ) -> Dict[str, Any]:
+    context = runtime_context or get_stage4_lite_runtime_context()
+    runtime_seams = runtime_seams or build_stage4_lite_runtime_seams(
+        import_store=context.skill_import_store,
+        router=context.skill_router,
+    )
     return prompting_resolve_skill_runtime_state(
         agent_config=agent_config,
         feature_flags=feature_flags,
         chat_id=chat_id,
         request_message=request_message,
         requested_skill=requested_skill,
-        skill_router=skill_router,
-        skill_registry=skill_registry,
+        skill_router=context.skill_router,
+        skill_registry=context.skill_registry,
         chat_service=chat_service,
         skill_bind_min_score=SKILL_BIND_MIN_SCORE,
         skill_switch_delta=SKILL_SWITCH_DELTA,
+        runtime_seams=runtime_seams,
     ).__dict__
+
+
+def _assemble_runtime_prompt(*, runtime_seams: Any = None, runtime_context: Any = None, **kwargs: Any) -> Any:
+    context = runtime_context or get_stage4_lite_runtime_context()
+    runtime_seams = runtime_seams or build_stage4_lite_runtime_seams(
+        import_store=context.skill_import_store,
+        router=context.skill_router,
+    )
+    return assemble_runtime_prompt(runtime_seams=runtime_seams, **kwargs)
+
+
+def _bind_runtime_prompt_helpers(runtime_context: Any) -> Dict[str, Any]:
+    def _resolve_bound(**kwargs: Any) -> Dict[str, Any]:
+        return _resolve_skill_runtime_state(runtime_context=runtime_context, **kwargs)
+
+    def _assemble_bound(**kwargs: Any) -> Any:
+        return _assemble_runtime_prompt(runtime_context=runtime_context, **kwargs)
+
+    return {
+        "resolve_skill_runtime_state": _resolve_bound,
+        "assemble_runtime_prompt": _assemble_bound,
+    }
+
 
 def _title_refinement_reason_distribution() -> Dict[str, Any]:
     return title_refinement_reason_distribution(_TITLE_REFINEMENT_REASON_COUNTS)
@@ -487,6 +521,8 @@ async def chat_stream(request: ChatRequest):
         attachments=attachments_payload if attachments_payload else None,
     )
 
+    runtime_context = get_stage4_lite_runtime_context()
+    prompt_helpers = _bind_runtime_prompt_helpers(runtime_context)
     deps = StreamRunnerDeps(
         logger=logger,
         agent_store=agent_store,
@@ -500,14 +536,14 @@ async def chat_stream(request: ChatRequest):
         calculate_usage=calculate_usage,
         handle_llm_exception=handle_llm_exception,
         prompt=PromptRuntimeDeps(
-            skill_registry=skill_registry,
-            skill_action_execution_service=skill_action_execution_service,
+            skill_registry=runtime_context.skill_registry,
+            skill_action_execution_service=runtime_context.skill_action_execution_service,
             markdown_skill_adapter=MarkdownSkillAdapter,
             skill_policy_gate=SkillPolicyGate,
-            assemble_runtime_prompt=assemble_runtime_prompt,
+            assemble_runtime_prompt=prompt_helpers["assemble_runtime_prompt"],
             build_scope_summary_block=_build_scope_summary_block,
             emit_skill_effectiveness_event=_emit_skill_effectiveness_event,
-            resolve_skill_runtime_state=_resolve_skill_runtime_state,
+            resolve_skill_runtime_state=prompt_helpers["resolve_skill_runtime_state"],
             action_preflight_message_builder=build_action_preflight_message,
             action_approval_message_builder=build_action_approval_message,
             action_execution_message_builder=build_action_execution_stub_message,

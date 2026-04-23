@@ -9,26 +9,13 @@ from pydantic import BaseModel, Field
 
 
 class SkillImportSourceType(str, Enum):
-    UPLOAD = "upload"
     DIRECTORY = "directory"
-    SEEDED = "seeded"
 
 
 class SkillImportLifecycleState(str, Enum):
-    IMPORTED = "imported"
-    PARSED = "parsed"
-    STANDARD_VALID = "standard_valid"
-    YUE_COMPATIBLE = "yue_compatible"
-    ACTIVATION_READY = "activation_ready"
     ACTIVE = "active"
     INACTIVE = "inactive"
     REJECTED = "rejected"
-    SUPERSEDED = "superseded"
-
-
-class SkillActivationStatus(str, Enum):
-    INACTIVE = "inactive"
-    ACTIVE = "active"
     SUPERSEDED = "superseded"
 
 
@@ -46,7 +33,7 @@ class SkillImportRecord(BaseModel):
     source_ref: Optional[str] = None
     package_format: str
     lifecycle_state: SkillImportLifecycleState
-    activation_status: SkillActivationStatus = SkillActivationStatus.INACTIVE
+    reason_code: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     supersedes_import_id: Optional[str] = None

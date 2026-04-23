@@ -31,8 +31,8 @@ plans/
 
 | 状态 | Epic 数量 | 说明 |
 |------|----------|------|
-| 🟢 In Progress | 3 | Epic 4, 5, 6 正在推进中 |
-| 🟡 Todo | 6 | Epic 3, 7, 8, 9 等待启动 |
+| 🟢 In Progress | 4 | Epic 4, 5, 6, 8 正在推进中 |
+| 🟡 Todo | 5 | Epic 3, 7, 9, 10 等待启动 |
 | ✅ Done | 6 | Epic 1, 2 等已完成 |
 
 ### Epic 追踪
@@ -42,6 +42,7 @@ plans/
 - **Epic 4**: [可观测性与执行透明化](observability_transparency_plan.md) - 90%
 - **Epic 5**: [消息交互与多模态增强](multimodal_image_qa_enhancement_plan_20260317.md) - 60%
 - **Epic 6**: [发布质量与工程门禁](release_readiness_gate_execution_plan_20260314.md) - 85%
+- **Epic 8**: [Skill Import Gate 与 Runtime 路由增强](INDEX.md) - 总体约96%（Stage 4-Lite 约95%）
 
 #### 待启动 (Todo)
 
@@ -49,8 +50,8 @@ plans/
 
 1. **Epic 3**: [文件管理与存储抽象层重构](File_Management_Improvement_Review.md)
 2. **Epic 7**: [记忆与模型能力精细化管理](hierarchical_memory_foundation_plan_20260315.md)
-3. **技能系统方向**: [Yue Skill Strategy](../research/skills_gap_comparison_and_roadmap_20260421.md)
-4. **Epic 9**: [代码库健康与 God Object 重构](codebase_refactor_plan_20260319.md)
+3. **Epic 9**: [代码库健康与 God Object 重构](codebase_refactor_plan_20260319.md)
+4. **Epic 10**: [聊天历史与用户体验优化](2026-03-26-chat-history-management-improvement-plan.md)
 
 #### 已完成 (Done)
 
@@ -85,9 +86,11 @@ plans/
 
 #### 技能系统
 - [Yue Skill Strategy](../research/skills_gap_comparison_and_roadmap_20260421.md) ✅
-- [Skill Import Runtime Execution Plan](./skill_import_runtime_execution_plan_20260421.md) 🟡
-- [Skill Import Gate Implementation Design](./skill_import_gate_implementation_design_20260421.md) 🟡
-- [Skill Import Gate API Contract](./skill_import_gate_api_contract_20260421.md) 🟡
+- [Skill Import Runtime Execution Plan](./skill_import_runtime_execution_plan_20260421.md) 🟢
+- [Skill Import Gate Implementation Design](./skill_import_gate_implementation_design_20260421.md) 🟢
+- [Skill Import Gate API Contract](./skill_import_gate_api_contract_20260421.md) 🟢
+- 当前执行口径：最小可用优先（directory 导入 + 内部研发调试可用 + 单一路由入口）；Stage 4-Lite 已进入最后收口（provider/container seam + hybrid 门禁矩阵 + runtime context 取依赖），但 `skill_service.py` 全局兼容壳层与 legacy/import-gate 双轨运行面仍待完全收敛；Stage 5 externalization 工作 deferred。
+- 最新回归证据：Epic 8 Stage 4-Lite closeout 回归已更新为 `77 passed / 146 passed`，与 `INDEX.md`、execution plan、implementation design 保持一致。
 
 ---
 
@@ -264,5 +267,5 @@ INDEX.md 中建议的执行顺序（从易到难、从底层到上层）：
 
 ---
 
-**最后更新**: 2026-03-24  
+**最后更新**: 2026-04-23  
 **维护者**: Yue Project Team

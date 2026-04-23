@@ -980,6 +980,137 @@ def test_skill_router_requested_skill_still_has_highest_priority():
     assert selected.name == "release-test-planner"
     assert score == 1000
 
+def test_skill_router_exposes_explanation_ready_contract_for_selected_skill():
+    registry = SkillRegistry()
+    planner = SkillSpec(
+        name="release-test-planner",
+        version="1.2.0",
+        description="Generate release plan and milestones",
+        capabilities=["planning", "release-management"],
+        entrypoint="system_prompt",
+        system_prompt="planner",
+        os=[platform.system().lower()]
+    )
+    debugger = SkillSpec(
+        name="backend-api-debugger",
+        version="1.0.0",
+        description="Inspect service failures quickly",
+        capabilities=["debug", "api-debugging"],
+        entrypoint="system_prompt",
+        system_prompt="debugger",
+        os=[platform.system().lower()]
+    )
+    hidden = SkillSpec(
+        name="hidden-skill",
+        version="9.9.9",
+        description="This skill should not be visible",
+        capabilities=["secret"],
+        entrypoint="system_prompt",
+        system_prompt="hidden",
+        os=[platform.system().lower()]
+    )
+    registry.register(planner)
+    registry.register(debugger)
+    registry.register(hidden)
+    router = SkillRouter(registry)
+    agent = type(
+        "Agent",
+        (),
+        {"visible_skills": ["release-test-planner:1.2.0", "backend-api-debugger:1.0.0"]},
+    )()
+
+    contract = router.route_with_contract(agent, "plan a release with milestones and rollout phases")
+
+    assert contract["selected"] == {
+        "name": "release-test-planner",
+        "version": "1.2.0",
+        "score": 9,
+    }
+    assert contract["candidates"] == [
+        {"name": "release-test-planner", "version": "1.2.0", "score": 9},
+        {"name": "backend-api-debugger", "version": "1.0.0", "score": 0},
+    ]
+    assert contract["scores"] == [
+        {
+            "name": "release-test-planner",
+            "version": "1.2.0",
+            "score": 9,
+            "available": True,
+            "visible": True,
+        },
+        {
+            "name": "backend-api-debugger",
+            "version": "1.0.0",
+            "score": 0,
+            "available": True,
+            "visible": True,
+        },
+    ]
+    assert all(item["name"] != "hidden-skill" for item in contract["scores"])
+    assert contract["reason"] == {
+        "code": "skill_selected",
+        "requested_skill": None,
+        "fallback_used": False,
+    }
+    assert contract["fallback_used"] is False
+    assert contract["stage_trace"] == [
+        {
+            "stage": "resolve_visible_skills",
+            "status": "completed",
+            "visible_skill_refs": ["release-test-planner:1.2.0", "backend-api-debugger:1.0.0"],
+        },
+        {
+            "stage": "score_candidates",
+            "status": "completed",
+            "top_candidate": {"name": "release-test-planner", "version": "1.2.0", "score": 9},
+        },
+        {
+            "stage": "apply_selection",
+            "status": "completed",
+            "selected": {"name": "release-test-planner", "version": "1.2.0"},
+        },
+    ]
+
+def test_skill_router_exposes_explanation_ready_contract_for_fallback():
+    registry = SkillRegistry()
+    planner = SkillSpec(
+        name="release-test-planner",
+        version="1.2.0",
+        description="Generate release plan and milestones",
+        capabilities=["planning", "release-management"],
+        entrypoint="system_prompt",
+        system_prompt="planner",
+        os=[platform.system().lower()]
+    )
+    registry.register(planner)
+    router = SkillRouter(registry)
+    agent = type("Agent", (), {"visible_skills": ["release-test-planner:1.2.0"]})()
+
+    contract = router.route_with_contract(agent, "write a short greeting")
+
+    assert contract["selected"] is None
+    assert contract["candidates"] == []
+    assert contract["scores"] == [
+        {
+            "name": "release-test-planner",
+            "version": "1.2.0",
+            "score": 0,
+            "available": True,
+            "visible": True,
+        }
+    ]
+    assert contract["reason"] == {
+        "code": "no_matching_skill",
+        "requested_skill": None,
+        "fallback_used": True,
+    }
+    assert contract["fallback_used"] is True
+    assert contract["stage_trace"][-1] == {
+        "stage": "fallback",
+        "status": "completed",
+        "reason_code": "no_matching_skill",
+    }
+
 def test_skill_router_offline_replay_hit_rate():
     registry = SkillRegistry()
     planner = SkillSpec(
@@ -1075,6 +1206,42 @@ def test_skill_router_uses_injected_skill_group_store():
 
     assert len(visible) == 1
     assert visible[0].name == "group-skill"
+
+
+def test_skill_router_uses_injected_visibility_resolver():
+    registry = SkillRegistry()
+    registry.register(
+        SkillSpec(
+            name="resolver-skill",
+            version="1.0.0",
+            description="resolver skill",
+            capabilities=["resolver"],
+            entrypoint="system_prompt",
+            system_prompt="resolver",
+            os=[platform.system().lower()],
+        )
+    )
+
+    class FakeVisibilityResolver:
+        def resolve_visible_skill_refs(self, _agent):
+            return ["resolver-skill:1.0.0"]
+
+    router = SkillRouter(registry, visibility_resolver=FakeVisibilityResolver())
+    agent = type(
+        "Agent",
+        (),
+        {
+            "skill_groups": ["ignored"],
+            "resolved_visible_skills": [],
+            "extra_visible_skills": [],
+            "visible_skills": [],
+        },
+    )()
+
+    visible = router.get_visible_skills(agent)
+
+    assert len(visible) == 1
+    assert visible[0].name == "resolver-skill"
 
 
 def test_markdown_skill_adapter_descriptor_includes_prompt_blocks_and_constraints():

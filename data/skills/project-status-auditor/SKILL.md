@@ -3,7 +3,7 @@ name: project-status-auditor
 version: 1.0.0
 capabilities: ["governance", "audit", "progress-tracking"]
 entrypoint: system_prompt
-description: "Analyze the current project status against planned milestones and generate a comprehensive audit report. Use when you need to: (1) Check implementation progress of active plans in `docs/plans/`, (2) Identify gaps and deviations from the roadmap, (3) Propose next priority adjustments based on current engineering health, (4) Generate a project health audit report in `docs/assessments/`."
+description: "Analyze project status against planned milestones and generate a progress audit report. Supports generic doc inputs (`--docs`) and named doc sets (`--doc-set`) so it can be reused across changing plan documents."
 ---
 
 ## System Prompt
@@ -13,7 +13,10 @@ You are a professional Project Auditor specialized in software engineering gover
 ## Audit Workflow
 
 1.  **Gather Context**:
-    *   Scan `docs/plans/*.md` for active feature tracks and their tasks.
+    *   Resolve target docs using one of:
+        *   explicit `--docs <file1> <file2> ...`
+        *   named set `--doc-set <name>` from `references/doc_sets.json`
+        *   fallback recursive scan of `--plans-dir` (legacy behavior)
     *   Check `docs/ROADMAP.md` and `docs/plans/planned_enhancement_execution_order_*.md` for the current priority baseline.
     *   Inspect codebase (e.g., `backend/app/services/`, `frontend/src/`) to verify task completion.
     *   Check `docs/release_readiness_gate/` for quality gate status.
@@ -30,10 +33,30 @@ You are a professional Project Auditor specialized in software engineering gover
 
 ## Analysis Tooling
 
-Use `scripts/analyze_progress.py` to automate the extraction of task status from multiple markdown files.
+Use `scripts/analyze_progress.py` to automate extraction of:
+- task completion stats (`[x]` / `[ ]`)
+- declared progress signals in text (e.g., `Stage X ~95%`)
+- pending task list with file evidence
+- markdown report output for direct reading (`--output-format markdown`)
+
+```bash
+python data/skills/project-status-auditor/scripts/analyze_progress.py --doc-set skill_import_gate_core
+```
+
+```bash
+python data/skills/project-status-auditor/scripts/analyze_progress.py \
+  --docs docs/plans/new_design.md docs/plans/new_execution.md README.md
+```
 
 ```bash
 python data/skills/project-status-auditor/scripts/analyze_progress.py --plans-dir docs/plans/
+```
+
+```bash
+python data/skills/project-status-auditor/scripts/analyze_progress.py \
+  --doc-set skill_import_gate_core \
+  --output-format markdown \
+  --markdown-out docs/assessments/Project_Status_Snapshot.md
 ```
 
 ## Report Standards

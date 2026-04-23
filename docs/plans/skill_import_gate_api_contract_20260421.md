@@ -48,7 +48,6 @@ So Yue should have two API planes:
 Admin-facing, lifecycle-oriented:
 
 - import
-- preview
 - inspect
 - activate
 - deactivate
@@ -62,12 +61,13 @@ Runtime-facing, selection-oriented:
 - inspect active skill metadata
 - select skill for an agent/task
 
-Current `/api/skills/select` remains in Plane B. [`backend/app/api/skills.py`](../../backend/app/api/skills.py)
+Current runtime selection entrypoint is `POST /api/skills/tool/select_runtime_skill`. [`backend/app/api/skills.py`](../../backend/app/api/skills.py)
 
 For Stage 3 Lite, runtime routing improvements should be API-neutral:
 
 - no new public endpoints are required
-- no endpoint-level contract should assume vector recall, LLM rerank, or multi-source federation
+- no endpoint-level contract should assume vector retrieval, LLM rerank, or multi-source federation
+- no new pluggable routing abstraction is introduced in this phase
 - explanation fields may be added in response payloads in a backward-compatible way
 
 Current usability policy for small-skill-count deployment:
@@ -92,11 +92,11 @@ Suggested fields:
 - `skill_name: string`
 - `skill_version: string`
 - `display_name: string | null`
-- `source_type: "upload" | "directory" | "seeded"`
+- `source_type: "directory"`
 - `source_ref: string | null`
 - `package_format: "package_directory" | "legacy_markdown"`
 - `lifecycle_state: string`
-- `activation_status: "inactive" | "active" | "superseded"`
+- `reason_code: string | null`
 - `created_at: datetime`
 - `updated_at: datetime`
 - `supersedes_import_id: string | null`
@@ -138,13 +138,8 @@ Suggested fields:
 
 ## 4. Lifecycle Vocabulary
 
-The API should expose the same lifecycle vocabulary defined in the implementation design:
+The API should expose a minimal persisted lifecycle vocabulary:
 
-- `imported`
-- `parsed`
-- `standard_valid`
-- `yue_compatible`
-- `activation_ready`
 - `active`
 - `inactive`
 - `rejected`
@@ -174,23 +169,14 @@ Creates a new import record and evaluates the package.
 
 ### Request
 
-Two supported request modes:
+Supported request mode:
 
-#### Mode A: import from staged server path
+#### Import from staged server path
 
 ```json
 {
   "source_type": "directory",
   "source_path": "/absolute/path/to/unpacked/skill"
-}
-```
-
-#### Mode B: import from uploaded archive artifact
-
-```json
-{
-  "source_type": "upload",
-  "upload_token": "upload_123"
 }
 ```
 
@@ -204,10 +190,10 @@ Two supported request modes:
     "id": "imp_01",
     "skill_name": "pdf-insight-extractor",
     "skill_version": "1.0.0",
-    "source_type": "upload",
+    "source_type": "directory",
     "package_format": "package_directory",
-    "lifecycle_state": "activation_ready",
-    "activation_status": "inactive",
+    "lifecycle_state": "inactive",
+    "reason_code": "manual_activation_required",
     "created_at": "2026-04-21T10:00:00Z",
     "updated_at": "2026-04-21T10:00:00Z",
     "supersedes_import_id": null,
@@ -257,7 +243,6 @@ Lists imported records.
 
 - `skill_name`
 - `lifecycle_state`
-- `activation_status`
 - `latest_only=true|false`
 
 ### Response
@@ -271,10 +256,9 @@ Lists imported records.
       "id": "imp_01",
       "skill_name": "pdf-insight-extractor",
       "skill_version": "1.0.0",
-      "source_type": "upload",
+      "source_type": "directory",
       "package_format": "package_directory",
       "lifecycle_state": "active",
-      "activation_status": "active",
       "created_at": "2026-04-21T10:00:00Z",
       "updated_at": "2026-04-21T10:10:00Z",
       "supersedes_import_id": null,
@@ -302,26 +286,7 @@ Returns the import record, report, and preview.
 }
 ```
 
-## 5.4 Preview import without activation
-
-`GET /api/skill-imports/{import_id}/preview`
-
-Returns only the parsed preview and evaluation report.
-
-### Response
-
-`200 OK`
-
-```json
-{
-  "preview": {},
-  "report": {}
-}
-```
-
-This endpoint is optional if `GET /api/skill-imports/{id}` already returns both, but it is useful for UI simplification.
-
-## 5.5 Activate import
+## 5.4 Activate import
 
 `POST /api/skill-imports/{import_id}/activate`
 
@@ -342,21 +307,20 @@ Activates an accepted import record.
   "import_id": "imp_01",
   "skill_name": "pdf-insight-extractor",
   "skill_version": "1.0.0",
-  "lifecycle_state": "active",
-  "activation_status": "active"
+  "lifecycle_state": "active"
 }
 ```
 
 ### Rules
 
-- `activation_ready` imports may be activated
+- `inactive` and activation-eligible imports may be activated
 - `inactive` imports may be re-activated after an explicit deactivate
 - activation should update persisted activation state
 - if another import for the same `skill_name` is active, activation policy must be explicit:
   - default recommendation: allow only one active import per `skill_name`
 - if import has already been auto-activated by policy, API may return conflict/idempotent semantics based on implementation choice
 
-## 5.6 Deactivate import
+## 5.5 Deactivate import
 
 `POST /api/skill-imports/{import_id}/deactivate`
 
@@ -371,12 +335,11 @@ Deactivates an active import.
   "import_id": "imp_01",
   "skill_name": "pdf-insight-extractor",
   "skill_version": "1.0.0",
-  "lifecycle_state": "inactive",
-  "activation_status": "inactive"
+  "lifecycle_state": "inactive"
 }
 ```
 
-## 5.7 Replace active skill with a new import
+## 5.6 Replace active skill with a new import
 
 `POST /api/skill-imports/{import_id}/replace`
 
@@ -405,7 +368,7 @@ Promotes a compatible imported revision and supersedes the current active revisi
 
 ### Rules
 
-- replacement should only be allowed when the new import is `activation_ready`
+- replacement should only be allowed when the new import is `inactive` and activation-eligible
 - the previous active revision becomes `superseded`
 - replacement should preserve lineage through:
   - `supersedes_import_id`
@@ -415,7 +378,7 @@ Promotes a compatible imported revision and supersedes the current active revisi
 - if `target_skill_name` is missing or empty, return:
   - `400` with `detail: "invalid_request"`
 
-## 5.8 List active runtime skills
+## 5.7 List active runtime skills
 
 This remains in the runtime plane.
 
@@ -440,7 +403,6 @@ The API should return stable machine-readable `detail` codes.
 - `invalid_request`
 - `import_source_missing`
 - `import_source_not_found`
-- `import_unpack_failed`
 - `skill_parse_failed`
 - `skill_standard_validation_failed`
 - `skill_yue_compatibility_failed`
@@ -457,7 +419,7 @@ The API should return stable machine-readable `detail` codes.
 - `409` for activation/replacement conflicts
 - `422` for accepted request body but failed import-gate evaluation
 - for `GET /api/skill-imports` query filters:
-  - invalid `lifecycle_state` or `activation_status` values return `400` with `detail: "invalid_request"`
+  - invalid `lifecycle_state` values return `400` with `detail: "invalid_request"`
 
 ### Example failure
 
@@ -485,11 +447,7 @@ The API should return stable machine-readable `detail` codes.
 
 The API should enforce these transitions:
 
-- `imported -> parsed`
-- `parsed -> standard_valid`
-- `standard_valid -> yue_compatible`
-- `yue_compatible -> activation_ready`
-- `activation_ready -> active`
+- `inactive -> active`
 - `active -> inactive`
 - `active -> superseded`
 - any failed evaluation path -> `rejected`
@@ -509,13 +467,11 @@ The API contract requires durable persistence across restart for:
 - import records
 - activation semantics
 
-Current Lite implementation may keep activation status inside import records.
-Future decoupled implementations may split activation into a dedicated store.
+Current Lite implementation keeps minimal activation semantics in import records via `lifecycle_state`.
 
 Suggested persistence options:
 
 - minimal/current: `~/.yue/data/skill_imports.json`
-- reserved/future split: add `~/.yue/data/skill_activation.json`
 
 The API should not expose raw file layout, but the lifecycle contract depends on durable persistence across restart.
 
@@ -528,8 +484,32 @@ Current [`backend/app/api/skills.py`](../../backend/app/api/skills.py) should ev
 - `GET /api/skills`
 - `GET /api/skills/summary`
 - `GET /api/skills/{name}`
-- `POST /api/skills/select`
 - `POST /api/skills/tool/select_runtime_skill`
+
+### Runtime Selection Response Profile
+
+For `POST /api/skills/tool/select_runtime_skill`, the default response must stay minimal in the current stage:
+
+- `selected_skill`
+- `reason_code`
+- `fallback_used`
+
+Detailed explanation fields are treated as debug-only surfaces:
+
+- `selected`
+- `candidates`
+- `scores`
+- `reason`
+- `stage_trace`
+- `selection_mode`
+- `effective_tools`
+
+Debug fields are allowed only under debug logging/diagnostics mode, and should not be treated as stable frontend/user-facing contract in this MVP phase.
+
+Current regression guard:
+
+- `backend/tests/test_api_skills.py` enforces default response profile to remain minimal (only `selected_skill`, `reason_code`, `fallback_used`).
+- debug/diagnostics fields are not returned by default response contract.
 
 ### Demote or gate
 
@@ -578,7 +558,7 @@ Contract expectations:
 
 - runtime routing remains visibility-scoped
 - fallback semantics remain deterministic
-- future recall/rerank extensions must be additive and backward-compatible
+- contract focuses on deterministic routing behavior and explanation-ready fields only
 
 ## Stage 4 (Decouple Lite)
 
@@ -594,15 +574,11 @@ Reserve adapter-level seams behind existing API handlers:
 
 These are internal integration contracts and should not be exposed as standalone HTTP resources in this phase.
 
-## Stage 5 (Externalization Prep Lite)
+## Stage 5 (Externalization Prep Lite, Deferred)
 
-No extraction-specific public API endpoints are required.
+Stage 5 externalization work is deferred for the current MVP cycle.
 
-Contract work in this stage is documentation-level:
-
-- draft future `skill_core` public API shape
-- keep current Yue API backward-compatible
-- validate boundaries through harness/tests without changing external endpoint topology
+Only keep minimal compatibility notes; do not introduce extraction-driven API work in this stage.
 
 ## 11. Acceptance Criteria
 
@@ -612,7 +588,7 @@ This contract is acceptable when:
 2. standard-valid but Yue-incompatible imports have a stable API representation
 3. activation and replacement are explicit state transitions, not hidden side effects
 4. API semantics do not require runtime routing changes to be designed first
-5. future extraction of reusable `skill core` remains possible because the API surface is Yue adapter code, not core logic
+5. API scope remains minimal and internal-dev oriented in the current cycle
 6. Stage 3/4/5 Lite can proceed without adding broad new endpoint surface area
 7. reserved interface seams can evolve internally without breaking current admin/runtime API consumers
 8. default auto-activation policy can coexist with explicit deactivation/replacement controls

@@ -1,6 +1,16 @@
 import { test, expect } from '@playwright/test';
 
 test('Comprehensive User Workflow', async ({ page }) => {
+  await page.route('**/api/models/providers**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] },
+      ]),
+    });
+  });
+
   // 1. Navigation and Landing
   await page.goto('/');
   await expect(page).toHaveTitle(/Yue/i);
@@ -21,9 +31,17 @@ test('Comprehensive User Workflow', async ({ page }) => {
   // Fill form
   await page.getByPlaceholder(/e.g. Coding Assistant/i).fill('E2E Test Agent');
   await page.locator('textarea').first().fill('You are an E2E test agent.');
+
+  // Ensure a model is selected if the form still shows the placeholder selector.
+  const modelSelector = page.getByRole('button', { name: /Select Model/i }).first();
+  if (await modelSelector.isVisible().catch(() => false)) {
+    await modelSelector.click();
+    await page.getByRole('button', { name: /^All$/i }).first().click().catch(() => {});
+    await page.getByRole('button', { name: /gpt|qwen|deepseek/i }).first().click();
+  }
   
-  // Click Create Agent in the form (it has type="submit")
-  await page.locator('form button[type="submit"]').click();
+  // Click Create Agent in the modal form.
+  await page.getByRole('button', { name: /^Create Agent$/ }).last().click();
   
   // Verify agent exists in list
   await expect(page.getByRole('heading', { name: 'E2E Test Agent' }).first()).toBeVisible();
@@ -44,20 +62,20 @@ test('Comprehensive User Workflow', async ({ page }) => {
   await page.getByTitle('Chat').click();
   await expect(page).toHaveURL(/\/$/);
 
-  // Select a model first to enable chatting
-  const modelSelector = page.getByRole('button', { name: /Select Model/i });
-  if (await modelSelector.isVisible()) {
-    await modelSelector.click();
-    // Select the first available model (e.g., deepseek-chat or any other)
-    await page.locator('button').filter({ hasText: /deepseek-chat|gpt-4|gpt-oss/i }).first().click();
-  }
+  await page.evaluate(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o');
+  });
+  await page.reload({ waitUntil: 'networkidle' });
 
   const input = page.locator('textarea');
   await input.fill('Hello Yue');
-  await input.press('Enter');
+  const sendButton = page.getByRole('button', { name: 'Send Message' });
+  await expect(sendButton).toBeEnabled();
+  await sendButton.click();
   
   // Check for chat bubble (user message)
-  await expect(page.locator('div').filter({ hasText: /^Hello Yue$/ }).first()).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('Hello Yue').first()).toBeVisible({ timeout: 10000 });
   
   // Wait for assistant to finish typing
   await expect(page.locator('text=System Ready')).toBeVisible({ timeout: 30000 });

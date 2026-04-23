@@ -6,9 +6,9 @@ test('Chat slash commands and @mention dropdown', async ({ page }) => {
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
 
-  // @mention opens dropdown
+  // @mention opens slash/mention picker
   await input.fill('@');
-  const dropdown = page.locator('div').filter({ hasText: /Mention Intelligence Agent/i }).first();
+  const dropdown = page.locator('div').filter({ hasText: /Slash Agent Picker/i }).first();
   await expect(dropdown).toBeVisible();
 
   // Select first agent and dropdown closes
@@ -35,7 +35,7 @@ test('Chat code block copy button writes assistant code to clipboard', async ({ 
   await mockChatSession(page, {
     id: 'chat-copy',
     title: 'HTML preview copy regression',
-    updated_at: '2026-04-10T00:00:00Z',
+    updated_at: new Date().toISOString(),
     messages: [
       { role: 'user', content: 'Show me html preview' },
       {

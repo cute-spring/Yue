@@ -9,6 +9,15 @@ from app.services.skills.import_models import SkillCompatibilityReport
 from app.services.skills.models import SkillPackageSpec, SkillSpec
 
 
+def _default_supported_tools() -> set[str]:
+    try:
+        from app.mcp.builtin import builtin_tool_registry
+
+        return {item["id"] for item in builtin_tool_registry.get_all_metadata() if isinstance(item.get("id"), str)}
+    except Exception:
+        return set()
+
+
 class SkillCompatibilityEvaluator:
     def __init__(
         self,
@@ -16,7 +25,10 @@ class SkillCompatibilityEvaluator:
         supported_tools: Optional[Iterable[str]] = None,
         current_os: Optional[str] = None,
     ):
-        self.supported_tools = set(supported_tools or [])
+        if supported_tools is None:
+            self.supported_tools = _default_supported_tools()
+        else:
+            self.supported_tools = set(supported_tools)
         self.current_os = self._normalize_os_name(current_os or platform.system())
 
     @staticmethod
@@ -51,10 +63,8 @@ class SkillCompatibilityEvaluator:
         if missing_env:
             issues.extend(f"Missing required environment variable: {item}" for item in missing_env)
 
-        unsupported_tools: List[str] = []
-        if self.supported_tools:
-            unsupported_tools = sorted({item for item in declared_tools if item and item not in self.supported_tools})
-            issues.extend(f"Unsupported tool required: {item}" for item in unsupported_tools)
+        unsupported_tools = sorted({item for item in declared_tools if item and item not in self.supported_tools})
+        issues.extend(f"Unsupported tool required: {item}" for item in unsupported_tools)
 
         return SkillCompatibilityReport(
             status="compatible" if not issues else "incompatible",

@@ -10,7 +10,6 @@ from app.services.skills.actions import (
 )
 from app.services.skills.compatibility import SkillCompatibilityEvaluator
 from app.services.skills.import_models import (
-    SkillActivationStatus,
     SkillCompatibilityReport,
     SkillImportLifecycleState,
     SkillImportPreview,
@@ -59,11 +58,19 @@ from app.services.skills.runtime_catalog import (
     refresh_runtime_registry_for_import_gate,
     resolve_skill_runtime_mode,
 )
+from app.services.skills.runtime_seams import (
+    ActivationStateStore,
+    PromptInjectionAdapter,
+    RuntimeCatalogProjector,
+    SkillRuntimeSeams,
+    ToolCapabilityProvider,
+    VisibilityResolver,
+    build_skill_runtime_seams,
+)
 
 __all__ = [
     "LegacyAgentAdapter",
     "MarkdownSkillAdapter",
-    "SkillActivationStatus",
     "SkillActionExecutionService",
     "SkillCompatibilityEvaluator",
     "SkillCompatibilityReport",
@@ -113,6 +120,13 @@ __all__ = [
     "RUNTIME_MODE_IMPORT_GATE",
     "RUNTIME_MODE_LEGACY",
     "RuntimeSkillCatalogProjector",
+    "RuntimeCatalogProjector",
+    "ToolCapabilityProvider",
+    "ActivationStateStore",
+    "PromptInjectionAdapter",
+    "VisibilityResolver",
+    "SkillRuntimeSeams",
+    "build_skill_runtime_seams",
     "refresh_runtime_registry_for_import_gate",
     "resolve_skill_runtime_mode",
     "build_action_execution_result_event",

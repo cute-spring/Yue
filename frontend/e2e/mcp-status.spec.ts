@@ -1,6 +1,34 @@
 import { test, expect } from '@playwright/test';
 
 test('MCP enable/disable toggles and status updates', async ({ page }) => {
+  let mcpConfigs = [{ name: 'fs', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem'], env: {}, enabled: true }];
+
+  await page.route('**/api/mcp/', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mcpConfigs) });
+      return;
+    }
+    const next = route.request().postDataJSON() as { mcpServers?: Array<Record<string, unknown>> };
+    mcpConfigs = Array.isArray(next?.mcpServers) ? (next.mcpServers as any[]) : mcpConfigs;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+  });
+  await page.route('**/api/mcp/reload', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+  });
+  await page.route('**/api/mcp/tools', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+  await page.route('**/api/mcp/status', async (route) => {
+    const status = mcpConfigs.map((cfg: any) => ({
+      name: cfg.name,
+      enabled: !!cfg.enabled,
+      connected: !!cfg.enabled,
+      tools_count: 0,
+      last_error: null,
+    }));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(status) });
+  });
+
   await page.goto('/settings');
   await page.getByRole('button', { name: 'MCP' }).click();
 

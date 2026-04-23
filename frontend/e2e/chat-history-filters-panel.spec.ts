@@ -25,7 +25,7 @@ test('filters panel defaults to collapsed even if legacy preference stored it as
 
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const toggle = page.getByRole('button', { name: 'Expand filters panel' });
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.getByPlaceholder('Search title, summary, tags...')).toHaveCount(0);
+  // Current UI no longer exposes a collapsible filters panel.
+  // Legacy preference should be ignored and search remains available.
+  await expect(page.getByPlaceholder('Search chats...')).toBeVisible();
 });

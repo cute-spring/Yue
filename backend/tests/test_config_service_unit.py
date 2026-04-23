@@ -106,8 +106,13 @@ def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_
 
     assert flags["chat_trace_ui_enabled"] is False
     assert flags["chat_trace_raw_enabled"] is False
+    assert flags["skill_runtime_enabled"] is True
+    assert flags["skill_runtime_debug_contract_enabled"] is False
     assert flags["skill_import_auto_activate_enabled"] is True
-    assert flags["skill_import_upload_enabled"] is False
+    assert "skill_selector_tool_enabled" not in flags
+    assert "skill_auto_mode_enabled" not in flags
+    assert "skill_summary_prompt_enabled" not in flags
+    assert "skill_lazy_full_load_enabled" not in flags
 
 
 def test_get_feature_flags_reads_chat_trace_raw_override(temp_config_file):
@@ -131,22 +136,22 @@ def test_update_feature_flags_round_trip(temp_config_file):
     updated = service.update_feature_flags({
         "chat_trace_ui_enabled": True,
         "chat_trace_raw_enabled": "true",
+        "skill_runtime_debug_contract_enabled": "1",
         "skill_import_auto_activate_enabled": "false",
-        "skill_import_upload_enabled": "true",
     })
 
     assert updated["chat_trace_ui_enabled"] is True
     assert updated["chat_trace_raw_enabled"] is True
+    assert updated["skill_runtime_debug_contract_enabled"] is True
     assert updated["skill_import_auto_activate_enabled"] is False
-    assert updated["skill_import_upload_enabled"] is True
 
     with open(temp_config_file, "r") as f:
         persisted = json.load(f)
 
     assert persisted["feature_flags"]["chat_trace_ui_enabled"] is True
     assert persisted["feature_flags"]["chat_trace_raw_enabled"] is True
+    assert persisted["feature_flags"]["skill_runtime_debug_contract_enabled"] is True
     assert persisted["feature_flags"]["skill_import_auto_activate_enabled"] is False
-    assert persisted["feature_flags"]["skill_import_upload_enabled"] is True
 
 
 def test_get_preferences_defaults_include_advanced_mode(temp_config_file):

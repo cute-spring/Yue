@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, skill_imports, export, speech, files
 from app.mcp.manager import mcp_manager
-from app.services.skill_service import skill_import_store, skill_registry
+from app.services.skill_service import get_stage4_lite_runtime_context
 from app.services.skills import (
     RUNTIME_MODE_IMPORT_GATE,
     RUNTIME_MODE_LEGACY,
@@ -51,25 +51,31 @@ def _resolve_runtime_skill_directories(*, resolver: SkillDirectoryResolver, impo
     return resolver.resolve()
 
 
+def _runtime_context():
+    return get_stage4_lite_runtime_context()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    runtime_context = _runtime_context()
+    runtime_registry = runtime_context.skill_registry
     resolver = SkillDirectoryResolver()
     runtime_mode = resolve_skill_runtime_mode(os.getenv("YUE_SKILL_RUNTIME_MODE"))
     layered_dirs = _resolve_runtime_skill_directories(
         resolver=resolver,
-        import_store=skill_import_store,
+        import_store=runtime_context.skill_import_store,
         runtime_mode=runtime_mode,
     )
     for item in layered_dirs:
         if item.layer in {"workspace", "user"}:
             Path(item.path).mkdir(parents=True, exist_ok=True)
-    skill_registry.set_layered_skill_dirs(layered_dirs)
-    skill_registry.skill_dirs = [item.path for item in layered_dirs]
-    skill_registry.load_all()
+    runtime_registry.set_layered_skill_dirs(layered_dirs)
+    runtime_registry.skill_dirs = [item.path for item in layered_dirs]
+    runtime_registry.load_all()
     watch_enabled = os.getenv("YUE_SKILLS_WATCH_ENABLED", "true").lower() not in {"0", "false", "off"}
     debounce_ms = int(os.getenv("YUE_SKILLS_RELOAD_DEBOUNCE_MS", "2000"))
     if watch_enabled and runtime_mode == RUNTIME_MODE_LEGACY:
-        skill_registry.start_runtime_watch(layer="user", debounce_ms=debounce_ms)
+        runtime_registry.start_runtime_watch(layer="user", debounce_ms=debounce_ms)
     elif watch_enabled and runtime_mode == RUNTIME_MODE_IMPORT_GATE:
         logger.info("Skill directory watch skipped in import-gate runtime mode")
     
@@ -80,7 +86,7 @@ async def lifespan(app: FastAPI):
     yield
     # Stop Health Monitor
     await health_monitor.stop()
-    skill_registry.stop_runtime_watch()
+    runtime_registry.stop_runtime_watch()
     # Cleanup MCP Manager
     await mcp_manager.cleanup()
 

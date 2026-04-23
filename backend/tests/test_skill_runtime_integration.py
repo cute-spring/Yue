@@ -7,14 +7,43 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from app.main import app
 from app.services.agent_store import AgentConfig
-from app.services.skill_service import skill_registry, SkillRegistry, SkillDirectorySpec, SkillSpec, SkillRouter
+from app.services.skill_service import (
+    SkillRegistry,
+    SkillDirectorySpec,
+    SkillSpec,
+    SkillRouter,
+    SkillActionExecutionService,
+    SkillImportStore,
+    SkillImportService,
+    SkillCompatibilityEvaluator,
+)
 
 @pytest.fixture
 def client():
     return TestClient(app)
 
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_context_seam():
+    runtime_registry = SkillRegistry()
+    runtime_router = SkillRouter(runtime_registry)
+    runtime_import_store = SkillImportStore()
+    runtime_import_service = SkillImportService(
+        import_store=runtime_import_store,
+        compatibility_evaluator=SkillCompatibilityEvaluator(),
+    )
+    runtime_context = MagicMock(
+        skill_registry=runtime_registry,
+        skill_router=runtime_router,
+        skill_action_execution_service=SkillActionExecutionService(runtime_registry),
+        skill_import_store=runtime_import_store,
+        skill_import_service=runtime_import_service,
+    )
+    with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context):
+        yield runtime_context
+
 @pytest.mark.asyncio
-async def test_skill_runtime_integration_auto_mode(client):
+async def test_skill_runtime_integration_auto_mode(client, isolated_runtime_context_seam):
     """
     Phase 2/3 Integration: Verify that skill_mode="auto" correctly selects 
     and applies a visible skill.
@@ -37,12 +66,13 @@ YOU ARE A TEST SKILL.
         with open(skill_path, "w") as f:
             f.write(skill_content)
         
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
         
             # 2. Mock Agent and Chat Flow
             payload = {
@@ -109,12 +139,12 @@ YOU ARE A TEST SKILL.
                 assert metrics["selected_group_ids"] == ["group-backend"]
                 assert metrics["resolved_skill_count"] == 1
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 @pytest.mark.asyncio
-async def test_skill_runtime_manual_mode_requires_requested_skill(client):
+async def test_skill_runtime_manual_mode_requires_requested_skill(client, isolated_runtime_context_seam):
     with tempfile.TemporaryDirectory() as tmp_dir:
         skill_content = """---
 name: manual-skill
@@ -132,12 +162,13 @@ YOU ARE A MANUAL SKILL.
         with open(skill_path, "w") as f:
             f.write(skill_content)
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             payload = {
                 "message": "Use manual skill.",
@@ -231,12 +262,12 @@ YOU ARE A MANUAL SKILL.
                 _, kwargs = mock_agent_cls.call_args
                 assert "[Active Skill:" not in kwargs["system_prompt"]
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 @pytest.mark.asyncio
-async def test_skill_runtime_no_constraints_keeps_agent_tools(client):
+async def test_skill_runtime_no_constraints_keeps_agent_tools(client, isolated_runtime_context_seam):
     with tempfile.TemporaryDirectory() as tmp_dir:
         skill_content = """---
 name: unconstrained-skill
@@ -252,8 +283,9 @@ YOU ARE AN UNCONSTRAINED SKILL.
         with open(skill_path, "w") as f:
             f.write(skill_content)
 
-        skill_registry.skill_dirs = [tmp_dir]
-        skill_registry.load_all()
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        runtime_registry.skill_dirs = [tmp_dir]
+        runtime_registry.load_all()
 
         payload = {
             "message": "Use unconstrained skill.",
@@ -300,7 +332,7 @@ YOU ARE AN UNCONSTRAINED SKILL.
             assert set(reg_kwargs["enabled_tools"]) == {"builtin:docs_read", "builtin:exec"}
 
 @pytest.mark.asyncio
-async def test_skill_runtime_applies_provider_overlay_when_loading_full_skill(client):
+async def test_skill_runtime_applies_provider_overlay_when_loading_full_skill(client, isolated_runtime_context_seam):
     with tempfile.TemporaryDirectory() as tmp_dir:
         pkg_dir = os.path.join(tmp_dir, "overlay-skill")
         os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
@@ -336,12 +368,13 @@ constraints:
   allowed_tools: ["builtin:exec"]
 """)
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             payload = {
                 "message": "Use the overlay skill.",
@@ -391,12 +424,12 @@ constraints:
                 _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
                 assert set(reg_kwargs["enabled_tools"]) == {"builtin:exec"}
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 @pytest.mark.asyncio
-async def test_skill_runtime_prefers_model_specific_overlay_when_available(client):
+async def test_skill_runtime_prefers_model_specific_overlay_when_available(client, isolated_runtime_context_seam):
     with tempfile.TemporaryDirectory() as tmp_dir:
         pkg_dir = os.path.join(tmp_dir, "overlay-skill")
         os.makedirs(os.path.join(pkg_dir, "agents"), exist_ok=True)
@@ -437,12 +470,13 @@ constraints:
             f.write("""instructions: GPT4O MODEL INSTRUCTIONS
 """)
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             payload = {
                 "message": "Use the overlay skill.",
@@ -492,12 +526,12 @@ constraints:
                 _, reg_kwargs = mock_registry.get_pydantic_ai_tools_for_agent.call_args
                 assert set(reg_kwargs["enabled_tools"]) == {"builtin:exec"}
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 @pytest.mark.asyncio
-async def test_skill_runtime_kill_switch_forces_legacy_path(client):
+async def test_skill_runtime_kill_switch_forces_legacy_path(client, isolated_runtime_context_seam):
     with tempfile.TemporaryDirectory() as tmp_dir:
         skill_content = """---
 name: kill-switch-skill
@@ -513,8 +547,9 @@ YOU ARE A KILL SWITCH SKILL.
         with open(skill_path, "w") as f:
             f.write(skill_content)
 
-        skill_registry.skill_dirs = [tmp_dir]
-        skill_registry.load_all()
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        runtime_registry.skill_dirs = [tmp_dir]
+        runtime_registry.load_all()
 
         payload = {
             "message": "Try skill with runtime disabled.",
@@ -526,8 +561,6 @@ YOU ARE A KILL SWITCH SKILL.
         with patch("app.api.chat.agent_store") as mock_agent_store, \
              patch("app.api.chat.config_service.get_feature_flags", return_value={
                  "skill_runtime_enabled": False,
-                 "skill_selector_tool_enabled": True,
-                 "skill_auto_mode_enabled": True
              }), \
              patch("app.api.chat.Agent") as mock_agent_cls, \
              patch("app.api.chat.chat_service") as mock_chat_service, \

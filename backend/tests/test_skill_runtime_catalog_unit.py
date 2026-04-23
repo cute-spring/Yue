@@ -5,7 +5,6 @@ from pathlib import Path
 
 from app.main import _resolve_runtime_skill_directories
 from app.services.skills.import_models import (
-    SkillActivationStatus,
     SkillImportLifecycleState,
     SkillImportPreview,
     SkillImportRecord,
@@ -17,9 +16,14 @@ from app.services.skills.import_store import SkillImportStore
 from app.services.skills.models import SkillDirectorySpec
 from app.services.skills.registry import SkillRegistry
 from app.services.skills.runtime_catalog import (
+    RUNTIME_CONVERGENCE_STRATEGY_HYBRID,
+    RUNTIME_CONVERGENCE_STRATEGY_IMPORT_GATE_STRICT,
     RUNTIME_MODE_IMPORT_GATE,
     RUNTIME_MODE_LEGACY,
+    is_skill_import_mutation_allowed,
     RuntimeSkillCatalogProjector,
+    refresh_runtime_registry_for_import_gate,
+    resolve_skill_runtime_convergence_strategy,
     resolve_skill_runtime_mode,
 )
 
@@ -30,7 +34,6 @@ def _entry(
     source_type: SkillImportSourceType,
     source_ref: str,
     lifecycle_state: SkillImportLifecycleState,
-    activation_status: SkillActivationStatus,
     updated_at: datetime,
     version: str = "1.0.0",
 ) -> SkillImportStoredEntry:
@@ -42,7 +45,6 @@ def _entry(
         source_ref=source_ref,
         package_format="package_directory",
         lifecycle_state=lifecycle_state,
-        activation_status=activation_status,
         updated_at=updated_at,
     )
     return SkillImportStoredEntry(
@@ -96,7 +98,6 @@ def test_runtime_catalog_projector_only_consumes_active_directory_imports(tmp_pa
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(active_dir),
             lifecycle_state=SkillImportLifecycleState.ACTIVE,
-            activation_status=SkillActivationStatus.ACTIVE,
             updated_at=now,
         )
     )
@@ -106,17 +107,6 @@ def test_runtime_catalog_projector_only_consumes_active_directory_imports(tmp_pa
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(active_dir),
             lifecycle_state=SkillImportLifecycleState.INACTIVE,
-            activation_status=SkillActivationStatus.INACTIVE,
-            updated_at=now,
-        )
-    )
-    store.save_entry(
-        _entry(
-            skill_name="upload-skill",
-            source_type=SkillImportSourceType.UPLOAD,
-            source_ref="upload-token-1",
-            lifecycle_state=SkillImportLifecycleState.ACTIVE,
-            activation_status=SkillActivationStatus.ACTIVE,
             updated_at=now,
         )
     )
@@ -126,7 +116,6 @@ def test_runtime_catalog_projector_only_consumes_active_directory_imports(tmp_pa
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(older_dir),
             lifecycle_state=SkillImportLifecycleState.ACTIVE,
-            activation_status=SkillActivationStatus.ACTIVE,
             updated_at=now - timedelta(minutes=2),
             version="1.0.0",
         )
@@ -137,7 +126,6 @@ def test_runtime_catalog_projector_only_consumes_active_directory_imports(tmp_pa
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(newer_dir),
             lifecycle_state=SkillImportLifecycleState.ACTIVE,
-            activation_status=SkillActivationStatus.ACTIVE,
             updated_at=now,
             version="2.0.0",
         )
@@ -160,7 +148,6 @@ def test_runtime_catalog_projector_recovers_active_projection_after_restart(tmp_
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(active_dir),
             lifecycle_state=SkillImportLifecycleState.ACTIVE,
-            activation_status=SkillActivationStatus.ACTIVE,
             updated_at=now,
         )
     )
@@ -171,8 +158,66 @@ def test_runtime_catalog_projector_recovers_active_projection_after_restart(tmp_
     projected = projector.project_active_import_dirs()
     assert projected == [SkillDirectorySpec(layer="import", path=str(active_dir.resolve()))]
 
+def test_runtime_catalog_projector_prefers_higher_version_when_updated_at_matches(tmp_path):
+    now = datetime.utcnow()
+    older_dir = _write_skill_package(tmp_path, "same-time-skill-v1")
+    newer_dir = _write_skill_package(tmp_path, "same-time-skill-v2")
 
-def test_resolve_runtime_mode_and_directory_path_switch(tmp_path):
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    store.save_entry(
+        _entry(
+            skill_name="same-time-skill",
+            source_type=SkillImportSourceType.DIRECTORY,
+            source_ref=str(older_dir),
+            lifecycle_state=SkillImportLifecycleState.ACTIVE,
+            updated_at=now,
+            version="1.0.0",
+        )
+    )
+    store.save_entry(
+        _entry(
+            skill_name="same-time-skill",
+            source_type=SkillImportSourceType.DIRECTORY,
+            source_ref=str(newer_dir),
+            lifecycle_state=SkillImportLifecycleState.ACTIVE,
+            updated_at=now,
+            version="2.0.0",
+        )
+    )
+
+    projected = RuntimeSkillCatalogProjector(import_store=store).project_active_import_dirs()
+    assert projected == [SkillDirectorySpec(layer="import", path=str(newer_dir.resolve()))]
+
+
+def test_runtime_catalog_projector_skips_invalid_source_refs(tmp_path):
+    now = datetime.utcnow()
+    valid_dir = _write_skill_package(tmp_path, "valid-skill")
+
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    store.save_entry(
+        _entry(
+            skill_name="broken-skill",
+            source_type=SkillImportSourceType.DIRECTORY,
+            source_ref="bad\0path",
+            lifecycle_state=SkillImportLifecycleState.ACTIVE,
+            updated_at=now,
+        )
+    )
+    store.save_entry(
+        _entry(
+            skill_name="valid-skill",
+            source_type=SkillImportSourceType.DIRECTORY,
+            source_ref=str(valid_dir),
+            lifecycle_state=SkillImportLifecycleState.ACTIVE,
+            updated_at=now,
+        )
+    )
+
+    projected = RuntimeSkillCatalogProjector(import_store=store).project_active_import_dirs()
+    assert projected == [SkillDirectorySpec(layer="import", path=str(valid_dir.resolve()))]
+
+
+def test_resolve_runtime_mode_defaults_to_import_gate_and_supports_explicit_legacy(tmp_path):
     legacy_dirs = [SkillDirectorySpec(layer="builtin", path="/tmp/legacy-skill-dir")]
     active_dir = _write_skill_package(tmp_path, "switch-skill")
     store = SkillImportStore(data_dir=str(tmp_path / "data"))
@@ -182,7 +227,6 @@ def test_resolve_runtime_mode_and_directory_path_switch(tmp_path):
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(active_dir),
             lifecycle_state=SkillImportLifecycleState.ACTIVE,
-            activation_status=SkillActivationStatus.ACTIVE,
             updated_at=datetime.utcnow(),
         )
     )
@@ -191,8 +235,11 @@ def test_resolve_runtime_mode_and_directory_path_switch(tmp_path):
         def resolve(self):
             return legacy_dirs
 
-    assert resolve_skill_runtime_mode(None) == RUNTIME_MODE_LEGACY
+    assert resolve_skill_runtime_mode(None) == RUNTIME_MODE_IMPORT_GATE
     assert resolve_skill_runtime_mode("import-gate") == RUNTIME_MODE_IMPORT_GATE
+    assert resolve_skill_runtime_mode("  IMPORT_GATE  ") == RUNTIME_MODE_IMPORT_GATE
+    assert resolve_skill_runtime_mode("legacy") == RUNTIME_MODE_LEGACY
+    assert resolve_skill_runtime_mode("unexpected-value") == RUNTIME_MODE_IMPORT_GATE
 
     resolved_legacy = _resolve_runtime_skill_directories(
         resolver=FakeResolver(),
@@ -209,6 +256,97 @@ def test_resolve_runtime_mode_and_directory_path_switch(tmp_path):
     assert resolved_gate == [SkillDirectorySpec(layer="import", path=str(active_dir.resolve()))]
 
 
+def test_mutation_guard_strict_strategy_blocks_only_explicit_legacy_runtime():
+    assert is_skill_import_mutation_allowed(
+        runtime_mode=None,
+        convergence_strategy=RUNTIME_CONVERGENCE_STRATEGY_IMPORT_GATE_STRICT,
+    )
+    assert not is_skill_import_mutation_allowed(
+        runtime_mode=RUNTIME_MODE_LEGACY,
+        convergence_strategy=RUNTIME_CONVERGENCE_STRATEGY_IMPORT_GATE_STRICT,
+    )
+
+
+def test_resolve_runtime_convergence_strategy_supports_strict_and_default_aliases():
+    assert resolve_skill_runtime_convergence_strategy(None) == RUNTIME_CONVERGENCE_STRATEGY_HYBRID
+    assert resolve_skill_runtime_convergence_strategy("default") == RUNTIME_CONVERGENCE_STRATEGY_HYBRID
+    assert resolve_skill_runtime_convergence_strategy("  STRICT  ") == RUNTIME_CONVERGENCE_STRATEGY_IMPORT_GATE_STRICT
+
+
+def test_refresh_runtime_registry_for_import_gate_is_repeatable(tmp_path):
+    active_dir = _write_skill_package(tmp_path, "repeatable-skill")
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    store.save_entry(
+        _entry(
+            skill_name="repeatable-skill",
+            source_type=SkillImportSourceType.DIRECTORY,
+            source_ref=str(active_dir),
+            lifecycle_state=SkillImportLifecycleState.ACTIVE,
+            updated_at=datetime.utcnow(),
+        )
+    )
+
+    calls = []
+
+    class FakeRegistry:
+        def __init__(self):
+            self.skill_dirs = []
+            self.layered_skill_dirs = []
+
+        def set_layered_skill_dirs(self, layered_skill_dirs):
+            self.layered_skill_dirs = list(layered_skill_dirs)
+            calls.append([item.path for item in layered_skill_dirs])
+
+        def load_all(self):
+            self.skill_dirs = [item.path for item in self.layered_skill_dirs]
+            calls.append(list(self.skill_dirs))
+
+    registry = FakeRegistry()
+
+    from app.services.skills.runtime_catalog import refresh_runtime_registry_for_import_gate
+
+    assert refresh_runtime_registry_for_import_gate(
+        skill_registry=registry,
+        import_store=store,
+        runtime_mode=RUNTIME_MODE_IMPORT_GATE,
+    )
+    assert refresh_runtime_registry_for_import_gate(
+        skill_registry=registry,
+        import_store=store,
+        runtime_mode=RUNTIME_MODE_IMPORT_GATE,
+    )
+
+    assert registry.layered_skill_dirs == [SkillDirectorySpec(layer="import", path=str(active_dir.resolve()))]
+    assert registry.skill_dirs == [str(active_dir.resolve())]
+    assert calls == [
+        [str(active_dir.resolve())],
+        [str(active_dir.resolve())],
+        [str(active_dir.resolve())],
+        [str(active_dir.resolve())],
+    ]
+
+
+def test_refresh_runtime_registry_for_import_gate_noop_in_legacy_mode():
+    calls = {"set_layered": 0, "load_all": 0}
+
+    class FakeRegistry:
+        skill_dirs = []
+
+        def set_layered_skill_dirs(self, _layered_skill_dirs):
+            calls["set_layered"] += 1
+
+        def load_all(self):
+            calls["load_all"] += 1
+
+    result = refresh_runtime_registry_for_import_gate(
+        skill_registry=FakeRegistry(),
+        runtime_mode=RUNTIME_MODE_LEGACY,
+    )
+
+    assert result is False
+    assert calls == {"set_layered": 0, "load_all": 0}
+
+
 def test_import_gate_projection_is_loadable_by_runtime_registry(tmp_path):
     active_dir = _write_skill_package(tmp_path, "routable-skill")
     store = SkillImportStore(data_dir=str(tmp_path / "data"))
@@ -218,7 +356,6 @@ def test_import_gate_projection_is_loadable_by_runtime_registry(tmp_path):
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(active_dir),
             lifecycle_state=SkillImportLifecycleState.ACTIVE,
-            activation_status=SkillActivationStatus.ACTIVE,
             updated_at=datetime.utcnow(),
         )
     )

@@ -26,25 +26,34 @@ But the codebase is still in a transitional shape:
 
 This means the correct next step is **not** broad refactoring and **not** immediate feature coding.
 
-The correct next step is:
+The correct next step in the current cycle is:
 
-- define a concrete Skill Import Gate lifecycle
-- carve the module boundary between reusable `skill core` and Yue integration
-- choose the first low-risk code seam for Stage 1 and Stage 2
+- close Stage 4-Lite coupling gaps without breaking current behavior
+- tighten contract-edge details in the import API and compatibility evaluation
+- keep Stage 5 full extraction deferred while preserving seam/harness verification assets plus minimal manifest deliverable
+
+As of 2026-04-23, the working cadence is:
+
+- Delivery estimate (current): Stage 1 ~98% | Stage 2 ~97% | Stage 3-Lite ~95% | Stage 4-Lite ~95% | Stage 5-Lite ~25% (deferred for full extraction, minimal boundary manifest landed)
+- Stage 1/2 capabilities are landed and covered by import/API/lifespan smoke tests
+- Stage 3-Lite contract and narrative cleanup are largely complete (default minimal routing response profile remains guarded)
+- Stage 4-Lite seams are landed and further practicalized (runtime context path usage, visibility resolver injection, chat runtime helper binding, runtime context factory seam, runtime provider/container seam, API seam de-singleton, hybrid matrix regression, strict convergence guard), but not fully converged (global singleton coupling remains)
+- Latest regression evidence is green: targeted API/import/lifespan/seams/harness/compatibility suite passes with `77 passed`, and the expanded chat/runtime-catalog/runtime-context suite passes with `146 passed`
+- Stage 5 remains deferred
 
 ## 2. Highest-Priority Next Step
 
 The highest-priority next step is:
 
-- **Introduce an explicit Skill Import Gate contract without breaking the current runtime path**
+- **Close Stage 4-Lite coupling and contract-edge gaps without destabilizing the current runtime path**
 
-This should be done by adding a new import/acceptance path beside the current startup loader, not by rewriting routing first.
+This should be done through localized seam-first refactoring and contract tightening, not by broad behavior rewrites.
 
 Reason:
 
-1. the current runtime already works well enough to continue serving traffic
-2. the biggest missing product surface is acceptance lifecycle, not parsing
-3. import-gate contracts can be added with lower regression risk than touching runtime routing and prompt assembly first
+1. import-gate product surface is already available and test-covered
+2. the largest remaining risk is cross-layer coupling, not missing parsing/import primitives
+3. seam-first closeout has lower regression risk than broad structural rewrites
 
 ## 3. Code Facts That Matter
 
@@ -61,20 +70,16 @@ The current code already provides these useful building blocks:
 - `chat_prompting.resolve_skill_runtime_state()` binds selection to chat sessions and `assemble_runtime_prompt()` injects the selected skill prompt into the agent persona. [`backend/app/services/chat_prompting.py:190`](../../backend/app/services/chat_prompting.py), [`backend/app/services/chat_prompting.py:331`](../../backend/app/services/chat_prompting.py)
 - app startup still loads skills directly from layered directories into a global registry. [`backend/app/main.py:37`](../../backend/app/main.py)
 
-### 3.2 What does not exist yet
+### 3.2 What remains incomplete
 
-The missing pieces are now very specific:
+The remaining gaps are now specific:
 
-- no explicit import transaction
-- no persisted import record
-- no admin-facing lifecycle states
-- no clear split between:
-  - standard-valid
-  - Yue-compatible
-  - activation-ready
-  - active
-- no activation persistence independent of source-directory presence
-- no replacement flow that preserves lineage between versions or revisions
+- Stage 4-Lite decoupling is incomplete: `skill_service.py` now has provider/container seams, but remains a global compatibility hub in key runtime paths
+- routing still contains Yue-specific visibility/group assumptions in adapter paths, although resolver injection seam now exists
+- runtime mode is still hybrid (`legacy` + `import-gate`), and operational convergence is not fully settled (strict convergence guard exists but is not default)
+- compatibility/tool policy now defaults to builtin registry supported-tools checks; remaining gap is policy calibration, not missing guardrail
+- API contract edge alignment for `source_type` and import-gate reload demotion is now implemented; remaining gap is long-term endpoint role convergence and chat-path dependency shrink
+- Stage 5 externalization remains intentionally deferred for full extraction (harness + minimal machine-readable boundary manifest are landed)
 
 ## 4. Coupling Hotspots
 
@@ -90,6 +95,7 @@ The main implementation risk is not parser complexity. It is **cross-layer coupl
 - a compatibility wrapper around `SkillRouter`
 
 This keeps the app simple to wire, but it also hides dependencies and makes extraction harder.
+Current Stage 4-Lite note: `Stage4LiteRuntimeProviders` now separates `registry/router/action/import_store` resolution seams, but module-level globals are still exposed for compatibility.
 
 Impact:
 
@@ -299,54 +305,33 @@ Current files:
 
 ## 6. Skill Import Gate Lifecycle Model
 
-The lifecycle should be explicit and stateful.
+The lifecycle should be explicit and minimal.
 
 ### 6.1 Proposed persistent states
 
-Each imported package should move through these states:
+Each imported package should move through these persisted states:
 
-1. `imported`
-   - package bytes or directory snapshot accepted by Yue
-   - source recorded
-   - no parse guarantee yet
-
-2. `parsed`
-   - `SKILL.md` and package structure parsed into normalized package model
-
-3. `standard_valid`
-   - passes Agent Skills structural validation
-
-4. `yue_compatible`
-   - passes Yue runtime compatibility checks
-   - does not imply active
-
-5. `activation_ready`
-   - valid, compatible, and eligible for activation in Yue
-
-6. `active`
+1. `active`
    - selected as an active package revision in the runtime catalog
 
-7. `inactive`
-   - previously accepted but currently not active
+2. `inactive`
+   - imported and activation-eligible, but currently not active
 
-8. `rejected`
-   - import failed parsing, standard validation, or compatibility gate
+3. `rejected`
+   - import failed parsing, validation, or compatibility checks
 
-9. `superseded`
-   - accepted earlier revision replaced by a newer imported revision
+4. `superseded`
+   - previously active revision replaced by a newer active revision
 
 ### 6.2 Lifecycle rules
 
 Rules should be strict:
 
-- `imported -> parsed` only if normalization succeeds
-- `parsed -> standard_valid` only if package validation succeeds
-- `standard_valid -> yue_compatible` only if compatibility evaluation succeeds
-- `yue_compatible -> activation_ready` only if Yue policy says activation is allowed
-- `activation_ready -> active` only via explicit admin action
+- valid+compatible imports become `inactive` by default, or `active` by auto-activation policy
+- `inactive -> active` via explicit admin activate or replacement flow
 - `active -> inactive` only via explicit admin action
-- any failed gate moves to `rejected`
-- replacement of an active revision marks the prior revision as `superseded`, not deleted
+- any failed gate moves to `rejected` with explicit `reason_code`
+- replacement marks prior active revision as `superseded`, not deleted
 
 ### 6.3 Why `availability` is not enough
 
@@ -359,7 +344,7 @@ That is not enough because:
 - it does not capture rejected vs inactive vs superseded
 - it is computed only after registration, not as an import lifecycle event
 
-So `availability` should remain a runtime convenience field, while the import gate introduces a separate acceptance lifecycle.
+So `availability` should remain a runtime convenience field, while the import gate introduces separate persisted lifecycle state plus `reason_code`.
 
 ## 7. First Recommended Refactoring Cut
 
@@ -419,7 +404,6 @@ Add models for:
 - `SkillImportLifecycleState`
 - `SkillImportReport`
 - `SkillCompatibilityReport`
-- `SkillActivationStatus`
 
 #### Deliverable B: compatibility evaluator
 
@@ -441,11 +425,10 @@ Persist import records under `YUE_DATA_DIR`, following the same atomic JSON patt
 Suggested files:
 
 - `~/.yue/data/skill_imports.json`
-- `~/.yue/data/skill_activation.json`
 
 #### Deliverable D: import service contract
 
-Add a service that accepts a package path or extracted upload path and returns:
+Add a service that accepts a package directory path and returns:
 
 - normalized package preview
 - validation report
@@ -475,7 +458,7 @@ Add a service that accepts a package path or extracted upload path and returns:
 
 ### Stage 1 acceptance criteria
 
-1. a package can be evaluated through an explicit import path without being auto-activated
+1. a package can be evaluated through an explicit import path without requiring manual file edits
 2. the system can distinguish:
    - parse failure
    - standard validation failure
@@ -502,10 +485,9 @@ Turn the Stage 1 contracts into a minimal usable product surface.
 ### Scope
 
 - explicit import endpoint
-- preview endpoint
 - activate / deactivate / replace endpoints
-- runtime catalog should consume only active accepted packages from the new path
-- startup directory scanning should be demoted from primary acceptance path
+- runtime catalog should consume active accepted packages
+- keep startup directory scanning available as a lightweight ingestion path
 
 ### Stage 2 deliverables
 
@@ -514,7 +496,6 @@ Turn the Stage 1 contracts into a minimal usable product surface.
 Add APIs for:
 
 - import skill package
-- preview import result
 - list imported records
 - activate record
 - deactivate record
@@ -522,12 +503,17 @@ Add APIs for:
 
 #### Deliverable B: activation persistence
 
-Add persisted activation state separate from import record state.
+Persist minimal activation semantics inside import records (`lifecycle_state`).
 
 Reason:
 
 - one imported revision may exist but remain inactive
-- runtime should build its active catalog from activation state, not just package presence
+- runtime should build its active catalog from import lifecycle state
+
+Current Lite policy:
+
+- compatible imports may auto-activate by default
+- explicit deactivate/replace remains available for control and rollback
 
 #### Deliverable C: runtime catalog projection
 
@@ -541,10 +527,13 @@ This should become the bridge between admin acceptance and runtime use.
 
 After Stage 2, startup should support two concepts:
 
-- source discovery for legacy/dev mode
-- accepted active catalog for import-gate mode
+- source discovery from configured directories
+- accepted active catalog for runtime routing
 
-The import-gate mode should become the preferred path.
+Current Lite policy keeps both paths in a hybrid model:
+
+- directory-first usability remains available
+- import-gate records and lifecycle controls remain available
 
 ### Stage 2 file-level change map
 
@@ -556,7 +545,7 @@ The import-gate mode should become the preferred path.
 #### Existing files to update
 
 - `backend/app/api/skills.py`
-  - add import/preview/activate/deactivate/replace endpoints, or split cleanly
+  - keep runtime consumption endpoints only
 - `backend/app/main.py`
   - initialize import store / activation store
   - build runtime catalog from active imports
@@ -570,16 +559,17 @@ The import-gate mode should become the preferred path.
 ### Stage 2 acceptance criteria
 
 1. admins can import a package without manually placing files into watched runtime directories
-2. a standard-valid but Yue-incompatible package is visible but cannot be activated
-3. runtime uses only active accepted skill revisions in import-gate mode
-4. replacing an active skill preserves lineage and marks the old revision `superseded`
-5. restart does not lose import records or activation state
+2. standard skills placed in configured directories can be discovered and run with minimal extra configuration
+3. a standard-valid but Yue-incompatible package is visible but cannot be activated
+4. runtime routes only against active skill revisions
+5. replacing an active skill preserves lineage and marks the old revision `superseded`
+6. restart does not lose import records and lifecycle state
 
 ### Stage 2 verification
 
-- API integration test: import -> preview -> activate -> list active
+- API integration test: import -> (auto-activate by policy or explicit activate) -> list active
 - API integration test: replace active revision -> old becomes superseded
-- app restart test: activation state is restored
+- app restart test: lifecycle state is restored
 - smoke runtime test: active imported skill appears in routing candidates
 
 ## 10. Recommended Structure for Future Extraction
@@ -630,7 +620,7 @@ then extraction is realistic.
 2. Stage 2: make Yue consume accepted active imports
 3. Stage 3: isolate runtime catalog and compatibility seams
 4. Stage 4: move generic code behind a package-style API
-5. Stage 5: run extraction spike
+5. Stage 5: keep extraction tasks deferred until MVP stabilizes
 
 This is feasible.
 
@@ -699,3 +689,68 @@ The first concrete move should be:
 - add import service
 
 without rewriting routing or prompt assembly yet.
+
+## 13. Stage 3 Execution Note (2026-04-22)
+
+To keep delivery narrow and aligned with current product assumptions, Stage 3 will run in a **Routing Lite** mode first.
+
+### Stage 3 current assumptions
+
+- visible skills per user/agent are expected to stay at low scale
+- near-term value is stable switching among small candidate sets, not complex retrieval quality optimization
+
+### Stage 3 current execution boundary
+
+- keep routing implementation simple and deterministic for low-skill-count scenarios
+- enforce visibility-scoped candidates first (different users/agents can see different skill sets)
+- keep routing as a fixed deterministic pipeline in this phase (no extra pluggable abstraction layer)
+
+## 14. Stage 4/5 Execution Note (2026-04-22)
+
+To avoid scope growth and preserve delivery rhythm, Stage 4 and Stage 5 will run in **Lite** mode first.
+
+### Stage 4 Lite: Decouple by seam, not by big move
+
+Current execution boundary:
+
+- reserve and apply minimal interfaces for integration points
+- isolate global seams behind a thin composition/facade layer
+- keep runtime behavior stable; prioritize testability and replacement readiness
+
+Required interface seams to reserve:
+
+- `ToolCapabilityProvider`
+- `ActivationStateStore`
+- `RuntimeCatalogProjector`
+- `PromptInjectionAdapter`
+- `VisibilityResolver`
+
+Non-goals in Stage 4 Lite:
+
+- no large file/module migration
+- no full-system dependency injection rewrite
+- no behavior-changing refactor
+
+### Stage 5 Lite: Deferred for full extraction in current MVP cycle
+
+Current execution boundary:
+
+- keep full extraction/repository split as deferred work
+- keep a minimal exportable boundary manifest artifact produced by runtime boundary harness
+
+Non-goals in Stage 5 Lite:
+
+- no repository split
+- no package publishing/open-source release workflow
+- no external API compatibility guarantee in this phase
+
+## 15. Runtime Usability Policy Note (2026-04-22)
+
+Current near-term product policy prioritizes "run with value first" for small skill sets:
+
+- keep directory-based loading available
+- allow compatible imports/skills to auto-activate by default policy
+- keep explicit deactivate/replace controls for operational safety
+- route only against active skills
+
+Large-scale dynamic selection and multi-team isolation can be handled in later phases.

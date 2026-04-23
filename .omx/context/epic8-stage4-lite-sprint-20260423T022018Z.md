@@ -1,0 +1,31 @@
+# Ralph Context Snapshot
+
+- task statement: 使用 ralph 主控，结合 ultrawork + tdd + build-fix，对 Epic 8 做 2 天强收口冲刺；覆盖 Lane A/B/C、Stage 4-Lite seam 实做、并跑指定验证命令。
+- desired outcome:
+  - INDEX“未完成项清单（跨 Phase）”里已完成两项改为已完成并附日期证据。
+  - runtime 关键路径（tool capability / visibility / prompt injection）优先走 seam，降低 skill_service.py 全局单例耦合。
+  - 每个 lane 有文件边界、验证命令、验收标准，并在每波结束做最小 build-fix 收尾。
+- known facts/evidence:
+  - 当前工作区已有大量未提交改动，包含目标文件与测试文件，且 `backend/app/services/skills/runtime_seams.py`、`backend/tests/test_skill_runtime_seams_unit.py`、`backend/tests/test_stage5_runtime_boundary_harness.py` 已存在。
+  - `docs/plans/INDEX.md` 目前“未完成项清单”仍是 3 个 `[ ]`，但同页 checklist 已标注前两项在 2026-04-23 通过。
+  - `backend/app/api/chat.py` 已通过 `build_stage4_lite_runtime_seams()` 把 runtime state/prompt assembly 接到 seam 输入。
+- constraints:
+  - 核心逻辑严格 TDD（先测后改）。
+  - 不回退任何现有未提交改动。
+  - 仅做最小可用收敛，不做过度设计。
+  - 必跑用户指定 4 组验证命令。
+- unknowns/open questions:
+  - Stage 4-Lite 尚未收口的具体耦合点是否主要在 `skill_service.py` 的 global router/store 兼容包装层。
+  - 文档中是否还有“下一步/未完成”叙事与当前证据不一致。
+- likely codebase touchpoints:
+  - docs/plans/INDEX.md
+  - docs/plans/skill_import_gate_implementation_design_20260421.md
+  - docs/plans/skill_import_runtime_execution_plan_20260421.md
+  - backend/app/services/skill_service.py
+  - backend/app/services/chat_prompting.py
+  - backend/app/api/chat.py
+  - backend/app/services/skills/runtime_seams.py
+  - backend/tests/test_skill_runtime_seams_unit.py
+  - backend/tests/test_stage5_runtime_boundary_harness.py
+  - backend/tests/test_import_gate_lifespan_smoke.py
+  - backend/tests/test_api_chat_unit.py

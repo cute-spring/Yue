@@ -5,7 +5,6 @@ from typing import Optional
 
 from app.services.skills.compatibility import SkillCompatibilityEvaluator
 from app.services.skills.import_models import (
-    SkillActivationStatus,
     SkillImportLifecycleState,
     SkillImportPreview,
     SkillImportRecord,
@@ -52,7 +51,7 @@ class SkillImportService:
                 source_ref=display_source_ref,
                 package_format="unknown",
                 lifecycle_state=SkillImportLifecycleState.REJECTED,
-                activation_status=SkillActivationStatus.INACTIVE,
+                reason_code="parse_failed",
             )
             result = SkillImportResult(
                 record=record,
@@ -77,7 +76,8 @@ class SkillImportService:
 
         validation = SkillLoader.validate_package(package)
         preview = self._build_preview(package)
-        lifecycle_state = SkillImportLifecycleState.PARSED
+        lifecycle_state = SkillImportLifecycleState.REJECTED
+        reason_code = "validation_failed"
         compatibility_status = "unknown"
         activation_eligibility = "ineligible"
         compatibility_issues = []
@@ -85,19 +85,20 @@ class SkillImportService:
         warnings = list(validation.warnings)
 
         if validation.is_valid:
-            lifecycle_state = SkillImportLifecycleState.STANDARD_VALID
             compatibility = self.compatibility_evaluator.evaluate_package(package)
             compatibility_status = compatibility.status
             compatibility_issues = list(compatibility.issues)
             if compatibility.status == "compatible":
-                lifecycle_state = SkillImportLifecycleState.ACTIVATION_READY
                 activation_eligibility = "eligible"
                 if auto_activate and not self._has_active_import(package.name):
                     lifecycle_state = SkillImportLifecycleState.ACTIVE
+                    reason_code = "auto_activated"
+                else:
+                    lifecycle_state = SkillImportLifecycleState.INACTIVE
+                    reason_code = "manual_activation_required" if not auto_activate else "active_version_exists"
             else:
                 lifecycle_state = SkillImportLifecycleState.REJECTED
-        else:
-            lifecycle_state = SkillImportLifecycleState.REJECTED
+                reason_code = "compatibility_failed"
 
         record = SkillImportRecord(
             skill_name=package.name,
@@ -107,11 +108,7 @@ class SkillImportService:
             source_ref=display_source_ref,
             package_format=package.package_format,
             lifecycle_state=lifecycle_state,
-            activation_status=(
-                SkillActivationStatus.ACTIVE
-                if lifecycle_state == SkillImportLifecycleState.ACTIVE
-                else SkillActivationStatus.INACTIVE
-            ),
+            reason_code=reason_code,
         )
         report = SkillImportReport(
             import_id=record.id,
@@ -133,8 +130,6 @@ class SkillImportService:
             if record.skill_name != skill_name:
                 continue
             if record.lifecycle_state != SkillImportLifecycleState.ACTIVE:
-                continue
-            if record.activation_status != SkillActivationStatus.ACTIVE:
                 continue
             return True
         return False

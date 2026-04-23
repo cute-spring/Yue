@@ -199,17 +199,22 @@ def resolve_skill_runtime_state(
     chat_service: Any,
     skill_bind_min_score: int,
     skill_switch_delta: int,
+    runtime_seams: Any = None,
 ) -> SkillRuntimeState:
     state = SkillRuntimeState()
     if not agent_config:
         return state
 
     state.selected_group_ids = list(getattr(agent_config, "skill_groups", None) or [])
-    resolved_refs = skill_router.resolve_visible_skill_refs(agent_config)
+    visibility_resolver = getattr(runtime_seams, "visibility_resolver", None) if runtime_seams else None
+    if visibility_resolver is not None:
+        resolved_refs = visibility_resolver.resolve_visible_skill_refs(agent_config)
+    else:
+        resolved_refs = skill_router.resolve_visible_skill_refs(agent_config)
     agent_config.resolved_visible_skills = resolved_refs
     state.resolved_skill_count = len(resolved_refs)
 
-    if feature_flags.get("skill_summary_prompt_enabled", False) and agent_config.skill_mode != "off":
+    if agent_config.skill_mode != "off":
         visible_skills = skill_router.get_visible_skills(agent_config)
         summary_lines = []
         for skill in visible_skills:
@@ -254,7 +259,7 @@ def resolve_skill_runtime_state(
             if bound_score >= skill_bind_min_score:
                 state.selected_skill_spec = bound_skill
                 state.selection_score = bound_score
-    elif agent_config.skill_mode == "auto" and feature_flags.get("skill_auto_mode_enabled", True):
+    elif agent_config.skill_mode == "auto":
         if inferred_requested_skill:
             state.selection_source = "inferred"
         best_skill, best_score = skill_router.route_with_score(
@@ -310,14 +315,12 @@ def build_always_skill_blocks(
             and always_skill.version == selected_skill_spec.version
         ):
             continue
-        resolved_always = always_skill
-        if feature_flags.get("skill_lazy_full_load_enabled", True):
-            resolved_always = skill_registry.get_full_skill(
-                always_skill.name,
-                always_skill.version,
-                provider=provider,
-                model_name=model_name,
-            ) or always_skill
+        resolved_always = skill_registry.get_full_skill(
+            always_skill.name,
+            always_skill.version,
+            provider=provider,
+            model_name=model_name,
+        ) or always_skill
         always_descriptor = markdown_skill_adapter.to_descriptor(resolved_always)
         always_prompt = always_descriptor.prompt_blocks.get("system_prompt", "")
         always_instructions = always_descriptor.prompt_blocks.get("instructions", "")
@@ -343,6 +346,7 @@ def assemble_runtime_prompt(
     markdown_skill_adapter: Any,
     skill_policy_gate: Any,
     build_scope_summary_block: Callable[[Any], Tuple[Optional[str], int]],
+    runtime_seams: Any = None,
 ) -> PromptAssemblyResult:
     system_prompt = request_system_prompt
     final_tools_list: List[str] = []
@@ -350,13 +354,12 @@ def assemble_runtime_prompt(
     always_injected_count = 0
 
     if selected_skill_spec:
-        if feature_flags.get("skill_lazy_full_load_enabled", True):
-            selected_skill_spec = skill_registry.get_full_skill(
-                selected_skill_spec.name,
-                selected_skill_spec.version,
-                provider=provider or agent_config.provider,
-                model_name=model_name or agent_config.model,
-            ) or selected_skill_spec
+        selected_skill_spec = skill_registry.get_full_skill(
+            selected_skill_spec.name,
+            selected_skill_spec.version,
+            provider=provider or agent_config.provider,
+            model_name=model_name or agent_config.model,
+        ) or selected_skill_spec
         descriptor = markdown_skill_adapter.to_descriptor(selected_skill_spec)
         provider = provider or agent_config.provider
         model_name = model_name or agent_config.model
@@ -376,17 +379,31 @@ def assemble_runtime_prompt(
         always_injected_count = len(always_blocks)
 
         use_persona = not (agent_config.name == "Expert Mgr" or "Skill Expert Manager" in persona)
-        if use_persona and persona:
-            system_prompt = f"{persona}\n\n[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+        prompt_injection_adapter = getattr(runtime_seams, "prompt_injection_adapter", None) if runtime_seams else None
+        active_skill_block = f"[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+        if prompt_injection_adapter is not None:
+            system_prompt = prompt_injection_adapter.compose_prompt(
+                base_prompt=persona if use_persona else "",
+                skill_prompt=active_skill_block,
+            )
+        elif use_persona and persona:
+            system_prompt = f"{persona}\n\n{active_skill_block}"
         else:
-            system_prompt = f"[Active Skill: {selected_skill_spec.name}]\n{skill_prompt}"
+            system_prompt = active_skill_block
         if instructions:
             system_prompt += f"\n\n### Additional Instructions\n{instructions}"
         if always_blocks:
             system_prompt += "\n\n" + "\n\n".join(always_blocks)
 
-        allowed_tools = descriptor.tool_policy.get("allowed_tools")
-        final_tools_list = skill_policy_gate.check_tool_intersection(agent_config.enabled_tools, allowed_tools)
+        tool_capability_provider = getattr(runtime_seams, "tool_capability_provider", None) if runtime_seams else None
+        if tool_capability_provider is not None:
+            final_tools_list = tool_capability_provider.resolve_effective_tools(
+                agent_tools=agent_config.enabled_tools,
+                skill=selected_skill_spec,
+            )
+        else:
+            allowed_tools = descriptor.tool_policy.get("allowed_tools")
+            final_tools_list = skill_policy_gate.check_tool_intersection(agent_config.enabled_tools, allowed_tools)
         emitted_event = {"event": "skill_selected", "name": selected_skill_spec.name, "version": selected_skill_spec.version}
     elif agent_config:
         provider = provider or agent_config.provider

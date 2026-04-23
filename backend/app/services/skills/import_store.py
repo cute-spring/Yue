@@ -7,6 +7,8 @@ import threading
 from datetime import datetime
 from typing import List, Optional
 
+from pydantic import ValidationError
+
 from app.services.skills.import_models import SkillImportRecord, SkillImportStoredEntry
 
 
@@ -88,7 +90,13 @@ class SkillImportStore:
             data = []
         if not isinstance(data, list):
             data = []
-        return [SkillImportStoredEntry(**item) for item in data]
+        entries: List[SkillImportStoredEntry] = []
+        for item in data:
+            try:
+                entries.append(SkillImportStoredEntry(**item))
+            except ValidationError:
+                continue
+        return entries
 
     def _save_entries(self, entries: List[SkillImportStoredEntry]) -> None:
         self._atomic_write_json(self.imports_file, [item.model_dump(mode="json") for item in entries])

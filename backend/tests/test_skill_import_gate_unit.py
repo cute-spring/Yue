@@ -1,7 +1,6 @@
 import os
 
 from app.services.skills.import_models import (
-    SkillActivationStatus,
     SkillImportLifecycleState,
 )
 from app.services.skills.import_service import SkillImportService
@@ -35,15 +34,15 @@ def test_import_service_imports_valid_package_and_persists_record(tmp_path):
     result = service.import_from_directory(package_dir)
 
     assert result.record.skill_name == "example-skill"
-    assert result.record.lifecycle_state == SkillImportLifecycleState.ACTIVATION_READY
-    assert result.record.activation_status == SkillActivationStatus.INACTIVE
+    assert result.record.lifecycle_state == SkillImportLifecycleState.INACTIVE
+    assert result.record.reason_code == "manual_activation_required"
     assert result.report.standard_validation_status == "passed"
     assert result.report.compatibility_status == "compatible"
 
     persisted = store.get_record(result.record.id)
     assert persisted is not None
     assert persisted.skill_name == "example-skill"
-    assert persisted.lifecycle_state == SkillImportLifecycleState.ACTIVATION_READY
+    assert persisted.lifecycle_state == SkillImportLifecycleState.INACTIVE
 
 
 def test_import_service_auto_activates_valid_package_when_enabled(tmp_path):
@@ -54,11 +53,10 @@ def test_import_service_auto_activates_valid_package_when_enabled(tmp_path):
     result = service.import_from_directory(package_dir, auto_activate=True)
 
     assert result.record.lifecycle_state == SkillImportLifecycleState.ACTIVE
-    assert result.record.activation_status == SkillActivationStatus.ACTIVE
+    assert result.record.reason_code == "auto_activated"
     persisted = store.get_record(result.record.id)
     assert persisted is not None
     assert persisted.lifecycle_state == SkillImportLifecycleState.ACTIVE
-    assert persisted.activation_status == SkillActivationStatus.ACTIVE
 
 
 def test_import_service_auto_activate_does_not_replace_existing_active_import(tmp_path):
@@ -86,14 +84,13 @@ You are an example skill v2.
     second = service.import_from_directory(replacement_dir, auto_activate=True)
 
     assert first.record.lifecycle_state == SkillImportLifecycleState.ACTIVE
-    assert first.record.activation_status == SkillActivationStatus.ACTIVE
-    assert second.record.lifecycle_state == SkillImportLifecycleState.ACTIVATION_READY
-    assert second.record.activation_status == SkillActivationStatus.INACTIVE
+    assert second.record.lifecycle_state == SkillImportLifecycleState.INACTIVE
+    assert second.record.reason_code == "active_version_exists"
 
     active_entries = [
         entry for entry in store.list_entries()
         if entry.record.skill_name == "example-skill"
-        and entry.record.activation_status == SkillActivationStatus.ACTIVE
+        and entry.record.lifecycle_state == SkillImportLifecycleState.ACTIVE
     ]
     assert len(active_entries) == 1
     assert active_entries[0].record.id == first.record.id
@@ -110,6 +107,7 @@ def test_import_service_rejects_yue_incompatible_package_and_persists_report(tmp
     result = service.import_from_directory(package_dir)
 
     assert result.record.lifecycle_state == SkillImportLifecycleState.REJECTED
+    assert result.record.reason_code == "compatibility_failed"
     assert result.report.standard_validation_status == "passed"
     assert result.report.compatibility_status == "incompatible"
     assert result.report.activation_eligibility == "ineligible"

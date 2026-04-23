@@ -163,8 +163,8 @@ def build_skill_effectiveness_payload(
         "summary_injected": summary_injected,
         "scope_summary_injected": scope_summary_injected,
         "effective_scope_count": effective_scope_count,
-        "summary_prompt_enabled": feature_flags.get("skill_summary_prompt_enabled", False),
-        "lazy_full_load_enabled": feature_flags.get("skill_lazy_full_load_enabled", True),
+        "summary_prompt_enabled": True,
+        "lazy_full_load_enabled": True,
         "system_prompt_tokens_estimate": estimate_tokens(system_prompt),
         "user_message_tokens_estimate": estimate_tokens(request_message),
     }
@@ -217,4 +217,3 @@ def format_citations_suffix(citations: Any) -> Optional[str]:
     if not sources:
         return None
     return "\n\nSources:\n" + "\n".join(sources)
-

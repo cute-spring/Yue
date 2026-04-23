@@ -12,7 +12,7 @@ test('Agents form supports skill_mode and visible_skills payload', async ({ page
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/config/doc_access', async route => {
@@ -78,7 +78,7 @@ test('Agents list shows skill badges only for manual and auto modes', async ({ p
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/config/doc_access', async route => {
@@ -143,7 +143,7 @@ test('Agent form saves agent_kind and skill_groups with echo', async ({ page }) 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/config/doc_access', async route => {
@@ -212,7 +212,7 @@ test('Agent form applies default skill prompt for skill templates', async ({ pag
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/config/doc_access', async route => {
@@ -264,7 +264,7 @@ test('Chat sends requested_skill and renders active skill indicator', async ({ p
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/skills', async route => {
@@ -310,18 +310,101 @@ test('Chat sends requested_skill and renders active skill indicator', async ({ p
     });
   });
 
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o');
+  });
   await page.goto('/');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await input.fill('@');
   await page.getByRole('button', { name: /Manual Skill Agent/i }).first().click();
 
   await page.locator('[data-testid="skill-chip-list"] [data-skill-id="planner:1.0.0"]').click();
-  await page.getByRole('button', { name: /Select Model/i }).click();
-  await page.getByRole('button', { name: /^gpt-4o$/i }).click();
   await input.fill('Use planning flow');
+  await expect(page.getByRole('button', { name: 'Send Message' })).toBeEnabled();
   await input.press('Enter');
 
   await expect(page.getByText('Active: planner@1.0.0')).toBeVisible();
+});
+
+test('Chat skill_selected payload tolerates explanation-ready fields', async ({ page }) => {
+  await page.route('**/api/chat/history', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+  await page.route('**/api/models/providers**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+    });
+  });
+  await page.route('**/api/skills', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { name: 'planner', version: '1.0.0', description: 'Planning', source_layer: 'workspace' }
+      ])
+    });
+  });
+  await page.route('**/api/agents/', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          id: 'agent-manual-v2',
+          name: 'Manual V2 Agent',
+          system_prompt: 'Manual mode',
+          provider: 'openai',
+          model: 'gpt-4o',
+          enabled_tools: [],
+          skill_mode: 'manual',
+          visible_skills: ['planner:1.0.0']
+        }
+      ])
+    });
+  });
+  await page.route('**/api/chat/stream', async route => {
+    const body = route.request().postDataJSON() as any;
+    expect(body.requested_skill).toBe('planner:1.0.0');
+    const stream = [
+      `data: ${JSON.stringify({ chat_id: 'chat-v2' })}\n\n`,
+      `data: ${JSON.stringify({
+        event: 'skill_selected',
+        name: 'planner',
+        version: '1.0.0',
+        selected: { name: 'planner', version: '1.0.0' },
+        candidates: [{ name: 'planner', version: '1.0.0', score: 1 }],
+        scores: { 'planner:1.0.0': 1 },
+        reason: 'skill_selected',
+        fallback_used: false,
+        stage_trace: [{ stage: 'recall', status: 'selected' }]
+      })}\n\n`,
+      `data: ${JSON.stringify({ content: 'Skill selection with extra fields applied.' })}\n\n`
+    ].join('');
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: stream
+    });
+  });
+
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o');
+  });
+  await page.goto('/');
+  const input = page.getByPlaceholder(/You are chatting with/i);
+  await input.fill('@');
+  await page.getByRole('button', { name: /Manual V2 Agent/i }).first().click();
+  await page.locator('[data-testid="skill-chip-list"] [data-skill-id="planner:1.0.0"]').click();
+  await input.fill('Use planner with explanation-ready payload');
+  await expect(page.getByRole('button', { name: 'Send Message' })).toBeEnabled();
+  await input.press('Enter');
+
+  await expect(page.getByText('Active: planner@1.0.0')).toBeVisible();
+  await expect(page.getByText('Skill selection with extra fields applied.')).toBeVisible();
 });
 
 test('Chat manual mode falls back cleanly for invalid requested skill', async ({ page }) => {
@@ -332,7 +415,7 @@ test('Chat manual mode falls back cleanly for invalid requested skill', async ({
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/skills', async route => {
@@ -374,14 +457,17 @@ test('Chat manual mode falls back cleanly for invalid requested skill', async ({
     });
   });
 
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o');
+  });
   await page.goto('/');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await input.fill('@');
   await page.getByRole('button', { name: /Manual Skill Agent/i }).first().click();
   await page.locator('[data-testid="skill-chip-list"] [data-skill-id="missing:9.9.9"]').click();
-  await page.getByRole('button', { name: /Select Model/i }).click();
-  await page.getByRole('button', { name: /^gpt-4o$/i }).click();
   await input.fill('Try missing skill');
+  await expect(page.getByRole('button', { name: 'Send Message' })).toBeEnabled();
   await input.press('Enter');
 
   await expect(page.getByText('Fallback to legacy completed.')).toBeVisible();
@@ -396,7 +482,7 @@ test('Chat manual mode prefers resolved_visible_skills for selector', async ({ p
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/skills', async route => {
@@ -440,15 +526,18 @@ test('Chat manual mode prefers resolved_visible_skills for selector', async ({ p
     });
   });
 
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o');
+  });
   await page.goto('/');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await input.fill('@');
   await page.getByRole('button', { name: /Manual Resolved Agent/i }).first().click();
   await expect(page.locator('[data-testid="skill-chip-list"] [data-testid="skill-chip"]')).toHaveCount(1);
   await page.locator('[data-testid="skill-chip-list"] [data-skill-id="planner:1.0.0"]').click();
-  await page.getByRole('button', { name: /Select Model/i }).click();
-  await page.getByRole('button', { name: /^gpt-4o$/i }).click();
   await input.fill('Use resolved skill');
+  await expect(page.getByRole('button', { name: 'Send Message' })).toBeEnabled();
   await input.press('Enter');
   await expect(page.getByText('Active: planner@1.0.0')).toBeVisible();
 });
@@ -461,7 +550,7 @@ test('Allowlist agent exposes skill selector while non-allowlist agent does not'
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ name: 'openai', supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
+      body: JSON.stringify([{ name: 'openai', configured: true, supports_model_refresh: false, available_models: ['gpt-4o'], models: ['gpt-4o'] }])
     });
   });
   await page.route('**/api/agents/', async route => {

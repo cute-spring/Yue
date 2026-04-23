@@ -165,7 +165,7 @@ def test_skills_select_infers_requested_skill_from_message():
             "task": "请使用 backend-api-debugger 来排查这个 500 错误",
             "mode": "auto",
         }
-        sr = requests.post(f"{BASE_URL}/api/skills/select", json=select_payload, timeout=30)
+        sr = requests.post(f"{BASE_URL}/api/skills/tool/select_runtime_skill", json=select_payload, timeout=30)
         assert sr.status_code == 200, sr.text
         selected = sr.json()
         assert selected["reason_code"] == "skill_selected"
