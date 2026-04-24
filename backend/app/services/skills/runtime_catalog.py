@@ -16,6 +16,7 @@ from app.services.skills.models import SkillDirectorySpec
 RUNTIME_MODE_LEGACY = "legacy"
 RUNTIME_MODE_IMPORT_GATE = "import-gate"
 RUNTIME_MODE_ENV_KEY = "YUE_SKILL_RUNTIME_MODE"
+RUNTIME_STATIC_READONLY_ENV_KEY = "YUE_SKILL_RUNTIME_STATIC_READONLY"
 RUNTIME_CONVERGENCE_STRATEGY_ENV_KEY = "YUE_SKILL_RUNTIME_CONVERGENCE_STRATEGY"
 RUNTIME_CONVERGENCE_STRATEGY_HYBRID = "hybrid"
 RUNTIME_CONVERGENCE_STRATEGY_IMPORT_GATE_STRICT = "import-gate-strict"
@@ -54,11 +55,25 @@ def resolve_skill_runtime_convergence_strategy(strategy: Optional[str] = None) -
     return RUNTIME_CONVERGENCE_STRATEGY_HYBRID
 
 
+def is_skill_runtime_static_readonly_enabled(enabled: Optional[bool | str] = None) -> bool:
+    raw_value: bool | str | None = enabled
+    if raw_value is None:
+        raw_value = os.getenv(RUNTIME_STATIC_READONLY_ENV_KEY)
+    if isinstance(raw_value, bool):
+        return raw_value
+    if not isinstance(raw_value, str):
+        return False
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def is_skill_import_mutation_allowed(
     *,
     runtime_mode: Optional[str] = None,
     convergence_strategy: Optional[str] = None,
+    static_readonly_enabled: Optional[bool | str] = None,
 ) -> bool:
+    if is_skill_runtime_static_readonly_enabled(static_readonly_enabled):
+        return False
     strategy = resolve_skill_runtime_convergence_strategy(convergence_strategy)
     if strategy != RUNTIME_CONVERGENCE_STRATEGY_IMPORT_GATE_STRICT:
         return True

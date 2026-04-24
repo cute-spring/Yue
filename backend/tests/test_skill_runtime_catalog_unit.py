@@ -21,6 +21,7 @@ from app.services.skills.runtime_catalog import (
     RUNTIME_MODE_IMPORT_GATE,
     RUNTIME_MODE_LEGACY,
     is_skill_import_mutation_allowed,
+    is_skill_runtime_static_readonly_enabled,
     RuntimeSkillCatalogProjector,
     refresh_runtime_registry_for_import_gate,
     resolve_skill_runtime_convergence_strategy,
@@ -265,6 +266,26 @@ def test_mutation_guard_strict_strategy_blocks_only_explicit_legacy_runtime():
         runtime_mode=RUNTIME_MODE_LEGACY,
         convergence_strategy=RUNTIME_CONVERGENCE_STRATEGY_IMPORT_GATE_STRICT,
     )
+
+
+def test_static_readonly_guard_disables_runtime_mutations_regardless_of_mode():
+    assert not is_skill_import_mutation_allowed(
+        runtime_mode=RUNTIME_MODE_IMPORT_GATE,
+        convergence_strategy=RUNTIME_CONVERGENCE_STRATEGY_HYBRID,
+        static_readonly_enabled=True,
+    )
+    assert not is_skill_import_mutation_allowed(
+        runtime_mode=RUNTIME_MODE_LEGACY,
+        convergence_strategy=RUNTIME_CONVERGENCE_STRATEGY_HYBRID,
+        static_readonly_enabled="true",
+    )
+
+
+def test_resolve_static_readonly_flag_from_explicit_values():
+    assert is_skill_runtime_static_readonly_enabled(True) is True
+    assert is_skill_runtime_static_readonly_enabled("1") is True
+    assert is_skill_runtime_static_readonly_enabled("true") is True
+    assert is_skill_runtime_static_readonly_enabled("no") is False
 
 
 def test_resolve_runtime_convergence_strategy_supports_strict_and_default_aliases():

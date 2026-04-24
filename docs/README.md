@@ -73,6 +73,12 @@
 - Skill Strategy: [Yue Skill Strategy](research/skills_gap_comparison_and_roadmap_20260421.md)
 - Epic 9: [代码库健康与 God Object 重构](plans/codebase_refactor_plan_20260319.md)
 
+### 4.5 ▶ 执行工作区 ([execution/](execution/))
+用于存放持续推进型执行器的状态文件、调用模板和批次推进入口。
+
+- **[README.md](execution/README.md)** - Execution Workspace 入口页
+- **[Skill Runtime Core Orchestrator Status](execution/skill-runtime-core-orchestrator-status.md)** - 当前主线状态
+
 ### 5. 🔬 战略评估 ([assessments/](assessments/))
 项目状态审计与战略调整报告。
 

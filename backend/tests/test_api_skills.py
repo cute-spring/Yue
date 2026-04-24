@@ -39,6 +39,8 @@ def test_api_skills_module_does_not_expose_runtime_singletons():
     # Stage 4-Lite closeout: API module should resolve runtime deps via context seam.
     assert not hasattr(skills_module, "skill_registry")
     assert not hasattr(skills_module, "skill_router")
+    assert not hasattr(skills_module, "config_service")
+    assert not hasattr(skills_module, "agent_store")
 
 
 def test_api_reload_skills(client, monkeypatch):
@@ -70,6 +72,15 @@ def test_api_reload_skills_import_gate_short_circuits_before_runtime_context(cli
         response = client.post("/api/skills/reload")
     assert response.status_code == 409
     assert response.json()["detail"] == "skill_reload_unavailable_in_import_gate_mode"
+
+
+def test_api_reload_skills_rejected_in_static_readonly_mode(client, monkeypatch):
+    monkeypatch.setenv("YUE_SKILL_RUNTIME_MODE", "legacy")
+    monkeypatch.setenv("YUE_SKILL_RUNTIME_STATIC_READONLY", "true")
+    with patch("app.api.skills.get_stage4_lite_runtime_context", side_effect=AssertionError("should not be called")):
+        response = client.post("/api/skills/reload")
+    assert response.status_code == 409
+    assert response.json()["detail"] == "skill_reload_unavailable_in_static_readonly_mode"
 
 
 @pytest.mark.parametrize(
@@ -145,7 +156,7 @@ def test_api_tool_select_runtime_skill_not_found(client):
         "agent_id": "non-existent",
         "task": "test"
     }
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
     }):
         response = client.post("/api/skills/tool/select_runtime_skill", json=payload)
@@ -157,7 +168,7 @@ def test_api_tool_select_runtime_skill_no_agent_skills(client):
         "agent_id": "builtin-architect",
         "task": "test"
     }
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
     }):
         response = client.post("/api/skills/tool/select_runtime_skill", json=payload)
@@ -191,10 +202,10 @@ def test_api_tool_select_runtime_skill_success(client):
         constraints=SkillConstraints(allowed_tools=["builtin:docs_read"])
     )
 
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
     }), \
-        patch("app.api.skills.agent_store.get_agent", return_value=fake_agent), \
+        patch("app.api.skills._get_agent", return_value=fake_agent), \
         patch("app.api.skills.get_stage4_lite_runtime_context") as mock_context:
         mock_context.return_value.skill_router.route.return_value = fake_skill
         mock_context.return_value.skill_router.route_with_contract.return_value = {"fallback_used": False}
@@ -223,10 +234,10 @@ def test_api_tool_select_runtime_skill_fallback_contract(client):
         visible_skills=["planner:1.0.0"]
     )
 
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
     }), \
-        patch("app.api.skills.agent_store.get_agent", return_value=fake_agent):
+        patch("app.api.skills._get_agent", return_value=fake_agent):
         response = client.post("/api/skills/tool/select_runtime_skill", json=payload)
         assert response.status_code == 200
         data = response.json()
@@ -250,7 +261,7 @@ def test_api_tool_select_runtime_skill_default_contract_excludes_debug_fields(cl
         "selection_mode",
         "effective_tools",
     }
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
     }):
         response = client.post("/api/skills/tool/select_runtime_skill", json=payload)
@@ -264,7 +275,7 @@ def test_api_tool_select_runtime_skill_includes_debug_fields_when_flag_enabled(c
         "agent_id": "builtin-architect",
         "task": "test",
     }
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
         "skill_runtime_debug_contract_enabled": True,
     }):
@@ -300,10 +311,10 @@ def test_api_tool_select_runtime_skill_preserves_agent_tools_when_allowed_tools_
         constraints=None
     )
 
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
     }), \
-        patch("app.api.skills.agent_store.get_agent", return_value=fake_agent), \
+        patch("app.api.skills._get_agent", return_value=fake_agent), \
         patch("app.api.skills.get_stage4_lite_runtime_context") as mock_context:
         mock_context.return_value.skill_router.route.return_value = fake_skill
         response = client.post("/api/skills/tool/select_runtime_skill", json=payload)
@@ -339,10 +350,10 @@ def test_api_tool_select_runtime_skill_blocks_all_tools_when_allowed_tools_is_em
         constraints=SkillConstraints(allowed_tools=[])
     )
 
-    with patch("app.api.skills.config_service.get_feature_flags", return_value={
+    with patch("app.api.skills._feature_flags", return_value={
         "skill_runtime_enabled": True,
     }), \
-        patch("app.api.skills.agent_store.get_agent", return_value=fake_agent), \
+        patch("app.api.skills._get_agent", return_value=fake_agent), \
         patch("app.api.skills.get_stage4_lite_runtime_context") as mock_context:
         mock_context.return_value.skill_router.route.return_value = fake_skill
         response = client.post("/api/skills/tool/select_runtime_skill", json=payload)

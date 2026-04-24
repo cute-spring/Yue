@@ -3,12 +3,15 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from app.services.skill_service import (
     build_stage4_lite_runtime_seams,
+    get_stage4_lite_host_adapters,
     get_stage4_lite_runtime_context,
 )
 from app.services.skills import SkillSpec, SkillSummary
-from app.services.agent_store import agent_store
-from app.services.config_service import config_service
-from app.services.skills.runtime_catalog import RUNTIME_MODE_IMPORT_GATE, resolve_skill_runtime_mode
+from app.services.skills.runtime_catalog import (
+    RUNTIME_MODE_IMPORT_GATE,
+    is_skill_runtime_static_readonly_enabled,
+    resolve_skill_runtime_mode,
+)
 import logging
 
 router = APIRouter()
@@ -26,6 +29,18 @@ def _runtime_seams():
 
 def _runtime_context():
     return get_stage4_lite_runtime_context()
+
+
+def _feature_flags() -> Dict[str, Any]:
+    # Transitional compatibility helper: API requests should read feature flags
+    # through host adapters instead of keeping module-level config shims alive.
+    return dict(get_stage4_lite_host_adapters().feature_flag_provider.get_feature_flags() or {})
+
+
+def _get_agent(agent_id: str):
+    # Transitional compatibility helper: resolve agents via host adapters so the
+    # request path stays runtime-context-first.
+    return get_stage4_lite_host_adapters().agent_provider.get_agent(agent_id)
 
 
 def _build_selection_contract(
@@ -102,6 +117,8 @@ async def get_skill(name: str, version: Optional[str] = None):
 
 @router.post("/reload")
 async def reload_skills(layer: str = Query("all")):
+    if is_skill_runtime_static_readonly_enabled():
+        raise HTTPException(status_code=409, detail="skill_reload_unavailable_in_static_readonly_mode")
     if resolve_skill_runtime_mode() == RUNTIME_MODE_IMPORT_GATE:
         raise HTTPException(status_code=409, detail="skill_reload_unavailable_in_import_gate_mode")
     allowed_layers = {"all", "builtin", "workspace", "user"}
@@ -114,7 +131,7 @@ async def reload_skills(layer: str = Query("all")):
 @router.post("/tool/select_runtime_skill")
 async def select_runtime_skill(request: Dict[str, Any] = Body(...)):
     """Tool entrypoint for controlled runtime skill selection."""
-    feature_flags = config_service.get_feature_flags()
+    feature_flags = _feature_flags()
     if not feature_flags.get("skill_runtime_enabled", True):
         raise HTTPException(status_code=403, detail="skill_selection_unavailable")
 
@@ -126,7 +143,7 @@ async def select_runtime_skill(request: Dict[str, Any] = Body(...)):
     if not agent_id or not task:
         raise HTTPException(status_code=400, detail="invalid_request")
 
-    agent = agent_store.get_agent(agent_id)
+    agent = _get_agent(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
     runtime_context = _runtime_context()

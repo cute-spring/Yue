@@ -101,6 +101,7 @@ def test_api_skill_imports_module_does_not_expose_runtime_singletons():
     # Stage 4-Lite closeout: API module should resolve runtime deps via context seam.
     assert not hasattr(skill_imports_module, "skill_import_store")
     assert not hasattr(skill_imports_module, "skill_import_service")
+    assert not hasattr(skill_imports_module, "config_service")
 
 
 def test_post_import_and_get_and_list(client, tmp_path):
@@ -243,6 +244,19 @@ def test_import_mutation_allowed_in_import_gate_when_convergence_strict(client, 
     assert response.status_code == 201
 
 
+def test_import_mutation_rejected_in_static_readonly_even_when_import_gate(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("YUE_SKILL_RUNTIME_MODE", "import-gate")
+    monkeypatch.setenv("YUE_SKILL_RUNTIME_STATIC_READONLY", "true")
+
+    package_dir = _write_skill_package(str(tmp_path), skill_name="readonly-import-gate-blocked")
+    response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": package_dir},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "skill_import_mutation_unavailable_in_legacy_mode"
+
+
 def test_import_mutation_rejected_in_legacy_when_convergence_strategy_uses_strict_alias(client, tmp_path, monkeypatch):
     monkeypatch.setenv("YUE_SKILL_RUNTIME_MODE", "legacy")
     monkeypatch.setenv("YUE_SKILL_RUNTIME_CONVERGENCE_STRATEGY", "strict")
@@ -280,8 +294,8 @@ def test_post_import_respects_auto_activation_flag_off(client, tmp_path, monkeyp
     from app.api import skill_imports as skill_imports_module
 
     monkeypatch.setattr(
-        skill_imports_module.config_service,
-        "get_feature_flags",
+        skill_imports_module,
+        "_feature_flags",
         lambda: {"skill_import_auto_activate_enabled": False},
     )
     package_dir = _write_skill_package(str(tmp_path), skill_name="manual-activate-skill")
@@ -479,8 +493,8 @@ def test_replace_requires_existing_active_import_for_target_skill(client, tmp_pa
     from app.api import skill_imports as skill_imports_module
 
     monkeypatch.setattr(
-        skill_imports_module.config_service,
-        "get_feature_flags",
+        skill_imports_module,
+        "_feature_flags",
         lambda: {"skill_import_auto_activate_enabled": False},
     )
     package_dir = _write_skill_package(
@@ -507,8 +521,8 @@ def test_replace_returns_invalid_request_on_target_skill_mismatch(client, tmp_pa
     from app.api import skill_imports as skill_imports_module
 
     monkeypatch.setattr(
-        skill_imports_module.config_service,
-        "get_feature_flags",
+        skill_imports_module,
+        "_feature_flags",
         lambda: {"skill_import_auto_activate_enabled": False},
     )
     package_dir = _write_skill_package(
@@ -782,8 +796,8 @@ def test_concurrent_activate_same_skill_versions_keeps_single_active(client, tmp
 
     monkeypatch.setattr(skill_imports_module, "_save_entry", delayed_save)
     monkeypatch.setattr(
-        skill_imports_module.config_service,
-        "get_feature_flags",
+        skill_imports_module,
+        "_feature_flags",
         lambda: {"skill_import_auto_activate_enabled": False},
     )
 
@@ -888,8 +902,8 @@ def test_concurrent_deactivate_and_replace_keep_single_mutation_result(client, t
 
     monkeypatch.setattr(skill_imports_module, "_save_entry", delayed_save)
     monkeypatch.setattr(
-        skill_imports_module.config_service,
-        "get_feature_flags",
+        skill_imports_module,
+        "_feature_flags",
         lambda: {"skill_import_auto_activate_enabled": False},
     )
 

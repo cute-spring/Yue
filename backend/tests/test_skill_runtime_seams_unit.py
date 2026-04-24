@@ -16,6 +16,7 @@ from app.services.skills.import_models import (
 )
 from app.services.skills.import_store import SkillImportStore
 from app.services.skills.models import SkillConstraints, SkillSpec
+from app.services.skills.host_adapters import GroupAwareAgentVisibilityResolver
 from app.services.skills.runtime_seams import build_skill_runtime_seams
 from app.services.skills.routing import SkillRouter
 from app.services.skills.registry import SkillRegistry
@@ -212,7 +213,10 @@ def test_skill_router_keeps_skill_group_store_patch_compatibility():
         def get_skill_refs_by_group_ids(self, group_ids):
             return ["patched:1.0.0"] if group_ids == ["g1"] else []
 
-    router = SkillRouter(SkillRegistry(), skill_group_store=_InitialStore())
+    router = SkillRouter(
+        SkillRegistry(),
+        visibility_resolver=GroupAwareAgentVisibilityResolver(skill_group_resolver=_InitialStore()),
+    )
     router.skill_group_store = _PatchedStore()
     agent = SimpleNamespace(
         skill_groups=["g1"],
@@ -224,6 +228,20 @@ def test_skill_router_keeps_skill_group_store_patch_compatibility():
     resolved = router.resolve_visible_skill_refs(agent)
 
     assert resolved == ["patched:1.0.0"]
+
+
+def test_core_skill_router_default_visibility_ignores_group_ids_without_host_resolver():
+    router = SkillRouter(SkillRegistry())
+    agent = SimpleNamespace(
+        skill_groups=["g1"],
+        resolved_visible_skills=[],
+        extra_visible_skills=[],
+        visible_skills=["planner:1.0.0"],
+    )
+
+    resolved = router.resolve_visible_skill_refs(agent)
+
+    assert resolved == ["planner:1.0.0"]
 
 
 def test_resolve_skill_runtime_state_prefers_stage4_visibility_seam():

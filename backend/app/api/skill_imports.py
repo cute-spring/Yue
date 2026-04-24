@@ -9,8 +9,11 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services.config_service import config_service
-from app.services.skill_service import get_stage4_lite_runtime_context, refresh_skill_runtime_catalog
+from app.services.skill_service import (
+    get_stage4_lite_host_adapters,
+    get_stage4_lite_runtime_context,
+    refresh_skill_runtime_catalog,
+)
 from app.services.skills.import_models import (
     SkillImportReport,
     SkillImportLifecycleState,
@@ -46,6 +49,12 @@ def _runtime_store():
 
 def _runtime_service():
     return _runtime_context().skill_import_service
+
+
+def _feature_flags() -> Dict[str, Any]:
+    # Transitional compatibility helper: import APIs should read feature flags
+    # through host adapters instead of exposing config-service shims.
+    return dict(get_stage4_lite_host_adapters().feature_flag_provider.get_feature_flags() or {})
 
 
 def _ensure_import_mutation_allowed() -> None:
@@ -85,7 +94,7 @@ def _resolve_import_failure_detail(report: SkillImportReport) -> str:
 
 
 def _should_auto_activate() -> bool:
-    feature_flags = config_service.get_feature_flags()
+    feature_flags = _feature_flags()
     return feature_flags.get("skill_import_auto_activate_enabled", True)
 
 

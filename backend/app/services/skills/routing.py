@@ -1,55 +1,54 @@
 import re
 from typing import Any, Dict, List, Optional
 
-from app.services.skill_group_store import skill_group_store as default_skill_group_store
 from app.services.skills.models import SkillSpec
+
+# Reusable-after-cleanup routing layer. Scoring and fallback are core logic,
+# and the default visibility resolver now stays group-store agnostic.
+
+
+def _dedupe_skill_refs(refs: list[Any]) -> List[str]:
+    deduped: List[str] = []
+    seen = set()
+    for ref in refs:
+        if not isinstance(ref, str):
+            continue
+        norm = ref.strip()
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        deduped.append(norm)
+    return deduped
 
 
 class AgentVisibilityResolver:
     """
-    Yue-specific visibility resolver kept as an adapter around group-store semantics.
-    Routing/scoring stays in SkillRouter.
+    Core visibility resolver that only understands agent-local visible-skill
+    fields. Group-based resolution is expected to be injected by the host.
     """
 
-    def __init__(self, skill_group_store: Any = None):
-        self.skill_group_store = skill_group_store or default_skill_group_store
-
     def resolve_visible_skill_refs(self, agent: Any) -> List[str]:
-        refs: List[str] = []
+        refs: List[Any] = []
         pre_resolved_refs = getattr(agent, "resolved_visible_skills", None) or []
         refs.extend(pre_resolved_refs)
-        selected_group_ids = getattr(agent, "skill_groups", None) or []
         if not pre_resolved_refs:
-            refs.extend(self.skill_group_store.get_skill_refs_by_group_ids(selected_group_ids))
-        extra_refs = getattr(agent, "extra_visible_skills", None) or []
-        if not pre_resolved_refs:
-            refs.extend(extra_refs)
-        legacy_refs = getattr(agent, "visible_skills", None) or []
-        if not pre_resolved_refs:
-            refs.extend(legacy_refs)
-        deduped: List[str] = []
-        seen = set()
-        for ref in refs:
-            if not isinstance(ref, str):
-                continue
-            norm = ref.strip()
-            if not norm or norm in seen:
-                continue
-            seen.add(norm)
-            deduped.append(norm)
-        return deduped
+            refs.extend(getattr(agent, "extra_visible_skills", None) or [])
+            refs.extend(getattr(agent, "visible_skills", None) or [])
+        return _dedupe_skill_refs(refs)
 
 
 class SkillRouter:
     """
     Agent-scoped skill filtering, ranking, and fallback.
+
+    This stays near the core boundary. Group-aware visibility must now be
+    injected by the host instead of relying on router-owned group-store logic.
     """
 
     def __init__(self, registry: Any, skill_group_store: Any = None, visibility_resolver: Any = None):
         self.registry = registry
-        base_store = skill_group_store or default_skill_group_store
-        self.visibility_resolver = visibility_resolver or AgentVisibilityResolver(base_store)
-        self._legacy_skill_group_store = base_store
+        self.visibility_resolver = visibility_resolver or AgentVisibilityResolver()
+        self._legacy_skill_group_store = skill_group_store
 
     @property
     def skill_group_store(self) -> Any:
@@ -60,7 +59,7 @@ class SkillRouter:
 
     @skill_group_store.setter
     def skill_group_store(self, store: Any) -> None:
-        self._legacy_skill_group_store = store or default_skill_group_store
+        self._legacy_skill_group_store = store
         resolver = self.visibility_resolver
         if hasattr(resolver, "skill_group_store"):
             resolver.skill_group_store = self._legacy_skill_group_store

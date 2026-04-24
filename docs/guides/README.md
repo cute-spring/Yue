@@ -33,14 +33,18 @@
 | **[TESTING.md](developer/TESTING.md)** | 测试框架与执行指南 |
 | **[Azure OpenAI Intranet Config](developer/Azure_OpenAI_Intranet_Config.md)** | 企业内网 Azure OpenAI 配置 |
 | **[UI Design Guidelines](developer/UI_DESIGN_GUIDELINES.md)** | UI 设计规范与最佳实践 |
+| **[SKILL_RUNTIME_CORE_REUSE_GUIDE.md](developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md)** | 将 Skill Runtime 复制到其他同栈项目并完成最小配置接入 |
+| **[../execution/README.md](../execution/README.md)** | 项目内执行器入口与标准调用模板 |
 | **Deployment Guide** | 部署指南（待创建） |
 | **API Development Guide** | API 开发指南（待创建） |
 
 #### 开发流程
 1. 阅读 [CONFIGURATION.md](developer/CONFIGURATION.md) 搭建开发环境
 2. 查看 [TESTING.md](developer/TESTING.md) 了解测试规范
-3. 参考 [plans/INDEX.md](../plans/INDEX.md) 了解当前开发任务
-4. 遵循 [UI Design Guidelines](developer/UI_DESIGN_GUIDELINES.md) 进行界面开发
+3. 参考 [SKILL_RUNTIME_CORE_REUSE_GUIDE.md](developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md) 了解 Skill Runtime 复用接入
+4. 参考 [execution/README.md](../execution/README.md) 使用项目内执行器和标准 prompt
+5. 参考 [plans/INDEX.md](../plans/INDEX.md) 了解当前开发任务
+6. 遵循 [UI Design Guidelines](developer/UI_DESIGN_GUIDELINES.md) 进行界面开发
 
 ---
 
@@ -76,7 +80,8 @@
 **开发新功能**
 1. 查看 [执行计划总览](../plans/INDEX.md)
 2. 阅读 [测试指南](developer/TESTING.md)
-3. 遵循 [UI 设计规范](developer/UI_DESIGN_GUIDELINES.md)
+3. 如涉及技能系统复用，阅读 [Skill Runtime Core Reuse Guide](developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md)
+4. 遵循 [UI 设计规范](developer/UI_DESIGN_GUIDELINES.md)
 
 **配置企业部署**
 1. [Azure OpenAI 内网配置](developer/Azure_OpenAI_Intranet_Config.md)

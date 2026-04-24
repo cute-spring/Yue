@@ -187,7 +187,7 @@ class AgentStore:
             doc_file_patterns=["**/*.md", "**/*.txt", "**/*.log", "**/*.json", "**/*.yaml", "**/*.yml"],
             require_citations=True,
             skill_mode="manual",
-            visible_skills=["project-status-auditor:1.0.0"],
+            visible_skills=["status-audit:1.0.0"],
         )
 
     def _builtin_architect_agent(self) -> AgentConfig:

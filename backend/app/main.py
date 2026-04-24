@@ -12,22 +12,22 @@ import logging
 import asyncio
 import shutil
 import re
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, skill_imports, export, speech, files
+from app.api import chat, agents, mcp, models, config, notebook, health, export, speech, files
 from app.mcp.manager import mcp_manager
-from app.services.skill_service import get_stage4_lite_runtime_context
+from app.services.skill_service import (
+    get_stage4_lite_host_config_adapter,
+    get_stage4_lite_runtime_context,
+)
 from app.services.skills import (
-    RUNTIME_MODE_IMPORT_GATE,
-    RUNTIME_MODE_LEGACY,
-    RuntimeSkillCatalogProjector,
-    SkillDirectoryResolver,
-    resolve_skill_runtime_mode,
+    bootstrap_skill_runtime_app,
+    bootstrap_skill_runtime_lifespan,
+    build_skill_runtime_bootstrap_spec_from_env,
 )
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
@@ -40,57 +40,39 @@ logger.info("Loading env from: %s", env_path.absolute())
 
 from app.services.health_monitor import health_monitor
 
-
-def _resolve_runtime_skill_directories(*, resolver: SkillDirectoryResolver, import_store, runtime_mode: str | None = None):
-    effective_mode = resolve_skill_runtime_mode(runtime_mode)
-    if effective_mode == RUNTIME_MODE_IMPORT_GATE:
-        projector = RuntimeSkillCatalogProjector(import_store=import_store)
-        projected = projector.project_active_import_dirs()
-        logger.info("Skill runtime mode import-gate enabled; projected active imports=%s", len(projected))
-        return projected
-    return resolver.resolve()
-
-
 def _runtime_context():
     return get_stage4_lite_runtime_context()
 
+# Yue startup remains host-owned, but runtime creation and route mounting should
+# flow through the explicit bootstrap spec instead of hand-built module globals.
+_skill_runtime_bootstrap_spec = build_skill_runtime_bootstrap_spec_from_env(
+    host_config_adapter=get_stage4_lite_host_config_adapter(),
+)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    runtime_context = _runtime_context()
-    runtime_registry = runtime_context.skill_registry
-    resolver = SkillDirectoryResolver()
-    runtime_mode = resolve_skill_runtime_mode(os.getenv("YUE_SKILL_RUNTIME_MODE"))
-    layered_dirs = _resolve_runtime_skill_directories(
-        resolver=resolver,
-        import_store=runtime_context.skill_import_store,
-        runtime_mode=runtime_mode,
-    )
-    for item in layered_dirs:
-        if item.layer in {"workspace", "user"}:
-            Path(item.path).mkdir(parents=True, exist_ok=True)
-    runtime_registry.set_layered_skill_dirs(layered_dirs)
-    runtime_registry.skill_dirs = [item.path for item in layered_dirs]
-    runtime_registry.load_all()
-    watch_enabled = os.getenv("YUE_SKILLS_WATCH_ENABLED", "true").lower() not in {"0", "false", "off"}
-    debounce_ms = int(os.getenv("YUE_SKILLS_RELOAD_DEBOUNCE_MS", "2000"))
-    if watch_enabled and runtime_mode == RUNTIME_MODE_LEGACY:
-        runtime_registry.start_runtime_watch(layer="user", debounce_ms=debounce_ms)
-    elif watch_enabled and runtime_mode == RUNTIME_MODE_IMPORT_GATE:
-        logger.info("Skill directory watch skipped in import-gate runtime mode")
-    
+
+async def _on_startup() -> None:
     # Initialize MCP Manager first
     await mcp_manager.initialize()
     # Start Health Monitor
     await health_monitor.start()
-    yield
+
+
+async def _on_shutdown() -> None:
     # Stop Health Monitor
     await health_monitor.stop()
-    runtime_registry.stop_runtime_watch()
     # Cleanup MCP Manager
     await mcp_manager.cleanup()
 
-app = FastAPI(title="Yue Agent Platform API", lifespan=lifespan)
+app = FastAPI(
+    title="Yue Agent Platform API",
+    lifespan=bootstrap_skill_runtime_lifespan(
+        runtime_context_provider=_runtime_context,
+        bootstrap_spec=_skill_runtime_bootstrap_spec,
+        on_startup=_on_startup,
+        on_shutdown=_on_shutdown,
+        logger=logger,
+    ),
+)
 
 @app.middleware("http")
 async def trace_id_middleware(request: Request, call_next):
@@ -115,9 +97,7 @@ app.add_middleware(
 # Include Routers
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
-app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
-app.include_router(skill_imports.router, prefix="/api/skill-imports", tags=["skill-imports"])
-app.include_router(skill_groups.router, prefix="/api/skill-groups", tags=["skill-groups"])
+bootstrap_skill_runtime_app(app, bootstrap_spec=_skill_runtime_bootstrap_spec)
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])

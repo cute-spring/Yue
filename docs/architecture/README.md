@@ -12,6 +12,7 @@
 |------|------|------|
 | **[12-Factor App Guide](12_Factor_App_Guide.md)** | 云原生架构规范与实施指南 | ✅ 已完成 |
 | **[LLM Capability Inference](LLM_Capability_Inference_Architecture.md)** | 模型能力推理架构设计 | ✅ 已完成 |
+| **[Skill Runtime Current Operation](Skill_Runtime_Current_Operation.md)** | 当前 Skill Runtime 启动、导入、路由与集成链路说明 | ✅ 已完成 |
 
 ### 架构决策记录 (ADRs)
 
@@ -154,6 +155,7 @@
 - 🔄 文件存储抽象层
 - 🔄 可观测性增强
 - 🔄 代码库重构
+- 🔄 Skill Runtime Core 外部化与高复用边界收敛
 
 ### 规划中 (Future)
 - ⏳ 层级记忆系统
@@ -169,6 +171,7 @@
 ### 内部文档
 - [执行计划](../plans/INDEX.md) - 架构演进任务追踪
 - [使用指南](../guides/) - 开发和使用规范
+- [Skill Runtime Reuse Guide](../guides/developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md) - 如何在其他同栈项目中复用
 - [API 文档](../api/) - 接口定义
 
 ### 外部资源

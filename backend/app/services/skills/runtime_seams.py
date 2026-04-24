@@ -9,6 +9,9 @@ from app.services.skills.models import SkillDirectorySpec, SkillSpec
 from app.services.skills.policy import SkillPolicyGate
 from app.services.skills.runtime_catalog import RuntimeSkillCatalogProjector
 
+# Reusable-now seam definitions for the runtime/data plane. Hosts should depend
+# on these contracts instead of reaching back into Yue service modules.
+
 
 class ToolCapabilityProvider(Protocol):
     def resolve_effective_tools(self, *, agent_tools: Sequence[str], skill: SkillSpec | None) -> list[str]:
@@ -96,6 +99,8 @@ class SkillRuntimeSeams:
 
 
 def build_skill_runtime_seams(*, import_store: SkillImportStore, router: Any) -> SkillRuntimeSeams:
+    # Core-facing seam assembly. This is intentionally host-agnostic as long as
+    # the router and import store are provided by the runtime container/context.
     return SkillRuntimeSeams(
         tool_capability_provider=DefaultToolCapabilityProvider(),
         activation_state_store=ImportStoreActivationStateStore(import_store),

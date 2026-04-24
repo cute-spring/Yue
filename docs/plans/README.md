@@ -89,6 +89,7 @@ plans/
 - [Skill Import Runtime Execution Plan](./skill_import_runtime_execution_plan_20260421.md) 🟢
 - [Skill Import Gate Implementation Design](./skill_import_gate_implementation_design_20260421.md) 🟢
 - [Skill Import Gate API Contract](./skill_import_gate_api_contract_20260421.md) 🟢
+- [Skill Runtime Core Externalization Plan](./skill_runtime_core_externalization_plan_20260423.md) 🟢
 - 当前执行口径：最小可用优先（directory 导入 + 内部研发调试可用 + 单一路由入口）；Stage 4-Lite 已进入最后收口（provider/container seam + hybrid 门禁矩阵 + runtime context 取依赖），但 `skill_service.py` 全局兼容壳层与 legacy/import-gate 双轨运行面仍待完全收敛；Stage 5 externalization 工作 deferred。
 - 最新回归证据：Epic 8 Stage 4-Lite closeout 回归已更新为 `77 passed / 146 passed`，与 `INDEX.md`、execution plan、implementation design 保持一致。
 
