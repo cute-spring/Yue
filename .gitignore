@@ -67,6 +67,7 @@ test-results/
 *.db-shm
 *.db-wal
 *.bak
+.runtime-data/
 backend/data/yue.db
 backend/data/chats.json
 backend/data/chats.json.bak

@@ -3,7 +3,15 @@ import json
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock, AsyncMock
 from app.main import app
-from app.services.skill_service import SkillSpec, skill_registry
+from app.services.skill_service import (
+    SkillSpec,
+    SkillRegistry,
+    SkillRouter,
+    SkillActionExecutionService,
+    SkillImportStore,
+    SkillImportService,
+    SkillCompatibilityEvaluator,
+)
 from app.services.agent_store import AgentConfig
 from app.services.chat_service import Message
 
@@ -21,6 +29,26 @@ def mock_chat_service():
     with patch("app.api.chat.chat_service") as mock:
         mock.get_session_skill.return_value = (None, None)
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_context_seam():
+    runtime_registry = SkillRegistry()
+    runtime_router = SkillRouter(runtime_registry)
+    runtime_import_store = SkillImportStore()
+    runtime_import_service = SkillImportService(
+        import_store=runtime_import_store,
+        compatibility_evaluator=SkillCompatibilityEvaluator(),
+    )
+    runtime_context = MagicMock(
+        skill_registry=runtime_registry,
+        skill_router=runtime_router,
+        skill_action_execution_service=SkillActionExecutionService(runtime_registry),
+        skill_import_store=runtime_import_store,
+        skill_import_service=runtime_import_service,
+    )
+    with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context):
+        yield runtime_context
 
 def test_list_chats(client, mock_chat_service):
     now = datetime.now()
@@ -518,7 +546,7 @@ async def test_chat_stream_contract_violation_fails_open(client, mock_chat_servi
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_requested_action_emits_preflight_events_and_skips_model_run(client, mock_chat_service):
+async def test_chat_stream_requested_action_emits_preflight_events_and_skips_model_run(client, mock_chat_service, isolated_runtime_context_seam):
     import os
     import tempfile
 
@@ -560,12 +588,13 @@ actions:
         with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
             f.write("print('generate')")
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             with patch("app.api.chat.agent_store") as mock_agent_store, \
                  patch("app.api.chat.tool_registry") as mock_registry, \
@@ -615,13 +644,13 @@ actions:
                 mock_get_model.assert_not_called()
                 mock_agent_cls.assert_not_called()
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_requested_action_resume_after_approval_emits_approval_and_execution_events(client, mock_chat_service):
+async def test_chat_stream_requested_action_resume_after_approval_emits_approval_and_execution_events(client, mock_chat_service, isolated_runtime_context_seam):
     import os
     import tempfile
 
@@ -663,12 +692,13 @@ actions:
         with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
             f.write("print('generate')")
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             with patch("app.api.chat.agent_store") as mock_agent_store, \
                  patch("app.api.chat.tool_registry") as mock_registry, \
@@ -731,12 +761,12 @@ actions:
                 mock_get_model.assert_not_called()
                 mock_agent_cls.assert_not_called()
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 @pytest.mark.asyncio
-async def test_chat_stream_requested_action_blocks_on_invalid_action_arguments(client, mock_chat_service):
+async def test_chat_stream_requested_action_blocks_on_invalid_action_arguments(client, mock_chat_service, isolated_runtime_context_seam):
     import os
     import tempfile
 
@@ -785,12 +815,13 @@ actions:
         with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
             f.write("print('generate')")
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             with patch("app.api.chat.agent_store") as mock_agent_store, \
                  patch("app.api.chat.tool_registry") as mock_registry, \
@@ -835,12 +866,12 @@ actions:
                 mock_get_model.assert_not_called()
                 mock_agent_cls.assert_not_called()
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 @pytest.mark.asyncio
-async def test_chat_stream_requested_action_surfaces_nested_argument_validation_paths(client, mock_chat_service):
+async def test_chat_stream_requested_action_surfaces_nested_argument_validation_paths(client, mock_chat_service, isolated_runtime_context_seam):
     import os
     import tempfile
 
@@ -906,12 +937,13 @@ actions:
         with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
             f.write("print('generate')")
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             with patch("app.api.chat.agent_store") as mock_agent_store, \
                  patch("app.api.chat.tool_registry") as mock_registry, \
@@ -961,12 +993,12 @@ actions:
                 mock_get_model.assert_not_called()
                 mock_agent_cls.assert_not_called()
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 @pytest.mark.asyncio
-async def test_chat_stream_requested_action_blocks_on_nested_schema_constraints(client, mock_chat_service):
+async def test_chat_stream_requested_action_blocks_on_nested_schema_constraints(client, mock_chat_service, isolated_runtime_context_seam):
     import os
     import tempfile
 
@@ -1026,12 +1058,13 @@ actions:
         with open(os.path.join(pkg_dir, "scripts", "generate.py"), "w") as f:
             f.write("print('generate')")
 
-        prev_layered = list(skill_registry.layered_skill_dirs)
-        prev_skill_dirs = list(skill_registry.skill_dirs)
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
         try:
-            skill_registry.layered_skill_dirs = []
-            skill_registry.skill_dirs = [tmp_dir]
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
 
             with patch("app.api.chat.agent_store") as mock_agent_store, \
                  patch("app.api.chat.tool_registry") as mock_registry, \
@@ -1081,9 +1114,9 @@ actions:
                 mock_get_model.assert_not_called()
                 mock_agent_cls.assert_not_called()
         finally:
-            skill_registry.layered_skill_dirs = prev_layered
-            skill_registry.skill_dirs = prev_skill_dirs
-            skill_registry.load_all()
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
 
 def test_estimate_tokens():
     from app.api.chat import estimate_tokens
@@ -1133,16 +1166,25 @@ def test_resolve_skill_runtime_state_manual_explicit_selection(mock_chat_service
         system_prompt="YOU ARE A PDF SKILL.",
     )
 
-    with patch("app.api.chat.skill_router.resolve_visible_skill_refs", return_value=["pdf-insight-extractor:1.0.0"]), \
-         patch("app.api.chat.skill_router.get_visible_skills", return_value=[fake_skill]), \
-         patch("app.api.chat.skill_router.infer_requested_skill", return_value=None), \
-         patch("app.api.chat.skill_router.route_with_score", return_value=(fake_skill, 8)):
+    fake_router = MagicMock(name="router")
+    fake_router.resolve_visible_skill_refs.return_value = ["pdf-insight-extractor:1.0.0"]
+    fake_router.get_visible_skills.return_value = [fake_skill]
+    fake_router.infer_requested_skill.return_value = None
+    fake_router.route_with_score.return_value = (fake_skill, 8)
+    runtime_context = MagicMock(
+        skill_router=fake_router,
+        skill_registry=MagicMock(name="registry"),
+        skill_import_store=MagicMock(name="import_store"),
+    )
+
+    with patch("app.api.chat.build_stage4_lite_runtime_seams", return_value=MagicMock()):
         state = chat_api._resolve_skill_runtime_state(
             agent_config=fake_agent,
-            feature_flags={"skill_runtime_enabled": True, "skill_summary_prompt_enabled": True},
+            feature_flags={"skill_runtime_enabled": True},
             chat_id="chat-id",
             request_message="please analyze this pdf",
             requested_skill="pdf-insight-extractor:1.0.0",
+            runtime_context=runtime_context,
         )
 
     assert state["selected_skill_spec"] == fake_skill
@@ -1152,6 +1194,148 @@ def test_resolve_skill_runtime_state_manual_explicit_selection(mock_chat_service
     assert state["available_skill_count"] == 1
     assert "### Skill Summaries" in state["summary_block"]
     mock_chat_service.set_session_skill.assert_called_once_with("chat-id", "pdf-insight-extractor", "1.0.0")
+
+
+def test_resolve_skill_runtime_state_uses_injected_runtime_seams(mock_chat_service):
+    from app.api import chat as chat_api
+
+    fake_agent = AgentConfig(
+        id="skill-agent",
+        name="Skill Agent",
+        system_prompt="persona",
+        provider="openai",
+        model="gpt-4o",
+        enabled_tools=["builtin:docs_read"],
+        skill_mode="off",
+        visible_skills=[],
+    )
+    injected_seams = MagicMock()
+    with patch("app.api.chat.build_stage4_lite_runtime_seams", side_effect=AssertionError("should not build seams")):
+        state = chat_api._resolve_skill_runtime_state(
+            agent_config=fake_agent,
+            feature_flags={"skill_runtime_enabled": False},
+            chat_id="chat-id",
+            request_message="hello",
+            requested_skill=None,
+            runtime_seams=injected_seams,
+        )
+
+    assert state["selection_reason_code"] == "skill_mode_off"
+
+
+def test_resolve_skill_runtime_state_uses_runtime_context_dependencies(mock_chat_service):
+    from app.api import chat as chat_api
+
+    fake_agent = AgentConfig(
+        id="skill-agent",
+        name="Skill Agent",
+        system_prompt="persona",
+        provider="openai",
+        model="gpt-4o",
+        enabled_tools=["builtin:docs_read"],
+        skill_mode="off",
+        visible_skills=[],
+    )
+    fake_router = MagicMock(name="router")
+    fake_registry = MagicMock(name="registry")
+    runtime_context = MagicMock(
+        skill_router=fake_router,
+        skill_registry=fake_registry,
+        skill_import_store=MagicMock(name="import_store"),
+    )
+    runtime_state = MagicMock()
+    runtime_state.__dict__ = {"selection_reason_code": "skill_mode_off"}
+
+    with patch("app.api.chat.prompting_resolve_skill_runtime_state", return_value=runtime_state) as mock_prompting:
+        state = chat_api._resolve_skill_runtime_state(
+            agent_config=fake_agent,
+            feature_flags={"skill_runtime_enabled": False},
+            chat_id="chat-id",
+            request_message="hello",
+            requested_skill=None,
+            runtime_seams=MagicMock(),
+            runtime_context=runtime_context,
+        )
+
+    assert state["selection_reason_code"] == "skill_mode_off"
+    assert mock_prompting.call_args.kwargs["skill_router"] is fake_router
+    assert mock_prompting.call_args.kwargs["skill_registry"] is fake_registry
+
+
+def test_assemble_runtime_prompt_builds_default_seams_from_runtime_context():
+    from app.api import chat as chat_api
+
+    runtime_context = MagicMock(
+        skill_import_store=MagicMock(name="import_store"),
+        skill_router=MagicMock(name="router"),
+    )
+    fake_seams = MagicMock(name="runtime_seams")
+    with patch("app.api.chat.build_stage4_lite_runtime_seams", return_value=fake_seams) as mock_build_seams, \
+         patch("app.api.chat.assemble_runtime_prompt", return_value="assembled") as mock_assemble:
+        result = chat_api._assemble_runtime_prompt(
+            runtime_context=runtime_context,
+            agent_config=MagicMock(),
+            request_system_prompt=None,
+            request_message="hello",
+            provider=None,
+            model_name=None,
+            selected_skill_spec=None,
+            always_skill_specs=[],
+            summary_block=None,
+            feature_flags={},
+            skill_registry=MagicMock(),
+            markdown_skill_adapter=MagicMock(),
+            skill_policy_gate=MagicMock(),
+            build_scope_summary_block=MagicMock(),
+        )
+
+    assert result == "assembled"
+    mock_build_seams.assert_called_once_with(
+        import_store=runtime_context.skill_import_store,
+        router=runtime_context.skill_router,
+    )
+    assert mock_assemble.call_args.kwargs["runtime_seams"] is fake_seams
+
+
+def test_bind_runtime_prompt_helpers_forwards_runtime_context():
+    from app.api import chat as chat_api
+
+    runtime_context = MagicMock(name="runtime_context")
+    fake_agent = MagicMock(name="agent")
+    fake_state = {"selection_reason_code": "skill_mode_off"}
+    fake_prompt = "assembled"
+
+    with patch("app.api.chat._resolve_skill_runtime_state", return_value=fake_state) as mock_resolve, \
+         patch("app.api.chat._assemble_runtime_prompt", return_value=fake_prompt) as mock_assemble:
+        bindings = chat_api._bind_runtime_prompt_helpers(runtime_context)
+        resolved = bindings["resolve_skill_runtime_state"](
+            agent_config=fake_agent,
+            feature_flags={},
+            chat_id="chat-id",
+            request_message="hello",
+            requested_skill=None,
+        )
+        assembled = bindings["assemble_runtime_prompt"](
+            agent_config=fake_agent,
+            request_system_prompt=None,
+            request_message="hello",
+            provider=None,
+            model_name=None,
+            selected_skill_spec=None,
+            always_skill_specs=[],
+            summary_block=None,
+            feature_flags={},
+            skill_registry=MagicMock(),
+            markdown_skill_adapter=MagicMock(),
+            skill_policy_gate=MagicMock(),
+            build_scope_summary_block=MagicMock(),
+        )
+
+    assert resolved == fake_state
+    assert assembled == fake_prompt
+    assert mock_resolve.call_args.kwargs["runtime_context"] is runtime_context
+    assert mock_assemble.call_args.kwargs["runtime_context"] is runtime_context
+
 
 @pytest.mark.asyncio
 async def test_chat_stream_ollama_502(client, mock_chat_service):
@@ -1232,14 +1416,7 @@ async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_ser
          patch("app.api.chat.Agent") as mock_agent_cls, \
          patch("app.api.chat.config_service.get_feature_flags", return_value={
              "skill_runtime_enabled": True,
-             "skill_selector_tool_enabled": True,
-             "skill_auto_mode_enabled": True,
-             "skill_summary_prompt_enabled": True,
-             "skill_lazy_full_load_enabled": True,
-         }), \
-         patch("app.api.chat.skill_router.get_visible_skills") as mock_visible, \
-         patch("app.api.chat.skill_router.route_with_score") as mock_route_with_score, \
-         patch("app.api.chat.skill_registry.get_full_skill") as mock_get_full:
+         }):
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = None
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -1263,9 +1440,19 @@ async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_ser
             system_prompt="YOU ARE A PDF SKILL."
         )
         mock_agent_store.get_agent.return_value = fake_agent
-        mock_visible.return_value = [fake_skill]
-        mock_route_with_score.return_value = (fake_skill, 8)
-        mock_get_full.return_value = fake_skill
+        fake_router = MagicMock(name="router")
+        fake_router.get_visible_skills.return_value = [fake_skill]
+        fake_router.route_with_score.return_value = (fake_skill, 8)
+        fake_router.resolve_visible_skill_refs.return_value = ["pdf-insight-extractor:1.0.0"]
+        fake_router.infer_requested_skill.return_value = None
+        fake_registry = MagicMock(name="registry")
+        fake_registry.get_full_skill.return_value = fake_skill
+        runtime_context = MagicMock(
+            skill_router=fake_router,
+            skill_registry=fake_registry,
+            skill_import_store=MagicMock(name="import_store"),
+            skill_action_execution_service=MagicMock(name="action_service"),
+        )
 
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
@@ -1276,7 +1463,8 @@ async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_ser
         mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
         mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
 
-        response = client.post("/api/chat/stream", json={"message": "请分析这个 PDF", "agent_id": "skill-agent"})
+        with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context):
+            response = client.post("/api/chat/stream", json={"message": "请分析这个 PDF", "agent_id": "skill-agent"})
         assert response.status_code == 200
         data_lines = [line[6:] for line in response.iter_lines() if line.startswith("data: ")]
         payloads = []

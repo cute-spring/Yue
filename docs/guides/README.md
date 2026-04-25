@@ -12,15 +12,14 @@
 
 | 文档 | 说明 |
 |------|------|
-| **[Agent Skills User Guide](user/Agent_Skills_User_Guide.md)** | 智能体技能使用手册 - 了解如何使用各类 Agent 技能 |
 | **Chat Usage Guide** | 聊天交互指南（待创建）- 掌握高效对话技巧 |
 | **MCP Usage Guide** | MCP 工具使用指南（待创建）- 学习使用外部工具 |
 | **Multi-modal Guide** | 多模态功能指南（待创建）- 图片问答与文件处理 |
 
 #### 快速开始
-1. 阅读 [Agent Skills User Guide](user/Agent_Skills_User_Guide.md) 了解核心技能
-2. 查看 [FEATURES.md](../overview/FEATURES.md) 了解完整功能列表
-3. 参考 [CONFIGURATION.md](developer/CONFIGURATION.md) 完成环境配置
+1. 查看 [FEATURES.md](../overview/FEATURES.md) 了解完整功能列表
+2. 参考 [CONFIGURATION.md](developer/CONFIGURATION.md) 完成环境配置
+3. 如需理解 Yue 的技能边界，请阅读 [Yue Skill Strategy](../research/skills_gap_comparison_and_roadmap_20260421.md)
 
 ---
 
@@ -34,14 +33,18 @@
 | **[TESTING.md](developer/TESTING.md)** | 测试框架与执行指南 |
 | **[Azure OpenAI Intranet Config](developer/Azure_OpenAI_Intranet_Config.md)** | 企业内网 Azure OpenAI 配置 |
 | **[UI Design Guidelines](developer/UI_DESIGN_GUIDELINES.md)** | UI 设计规范与最佳实践 |
+| **[SKILL_RUNTIME_CORE_REUSE_GUIDE.md](developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md)** | 将 Skill Runtime 复制到其他同栈项目并完成最小配置接入 |
+| **[../execution/README.md](../execution/README.md)** | 项目内执行器入口与标准调用模板 |
 | **Deployment Guide** | 部署指南（待创建） |
 | **API Development Guide** | API 开发指南（待创建） |
 
 #### 开发流程
 1. 阅读 [CONFIGURATION.md](developer/CONFIGURATION.md) 搭建开发环境
 2. 查看 [TESTING.md](developer/TESTING.md) 了解测试规范
-3. 参考 [plans/INDEX.md](../plans/INDEX.md) 了解当前开发任务
-4. 遵循 [UI Design Guidelines](developer/UI_DESIGN_GUIDELINES.md) 进行界面开发
+3. 参考 [SKILL_RUNTIME_CORE_REUSE_GUIDE.md](developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md) 了解 Skill Runtime 复用接入
+4. 参考 [execution/README.md](../execution/README.md) 使用项目内执行器和标准 prompt
+5. 参考 [plans/INDEX.md](../plans/INDEX.md) 了解当前开发任务
+6. 遵循 [UI Design Guidelines](developer/UI_DESIGN_GUIDELINES.md) 进行界面开发
 
 ---
 
@@ -72,12 +75,13 @@
 **开始使用 Yue**
 1. [配置开发环境](developer/CONFIGURATION.md)
 2. [了解功能特性](../overview/FEATURES.md)
-3. [学习 Agent 技能](user/Agent_Skills_User_Guide.md)
+3. [理解 Skill 边界与定位](../research/skills_gap_comparison_and_roadmap_20260421.md)
 
 **开发新功能**
 1. 查看 [执行计划总览](../plans/INDEX.md)
 2. 阅读 [测试指南](developer/TESTING.md)
-3. 遵循 [UI 设计规范](developer/UI_DESIGN_GUIDELINES.md)
+3. 如涉及技能系统复用，阅读 [Skill Runtime Core Reuse Guide](developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md)
+4. 遵循 [UI 设计规范](developer/UI_DESIGN_GUIDELINES.md)
 
 **配置企业部署**
 1. [Azure OpenAI 内网配置](developer/Azure_OpenAI_Intranet_Config.md)

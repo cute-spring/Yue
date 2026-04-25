@@ -18,7 +18,7 @@ That means this document should now be treated as:
 
 1. a record of the service extraction strategy and validation work
 2. a compatibility reference for the current `app.services.skill_service` facade
-3. not the primary roadmap for reaching a Claude Code / OpenClaw style skill system
+3. not the primary roadmap for Yue's current Agent Skills import-and-runtime direction
 
 ## 1. Purpose
 

@@ -12,17 +12,23 @@ import logging
 import asyncio
 import shutil
 import re
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health, skills, skill_groups, export, speech, files
+from app.api import chat, agents, mcp, models, config, notebook, health, export, speech, files
 from app.mcp.manager import mcp_manager
-from app.services.skill_service import skill_registry
-from app.services.skills import SkillDirectoryResolver
+from app.services.skill_service import (
+    get_stage4_lite_host_config_adapter,
+    get_stage4_lite_runtime_context,
+)
+from app.services.skills import (
+    bootstrap_skill_runtime_app,
+    bootstrap_skill_runtime_lifespan,
+    build_skill_runtime_bootstrap_spec_from_env,
+)
 from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
 
 # Load .env from backend directory
@@ -32,35 +38,46 @@ setup_logging()
 logger = logging.getLogger(__name__)
 logger.info("Loading env from: %s", env_path.absolute())
 
+runtime_data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))).resolve()
+os.environ["YUE_DATA_DIR"] = str(runtime_data_dir)
+logger.info("Runtime data dir resolved: %s", runtime_data_dir)
+logger.info("Runtime agents file: %s", runtime_data_dir / "agents.json")
+
 from app.services.health_monitor import health_monitor
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    resolver = SkillDirectoryResolver()
-    layered_dirs = resolver.resolve()
-    for item in layered_dirs:
-        if item.layer in {"workspace", "user"}:
-            Path(item.path).mkdir(parents=True, exist_ok=True)
-    skill_registry.set_layered_skill_dirs(layered_dirs)
-    skill_registry.skill_dirs = [item.path for item in layered_dirs]
-    skill_registry.load_all()
-    watch_enabled = os.getenv("YUE_SKILLS_WATCH_ENABLED", "true").lower() not in {"0", "false", "off"}
-    debounce_ms = int(os.getenv("YUE_SKILLS_RELOAD_DEBOUNCE_MS", "2000"))
-    if watch_enabled:
-        skill_registry.start_runtime_watch(layer="user", debounce_ms=debounce_ms)
-    
+def _runtime_context():
+    return get_stage4_lite_runtime_context()
+
+# Yue startup remains host-owned, but runtime creation and route mounting should
+# flow through the explicit bootstrap spec instead of hand-built module globals.
+_skill_runtime_bootstrap_spec = build_skill_runtime_bootstrap_spec_from_env(
+    host_config_adapter=get_stage4_lite_host_config_adapter(),
+)
+
+
+async def _on_startup() -> None:
     # Initialize MCP Manager first
     await mcp_manager.initialize()
     # Start Health Monitor
     await health_monitor.start()
-    yield
+
+
+async def _on_shutdown() -> None:
     # Stop Health Monitor
     await health_monitor.stop()
-    skill_registry.stop_runtime_watch()
     # Cleanup MCP Manager
     await mcp_manager.cleanup()
 
-app = FastAPI(title="Yue Agent Platform API", lifespan=lifespan)
+app = FastAPI(
+    title="Yue Agent Platform API",
+    lifespan=bootstrap_skill_runtime_lifespan(
+        runtime_context_provider=_runtime_context,
+        bootstrap_spec=_skill_runtime_bootstrap_spec,
+        on_startup=_on_startup,
+        on_shutdown=_on_shutdown,
+        logger=logger,
+    ),
+)
 
 @app.middleware("http")
 async def trace_id_middleware(request: Request, call_next):
@@ -85,8 +102,7 @@ app.add_middleware(
 # Include Routers
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
-app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
-app.include_router(skill_groups.router, prefix="/api/skill-groups", tags=["skill-groups"])
+bootstrap_skill_runtime_app(app, bootstrap_spec=_skill_runtime_bootstrap_spec)
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
@@ -97,7 +113,7 @@ app.include_router(export.router, prefix="/api", tags=["export"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 
 # Mount Uploads & Exports Directory
-data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data")))
+data_dir = runtime_data_dir
 uploads_dir = data_dir / "uploads"
 exports_dir = data_dir / "exports"
 legacy_exports_dir = Path(__file__).parent.parent / "data" / "exports"

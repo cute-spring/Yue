@@ -251,10 +251,8 @@ class ConfigService:
             return bool(value)
         return {
             "skill_runtime_enabled": _coerce_bool(flags.get("skill_runtime_enabled"), True),
-            "skill_selector_tool_enabled": _coerce_bool(flags.get("skill_selector_tool_enabled"), True),
-            "skill_auto_mode_enabled": _coerce_bool(flags.get("skill_auto_mode_enabled"), True),
-            "skill_summary_prompt_enabled": _coerce_bool(flags.get("skill_summary_prompt_enabled"), True),
-            "skill_lazy_full_load_enabled": _coerce_bool(flags.get("skill_lazy_full_load_enabled"), True),
+            "skill_runtime_debug_contract_enabled": _coerce_bool(flags.get("skill_runtime_debug_contract_enabled"), False),
+            "skill_import_auto_activate_enabled": _coerce_bool(flags.get("skill_import_auto_activate_enabled"), True),
             "transparency_event_v2_enabled": _coerce_bool(flags.get("transparency_event_v2_enabled"), True),
             "transparency_turn_binding_enabled": _coerce_bool(flags.get("transparency_turn_binding_enabled"), True),
             "chat_trace_ui_enabled": _coerce_bool(flags.get("chat_trace_ui_enabled"), False),
@@ -514,8 +512,8 @@ class ConfigService:
         """
         policies = {
             "default": {
-                "tool_calls_limit": 8,
-                "request_limit": 12,
+                "tool_calls_limit": 32,
+                "request_limit": 48,
                 "total_tokens_limit": 120000
             },
             "strict": {
@@ -524,9 +522,9 @@ class ConfigService:
                 "total_tokens_limit": 60000
             },
             "premium": {
-                "tool_calls_limit": 16,
-                "request_limit": 20,
-                "total_tokens_limit": 240000
+                "tool_calls_limit": 64,
+                "request_limit": 96,
+                "total_tokens_limit": 480000
             }
         }
         
@@ -736,17 +734,12 @@ class ConfigService:
         return normalized
 
     def get_doc_access(self) -> Dict[str, Any]:
-        from app.core.settings import AppSettings
         doc_access = self._config.get("doc_access", {})
-        
-        json_kwargs = {}
-        if "allow_roots" in doc_access: json_kwargs["doc_access_allow_roots"] = doc_access["allow_roots"]
-        if "deny_roots" in doc_access: json_kwargs["doc_access_deny_roots"] = doc_access["deny_roots"]
-        
-        app_settings = AppSettings(**json_kwargs)
+        if not isinstance(doc_access, dict):
+            doc_access = {}
         return {
-            "allow_roots": app_settings.doc_access_allow_roots,
-            "deny_roots": app_settings.doc_access_deny_roots
+            "allow_roots": doc_access.get("allow_roots", []),
+            "deny_roots": doc_access.get("deny_roots", []),
         }
 
     def get_doc_access_roots(self) -> tuple[list[str], list[str]]:

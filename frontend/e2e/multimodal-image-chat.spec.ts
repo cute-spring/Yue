@@ -64,23 +64,7 @@ const resolveModelCandidates = async (page: any) => {
 };
 
 const selectModel = async (page: any, providerName: string, modelName: string) => {
-  const selectorButton = page
-    .locator('button')
-    .filter({ hasText: /Select Model|QWN|QWEN|GPT|DEEPSEEK|VISION/i })
-    .first();
-  const selectorVisible = await selectorButton.isVisible({ timeout: 1500 }).catch(() => false);
-
-  if (selectorVisible) {
-    await selectorButton.click();
-    const toggleAll = page.getByRole('button', { name: 'All' }).first();
-    if (await toggleAll.isVisible()) {
-      await toggleAll.click();
-    }
-    const dropdown = page.locator('div').filter({ hasText: /All Models|Enabled Models/ }).first();
-    await dropdown.getByRole('button', { name: new RegExp(modelName, 'i') }).first().click();
-    return;
-  }
-
+  // Force a stable model selection path without relying on transient dropdown UI.
   await page.evaluate(({ provider, model }) => {
     localStorage.setItem('yue_selected_provider', provider);
     localStorage.setItem('yue_selected_model', model);
@@ -98,9 +82,9 @@ test('uploads image with text using a vision-capable model', async ({ page }) =>
   expect(visionProvider, 'No vision-capable provider available for E2E').toBeTruthy();
   await selectModel(page, visionProvider, visionModel);
 
-  const uploadButton = page.getByRole('button', { name: 'Upload images' });
+  const uploadButton = page.getByRole('button', { name: /Upload files|Upload images/i });
   await expect(uploadButton).toBeVisible();
-  const fileInput = page.locator('input[type="file"][accept="image/*"]');
+  const fileInput = page.locator('input[type="file"]').first();
   await fileInput.setInputFiles(imageFile);
 
   await input.fill('E2E image + text');
@@ -120,7 +104,7 @@ test('sends image-only message using a vision-capable model', async ({ page }) =
   expect(visionProvider, 'No vision-capable provider available for E2E').toBeTruthy();
   await selectModel(page, visionProvider, visionModel);
 
-  const fileInput = page.locator('input[type="file"][accept="image/*"]');
+  const fileInput = page.locator('input[type="file"]').first();
   await fileInput.setInputFiles(imageFile);
   await page.locator('button[type="submit"]').click();
 
@@ -147,6 +131,19 @@ test('pastes screenshot with Ctrl+V flow and sends successfully', async ({ page 
 });
 
 test('shows vision-off badge when model lacks vision capability', async ({ page }) => {
+  await page.route('**/api/chat/stream', async route => {
+    const stream = [
+      `data: ${JSON.stringify({ chat_id: 'chat-vision-off-e2e' })}\n\n`,
+      `data: ${JSON.stringify({ meta: { supports_vision: false, vision_enabled: false, image_count: 1 } })}\n\n`,
+      `data: ${JSON.stringify({ content: 'vision fallback response' })}\n\n`,
+    ].join('');
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: stream,
+    });
+  });
+
   await page.goto('/');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
@@ -156,6 +153,8 @@ test('shows vision-off badge when model lacks vision capability', async ({ page 
   expect(nonVisionProvider, 'No non-vision provider available for E2E').toBeTruthy();
   await selectModel(page, nonVisionProvider, nonVisionModel);
 
+  const fileInput = page.locator('input[type="file"]').first();
+  await fileInput.setInputFiles(imageFile);
   await input.fill('E2E non-vision text');
   await page.locator('button[type="submit"]').click();
   await expect(page.getByText('Vision Off').first()).toBeVisible({ timeout: 20000 });

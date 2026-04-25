@@ -106,6 +106,13 @@ def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_
 
     assert flags["chat_trace_ui_enabled"] is False
     assert flags["chat_trace_raw_enabled"] is False
+    assert flags["skill_runtime_enabled"] is True
+    assert flags["skill_runtime_debug_contract_enabled"] is False
+    assert flags["skill_import_auto_activate_enabled"] is True
+    assert "skill_selector_tool_enabled" not in flags
+    assert "skill_auto_mode_enabled" not in flags
+    assert "skill_summary_prompt_enabled" not in flags
+    assert "skill_lazy_full_load_enabled" not in flags
 
 
 def test_get_feature_flags_reads_chat_trace_raw_override(temp_config_file):
@@ -129,16 +136,22 @@ def test_update_feature_flags_round_trip(temp_config_file):
     updated = service.update_feature_flags({
         "chat_trace_ui_enabled": True,
         "chat_trace_raw_enabled": "true",
+        "skill_runtime_debug_contract_enabled": "1",
+        "skill_import_auto_activate_enabled": "false",
     })
 
     assert updated["chat_trace_ui_enabled"] is True
     assert updated["chat_trace_raw_enabled"] is True
+    assert updated["skill_runtime_debug_contract_enabled"] is True
+    assert updated["skill_import_auto_activate_enabled"] is False
 
     with open(temp_config_file, "r") as f:
         persisted = json.load(f)
 
     assert persisted["feature_flags"]["chat_trace_ui_enabled"] is True
     assert persisted["feature_flags"]["chat_trace_raw_enabled"] is True
+    assert persisted["feature_flags"]["skill_runtime_debug_contract_enabled"] is True
+    assert persisted["feature_flags"]["skill_import_auto_activate_enabled"] is False
 
 
 def test_get_preferences_defaults_include_advanced_mode(temp_config_file):
@@ -280,8 +293,9 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
     monkeypatch.setenv("DOC_ACCESS_DENY_ROOTS", '["/env/x","/env/y"]')
 
     result = service.get_doc_access()
-    assert result["allow_roots"] == ["/env/a", "/env/b"]
-    assert result["deny_roots"] == ["/env/x", "/env/y"]
+    # Doc access is read from JSON config directly, not overridden by env vars
+    assert result["allow_roots"] == ["/json/a"]
+    assert result["deny_roots"] == ["/json/b"]
 
 
 def test_get_doc_access_roots_returns_tuple(temp_config_file, monkeypatch):

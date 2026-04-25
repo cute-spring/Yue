@@ -52,18 +52,18 @@ test('real backend + real db: cross-midnight UTC history is grouped into local d
 
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const todayGroup = page.getByRole('button', { name: 'Toggle date group 4/11/2026' });
-  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group 4/10/2026' });
+  const todayGroup = page.getByRole('button', { name: 'Toggle date group Today' });
+  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
 
   await expect(todayGroup).toHaveAttribute('aria-expanded', 'true');
-  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'false');
+  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'true');
 
   await expect(page.getByText('Timezone Today Session')).toBeVisible();
-  await expect(page.getByText('Timezone Yesterday Session')).not.toBeVisible();
+  await expect(page.getByText('Timezone Yesterday Session')).toBeVisible();
 
   await yesterdayGroup.click();
-  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByText('Timezone Yesterday Session')).toBeVisible();
+  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByText('Timezone Yesterday Session')).not.toBeVisible();
 });
 
 test('real backend + real db: new session is grouped into Today after refresh', async ({ page }) => {
@@ -71,16 +71,16 @@ test('real backend + real db: new session is grouped into Today after refresh', 
   await freezeNow(page, '2026-04-11T01:00:00+08:00');
 
   await page.goto('/', { waitUntil: 'networkidle' });
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/10/2026' })).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toHaveCount(0);
 
   seedScenario('append_today_new_chat');
   await page.reload({ waitUntil: 'networkidle' });
 
-  const todayGroup = page.getByRole('button', { name: 'Toggle date group 4/11/2026' });
-  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group 4/10/2026' });
+  const todayGroup = page.getByRole('button', { name: 'Toggle date group Today' });
+  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
   await expect(todayGroup).toHaveAttribute('aria-expanded', 'true');
-  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'false');
+  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByText('Fresh Today Session')).toBeVisible();
 });
 
@@ -90,23 +90,23 @@ test('real backend + real db: date groups expand and collapse correctly', async 
 
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  const todayGroup = page.getByRole('button', { name: 'Toggle date group 4/11/2026' });
-  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group 4/10/2026' });
-  const twoDaysGroup = page.getByRole('button', { name: 'Toggle date group 4/9/2026' });
+  const todayGroup = page.getByRole('button', { name: 'Toggle date group Today' });
+  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
+  const twoDaysGroup = page.getByRole('button', { name: 'Toggle date group Last 7 Days' });
 
   await expect(todayGroup).toHaveAttribute('aria-expanded', 'true');
-  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'false');
-  await expect(twoDaysGroup).toHaveAttribute('aria-expanded', 'false');
-
-  await yesterdayGroup.click();
   await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByText('Yesterday A')).toBeVisible();
-  await expect(page.getByText('Yesterday B')).toBeVisible();
+  await expect(twoDaysGroup).toHaveAttribute('aria-expanded', 'false');
 
   await yesterdayGroup.click();
   await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByText('Yesterday A')).not.toBeVisible();
   await expect(page.getByText('Yesterday B')).not.toBeVisible();
+
+  await yesterdayGroup.click();
+  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByText('Yesterday A')).toBeVisible();
+  await expect(page.getByText('Yesterday B')).toBeVisible();
 
   await twoDaysGroup.click();
   await expect(twoDaysGroup).toHaveAttribute('aria-expanded', 'true');
@@ -119,22 +119,22 @@ test('real backend + real db: date presets respect local day boundaries', async 
 
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.getByRole('button', { name: 'Today' }).click();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/5/2026' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/4/2026' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'TODAY', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Toggle date group Last 7 Days' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Toggle date group Earlier' })).toHaveCount(0);
 
   await page.getByRole('button', { name: '7d' }).click();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/5/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/4/2026' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Toggle date group Last 7 Days' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Toggle date group Earlier' })).toHaveCount(0);
 
   await page.getByRole('button', { name: '30d' }).click();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/5/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/4/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 3/13/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 3/12/2026' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Toggle date group Last 7 Days' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Toggle date group Earlier' })).toBeVisible();
 });
 
 test('real backend + real db: tag filter works under date grouping', async ({ page }) => {
@@ -143,17 +143,14 @@ test('real backend + real db: tag filter works under date grouping', async ({ pa
 
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  await page.getByRole('button', { name: '#api' }).first().click();
+  await page.getByPlaceholder('Search chats...').fill('api');
 
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toBeVisible();
-  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group 4/10/2026' });
+  await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
+  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
   await expect(yesterdayGroup).toBeVisible();
   await expect(page.getByText('Tag Today API')).toBeVisible();
   await expect(page.getByText('Tag Yesterday Design')).toHaveCount(0);
-
-  await yesterdayGroup.click();
   await expect(page.getByText('Tag Yesterday API')).toBeVisible();
-  await expect(page.getByText('Tag Yesterday Design')).toHaveCount(0);
 });
 
 test('real backend + real db: search and date grouping stay consistent', async ({ page }) => {
@@ -161,27 +158,25 @@ test('real backend + real db: search and date grouping stay consistent', async (
   await freezeNow(page, '2026-04-11T12:00:00+08:00');
 
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.getByPlaceholder('Search title, summary, tags...').fill('design');
+  await page.getByPlaceholder('Search chats...').fill('design');
 
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/10/2026' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toHaveCount(0);
 
-  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group 4/10/2026' });
-  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.getByText('Tag Yesterday Design')).not.toBeVisible();
-  await yesterdayGroup.click();
+  const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
+  await expect(yesterdayGroup).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByText('Tag Yesterday Design')).toBeVisible();
   await expect(page.getByText('Tag Yesterday API')).toHaveCount(0);
 });
 
 test.describe('timezone matrix for cross-midnight grouping', () => {
   test.use({ timezoneId: 'Asia/Shanghai' });
-  test('asia/shanghai: split into 4/11 and 4/10 groups', async ({ page }) => {
+  test('asia/shanghai: split into Today and Yesterday groups', async ({ page }) => {
     seedScenario('cross_midnight');
     await freezeNow(page, '2026-04-11T01:00:00+08:00');
     await page.goto('/', { waitUntil: 'networkidle' });
-    await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Toggle date group 4/10/2026' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toBeVisible();
   });
 });
 
@@ -191,8 +186,8 @@ test.describe('timezone matrix for cross-midnight grouping in UTC', () => {
     seedScenario('cross_midnight');
     await freezeNow(page, '2026-04-11T01:00:00+08:00');
     await page.goto('/', { waitUntil: 'networkidle' });
-    await expect(page.getByRole('button', { name: 'Toggle date group 4/10/2026' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveCount(0);
     await expect(page.getByText('Timezone Today Session')).toBeVisible();
     await expect(page.getByText('Timezone Yesterday Session')).toBeVisible();
   });
@@ -204,8 +199,8 @@ test.describe('timezone matrix for cross-midnight grouping in America/Los_Angele
     seedScenario('cross_midnight');
     await freezeNow(page, '2026-04-11T01:00:00+08:00');
     await page.goto('/', { waitUntil: 'networkidle' });
-    await expect(page.getByRole('button', { name: 'Toggle date group 4/10/2026' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Toggle date group 4/11/2026' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveCount(0);
     await expect(page.getByText('Timezone Today Session')).toBeVisible();
     await expect(page.getByText('Timezone Yesterday Session')).toBeVisible();
   });

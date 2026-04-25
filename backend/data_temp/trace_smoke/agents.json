@@ -61,7 +61,7 @@
     "require_citations": true,
     "skill_mode": "manual",
     "visible_skills": [
-      "project-status-auditor:1.0.0"
+      "status-audit:1.0.0"
     ],
     "agent_kind": "traditional",
     "skill_groups": [],

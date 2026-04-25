@@ -145,6 +145,28 @@ def test_builtin_agents_expose_skill_friendly_defaults(agent_store):
     assert "ppt-expert:1.0.0" in action_lab.visible_skills
 
 
+def test_builtin_agent_customizations_survive_restart(temp_dirs):
+    data_dir, _legacy_dir = temp_dirs
+    store = AgentStore(data_dir=data_dir)
+
+    updated = store.update_agent(
+        "builtin-docs",
+        {
+            "enabled_tools": ["builtin:docs_search"],
+            "skill_mode": "manual",
+            "visible_skills": ["status-audit:1.0.0"],
+        },
+    )
+    assert updated is not None
+
+    reloaded = AgentStore(data_dir=data_dir)
+    docs_agent = reloaded.get_agent("builtin-docs")
+    assert docs_agent is not None
+    assert docs_agent.enabled_tools == ["builtin:docs_search"]
+    assert docs_agent.skill_mode == "manual"
+    assert docs_agent.visible_skills == ["status-audit:1.0.0"]
+
+
 def test_builtin_translator_prompt_enforces_translation_only(agent_store):
     translator = agent_store.get_agent("builtin-translator")
     assert translator is not None
@@ -269,3 +291,59 @@ def test_agent_store_loads_legacy_record_with_new_defaults(temp_dirs):
     assert loaded.voice_input_enabled is True
     assert loaded.voice_input_provider == "browser"
     assert loaded.voice_azure_config is None
+
+
+def test_agent_store_seeds_missing_builtin_from_catalog_dir(temp_dirs):
+    data_dir, _legacy_dir = temp_dirs
+    builtin_dir = Path(data_dir) / "builtin-agents"
+    builtin_dir.mkdir(parents=True, exist_ok=True)
+    (builtin_dir / "builtin-test.yaml").write_text(
+        """
+id: builtin-test
+name: Builtin Test
+system_prompt: seeded from catalog
+provider: openai
+model: gpt-4o
+""".strip()
+    )
+
+    store = AgentStore(data_dir=data_dir, builtin_agents_dir=str(builtin_dir))
+    agent = store.get_agent("builtin-test")
+    assert agent is not None
+    assert agent.system_prompt == "seeded from catalog"
+
+
+def test_agent_store_restart_does_not_override_existing_runtime_builtin(temp_dirs):
+    data_dir, _legacy_dir = temp_dirs
+    builtin_dir = Path(data_dir) / "builtin-agents"
+    builtin_dir.mkdir(parents=True, exist_ok=True)
+    (builtin_dir / "builtin-docs.yaml").write_text(
+        """
+id: builtin-docs
+name: Document Assistant
+system_prompt: catalog default prompt
+provider: openai
+model: gpt-4o
+""".strip()
+    )
+
+    runtime_file = Path(data_dir) / "agents.json"
+    runtime_file.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "builtin-docs",
+                    "name": "Customized Docs",
+                    "system_prompt": "user customized prompt",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                }
+            ]
+        )
+    )
+
+    reloaded = AgentStore(data_dir=data_dir, builtin_agents_dir=str(builtin_dir))
+    docs_agent = reloaded.get_agent("builtin-docs")
+    assert docs_agent is not None
+    assert docs_agent.name == "Customized Docs"
+    assert docs_agent.system_prompt == "user customized prompt"

@@ -36,6 +36,41 @@
 - [x] **Phase 2: 自动化脚本集成** (实现 `check_gate_completeness.py`)
 - [ ] **Phase 3: 统一契约门禁 (Contract Gate)** (见 [unified_contract_gate_execution_plan_20260314.md](./unified_contract_gate_execution_plan_20260314.md))
 
+### Epic 8: Skill Import Gate 与 Runtime 路由增强
+> **状态**: 推进中 (总体约 96%)
+> **策略文档**: [../research/skills_gap_comparison_and_roadmap_20260421.md](../research/skills_gap_comparison_and_roadmap_20260421.md)
+> **执行计划**: [skill_import_runtime_execution_plan_20260421.md](./skill_import_runtime_execution_plan_20260421.md)
+> **实施设计包**: [skill_import_gate_implementation_design_20260421.md](./skill_import_gate_implementation_design_20260421.md)
+> **API 契约**: [skill_import_gate_api_contract_20260421.md](./skill_import_gate_api_contract_20260421.md)
+> **目标**: 将 Yue 收敛为 Agent Skills 标准 skill 的导入、验收、激活、选择和运行平台；当前坚持最小可用优先（internal dev first）。
+> **子项进度**: Stage 1 约 98% | Stage 2 约 97% | Stage 3-Lite 约 95% | Stage 4-Lite 约 95% | Stage 5-Lite 约 25%（full extraction deferred，已落地最小 boundary manifest）
+> **当前下一步**: 继续推进 Stage 4-Lite 收口（聚焦 `skill_service.py` provider/container 边界进一步收敛与剩余全局兼容 seam 退场），并维持 hybrid 运行面收敛门禁回归。
+- [x] **Phase 1: Skill Import Gate** (约 98%；`import_models/import_store/import_service`、`/api/skill-imports`、重启恢复 smoke 已落地)
+- [x] **Phase 2: Runtime 路由 Lite** (约 96%；默认最小响应契约稳定，debug 字段仅在诊断开关下返回)
+- [x] **Phase 3: 标准对齐清理** (约 95%；旧细粒度 runtime flag 叙事清理完成，保留 `test_config_service_unit.py` 负向断言白名单)
+- [x] **本轮收口结果（2026-04-23）**
+- [x] `POST /api/skill-imports` 已增加 `source_type` 非法值拒绝（`invalid_request`）
+- [x] `/api/skills/reload` 在 `import-gate` 运行模式下已降级拒绝（`skill_reload_unavailable_in_import_gate_mode`）
+- [x] `SkillCompatibilityEvaluator` 默认支持工具集已接入 builtin registry，unknown tool 会进入不兼容报告
+- [x] `SkillRouter` 已支持注入 `visibility_resolver`，将 Yue 可见性解析从纯路由评分逻辑中进一步隔离
+- [x] `api/skills.py` 关键读取路径已切换 runtime context 访问，减少对模块级全局实例的直接耦合
+- [x] `api/chat.py` 已新增 runtime prompt helper 绑定（按会话 runtime context 绑定 resolve/assemble，减少隐式全局读取）
+- [x] `skill_service.py` 已新增 Stage4 runtime context factory set/reset seam，支持可注入上下文边界（兼容默认行为）
+- [x] 增补 hybrid 护栏测试：import-gate 模式 `reload` 短路且不触发 runtime context；legacy 模式 refresh 严格 no-op
+- [x] `api/chat.py` 兼容 patch 点已迁移到 runtime context patch 路径（测试不再依赖 `app.api.chat.skill_router/skill_registry` 模块级 seam）
+- [x] `skill_service.py` 已补 `Stage4LiteRuntimeProviders`（registry/router/action/import_store）及 set/get/reset seam，`build_stage4_lite_runtime_seams()` 默认跟随 runtime context providers
+- [x] hybrid 行为矩阵已覆盖 `legacy/import-gate + reload/import/activate/deactivate` 组合，并在 API + lifespan smoke 路径落地
+- [x] `api/skills.py` / `api/skill_imports.py` 已改为 runtime context 取依赖，不再暴露模块级 `skill_registry/skill_router/skill_import_store/skill_import_service` 单例 seam
+- [x] 新增 hybrid 收敛门禁：`YUE_SKILL_RUNTIME_CONVERGENCE_STRATEGY=import-gate-strict` 时，legacy 模式拒绝 import mutation（`skill_import_mutation_unavailable_in_legacy_mode`）
+- [x] Stage 5-Lite 已补最小 externalization 交付：`skill_runtime_boundary_harness.py` 产出可导出 machine-readable `externalization_manifest`（`stage5-lite-boundary-manifest/v1`）并由测试校验结构
+- [ ] **未完成项清单（跨 Phase）**
+- [ ] Stage 4-Lite 仍未完全收口：`skill_service.py` 虽已落 provider/container seam，但仍保留模块级全局导出与兼容壳层
+- [ ] Runtime 仍为 legacy/import-gate 双轨 hybrid，尚未形成单一清晰运行面
+- [ ] Stage 5-Lite 仍 deferred：当前已具备最小 boundary manifest 交付，但完整 externalization（提取/发布）仍未进入执行
+- [x] **回归结果（2026-04-23）**
+- [x] `cd backend && PYTHONPATH=. pytest -q tests/test_api_skills.py tests/test_api_skill_imports.py tests/test_skill_import_gate_unit.py tests/test_import_gate_lifespan_smoke.py tests/test_skill_runtime_seams_unit.py tests/test_stage5_runtime_boundary_harness.py tests/test_skill_compatibility_unit.py` -> `77 passed`
+- [x] `cd backend && PYTHONPATH=. pytest -q tests/test_api_chat_unit.py tests/test_api_skills.py tests/test_api_skill_imports.py tests/test_import_gate_lifespan_smoke.py tests/test_skill_runtime_catalog_unit.py tests/test_skill_runtime_seams_unit.py tests/test_stage5_runtime_boundary_harness.py tests/test_skill_compatibility_unit.py tests/test_skill_service_runtime_context_unit.py` -> `146 passed`
+
 ---
 
 ## 🟡 Todo (待办架构演进)
@@ -58,15 +93,6 @@
 - [ ] **Phase 1: 短期滚动摘要 (STM) MVP** (缓解长会话上下文丢失)
 - [ ] **Phase 2: 模型能力精细化管理 (UI)** (见 [ui_capability_management_plan_plan.md](./ui_capability_management_plan_plan.md))
 - [ ] **Phase 3: Providers API 重构** (合并 [llm_providers_api_refactoring_plan.md](./llm_providers_api_refactoring_plan.md))
-
-### Epic 8: 技能系统深度增强 (Skills Deep Dive)
-> **状态**: 推进中 (约 15%)
-> **详情文档**: [skill_creator_implementation_plan_20260319.md](./skill_creator_implementation_plan_20260319.md)
-> **目标**: 建立 Skill Creator 内置 Agent，并补齐 PPT/Nanobot 等领域技能差距。
-- [x] **Phase 0: 技能服务模块化** (见 [skill_service_modularization_plan_20260323.md](./skill_service_modularization_plan_20260323.md)) - Phase 1 已完成，测试全绿
-- [ ] **Phase 1: Skill Creator 实现** (AI 驱动的技能生成工作流)
-- [ ] **Phase 2: PPT 技能加固** (见 [ppt_skill_gap_enhancement_plan_20260307.md](./ppt_skill_gap_enhancement_plan_20260307.md)) - Blocked/Deprioritized
-- [ ] **Phase 3: Nanobot 技能演进** (见 [nanobot_skill_gap_plan_20260307.md](./nanobot_skill_gap_plan_20260307.md)) - Blocked/Deprioritized
 
 ### Epic 9: 代码库健康与 God Object 重构 (Refactoring)
 > **状态**: 推进中 (约 10%)
@@ -95,18 +121,14 @@
 - [x] **Epic 1: 配置与日志的云端演进** (见 [archive/Logging_Config_Evolution_Plan.md](./archive/Logging_Config_Evolution_Plan.md))
 - [x] **架构演进可行性与依赖关系分析** (完成了日志、数据库、文件管理的拆解与评估)
 - [x] **建立 AI 驱动的工程管理最佳实践** (见 [archive/AI_Driven_Project_Management_Best_Practices.md](./archive/AI_Driven_Project_Management_Best_Practices.md))
-- [x] **Agent 种类与技能组重构** (见 [archive/agent_classification_and_skill_group_plan_20260319.md](./archive/agent_classification_and_skill_group_plan_20260319.md))
 - [x] **内置工具架构重构** (见 [archive/builtin_tools_refactor_plan.md](./archive/builtin_tools_refactor_plan.md))
-- [x] **Markdown 技能系统实现 (Phase 6.2)** (见 [archive/markdown_defined_skills_plan.md](./archive/markdown_defined_skills_plan.md))
-- [x] **技能架构长线演进与清理** (见 [archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md](./archive/skills_long_term_architecture_and_legacy_removal_plan_20260317.md))
 - [x] **语音合成与自动朗读功能** (见 [archive/2026-03-24-auto-speech-synthesis.md](./archive/2026-03-24-auto-speech-synthesis.md))
 - [x] **语音输入功能（Azure Speech + Browser Fallback）** (见 [Voice_Input_Feature_Design.md](./Voice_Input_Feature_Design.md), [Voice_Input_Implementation_Plan.md](./Voice_Input_Implementation_Plan.md), [Voice_Input_Release_Checklist.md](./Voice_Input_Release_Checklist.md))
 
 > **归档说明**: 以下历史计划文档已归档至 `archive/` 目录，供参考查阅：
 > - 工具架构重构相关：`agent_tooling_refactor_plan.md`, `builtin_tools_refactor_plan.md`
-> - 技能系统演进相关：`skills_long_term_architecture_and_legacy_removal_plan_20260317.md`, `agent_classification_and_skill_group_plan_20260319.md`
 > - 已完成功能计划：`PDF_BUILTIN_TOOLS_HIGH_ROI.md`, `MS_EXCEL_SUPPORT_PLAN.md`, `2026-03-24-auto-speech-synthesis.md`
-> - 已被替代计划：`reasoning_tools_execution_enhancement_plan_20260308.md` (已被 Epic 4 替代), `Skill_Feature_Roadmap.md` (已被 Epic 8 替代)
+> - 已被替代计划：`reasoning_tools_execution_enhancement_plan_20260308.md` (已被 Epic 4 替代)
 > - 分析参考文档：`REASONING_CHAIN_OPTIMIZATION.md`, `SMART_DOC_PROCESSING_PLAN.md`, `Docs_Tooling_Enhancement_Plan.md`, `MCP_DOC_AGENT_PLAN.md`
 
 ---
