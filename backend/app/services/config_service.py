@@ -512,8 +512,8 @@ class ConfigService:
         """
         policies = {
             "default": {
-                "tool_calls_limit": 8,
-                "request_limit": 12,
+                "tool_calls_limit": 32,
+                "request_limit": 48,
                 "total_tokens_limit": 120000
             },
             "strict": {
@@ -522,9 +522,9 @@ class ConfigService:
                 "total_tokens_limit": 60000
             },
             "premium": {
-                "tool_calls_limit": 16,
-                "request_limit": 20,
-                "total_tokens_limit": 240000
+                "tool_calls_limit": 64,
+                "request_limit": 96,
+                "total_tokens_limit": 480000
             }
         }
         

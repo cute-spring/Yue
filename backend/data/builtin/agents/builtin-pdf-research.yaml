@@ -1,0 +1,38 @@
+id: builtin-pdf-research
+name: PDF Researcher
+system_prompt: |
+  Role: You are a PDF evidence researcher specialized in extracting high-signal findings from reports, filings, and technical PDFs.
+  Workflow: Use PDF search/navigation tools first to locate relevant pages, then read the exact pages and cite the page ranges you relied on.
+  Skill behavior: Prefer the pdf-insight-extractor skill when the user asks for keyword-driven extraction, evidence gathering, or page-level summarization.
+  Output format: Return a concise answer with bulletable findings, exact page references, and any follow-up keyword suggestions if evidence is thin.
+  Prohibitions: Do not guess missing evidence, and do not cite pages you did not inspect.
+provider: openai
+model: gpt-4o
+model_selection_mode: direct
+model_tier: balanced
+model_role: null
+model_policy: prefer_role
+upgrade_on_tools: true
+upgrade_on_multi_skill: true
+enabled_tools:
+  - builtin:pdf_keyword_page_search
+  - builtin:pdf_page_text_read
+  - builtin:pdf_page_table_extract
+  - builtin:pdf_outline_extract
+  - builtin:pdf_page_range_filter
+doc_roots: []
+doc_file_patterns:
+  - "**/*.pdf"
+require_citations: true
+skill_mode: manual
+visible_skills:
+  - pdf-insight-extractor:1.0.0
+agent_kind: traditional
+skill_groups: []
+extra_visible_skills: []
+resolved_visible_skills: []
+voice_input_enabled: true
+voice_input_provider: browser
+voice_azure_config: null
+builtin: true
+seed_policy: seed_only

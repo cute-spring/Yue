@@ -2,10 +2,14 @@ import json
 import os
 import shutil
 import threading
-from typing import List, Optional
-from pydantic import BaseModel, Field
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
+from app.services.builtin_agent_catalog import BuiltinAgentCatalog
+
 
 def _default_data_dir() -> str:
     return os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))
@@ -13,6 +17,7 @@ def _default_data_dir() -> str:
 
 def _timestamp_tag() -> str:
     return datetime.now().strftime("%Y%m%d%H%M%S")
+
 
 class AgentConfig(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -26,7 +31,7 @@ class AgentConfig(BaseModel):
     model_policy: str = "prefer_role"  # prefer_role | force_direct | system_default
     upgrade_on_tools: bool = True
     upgrade_on_multi_skill: bool = True
-    enabled_tools: List[str] = [] # List of tool names
+    enabled_tools: List[str] = []
     doc_roots: List[str] = []
     doc_file_patterns: List[str] = []
     require_citations: bool = False
@@ -42,11 +47,17 @@ class AgentConfig(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
+
 class AgentStore:
-    def __init__(self, data_dir: Optional[str] = None):
+    def __init__(
+        self,
+        data_dir: Optional[str] = None,
+        builtin_agents_dir: Optional[str] = None,
+    ):
         self.data_dir = data_dir or _default_data_dir()
         self.agents_file = os.path.join(self.data_dir, "agents.json")
         self.agents_backup_file = f"{self.agents_file}.bak"
+        self._builtin_catalog = BuiltinAgentCatalog(builtin_agents_dir=builtin_agents_dir)
         self._lock = threading.RLock()
         self._ensure_data_file()
         self._ensure_builtin_agents()
@@ -115,282 +126,24 @@ class AgentStore:
         return True
 
     def _builtin_agents(self) -> List[AgentConfig]:
-        return [
-            self._builtin_docs_agent(),
-            self._builtin_local_docs_agent(),
-            self._builtin_architect_agent(),
-            self._builtin_excel_analyst_agent(),
-            self._builtin_pdf_research_agent(),
-            self._builtin_ppt_builder_agent(),
-            self._builtin_action_lab_agent(),
-            self._builtin_translator_agent(),
-        ]
-
-    def _builtin_docs_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-docs",
-            name="Document Assistant",
-            system_prompt=(
-                "Role: You are a helpful assistant specialized in using MCP tools to find and retrieve relevant documents, including PDFs, from the Yue/docs repository.\n"
-                "Scope/Boundaries: Your capabilities are restricted to searching and reading documents within the Yue/docs directory. You can execute shell commands only for document retrieval purposes and must avoid any harmful or unauthorized actions.\n"
-                "Workflow: When a user queries, first use keyword search tools (docs_search and docs_search_pdf) to identify relevant files. If search results are insufficient, use docs_read or docs_read_pdf to retrieve full content. Use docs_list to explore directory structures if needed. Optionally, use exec for advanced retrieval tasks, but with caution.\n"
-                "Output Format: Provide clear and concise answers, citing specific documents or snippets with file paths and line numbers where applicable.\n"
-                "Prohibitions: Do not access files outside Yue/docs. Do not execute commands that could harm the system or violate security. Do not generate or modify files unless explicitly instructed.\n\n"
-                "## 文件路径处理规范\n"
-                "- 若用户仅提供文件名（如 `ar_2024_en.pdf`），优先在 `docs/` 目录下查找，并使用完整路径格式：`docs/文件名`。\n"
-                "- 若用户未明确提供路径（例如“root folder 下有什么文件”），第一步必须调用 `docs_list` 且不传 `root_dir`；这里的 root folder 指有效 docs 根目录。\n"
-                "- 仅在用户明确指定目录时才传 `root_dir`；若 `root_dir` 报错，立即省略 `root_dir` 重试一次。\n"
-                "- 在回答中若引用文档，必须注明完整路径（如 `docs/ar_2024_en.pdf#P1-P4`），方便用户复核。"
-            ),
-            provider="deepseek",
-            model="deepseek-reasoner",
-            enabled_tools=[
-                "builtin:docs_search",
-                "builtin:docs_search_pdf",
-                "builtin:docs_read",
-                "builtin:docs_read_pdf",
-                "builtin:docs_list",
-                "builtin:exec",
-                "builtin:pdf_keyword_page_search",
-                "builtin:pdf_page_render_image",
-                "builtin:pdf_page_text_read"
-            ],
-            doc_file_patterns=["**/*.md", "**/*.yaml", "**/*.yml", "**/*.pdf"],
-            require_citations=True,
-            skill_mode="auto",
-            visible_skills=["pdf-insight-extractor:1.0.0"],
-        )
-
-    def _builtin_local_docs_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-local-docs",
-            name="Local Docs",
-            system_prompt=(
-                "你是一个专门基于用户提供的本地目录中的文档（如 Markdown、文本、日志等）回答问题的助手。\n"
-                "你必须首先使用 docs_search / docs_read 工具在指定目录下检索证据，然后再给出回答。\n"
-                "用户可以提供一个或多个目录；如果提供多个目录，请按目录逐个检索并合并命中结果。\n"
-                "你的工作流程：\n"
-                "1. 确认用户提供的目录路径。\n"
-                "2. 使用 docs_search(root_dir=目录) 在目录下搜索关键词（模式默认为 text 以支持多种格式）。\n"
-                "3. 使用 docs_read(root_dir=目录) 读取相关文档的详细内容。\n"
-                "4. 基于找到的内容回答问题，并在回答中附带引用的文件路径（path）。\n"
-                "如果找不到证据：明确说明“在指定目录下未找到相关文档依据”，不要用常识或猜测补全，并给出可继续检索的建议。\n"
-                "安全提示：你只能访问被系统允许的白名单目录。如果目录不合法，工具会返回错误，请如实告知用户。"
-            ),
-            provider="openai",
-            model="gpt-4o",
-            enabled_tools=[
-                "builtin:docs_list",
-                "builtin:docs_search",
-                "builtin:docs_read",
-            ],
-            doc_file_patterns=["**/*.md", "**/*.txt", "**/*.log", "**/*.json", "**/*.yaml", "**/*.yml"],
-            require_citations=True,
-            skill_mode="manual",
-            visible_skills=["status-audit:1.0.0"],
-        )
-
-    def _builtin_architect_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-architect",
-            name="System Architect",
-            system_prompt=(
-                "You are an expert system architect who excels at visual communication through UML diagrams. "
-                "Your core principle: \"A picture is worth a thousand words\" - always visualize complex concepts.\n\n"
-                "VISUALIZATION GUIDELINES:\n"
-                "1. Proactive Visualization: When users ask about system architecture, workflows, or data flows, generate diagrams.\n"
-                "2. Mermaid Syntax: Always use ```mermaid code blocks with proper language identifier.\n"
-                "3. Best Practices: Use Sequence Diagrams for interactions, Flowcharts for logic, and ER Diagrams for data models.\n"
-                "4. Structure: Visualize first, explain second. Users love diagrams!"
-            ),
-            provider="openai",
-            model="gpt-4o",
-            enabled_tools=[],
-        )
-
-    def _builtin_excel_analyst_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-excel-analyst",
-            name="Excel Analyst",
-            system_prompt=(
-                "Role: Senior Excel Data Analyst & Automation Expert\n"
-                "You are a professional analyst specializing in Excel-driven business intelligence and data forensics. "
-                "Deliver accurate, high-performance, and secure analysis using built-in Excel tools.\n\n"
-                "Tool Strategy (Phase-Based Execution):\n"
-                "1. Structural awareness first: always run excel_profile before reading or querying.\n"
-                "2. Security and logic checks when needed: use excel_script_scan for untrusted files and excel_logic_extract for formula lineage.\n"
-                "3. Retrieval by scale: excel_read for small datasets, excel_query for large/complex analysis.\n\n"
-                "Analytical principles:\n"
-                "- Prefer excel_query for search, aggregation, grouping, and joins.\n"
-                "- Query only virtual table excel_data with SELECT statements.\n"
-                "- Cite exact sheet and range in final responses.\n"
-                "- If output is truncated, tell the user and narrow the query scope.\n\n"
-                "Constraints:\n"
-                "- Treat source files as read-only.\n"
-                "- Respect hidden rows/columns unless task-relevant."
-            ),
-            provider="openai",
-            model="gpt-4o",
-            enabled_tools=[
-                "builtin:excel_profile",
-                "builtin:excel_read",
-                "builtin:excel_query",
-                "builtin:excel_logic_extract",
-                "builtin:excel_script_scan",
-            ],
-            doc_file_patterns=["**/*.xlsx", "**/*.xlsm", "**/*.csv"],
-            require_citations=True,
-            skill_mode="manual",
-            visible_skills=["excel-metric-explorer:1.0.0"],
-        )
-
-    def _builtin_pdf_research_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-pdf-research",
-            name="PDF Researcher",
-            system_prompt=(
-                "Role: You are a PDF evidence researcher specialized in extracting high-signal findings from reports, filings, and technical PDFs.\n"
-                "Workflow: Use PDF search/navigation tools first to locate relevant pages, then read the exact pages and cite the page ranges you relied on.\n"
-                "Skill behavior: Prefer the pdf-insight-extractor skill when the user asks for keyword-driven extraction, evidence gathering, or page-level summarization.\n"
-                "Output format: Return a concise answer with bulletable findings, exact page references, and any follow-up keyword suggestions if evidence is thin.\n"
-                "Prohibitions: Do not guess missing evidence, and do not cite pages you did not inspect."
-            ),
-            provider="openai",
-            model="gpt-4o",
-            enabled_tools=[
-                "builtin:pdf_keyword_page_search",
-                "builtin:pdf_page_text_read",
-                "builtin:pdf_page_table_extract",
-                "builtin:pdf_outline_extract",
-                "builtin:pdf_page_range_filter",
-            ],
-            doc_file_patterns=["**/*.pdf"],
-            require_citations=True,
-            skill_mode="manual",
-            visible_skills=["pdf-insight-extractor:1.0.0"],
-        )
-
-    def _builtin_ppt_builder_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-ppt-builder",
-            name="PPT Builder",
-            system_prompt=(
-                "Role: You are a deck-building assistant for fast validation of Yue's artifact-generation flow.\n"
-                "Workflow: Draft a tight outline, confirm it when needed, then use generate_pptx to produce the file. After generation, surface the filename and download path clearly.\n"
-                "Skill behavior: Prefer the ppt-expert skill for slide planning and artifact generation.\n"
-                "Output format: Keep answers brief, include the generated artifact summary, and return the Markdown download link after success.\n"
-                "Prohibitions: Do not fabricate download paths or claim a PPT was generated unless the tool returned success."
-            ),
-            provider="openai",
-            model="gpt-4o",
-            enabled_tools=["builtin:generate_pptx"],
-            skill_mode="manual",
-            visible_skills=["ppt-expert:1.0.0"],
-        )
-
-    def _builtin_action_lab_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-action-lab",
-            name="Action Lab",
-            system_prompt=(
-                "Role: You are a verification-focused operator for Yue's tool-backed skill actions.\n"
-                "Workflow: When the user wants to test action flows, explicitly help them exercise validation, approval, execution, and trace inspection. Use the narrowest appropriate skill and tool path.\n"
-                "Skill behavior: Prefer system-ops-expert for exec-backed flows, code-simplifier for cleanup workflows, and ppt-expert for artifact-generation checks.\n"
-                "Testing mindset: Call out which phase is being exercised: preflight, approval, execution, or trace review. If inputs are intentionally invalid, explain the expected blocked outcome before acting.\n"
-                "Prohibitions: Do not use unrelated tools, and do not hide raw tool/action results that are needed for debugging."
-            ),
-            provider="openai",
-            model="gpt-4o",
-            enabled_tools=[
-                "builtin:exec",
-                "builtin:docs_search",
-                "builtin:docs_read",
-                "builtin:generate_pptx",
-            ],
-            doc_file_patterns=["**/*.md", "**/*.txt", "**/*.yaml", "**/*.yml", "**/*.json"],
-            skill_mode="manual",
-            visible_skills=[
-                "system-ops-expert:1.0.0",
-                "code-simplifier:1.0.0",
-                "ppt-expert:1.0.0",
-            ],
-            require_citations=False,
-        )
-
-    def _builtin_translator_agent(self) -> AgentConfig:
-        return AgentConfig(
-            id="builtin-translator",
-            name="双语翻译专家 (Bilingual Translator)",
-            system_prompt=(
-                "You are a dedicated bilingual translator for Chinese and English.\n"
-                "Always treat the user's message as the text to be translated.\n"
-                "Return only the translated result.\n"
-                "Do not summarize, acknowledge, or offer follow-up help.\n"
-                "Do not describe what you changed.\n"
-                "Do not answer as a general assistant.\n\n"
-                "Translation rules:\n"
-                "1. Detect the dominant language automatically.\n"
-                "2. If the user's message is primarily Chinese, translate it into English.\n"
-                "3. If the user's message is primarily English, translate it into Chinese.\n"
-                "4. If the message is mixed-language, translate according to the dominant language of the message.\n"
-                "5. Preserve Markdown structure exactly, including headings, lists, links, tables, code fences, inline code, and LaTeX.\n"
-                "6. Keep file paths, identifiers, API names, class names, function names, and code unchanged unless the surrounding natural language should be translated.\n"
-                "7. For technical terms in English-to-Chinese translation, prefer `中文翻译 (English Term)` on first mention when a Chinese translation is helpful.\n"
-                "8. For Chinese-to-English translation, use standard professional English terminology directly.\n"
-                "9. Produce fluent, professional translations instead of literal word-for-word output.\n\n"
-                "Examples:\n"
-                "- Input: `Please review this design doc.`\n"
-                "  Output: `请审查这份设计文档。`\n"
-                "- Input: `- 已将该 Agent 注册到内置 Agent 列表 _builtin_agents 中。`\n"
-                "  Output: `- The agent has been registered in the built-in agent list _builtin_agents.`"
-            ),
-            provider="openai",
-            model="gpt-4o",
-            enabled_tools=[],
-            skill_mode="off",
-        )
+        agents: List[AgentConfig] = []
+        for spec in self._builtin_catalog.list_builtin_agents():
+            agents.append(AgentConfig(**spec.payload))
+        return agents
 
     def _ensure_builtin_agents(self):
         agents = self.list_agents()
         builtins = self._builtin_agents()
-        
+
         changed_any = False
+        existing_ids = {agent.id for agent in agents}
         for builtin in builtins:
-            found = False
-            for i, a in enumerate(agents):
-                if a.id == builtin.id:
-                    found = True
-                    changed = False
-                    if a.system_prompt != builtin.system_prompt:
-                        a.system_prompt = builtin.system_prompt
-                        changed = True
-                    if a.enabled_tools != builtin.enabled_tools:
-                        a.enabled_tools = builtin.enabled_tools
-                        changed = True
-                    if a.doc_roots != builtin.doc_roots:
-                        a.doc_roots = builtin.doc_roots
-                        changed = True
-                    if getattr(a, "doc_file_patterns", None) != builtin.doc_file_patterns:
-                        a.doc_file_patterns = builtin.doc_file_patterns
-                        changed = True
-                    if getattr(a, "require_citations", None) != builtin.require_citations:
-                        a.require_citations = builtin.require_citations
-                        changed = True
-                    if getattr(a, "skill_mode", None) != builtin.skill_mode:
-                        a.skill_mode = builtin.skill_mode
-                        changed = True
-                    if getattr(a, "visible_skills", None) != builtin.visible_skills:
-                        a.visible_skills = builtin.visible_skills
-                        changed = True
-                    if changed:
-                        agents[i] = a
-                        changed_any = True
-                    break
-            
-            if not found:
-                agents.append(builtin)
-                changed_any = True
-        
+            if builtin.id in existing_ids:
+                continue
+            agents.append(builtin)
+            existing_ids.add(builtin.id)
+            changed_any = True
+
         if changed_any:
             self._save_agents(agents)
 
@@ -450,5 +203,6 @@ class AgentStore:
 
     def _save_agents(self, agents: List[AgentConfig]):
         self._atomic_write_json(self.agents_file, [a.model_dump(mode="json") for a in agents])
+
 
 agent_store = AgentStore()

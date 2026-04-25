@@ -6,6 +6,7 @@ set -o pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_HEALTH_URL="http://127.0.0.1:8003/api/health"
 BACKEND_MAX_WAIT_SECONDS=60
+YUE_SKILL_RUNTIME_MODE="${YUE_SKILL_RUNTIME_MODE:-legacy}"
 
 cleanup() {
     echo ""
@@ -23,17 +24,18 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "🚀 Starting Yue Agent Platform..."
+echo "🧠 Skill runtime mode: ${YUE_SKILL_RUNTIME_MODE}"
 
 echo "📡 Starting backend service on http://127.0.0.1:8003..."
 cd "$ROOT_DIR/backend"
 if command -v uv &> /dev/null; then
-    uv run python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
+    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" uv run python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
 elif [ -f ".venv/bin/activate" ]; then
     source ".venv/bin/activate"
-    python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
+    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
 else
     echo "⚠️  Warning: backend environment not found. Attempting to run with system python..."
-    python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
+    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
 fi
 BACKEND_PID=$!
 cd "$ROOT_DIR"

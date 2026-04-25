@@ -7,6 +7,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YUE_SKILL_RUNTIME_MODE="${YUE_SKILL_RUNTIME_MODE:-legacy}"
 
 # Function to handle cleanup on exit
 cleanup() {
@@ -19,16 +20,17 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo -e "${GREEN}🚀 Starting Yue Agent Platform in Dev Mode...${NC}"
+echo -e "${GREEN}🧠 Skill runtime mode: ${YUE_SKILL_RUNTIME_MODE}${NC}"
 
 # 1. Start Backend
 echo -e "${YELLOW}📡 Starting backend...${NC}"
 cd "$PROJECT_ROOT/backend"
 if command -v uv &> /dev/null; then
-    uv run python -m app.main &
+    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" uv run python -m app.main &
     BACKEND_PID=$!
 elif [ -d ".venv" ]; then
     source .venv/bin/activate
-    python -m app.main &
+    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" python -m app.main &
     BACKEND_PID=$!
 else
     echo -e "${RED}⚠️  Backend environment not found. Run ./setup.sh first.${NC}"
