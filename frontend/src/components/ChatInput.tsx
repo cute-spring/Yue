@@ -314,7 +314,6 @@ export const getVoiceInputProviderLabel = (provider: 'browser' | 'azure'): strin
 
 export default function ChatInput(props: ChatInputProps) {
   const toast = useToast();
-  const canSubmit = () => canSubmitFromInput(props.input, props.imageAttachments.length);
   const inputLocked = () => !!props.inputReadOnly;
   const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(2)}MB`;
   const [uploadPolicy, setUploadPolicy] = createSignal<UploadPolicy>(DEFAULT_UPLOAD_POLICY);
@@ -339,7 +338,8 @@ export default function ChatInput(props: ChatInputProps) {
   const documentAttachmentCount = () => props.imageAttachments.length - imageAttachmentCount();
   const visionCapabilityHint = () => getVisionCapabilityHint(!!props.selectedModel, supportsVision(), imageAttachmentCount());
   const attachmentCompositionHint = () => getAttachmentCompositionHint(imageAttachmentCount(), documentAttachmentCount());
-  const modelCapabilityBadge = () => getModelCapabilityBadge(!!props.selectedModel, supportsVision());
+
+  const canSubmit = () => canSubmitFromInput(props.input, imageAttachmentCount());
   const voiceInputLabel = () => {
     if (!props.voiceInputEnabled) return 'Voice input disabled in settings';
     if (!props.voiceInputSupported) return 'Voice input unavailable in this browser';
@@ -666,17 +666,6 @@ export default function ChatInput(props: ChatInputProps) {
             >
               Clear
             </button>
-            </div>
-          </div>
-        </Show>
-        <Show when={modelCapabilityBadge()}>
-          <div class="mt-2 px-2">
-            <div class={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-              supportsVision()
-                ? 'border-emerald-300/50 bg-emerald-500/10 text-emerald-700'
-                : 'border-slate-300/70 bg-slate-100/90 text-slate-600'
-            }`}>
-              {modelCapabilityBadge()}
             </div>
           </div>
         </Show>

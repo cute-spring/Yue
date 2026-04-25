@@ -3,6 +3,7 @@ import { ChatSession } from '../types';
 
 interface ChatSidebarProps {
   showHistory: boolean;
+  setShowHistory: (show: boolean) => void;
   chats: ChatSession[];
   currentChatId: string | null;
   onNewChat: () => void;
@@ -41,6 +42,8 @@ const parseServerDate = (value: string): Date => {
   // Backend stores naive UTC in some flows; treat timezone-less timestamps as UTC.
   return new Date(`${trimmed}Z`);
 };
+
+const DEFAULT_WIDTH = 260;
 
 export default function ChatSidebar(props: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = createSignal('');
@@ -263,11 +266,22 @@ export default function ChatSidebar(props: ChatSidebarProps) {
   return (
     <div 
       class={`
-        fixed lg:relative inset-y-0 left-0 bg-white border-r border-slate-200 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-30
-        ${props.showHistory ? 'translate-x-0 w-[260px] opacity-100 shadow-2xl lg:shadow-none' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
+        fixed lg:relative inset-y-0 left-0 bg-white transform transition-all ease-[cubic-bezier(0.4,0,0.2,1)] z-30
+        ${props.showHistory ? 'translate-x-0 opacity-100 shadow-2xl lg:shadow-none border-r border-slate-200' : '-translate-x-full lg:translate-x-0'}
       `}
+      style={{ 
+        width: props.showHistory ? `${DEFAULT_WIDTH}px` : '0px',
+        "transition-duration": '300ms'
+      }}
     >
-      <div class="w-[260px] h-full flex flex-col bg-white">
+      <div 
+        class="h-full flex flex-col bg-white overflow-hidden transition-opacity duration-300"
+        style={{ 
+          width: `${DEFAULT_WIDTH}px`,
+          opacity: props.showHistory ? 1 : 0,
+          "pointer-events": props.showHistory ? 'auto' : 'none'
+        }}
+      >
         <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
           <div class="flex-1 relative">
             <input 
@@ -464,7 +478,35 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           </Show>
         </div>
         <div class="p-3 bg-slate-50 border-t border-slate-200 text-center">
-            <span class="text-[10px] text-slate-400 font-medium italic">Showing {filteredChats().length} sessions</span>
+          <span class="text-[10px] text-slate-400 font-medium italic">Showing {filteredChats().length} sessions</span>
+        </div>
+      </div>
+      
+      {/* Toggle Handle - Fixed width mode, no resize */}
+      <div
+        class={`absolute top-0 -right-2 w-4 h-full z-50 group hidden lg:block select-none`}
+      >
+        {/* The interactive handle strip */}
+        <div 
+          class={`absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 w-1.5 h-24 rounded-full transition-all duration-300 flex items-center justify-center
+            bg-slate-200/50 group-hover:bg-primary/40 group-hover:h-32 group-hover:w-2`}
+        >
+          {/* Action Button (Click to toggle) */}
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              props.setShowHistory(!props.showHistory);
+            }}
+            class="absolute inset-0 cursor-pointer flex items-center justify-center"
+            title={props.showHistory ? "Collapse" : "Expand"}
+          >
+            <div class={`w-5 h-10 bg-white border border-slate-200 rounded-full shadow-md flex items-center justify-center transition-all duration-300 transform 
+              ${props.showHistory ? 'opacity-0 group-hover:opacity-100 rotate-0' : 'opacity-100 rotate-180 translate-x-1.5'}`}>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-primary font-bold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M15 19l-7-7 7-7" />
+              </svg>
+            </div>
+          </div>
         </div>
       </div>
     </div>

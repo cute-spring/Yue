@@ -62,6 +62,7 @@ function ChatContent(props: {
   const [intelligenceTab, setIntelligenceTab] = createSignal<'actions' | 'preview' | 'stats'>('actions');
   const [previewContent, setPreviewContent] = createSignal<{lang: string, content: string} | null>(null);
   const [isArtifactExpanded, setIsArtifactExpanded] = createSignal(false);
+  const [isArtifactFullscreen, setIsArtifactFullscreen] = createSignal(false);
   const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
   const [showTraceShell, setShowTraceShell] = createSignal(false);
   
@@ -713,6 +714,7 @@ function ChatContent(props: {
       </div>
       <ChatSidebar 
         showHistory={showHistory()} 
+        setShowHistory={setShowHistory}
         chats={chats()} 
         currentChatId={currentChatId()} 
         onNewChat={() => {
@@ -880,6 +882,8 @@ function ChatContent(props: {
         setShowKnowledge={setShowKnowledge}
         isArtifactExpanded={isArtifactExpanded()}
         setIsArtifactExpanded={setIsArtifactExpanded}
+        isArtifactFullscreen={isArtifactFullscreen()}
+        setIsArtifactFullscreen={setIsArtifactFullscreen}
         intelligenceTab={intelligenceTab()}
         setIntelligenceTab={setIntelligenceTab}
         previewContent={previewContent()}
