@@ -521,8 +521,8 @@ interface IntelligencePanelProps {
   setShowKnowledge: (val: boolean) => void;
   isArtifactExpanded: boolean;
   setIsArtifactExpanded: (val: boolean) => void;
-  intelligenceTab: 'notes' | 'graph' | 'actions' | 'preview' | 'stats';
-  setIntelligenceTab: (val: 'notes' | 'graph' | 'actions' | 'preview' | 'stats') => void;
+  intelligenceTab: 'actions' | 'preview' | 'stats';
+  setIntelligenceTab: (val: 'actions' | 'preview' | 'stats') => void;
   previewContent: { lang: string, content: string } | null;
   lastMessage: Message | undefined;
   isMobile: boolean;
@@ -627,18 +627,6 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
             class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'actions' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
           >
             Actions
-          </button>
-          <button 
-            onClick={() => props.setIntelligenceTab('notes')}
-            class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'notes' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
-          >
-            Notes
-          </button>
-          <button 
-            onClick={() => props.setIntelligenceTab('graph')}
-            class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'graph' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
-          >
-            Graph
           </button>
           <button 
             onClick={() => props.setIntelligenceTab('stats')}
@@ -1042,34 +1030,6 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
                     <p class="text-xs text-text-secondary/60 font-medium italic">
                       Current action panel reflects only existing tool/MCP-backed skill states.
                     </p>
-                  </div>
-                </div>
-              </div>
-            </Match>
-
-            <Match when={props.intelligenceTab === 'notes'}>
-              <div class="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                <div class="flex items-center justify-between">
-                  <h4 class="text-[10px] font-black text-text-secondary uppercase tracking-[0.2em]">Related Notes</h4>
-                  <button class="text-[10px] font-bold text-primary hover:underline">View All</button>
-                </div>
-                <div class="bg-background/50 border border-dashed border-border rounded-2xl p-8 text-center">
-                  <p class="text-xs text-text-secondary/60 font-medium italic">No related notes found</p>
-                </div>
-              </div>
-            </Match>
-
-            <Match when={props.intelligenceTab === 'graph'}>
-              <div class="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                <h4 class="text-[10px] font-black text-text-secondary uppercase tracking-[0.2em]">Knowledge Graph</h4>
-                <div class="aspect-square bg-background/50 border border-border rounded-2xl flex items-center justify-center p-8 text-center">
-                  <div>
-                    <div class="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                    </div>
-                    <p class="text-xs text-text-secondary/60 font-medium">Graph visualization will appear here as entities are discovered.</p>
                   </div>
                 </div>
               </div>
