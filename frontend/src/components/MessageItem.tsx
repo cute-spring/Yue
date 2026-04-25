@@ -278,6 +278,32 @@ export default function MessageItem(props: MessageItemProps) {
   const userAttachments = createMemo(() => getRenderableUserAttachments(props.msg));
   const speechMessageId = () => getSpeechMessageId(props.msg, props.index);
   const speechState = () => speechController?.getMessageState(speechMessageId()) || 'idle';
+
+  const [isManuallyExpanded, setIsManuallyExpanded] = createSignal(false);
+  const [isManuallyCollapsed, setIsManuallyCollapsed] = createSignal(false);
+
+  const isCollapsed = createMemo(() => {
+    if (props.msg.role === 'user') return false;
+    
+    // User manual overrides
+    if (isManuallyExpanded()) return false;
+    if (isManuallyCollapsed()) return true;
+
+    // Smart collapse: Collapse all AI messages by default,
+    // EXCEPT when the message is currently generating (typing).
+    return !props.isTyping;
+  });
+
+  const toggleCollapse = () => {
+    if (isCollapsed()) {
+      setIsManuallyExpanded(true);
+      setIsManuallyCollapsed(false);
+    } else {
+      setIsManuallyCollapsed(true);
+      setIsManuallyExpanded(false);
+    }
+  };
+
   const handleSpeechShortcut = (e: KeyboardEvent) => {
     if (props.msg.role !== 'assistant') return;
     if (!speechController?.supported()) return;
@@ -682,8 +708,21 @@ export default function MessageItem(props: MessageItemProps) {
             const showInitializing = () => props.isTyping && !thought && !content && !reasoningEnabled;
 
             return (
-              <>
-                <Show when={showInitializing()}>
+              <div class="relative w-full">
+                <Show when={isCollapsed()}>
+                  <div class="flex items-center justify-between cursor-pointer group py-1" onClick={toggleCollapse}>
+                    <div class="text-[14px] text-text-secondary/70 truncate max-w-[85%] font-medium">
+                      {content ? content.replace(/\n/g, ' ').substring(0, 100) + '...' : 'AI Response...'}
+                    </div>
+                    <button class="p-1.5 rounded-lg bg-text-secondary/5 text-text-secondary/60 group-hover:bg-primary/10 group-hover:text-primary transition-all duration-300" title="Expand response">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                  </div>
+                </Show>
+
+                <Show when={!isCollapsed()}>
+                  <div class="flex flex-col w-full animate-in fade-in duration-300">
+                    <Show when={showInitializing()}>
                   <div class="flex flex-col gap-3 py-1">
                     <div class="flex items-center gap-3">
                       <div class="relative flex items-center justify-center w-5 h-5">
@@ -935,7 +974,9 @@ export default function MessageItem(props: MessageItemProps) {
                     </div>
                   </details>
                 </Show>
-              </>
+                  </div>
+                </Show>
+              </div>
             );
           })()
         )}
@@ -980,6 +1021,15 @@ export default function MessageItem(props: MessageItemProps) {
                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                  </svg>
+              </button>
+              <button 
+                class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
+                title="Collapse message" 
+                onClick={toggleCollapse}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" />
+                </svg>
               </button>
               <button 
                 class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
