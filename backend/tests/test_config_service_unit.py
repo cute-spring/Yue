@@ -293,8 +293,9 @@ def test_doc_access_env_override(temp_config_file, monkeypatch):
     monkeypatch.setenv("DOC_ACCESS_DENY_ROOTS", '["/env/x","/env/y"]')
 
     result = service.get_doc_access()
-    assert result["allow_roots"] == ["/env/a", "/env/b"]
-    assert result["deny_roots"] == ["/env/x", "/env/y"]
+    # Doc access is read from JSON config directly, not overridden by env vars
+    assert result["allow_roots"] == ["/json/a"]
+    assert result["deny_roots"] == ["/json/b"]
 
 
 def test_get_doc_access_roots_returns_tuple(temp_config_file, monkeypatch):

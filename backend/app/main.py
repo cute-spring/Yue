@@ -38,6 +38,11 @@ setup_logging()
 logger = logging.getLogger(__name__)
 logger.info("Loading env from: %s", env_path.absolute())
 
+runtime_data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))).resolve()
+os.environ["YUE_DATA_DIR"] = str(runtime_data_dir)
+logger.info("Runtime data dir resolved: %s", runtime_data_dir)
+logger.info("Runtime agents file: %s", runtime_data_dir / "agents.json")
+
 from app.services.health_monitor import health_monitor
 
 def _runtime_context():
@@ -108,7 +113,7 @@ app.include_router(export.router, prefix="/api", tags=["export"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 
 # Mount Uploads & Exports Directory
-data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data")))
+data_dir = runtime_data_dir
 uploads_dir = data_dir / "uploads"
 exports_dir = data_dir / "exports"
 legacy_exports_dir = Path(__file__).parent.parent / "data" / "exports"

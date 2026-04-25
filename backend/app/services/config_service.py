@@ -734,17 +734,12 @@ class ConfigService:
         return normalized
 
     def get_doc_access(self) -> Dict[str, Any]:
-        from app.core.settings import AppSettings
         doc_access = self._config.get("doc_access", {})
-        
-        json_kwargs = {}
-        if "allow_roots" in doc_access: json_kwargs["doc_access_allow_roots"] = doc_access["allow_roots"]
-        if "deny_roots" in doc_access: json_kwargs["doc_access_deny_roots"] = doc_access["deny_roots"]
-        
-        app_settings = AppSettings(**json_kwargs)
+        if not isinstance(doc_access, dict):
+            doc_access = {}
         return {
-            "allow_roots": app_settings.doc_access_allow_roots,
-            "deny_roots": app_settings.doc_access_deny_roots
+            "allow_roots": doc_access.get("allow_roots", []),
+            "deny_roots": doc_access.get("deny_roots", []),
         }
 
     def get_doc_access_roots(self) -> tuple[list[str], list[str]]:
