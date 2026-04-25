@@ -36,6 +36,23 @@ export default function LLMSelector(props: LLMSelectorProps) {
       >
         <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
         <span class="text-xs font-bold text-text-primary uppercase tracking-wider">{props.selectedModel || "Select Model"}</span>
+        <For each={props.providers.filter(p => p.name === props.selectedProvider)}>
+          {provider => (
+            <For each={getModelCapabilityBadges(provider, props.selectedModel)}>
+              {badge => (
+                <div 
+                  class="flex items-center justify-center w-5 h-5 rounded-md bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                  title={badge}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+              )}
+            </For>
+          )}
+        </For>
         <svg xmlns="http://www.w3.org/2000/svg" class={`h-3.5 w-3.5 text-text-secondary transition-transform duration-300 ${props.show ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
         </svg>
