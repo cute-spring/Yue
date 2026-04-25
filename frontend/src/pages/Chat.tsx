@@ -59,7 +59,7 @@ function ChatContent(props: {
   // History & Knowledge State
   const [showHistory, setShowHistory] = createSignal(true); // Default to true on desktop
   const [showKnowledge, setShowKnowledge] = createSignal(false);
-  const [intelligenceTab, setIntelligenceTab] = createSignal<'notes' | 'graph' | 'actions' | 'preview' | 'stats'>('actions');
+  const [intelligenceTab, setIntelligenceTab] = createSignal<'actions' | 'preview' | 'stats'>('actions');
   const [previewContent, setPreviewContent] = createSignal<{lang: string, content: string} | null>(null);
   const [isArtifactExpanded, setIsArtifactExpanded] = createSignal(false);
   const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
