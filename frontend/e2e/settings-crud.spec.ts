@@ -22,6 +22,28 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
   const mcpTools = [
     { id: 'tool-1', name: 'Read File', description: 'Read a file', server: 'local-server' },
   ];
+  const mcpTemplates = [
+    {
+      id: 'jira-company',
+      name: 'Jira MCP',
+      description: 'Template for company Jira MCP adapters',
+      provider: 'jira',
+      deployment: 'mixed',
+      fields: [
+        { key: 'serverName', label: 'Server Name', type: 'text', required: true, options: [], default_value: 'company-jira' },
+        { key: 'deployment', label: 'Deployment', type: 'select', required: true, options: ['cloud', 'self_hosted'], default_value: 'self_hosted' },
+        { key: 'command', label: 'Command', type: 'text', required: true, options: [], default_value: 'npx' },
+        { key: 'argsJson', label: 'Args (JSON Array)', type: 'json', required: true, options: [], default_value: '["-y","corp-jira-mcp"]' },
+        { key: 'baseUrl', label: 'Base URL', type: 'text', required: true, options: [], default_value: 'https://jira.company.internal' },
+        { key: 'baseUrlEnvKey', label: 'Base URL Env Key', type: 'text', required: true, options: [], default_value: 'JIRA_BASE_URL' },
+        { key: 'username', label: 'Username', type: 'text', required: false, options: [], default_value: 'alice@example.com' },
+        { key: 'usernameEnvKey', label: 'Username Env Key', type: 'text', required: false, options: [], default_value: 'JIRA_USERNAME' },
+        { key: 'secretEnvVar', label: 'Secret Env Var', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN' },
+        { key: 'tokenEnvKey', label: 'Token Env Key', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN' },
+        { key: 'extraEnvJson', label: 'Extra Env', type: 'json', required: false, options: [], default_value: '{}' },
+      ],
+    },
+  ];
   let providers = [
     {
       name: 'openai',
@@ -101,6 +123,38 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(mcpTools),
+    });
+  });
+  await page.route('**/api/mcp/templates', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mcpTemplates),
+    });
+  });
+  await page.route('**/api/mcp/validate', async (route) => {
+    const body = route.request().postDataJSON() as any;
+    const values = body.values || {};
+    const rendered = {
+      name: values.serverName || 'company-jira',
+      command: values.command || 'npx',
+      args: JSON.parse(values.argsJson || '[]'),
+      transport: 'stdio',
+      enabled: true,
+      env: {
+        [values.baseUrlEnvKey || 'JIRA_BASE_URL']: values.baseUrl || '',
+        [values.usernameEnvKey || 'JIRA_USERNAME']: values.username || '',
+        [values.tokenEnvKey || 'JIRA_TOKEN']: `\${${values.secretEnvVar || 'JIRA_TOKEN'}}`,
+      },
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        rendered_config: rendered,
+        warnings: ['Set JIRA_TOKEN in the host environment before reload.'],
+      }),
     });
   });
   await page.route('**/api/mcp/reload', async (route) => {
@@ -249,6 +303,16 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
   await page.getByRole('button', { name: /Delete MCP Server/i }).last().click();
   await page.getByRole('button', { name: 'Delete' }).last().click();
   await expect(page.getByText('added_server')).toHaveCount(0, { timeout: 10000 });
+
+  await page.getByTestId('mcp-add-menu-button').click();
+  await page.getByRole('button', { name: 'Add from Marketplace' }).click();
+  await page.getByLabel('Server Name *').fill('corp-jira');
+  await page.getByLabel('Args (JSON Array) *').fill('["-y","corp-jira-mcp"]');
+  await page.getByRole('button', { name: 'Validate' }).click();
+  await expect(page.getByText('Rendered MCP Config Preview')).toBeVisible();
+  await page.getByRole('button', { name: 'Install' }).click();
+  await expect(page.getByText('Installed MCP server "corp-jira"')).toBeVisible();
+  await expect(page.getByText('corp-jira', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Models' }).click();
   await page.getByRole('button', { name: 'Edit' }).click();

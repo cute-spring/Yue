@@ -8,14 +8,17 @@ test('MCP enable/disable toggles and status updates', async ({ page }) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mcpConfigs) });
       return;
     }
-    const next = route.request().postDataJSON() as { mcpServers?: Array<Record<string, unknown>> };
-    mcpConfigs = Array.isArray(next?.mcpServers) ? (next.mcpServers as any[]) : mcpConfigs;
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    const next = route.request().postDataJSON() as any;
+    mcpConfigs = Array.isArray(next) ? next : Array.isArray(next?.mcpServers) ? next.mcpServers : mcpConfigs;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mcpConfigs) });
   });
   await page.route('**/api/mcp/reload', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
   });
   await page.route('**/api/mcp/tools', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+  await page.route('**/api/mcp/templates', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
   });
   await page.route('**/api/mcp/status', async (route) => {

@@ -64,6 +64,9 @@ test('advanced mode saved in settings becomes visible in chat on return', async 
   await page.route('**/api/mcp/tools', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
   });
+  await page.route('**/api/mcp/templates', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
 
   await page.route('**/api/models/providers', async (route) => {
     await route.fulfill({
@@ -110,4 +113,3 @@ test('advanced mode saved in settings becomes visible in chat on return', async 
   await page.getByRole('link', { name: 'Chat' }).click();
   await expect(page.getByRole('button', { name: 'Open trace inspector' })).toBeVisible();
 });
-

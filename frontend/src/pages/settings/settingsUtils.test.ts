@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildManagedModelsConfig,
   buildMcpServersFromParsedInput,
+  buildMcpTemplateInitialValues,
   buildRevertedManagedModelsConfig,
   parseMcpManualText,
   splitRootsText,
@@ -77,5 +78,26 @@ describe('managed model config builders', () => {
     expect(reverted.openai_enabled_models).toEqual(['gpt-4.1']);
     expect(reverted.openai_enabled_models_mode).toBe('all');
     expect(reverted.models['openai/gpt-4.1'].capabilities).toBeUndefined();
+  });
+});
+
+describe('MCP template helpers', () => {
+  it('builds initial values from template defaults', () => {
+    expect(
+      buildMcpTemplateInitialValues({
+        id: 'jira-company',
+        name: 'Jira MCP',
+        description: '',
+        provider: 'jira',
+        deployment: 'mixed',
+        fields: [
+          { key: 'serverName', label: 'Server Name', type: 'text', required: true, options: [], default_value: 'jira' },
+          { key: 'argsJson', label: 'Args', type: 'json', required: true, options: [], default_value: '["-y","pkg"]' },
+        ],
+      }),
+    ).toEqual({
+      serverName: 'jira',
+      argsJson: '["-y","pkg"]',
+    });
   });
 });

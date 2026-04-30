@@ -22,6 +22,7 @@ from .base import McpTool, BuiltinTool
 from .builtin import builtin_tool_registry
 
 logger = logging.getLogger(__name__)
+ENV_PLACEHOLDER_RE = re.compile(r"^\$\{([A-Z0-9_]+)\}$")
 
 class McpManager:
     _instance = None
@@ -169,7 +170,8 @@ class McpManager:
             from app.services.llm.utils import get_ssl_verify, _build_no_proxy_value
             ssl_verify = get_ssl_verify()
             
-            mcp_env = {**os.environ, **(env or {})}
+            resolved_env = self._resolve_env_placeholders(env or {})
+            mcp_env = {**os.environ, **resolved_env}
             if proxy_url:
                 for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
                     mcp_env[key] = proxy_url
@@ -216,6 +218,20 @@ class McpManager:
         
         # TODO: Implement SSE
         return None
+
+    def _resolve_env_placeholders(self, env: Dict[str, Any]) -> Dict[str, str]:
+        resolved: Dict[str, str] = {}
+        for key, value in env.items():
+            if value is None:
+                continue
+            text = str(value)
+            match = ENV_PLACEHOLDER_RE.match(text)
+            if match:
+                env_key = match.group(1)
+                resolved[key] = os.environ.get(env_key, text)
+            else:
+                resolved[key] = text
+        return resolved
 
     def _is_version_compatible(self, current: str, required: str) -> bool:
         """Simple semantic version comparison."""

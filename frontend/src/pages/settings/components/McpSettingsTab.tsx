@@ -1,6 +1,6 @@
 import type { Accessor, Setter } from 'solid-js';
 import { For, Show } from 'solid-js';
-import type { McpStatus, McpTool } from '../types';
+import type { McpStatus, McpTemplate, McpTemplateValidationResult, McpTool } from '../types';
 import { McpManualModal } from './modals/McpManualModal';
 import { McpMarketplaceModal } from './modals/McpMarketplaceModal';
 import { McpRawConfigModal } from './modals/McpRawConfigModal';
@@ -8,6 +8,7 @@ import { McpRawConfigModal } from './modals/McpRawConfigModal';
 type McpSettingsTabProps = {
   mcpStatus: Accessor<McpStatus[]>;
   mcpTools: Accessor<McpTool[]>;
+  mcpTemplates: Accessor<McpTemplate[]>;
   expanded: Accessor<Record<string, boolean>>;
   setExpanded: Setter<Record<string, boolean>>;
   hoveredServer: Accessor<string | null>;
@@ -29,6 +30,8 @@ type McpSettingsTabProps = {
   deleteMcpServer: (serverName: string) => void;
   confirmManual: () => void;
   saveMcp: () => Promise<void>;
+  validateMcpTemplate: (templateId: string, values: Record<string, string>) => Promise<McpTemplateValidationResult>;
+  installMcpTemplate: (templateId: string, values: Record<string, string>) => Promise<McpTemplateValidationResult>;
 };
 
 export function McpSettingsTab(props: McpSettingsTabProps) {
@@ -206,7 +209,12 @@ export function McpSettingsTab(props: McpSettingsTabProps) {
         />
       </Show>
       <Show when={props.showMarketplace()}>
-        <McpMarketplaceModal onClose={() => props.setShowMarketplace(false)} />
+        <McpMarketplaceModal
+          templates={props.mcpTemplates()}
+          onClose={() => props.setShowMarketplace(false)}
+          onValidate={props.validateMcpTemplate}
+          onInstall={props.installMcpTemplate}
+        />
       </Show>
       <Show when={props.showRaw()}>
         <McpRawConfigModal
