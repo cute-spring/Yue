@@ -253,6 +253,10 @@ class ConfigService:
             "skill_runtime_enabled": _coerce_bool(flags.get("skill_runtime_enabled"), True),
             "skill_runtime_debug_contract_enabled": _coerce_bool(flags.get("skill_runtime_debug_contract_enabled"), False),
             "skill_import_auto_activate_enabled": _coerce_bool(flags.get("skill_import_auto_activate_enabled"), True),
+            "skill_import_default_agent_auto_mount_enabled": _coerce_bool(
+                flags.get("skill_import_default_agent_auto_mount_enabled"),
+                False,
+            ),
             "transparency_event_v2_enabled": _coerce_bool(flags.get("transparency_event_v2_enabled"), True),
             "transparency_turn_binding_enabled": _coerce_bool(flags.get("transparency_turn_binding_enabled"), True),
             "chat_trace_ui_enabled": _coerce_bool(flags.get("chat_trace_ui_enabled"), False),

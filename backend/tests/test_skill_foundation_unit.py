@@ -67,6 +67,24 @@ Always.
     assert spec is not None
     assert spec.always is True
 
+def test_skill_loader_parse_markdown_copilot_compat_defaults():
+    content = """---
+name: excalidraw-diagram-generator
+description: Generate Excalidraw diagrams from user requests.
+---
+## When to Use This Skill
+Use this skill when user asks for diagram, flowchart, or architecture drawing.
+"""
+    spec = SkillLoader.parse_markdown(content, source_path="compat.md")
+    assert spec is not None
+    assert spec.name == "excalidraw-diagram-generator"
+    assert spec.version == "1.0.0"
+    assert spec.entrypoint == "instructions"
+    assert spec.instructions is not None
+    assert "diagram" in spec.instructions.lower()
+    assert spec.metadata is not None
+    assert spec.metadata.get("compat_generated") is True
+
 def test_skill_validator_valid():
     spec = SkillSpec(
         name="test-skill",
@@ -105,6 +123,21 @@ def test_skill_validator_invalid_missing_entrypoint_section():
     result = SkillValidator.validate(spec)
     assert result.is_valid is False
     assert "Entrypoint section 'missing_section' not found in Markdown" in result.errors
+
+def test_skill_validator_compat_mode_downgrades_missing_entrypoint_to_warning():
+    spec = SkillSpec(
+        name="compat-skill",
+        version="1.0.0",
+        description="compat test",
+        capabilities=["compat"],
+        entrypoint="system_prompt",
+        instructions="Use this as fallback instructions.",
+        metadata={"compat_generated": True},
+    )
+    result = SkillValidator.validate(spec, mode="compat")
+    assert result.is_valid is True
+    assert result.errors == []
+    assert any("Entrypoint section 'system_prompt'" in warning for warning in result.warnings)
 
 def test_skill_registry_load_and_get():
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -979,6 +1012,41 @@ def test_skill_router_requested_skill_still_has_highest_priority():
     assert selected is not None
     assert selected.name == "release-test-planner"
     assert score == 1000
+
+
+def test_skill_router_prefers_system_ops_expert_for_document_discovery_intent():
+    registry = SkillRegistry()
+    system_ops = SkillSpec(
+        name="system-ops-expert",
+        version="1.0.0",
+        description="Find local files and run shell-based diagnostics",
+        capabilities=["document-discovery", "file-discovery", "environment-management"],
+        entrypoint="system_prompt",
+        system_prompt="ops",
+        os=[platform.system().lower()],
+    )
+    excel_skill = SkillSpec(
+        name="excel-metric-explorer",
+        version="1.0.0",
+        description="Analyze spreadsheet metrics and grouped totals",
+        capabilities=["excel-analysis", "data-analysis"],
+        entrypoint="system_prompt",
+        system_prompt="excel",
+        os=[platform.system().lower()],
+    )
+    registry.register(system_ops)
+    registry.register(excel_skill)
+    router = SkillRouter(registry)
+    agent = type("Agent", (), {"visible_skills": ["system-ops-expert", "excel-metric-explorer"]})()
+
+    selected, score = router.route_with_score(
+        agent,
+        "list all excel name which you can access under /Users/gavinzhang/Desktop/test_files",
+    )
+
+    assert selected is not None
+    assert selected.name == "system-ops-expert"
+    assert score > 0
 
 def test_skill_router_exposes_explanation_ready_contract_for_selected_skill():
     registry = SkillRegistry()

@@ -96,8 +96,11 @@ def resolve_docs_root(
     deny_roots: Optional[List[str]] = None,
 ) -> str:
     project_root = get_project_root()
+    normalized_allow_roots = DocAccessPolicyResolver.normalize_roots(allow_roots, project_root=project_root)
+    if not normalized_allow_roots:
+        raise DocAccessError("No allowed docs roots configured")
     policy = DocAccessPolicyResolver.build_policy(
-        base_allow_roots=allow_roots or [get_docs_root()],
+        base_allow_roots=normalized_allow_roots,
         base_deny_roots=_default_deny_roots(),
         restrict_deny_roots=deny_roots,
         project_root=project_root,
@@ -124,31 +127,15 @@ def resolve_docs_roots_for_search(
     allow_roots: Optional[List[str]] = None,
     deny_roots: Optional[List[str]] = None,
 ) -> List[str]:
-    has_doc_roots = bool(doc_roots and any(isinstance(root, str) and root.strip() for root in doc_roots))
-    resolved_doc_roots: List[str] = []
-    if doc_roots:
-        for root in doc_roots:
-            if not isinstance(root, str) or not root.strip():
-                continue
-            try:
-                resolved_doc_roots.append(resolve_docs_root(root, allow_roots=allow_roots, deny_roots=deny_roots))
-            except DocAccessError:
-                continue
-
-    if has_doc_roots and not resolved_doc_roots:
-        raise DocAccessError("No valid docs roots available")
-
+    # doc_roots is deprecated for permission control; global allow_roots is authoritative.
+    roots = [resolve_docs_root(root, allow_roots=allow_roots, deny_roots=deny_roots) for root in (allow_roots or [])]
+    unique_roots = list(dict.fromkeys(roots))
+    if not unique_roots:
+        raise DocAccessError("No allowed docs roots configured")
     if requested_root:
         resolved_requested_root = resolve_docs_root(requested_root, allow_roots=allow_roots, deny_roots=deny_roots)
-        if resolved_doc_roots and not any(_is_under(root, resolved_requested_root) for root in resolved_doc_roots):
-            raise DocAccessError("Root is outside allowed docs roots")
         return [resolved_requested_root]
-    roots = []
-    if resolved_doc_roots:
-        roots.extend(resolved_doc_roots)
-    if roots:
-        return roots
-    return [resolve_docs_root(None, allow_roots=allow_roots, deny_roots=deny_roots)]
+    return unique_roots
 
 
 def resolve_docs_root_for_read(
@@ -161,6 +148,13 @@ def resolve_docs_root_for_read(
     allowed_extensions: Optional[List[str]] = None,
     require_md: bool = True,
 ) -> str:
+    project_root = get_project_root()
+    policy = DocAccessPolicyResolver.build_policy(
+        base_allow_roots=allow_roots or [],
+        base_deny_roots=_default_deny_roots(),
+        restrict_deny_roots=deny_roots,
+        project_root=project_root,
+    )
     if requested_root:
         roots = resolve_docs_roots_for_search(
             requested_root,
@@ -178,12 +172,26 @@ def resolve_docs_root_for_read(
     if os.path.isabs(requested_path):
         for root in roots:
             if _is_under(root, requested_path):
+                explain = DocAccessPolicyResolver.explain(
+                    requested_path,
+                    policy=policy,
+                    project_root=project_root,
+                )
+                if not explain["allowed"]:
+                    raise DocAccessError("Path is under denied paths")
                 return root
         raise DocAccessError("Path is outside allowed docs roots")
-    if len(roots) == 1:
-        return roots[0]
+    matched_roots: List[str] = []
     for root in roots:
         try:
+            candidate_path = os.path.join(root, requested_path)
+            explain = DocAccessPolicyResolver.explain(
+                candidate_path,
+                policy=policy,
+                project_root=project_root,
+            )
+            if not explain["allowed"]:
+                continue
             candidate = resolve_docs_path(
                 requested_path,
                 docs_root=root,
@@ -192,9 +200,13 @@ def resolve_docs_root_for_read(
             )
             if not os.path.exists(candidate):
                 continue
-            return root
+            matched_roots.append(root)
         except DocAccessError:
             continue
+    if len(matched_roots) == 1:
+        return matched_roots[0]
+    if len(matched_roots) > 1:
+        raise DocAccessError("Ambiguous relative path across multiple allowed roots")
     raise DocAccessError("Path is outside allowed docs roots")
 
 
@@ -389,7 +401,10 @@ def iter_markdown_files(
 
 
 def _read_text_file(path: str, *, max_bytes: int) -> str:
-    st = os.stat(path)
+    try:
+        st = os.stat(path)
+    except FileNotFoundError as exc:
+        raise DocAccessError("File not found") from exc
     if st.st_size > max_bytes:
         raise DocAccessError("File too large")
     with open(path, "r", encoding="utf-8", errors="replace") as f:

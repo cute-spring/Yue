@@ -57,6 +57,41 @@ export type SkillSpec = {
   override_from?: string;
 };
 
+export type SkillPreflightStatus = 'available' | 'needs_fix' | 'unavailable' | string;
+
+export type ExcalidrawHealthBlocker = {
+  code: string;
+  title: string;
+  detail?: string;
+  fix_command?: string | null;
+  fix_path?: string | null;
+};
+
+export type ExcalidrawHealth = {
+  effective_level: 'L0' | 'L1' | 'L2' | 'L3' | string;
+  levels: string[];
+  checks?: Record<string, boolean>;
+  blockers: ExcalidrawHealthBlocker[];
+};
+
+export type SkillPreflightRecord = {
+  skill_name: string;
+  skill_version: string;
+  skill_ref: string;
+  source_path: string;
+  source_layer: string;
+  status: SkillPreflightStatus;
+  issues: string[];
+  warnings: string[];
+  suggestions: string[];
+  mountable?: boolean;
+  visible_in_default_agent?: boolean;
+  status_message?: string;
+  next_action?: string;
+  excalidraw_health?: ExcalidrawHealth;
+  checked_at?: string;
+};
+
 export type McpTool = {
   id: string;
   name: string;
@@ -145,6 +180,15 @@ export type ToolCall = {
   ts?: string;
 };
 
+export type ActionObservability = {
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  error_kind?: string | null;
+  retryable?: boolean | null;
+  artifact_path?: string | null;
+};
+
 export type ActionState = {
   id?: number | null;
   session_id?: string;
@@ -159,6 +203,7 @@ export type ActionState = {
   lifecycle_phase?: string | null;
   lifecycle_status: string;
   status?: string | null;
+  observability?: ActionObservability | null;
   payload?: Record<string, any>;
   created_at?: string;
   updated_at?: string;

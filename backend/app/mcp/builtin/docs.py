@@ -81,21 +81,6 @@ def _resolve_search_roots_with_fallback(
         )
         return roots, None
     except doc_retrieval.DocAccessError as exc:
-        if root_dir:
-            try:
-                roots = doc_retrieval.resolve_docs_roots_for_search(
-                    None,
-                    doc_roots=doc_roots,
-                    allow_roots=allow_roots,
-                    deny_roots=deny_roots,
-                )
-                logger.warning(
-                    "docs tool root_dir fallback applied",
-                    extra={"tool": tool, "requested_root_dir": root_dir, "error": str(exc)},
-                )
-                return roots, None
-            except doc_retrieval.DocAccessError:
-                pass
         suggested_root = _resolve_default_root(
             doc_roots=doc_roots,
             allow_roots=allow_roots,
@@ -132,24 +117,6 @@ def _resolve_read_root_with_fallback(
         )
         return docs_root, None
     except doc_retrieval.DocAccessError as exc:
-        if root_dir:
-            try:
-                docs_root = doc_retrieval.resolve_docs_root_for_read(
-                    path,
-                    requested_root=None,
-                    doc_roots=doc_roots,
-                    allow_roots=allow_roots,
-                    deny_roots=deny_roots,
-                    allowed_extensions=allowed_extensions,
-                    require_md=require_md,
-                )
-                logger.warning(
-                    "docs tool root_dir fallback applied",
-                    extra={"tool": tool, "requested_root_dir": root_dir, "error": str(exc)},
-                )
-                return docs_root, None
-            except doc_retrieval.DocAccessError:
-                pass
         suggested_root = _resolve_default_root(
             doc_roots=doc_roots,
             allow_roots=allow_roots,

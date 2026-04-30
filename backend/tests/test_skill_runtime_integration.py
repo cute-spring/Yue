@@ -4,9 +4,16 @@ import os
 import sqlite3
 import tempfile
 from unittest.mock import patch, MagicMock, AsyncMock
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.main import app
 from app.services.agent_store import AgentConfig
+from app.services.skills.bootstrap import (
+    RuntimeBootstrapSpec,
+    SkillRuntimeConfig,
+    bootstrap_skill_runtime_lifespan,
+)
+from app.services.skills.runtime_catalog import RUNTIME_MODE_LEGACY
 from app.services.skill_service import (
     SkillRegistry,
     SkillDirectorySpec,
@@ -749,3 +756,51 @@ def test_visible_skills_legacy_fallback_without_groups():
     visible = router.get_visible_skills(agent)
     assert len(visible) == 1
     assert visible[0].name == "release-test-planner"
+
+
+@pytest.mark.asyncio
+async def test_startup_refresh_discovers_nested_copied_skill_package(tmp_path):
+    workspace_dir = tmp_path / "workspace"
+    nested_skill_dir = workspace_dir / "vendor" / "nested-copy-skill"
+    nested_skill_dir.mkdir(parents=True, exist_ok=True)
+    (nested_skill_dir / "SKILL.md").write_text(
+        """---
+name: nested-copy-skill
+version: 1.0.0
+description: startup nested skill
+capabilities: ["analysis"]
+entrypoint: system_prompt
+---
+## System Prompt
+You are a nested startup skill.
+""",
+        encoding="utf-8",
+    )
+
+    runtime_registry = SkillRegistry()
+    runtime_import_store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    runtime_context = MagicMock(
+        skill_registry=runtime_registry,
+        skill_import_store=runtime_import_store,
+    )
+    runtime_spec = RuntimeBootstrapSpec(
+        config=SkillRuntimeConfig(
+            builtin_skills_dir=str(tmp_path / "builtin"),
+            workspace_skills_dir=str(workspace_dir),
+            user_skills_dir=str(tmp_path / "user"),
+            data_dir=str(tmp_path / "data"),
+            runtime_mode=RUNTIME_MODE_LEGACY,
+            watch_enabled=False,
+            reload_debounce_ms=1000,
+        )
+    )
+    lifespan = bootstrap_skill_runtime_lifespan(
+        runtime_context_provider=lambda: runtime_context,
+        bootstrap_spec=runtime_spec,
+    )
+
+    async with lifespan(FastAPI()):
+        pass
+
+    refs = {item.skill_ref for item in runtime_import_store.list_preflight_records()}
+    assert "nested-copy-skill:1.0.0" in refs

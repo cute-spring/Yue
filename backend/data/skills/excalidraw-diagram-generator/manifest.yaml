@@ -1,0 +1,121 @@
+format_version: 1
+name: excalidraw-diagram-generator
+version: 1.0.0
+description: Generate Excalidraw diagrams from natural language with optional icon and arrow enhancements.
+entrypoint: instructions
+capabilities:
+  - diagram_generation
+  - excalidraw_json
+  - icon_integration
+  - arrow_enhancement
+resources:
+  references:
+    - id: element-types.md
+      path: references/element-types.md
+    - id: excalidraw-schema.md
+      path: references/excalidraw-schema.md
+  scripts:
+    - id: add-arrow.py
+      path: scripts/add-arrow.py
+      runtime: python
+      safety: workspace_write
+    - id: add-icon-to-diagram.py
+      path: scripts/add-icon-to-diagram.py
+      runtime: python
+      safety: workspace_write
+    - id: split-excalidraw-library.py
+      path: scripts/split-excalidraw-library.py
+      runtime: python
+      safety: workspace_write
+actions:
+  - id: add_icon_to_diagram
+    tool: builtin:exec
+    resource: add-icon-to-diagram.py
+    approval_policy: manual
+    safety: workspace_write
+    input_schema:
+      type: object
+      properties:
+        diagram_path:
+          type: string
+        icon_name:
+          type: string
+        x:
+          type: number
+        y:
+          type: number
+        label:
+          type: string
+        library_path:
+          type: string
+      required: [diagram_path, icon_name, x, y]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        output_file_path:
+          type: string
+        icon_name:
+          type: string
+        added_elements:
+          type: integer
+      required: [output_file_path]
+      additionalProperties: true
+  - id: add_arrow_to_diagram
+    tool: builtin:exec
+    resource: add-arrow.py
+    approval_policy: manual
+    safety: workspace_write
+    input_schema:
+      type: object
+      properties:
+        diagram_path:
+          type: string
+        from_x:
+          type: number
+        from_y:
+          type: number
+        to_x:
+          type: number
+        to_y:
+          type: number
+        style:
+          type: string
+        color:
+          type: string
+        label:
+          type: string
+      required: [diagram_path, from_x, from_y, to_x, to_y]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        output_file_path:
+          type: string
+        added_elements:
+          type: integer
+      required: [output_file_path]
+      additionalProperties: true
+  - id: split_excalidraw_library
+    tool: builtin:exec
+    resource: split-excalidraw-library.py
+    approval_policy: manual
+    safety: workspace_write
+    input_schema:
+      type: object
+      properties:
+        library_directory:
+          type: string
+      required: [library_directory]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        library_directory:
+          type: string
+        icons_dir:
+          type: string
+        reference_path:
+          type: string
+      required: [library_directory, icons_dir, reference_path]
+      additionalProperties: true

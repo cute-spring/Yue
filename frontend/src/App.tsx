@@ -97,6 +97,17 @@ const App: Component<{children?: any}> = (props) => {
            <span class={isSidebarExpanded() ? 'block font-bold text-sm' : 'hidden'}>Skill Groups</span>
            </A>
           <A
+            href="/skill-health"
+            title="Skill Health"
+            class={`group flex items-center ${isSidebarExpanded() ? 'gap-3 px-4' : 'justify-center px-0'} py-2.5 rounded-xl hover:bg-primary/10 text-text-secondary hover:text-primary transition-colors`}
+            activeClass="bg-primary/10 text-primary font-semibold"
+          >
+             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+             </svg>
+            <span class={isSidebarExpanded() ? 'block font-bold text-sm' : 'hidden'}>Skill Health</span>
+          </A>
+          <A
             href="/memory-animation"
             title="Memory Animation"
             class={`group flex items-center ${isSidebarExpanded() ? 'gap-3 px-4' : 'justify-center px-0'} py-2.5 rounded-xl hover:bg-primary/10 text-text-secondary hover:text-primary transition-colors`}

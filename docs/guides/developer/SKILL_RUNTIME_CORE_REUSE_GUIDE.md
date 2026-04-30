@@ -582,9 +582,41 @@ SKILL_RUNTIME_INCLUDE_SKILL_GROUPS=true
 
 ---
 
-## 15. 相关文档
+## 15. Excalidraw 发布门禁（Chunk 5）
+
+当 `excalidraw-diagram-generator` 或同类“文档+脚本”技能变更涉及 action schema、脚本执行路径、或产物协议时，发布前必须满足以下门禁。
+
+### 15.1 发布前检查
+
+1. **preflight 全绿**：确认 Skill Health 面板对 Excalidraw 检查项为可用状态，且无 blocker。
+2. **关键测试通过**：至少通过 action/unit、e2e/unit，以及核心回归集合。
+3. **样例图可打开**：实际产出的 `.excalidraw` 文件能被 Excalidraw 打开，且 `output_file_path` 可追踪。
+4. **失败路径可恢复**：图标缺失、`.edit` 冲突、非法 JSON 三类失败均返回可定位错误且不破坏原始文件。
+
+### 15.2 回滚策略
+
+1. **禁用 action**：优先通过运行时开关或策略层禁止 Excalidraw action 调用，保留技能可见但不执行脚本。
+2. **降级到 L1**：仅保留基础图生成与文本指引，停止图标注入和自动连线增强。
+3. **保留可编辑产物**：故障场景保留可继续编辑文件路径，避免用户任务中断。
+
+### 15.3 Smoke/Regression 命令基线
+
+```bash
+cd /Users/gavinzhang/ws-ai-recharge-2026/Yue/backend
+PYTHONPATH=. pytest /Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_api_skill_preflight.py -q
+PYTHONPATH=. pytest /Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_excalidraw_orchestrator_unit.py -q
+PYTHONPATH=. pytest /Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_api_chat_unit.py -q -k list_action_states
+PYTHONPATH=. pytest /Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_excalidraw_skill_actions_unit.py -q
+PYTHONPATH=. pytest /Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_excalidraw_skill_e2e_unit.py -q
+
+cd /Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend
+npm test -- /Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/src/pages/SkillHealth.test.ts
+```
+
+## 16. 相关文档
 
 - [Skill Runtime Current Operation](../../architecture/Skill_Runtime_Current_Operation.md)
 - [Skill Runtime Core Externalization Plan](../../plans/skill_runtime_core_externalization_plan_20260423.md)
 - [Skill Import Gate Implementation Design](../../plans/skill_import_gate_implementation_design_20260421.md)
 - [Skill Import Runtime Execution Plan](../../plans/skill_import_runtime_execution_plan_20260421.md)
+- [Skill Preflight And Health Panel Guide](./SKILL_PREFLIGHT_HEALTH_PANEL_GUIDE.md)

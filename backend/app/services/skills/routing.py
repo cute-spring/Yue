@@ -2,6 +2,23 @@ import re
 from typing import Any, Dict, List, Optional
 
 from app.services.skills.models import SkillSpec
+from app.services.skills.excalidraw_orchestrator import EXCALIDRAW_SKILL_NAME
+
+SYSTEM_OPS_EXPERT_SKILL_NAME = "system-ops-expert"
+DOCUMENT_DISCOVERY_KEYWORDS = {
+    "list", "find", "search", "locate", "access", "discover", "filename", "filenames",
+    "path", "paths", "folder", "directory", "directories", "document", "documents",
+    "excel", "csv", "pdf", "docx", "pptx", "xlsx", "xlsm", "name", "names", "under",
+}
+DOCUMENT_DISCOVERY_PHRASES = (
+    "which you can access",
+    "can you access",
+    "list all",
+    "find all",
+    "under /",
+    "under ~/",
+    "under ./",
+)
 
 # Reusable-after-cleanup routing layer. Scoring and fallback are core logic,
 # and the default visibility resolver now stays group-store agnostic.
@@ -96,6 +113,22 @@ class SkillRouter:
     def _tokenize_cjk(self, text: str) -> List[str]:
         return re.findall(r"[\u4e00-\u9fff]{2,}", text)
 
+    def _is_document_discovery_intent(self, task: str) -> bool:
+        task_text = (task or "").strip().lower()
+        if not task_text:
+            return False
+
+        has_path_like = "/" in task_text or "\\" in task_text
+        has_extension_like = bool(re.search(r"\.(pdf|docx|pptx|xlsx|xlsm|xltx|xltm|csv|md|txt)\b", task_text))
+        tokens = set(self._tokenize_ascii(task))
+        keyword_hits = len(tokens.intersection(DOCUMENT_DISCOVERY_KEYWORDS))
+        phrase_hit = any(phrase in task_text for phrase in DOCUMENT_DISCOVERY_PHRASES)
+
+        # Keep the heuristic narrow: we only bias when the task looks like
+        # searching for concrete files by name/path/extension rather than
+        # analyzing file contents after a file is already known.
+        return (has_path_like or has_extension_like or phrase_hit) and keyword_hits >= 2
+
     def _score_skill(self, skill: SkillSpec, task_text: str, task_tokens: set, task_cjk: set) -> int:
         score = 0
         name = skill.name or ""
@@ -124,6 +157,12 @@ class SkillRouter:
             score += 2 * len(cap_tokens.intersection(task_tokens))
             cap_cjk = set(self._tokenize_cjk(cap_text))
             score += 2 * len(cap_cjk.intersection(task_cjk))
+
+        if (
+            (skill.name or "").lower() == SYSTEM_OPS_EXPERT_SKILL_NAME
+            and self._is_document_discovery_intent(task_text)
+        ):
+            score += 12
 
         return score
 
@@ -233,6 +272,12 @@ class SkillRouter:
                 "version": selected_skill.version,
                 "score": selected_entry["score"] if selected_entry else 0,
             }
+        output_protocol = None
+        if selected_skill is not None and selected_skill.name == EXCALIDRAW_SKILL_NAME:
+            output_protocol = {
+                "required_fields": ["output_file_path", "action_steps", "warnings"],
+                "failure_recovery_field": "failure_recovery",
+            }
 
         reason_code = "skill_selected" if selected_skill is not None else "no_matching_skill"
         fallback_used = selected_skill is None
@@ -284,6 +329,7 @@ class SkillRouter:
             },
             "fallback_used": fallback_used,
             "stage_trace": stage_trace,
+            "output_protocol": output_protocol,
         }
 
     def route_with_score(self, agent: Any, task: str, requested_skill: str = None) -> tuple[Optional[SkillSpec], int]:

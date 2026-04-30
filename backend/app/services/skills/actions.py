@@ -8,6 +8,10 @@ from app.services.skills.models import (
     RuntimeSkillActionExecutionResult,
     RuntimeSkillActionInvocationResult,
 )
+from app.services.skills.excalidraw_orchestrator import (
+    EXCALIDRAW_SKILL_NAME,
+    build_excalidraw_output_contract,
+)
 
 
 def _legacy_status_to_lifecycle_status(status: str) -> str:
@@ -56,6 +60,31 @@ def _build_invocation_id(
     return f"invoke:{result.skill_name}:{result.skill_version}:{result.action_id}:{token_base}"
 
 
+def _is_excalidraw_invocation(result: RuntimeSkillActionInvocationResult) -> bool:
+    return result.skill_name == EXCALIDRAW_SKILL_NAME
+
+
+def _apply_excalidraw_output_contract(
+    *,
+    invocation: RuntimeSkillActionInvocationResult,
+    status: str,
+    lifecycle_status: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload = dict(metadata or {})
+    if not _is_excalidraw_invocation(invocation):
+        return payload
+    payload.update(
+        build_excalidraw_output_contract(
+            invocation=invocation,
+            status=status,
+            lifecycle_status=lifecycle_status,
+            metadata=payload,
+        )
+    )
+    return payload
+
+
 def build_action_execution_transition_event(
     *,
     status: str,
@@ -76,6 +105,9 @@ def build_action_execution_transition_event(
     )
     if metadata:
         payload["metadata"] = dict(metadata)
+        for key in ("output_file_path", "action_steps", "warnings", "failure_recovery", "observability"):
+            if key in metadata:
+                payload[key] = metadata[key]
     return payload
 
 
@@ -143,8 +175,9 @@ def build_action_execution_result_event(
     lifecycle_phase: str = "preflight",
     lifecycle_status: Optional[str] = None,
     invocation_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    return {
+    payload = {
         "event": "skill.action.result",
         "status": status,
         "lifecycle_phase": lifecycle_phase,
@@ -162,6 +195,12 @@ def build_action_execution_result_event(
         "validation_errors": list(result.validation_errors),
         "missing_requirements": list(result.missing_requirements),
     }
+    if metadata:
+        payload["metadata"] = dict(metadata)
+        for key in ("output_file_path", "action_steps", "warnings", "failure_recovery", "observability"):
+            if key in metadata:
+                payload[key] = metadata[key]
+    return payload
 
 
 def build_action_preflight_message(result: RuntimeSkillActionExecutionResult) -> str:
@@ -228,7 +267,12 @@ class SkillActionExecutionService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> RuntimeSkillActionExecutionResult:
         resolved_lifecycle_status = lifecycle_status or _legacy_status_to_lifecycle_status(status)
-        result_metadata = dict(metadata or {})
+        result_metadata = _apply_excalidraw_output_contract(
+            invocation=invocation,
+            status=status,
+            lifecycle_status=resolved_lifecycle_status,
+            metadata=metadata,
+        )
         invocation_id = str(
             result_metadata.get("invocation_id")
             or _build_invocation_id(result=invocation, request_id=request_id)
@@ -403,6 +447,18 @@ class SkillActionExecutionService:
         request_id = request.request_id or uuid.uuid4().hex[:12]
         invocation_id = _build_invocation_id(result=invocation, request_id=request_id)
         status, lifecycle_status = _resolve_preflight_status(invocation)
+        result_metadata = _apply_excalidraw_output_contract(
+            invocation=invocation,
+            status=status,
+            lifecycle_status=lifecycle_status,
+            metadata={
+                "provider": request.invocation.provider,
+                "model_name": request.invocation.model_name,
+                "argument_keys": sorted(request.invocation.arguments.keys()),
+                "validated_arguments": invocation.metadata.get("validated_arguments", {}),
+                "invocation_id": invocation_id,
+            },
+        )
 
         events = [
             build_action_invocation_event(
@@ -418,6 +474,7 @@ class SkillActionExecutionService:
                 lifecycle_phase="preflight",
                 lifecycle_status=lifecycle_status,
                 invocation_id=invocation_id,
+                metadata=result_metadata,
             ),
         ]
 
@@ -429,11 +486,5 @@ class SkillActionExecutionService:
             execution_mode="non_executing",
             request_id=request_id,
             event_payloads=events,
-            metadata={
-                "provider": request.invocation.provider,
-                "model_name": request.invocation.model_name,
-                "argument_keys": sorted(request.invocation.arguments.keys()),
-                "validated_arguments": invocation.metadata.get("validated_arguments", {}),
-                "invocation_id": invocation_id,
-            },
+            metadata=result_metadata,
         )

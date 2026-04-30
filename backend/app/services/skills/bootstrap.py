@@ -11,6 +11,7 @@ from app.services.skills.compatibility import SkillCompatibilityEvaluator
 from app.services.skills.directories import SkillDirectoryResolver
 from app.services.skills.import_service import SkillImportService
 from app.services.skills.import_store import SkillImportStore
+from app.services.skills.preflight_service import SkillPreflightService
 from app.services.skills.registry import SkillRegistry
 from app.services.skills.runtime_catalog import (
     RUNTIME_MODE_IMPORT_GATE,
@@ -136,11 +137,17 @@ class DefaultSkillRuntimeRouteStrategy:
         )
         if options.include_skill_imports:
             from app.api import skill_imports as skill_imports_api
+            from app.api import skill_preflight as skill_preflight_api
 
             app.include_router(
                 skill_imports_api.router,
                 prefix=f"{options.api_prefix}/skill-imports",
                 tags=["skill-imports"],
+            )
+            app.include_router(
+                skill_preflight_api.router,
+                prefix=f"{options.api_prefix}/skill-preflight",
+                tags=["skill-preflight"],
             )
         if options.include_skill_groups:
             from app.api import skill_groups as skill_groups_api
@@ -289,6 +296,7 @@ def build_stage4_lite_runtime_singletons(
     # when choosing the primary runtime-construction entry.
     from app.services.skills.actions import SkillActionExecutionService
     from app.services.skills.routing import SkillRouter
+    from app.services.agent_store import agent_store
 
     effective_config = config or resolve_skill_runtime_config_from_env()
     registry = SkillRegistry()
@@ -301,6 +309,7 @@ def build_stage4_lite_runtime_singletons(
     import_service = SkillImportService(
         import_store=import_store,
         compatibility_evaluator=compatibility_evaluator,
+        agent_store=agent_store,
     )
     return BuiltSkillRuntime(
         skill_registry=registry,
@@ -395,11 +404,28 @@ def bootstrap_skill_runtime_lifespan(
             config=config,
             import_store=context.skill_import_store,
         )
+        preflight_dirs = SkillDirectoryResolver(
+            builtin_dir=config.builtin_skills_dir,
+            workspace_dir=config.workspace_skills_dir,
+            user_dir=config.user_skills_dir,
+        ).resolve()
         if config.runtime_mode != RUNTIME_MODE_LEGACY and logger is not None:
             logger.info("Skill runtime mode %s enabled; projected active imports=%s", config.runtime_mode, len(layered_dirs))
-        for item in layered_dirs:
+        for item in preflight_dirs:
             if item.layer in {"workspace", "user"}:
                 Path(item.path).mkdir(parents=True, exist_ok=True)
+        compatibility_evaluator = getattr(
+            getattr(context, "skill_import_service", None),
+            "compatibility_evaluator",
+            None,
+        )
+        preflight_service = SkillPreflightService(
+            import_store=context.skill_import_store,
+            compatibility_evaluator=compatibility_evaluator,
+        )
+        preflight_records = preflight_service.refresh(preflight_dirs)
+        if logger is not None:
+            logger.info("Skill preflight refreshed with %s records", len(preflight_records))
         runtime_registry.set_layered_skill_dirs(layered_dirs)
         runtime_registry.skill_dirs = [item.path for item in layered_dirs]
         runtime_registry.load_all()

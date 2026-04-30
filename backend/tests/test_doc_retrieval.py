@@ -365,16 +365,18 @@ class TestDocRetrieval(unittest.TestCase):
             with self.assertRaises(DocAccessError):
                 resolve_docs_root(docs_root, allow_roots=[tmp], deny_roots=[tmp])
 
-    def test_resolve_docs_roots_for_search_prefers_doc_roots(self):
+    def test_resolve_docs_roots_for_search_ignores_agent_doc_roots_and_uses_all_allow_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             docs_root_a = os.path.join(tmp, "docs_a")
             docs_root_b = os.path.join(tmp, "docs_b")
+            agent_root = os.path.join(tmp, "agent_only")
             os.makedirs(docs_root_a, exist_ok=True)
             os.makedirs(docs_root_b, exist_ok=True)
+            os.makedirs(agent_root, exist_ok=True)
             roots = resolve_docs_roots_for_search(
                 None,
-                doc_roots=[docs_root_a, docs_root_b],
-                allow_roots=[tmp],
+                doc_roots=[agent_root],
+                allow_roots=[docs_root_a, docs_root_b],
             )
             self.assertEqual(set(roots), {os.path.realpath(docs_root_a), os.path.realpath(docs_root_b)})
 
@@ -389,26 +391,25 @@ class TestDocRetrieval(unittest.TestCase):
                 f.write("hi")
             root = resolve_docs_root_for_read(
                 target,
-                doc_roots=[docs_root_a, docs_root_b],
-                allow_roots=[tmp],
+                doc_roots=[docs_root_a],
+                allow_roots=[docs_root_a, docs_root_b],
             )
             self.assertEqual(root, os.path.realpath(docs_root_b))
 
-    def test_resolve_docs_root_for_read_matches_relative_path(self):
+    def test_resolve_docs_root_for_read_reports_ambiguous_relative_path_across_allow_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             docs_root_a = os.path.join(tmp, "docs_a")
             docs_root_b = os.path.join(tmp, "docs_b")
             os.makedirs(docs_root_a, exist_ok=True)
             os.makedirs(docs_root_b, exist_ok=True)
-            target = os.path.join(docs_root_a, "readme.md")
-            with open(target, "w", encoding="utf-8") as f:
-                f.write("hi")
-            root = resolve_docs_root_for_read(
-                "readme.md",
-                doc_roots=[docs_root_a, docs_root_b],
-                allow_roots=[tmp],
-            )
-            self.assertEqual(root, os.path.realpath(docs_root_a))
+            for docs_root in [docs_root_a, docs_root_b]:
+                with open(os.path.join(docs_root, "readme.md"), "w", encoding="utf-8") as f:
+                    f.write("hi")
+            with self.assertRaisesRegex(DocAccessError, "Ambiguous"):
+                resolve_docs_root_for_read(
+                    "readme.md",
+                    allow_roots=[docs_root_a, docs_root_b],
+                )
 
     def test_get_project_root(self):
         from app.services.doc_retrieval import get_project_root
@@ -435,14 +436,12 @@ class TestDocRetrieval(unittest.TestCase):
 
     def test_resolve_docs_roots_for_search_errors(self):
         with tempfile.TemporaryDirectory() as tmp:
-            # Test empty string in doc_roots
+            # Test empty string in doc_roots; global allow roots remain authoritative.
             roots = resolve_docs_roots_for_search(None, doc_roots=["", " "], allow_roots=[tmp])
             self.assertEqual(len(roots), 1) # Fallback to default
-            
-            # Test DocAccessError during resolution with a non-empty doc_roots list:
-            # should fail closed instead of falling back to global defaults.
-            with self.assertRaises(DocAccessError):
-                resolve_docs_roots_for_search(None, doc_roots=["/invalid"], allow_roots=[tmp])
+
+            roots = resolve_docs_roots_for_search(None, doc_roots=["/invalid"], allow_roots=[tmp])
+            self.assertEqual(roots, [os.path.realpath(tmp)])
 
     def test_resolve_docs_root_for_read_misc(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -564,7 +563,7 @@ class TestDocRetrieval(unittest.TestCase):
             res = resolve_docs_roots_for_search(tmp, allow_roots=allow)
             self.assertEqual(res, [os.path.realpath(tmp)])
 
-    def test_resolve_docs_roots_for_search_requested_root_must_respect_doc_roots(self):
+    def test_resolve_docs_roots_for_search_requested_root_is_selector_not_permission_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             allowed_root = os.path.join(tmp, "allowed")
             restricted_root = os.path.join(allowed_root, "restricted")
@@ -572,14 +571,14 @@ class TestDocRetrieval(unittest.TestCase):
             os.makedirs(restricted_root, exist_ok=True)
             os.makedirs(bypass_root, exist_ok=True)
 
-            with self.assertRaises(DocAccessError):
-                resolve_docs_roots_for_search(
-                    bypass_root,
-                    doc_roots=[restricted_root],
-                    allow_roots=[allowed_root],
-                )
+            roots = resolve_docs_roots_for_search(
+                bypass_root,
+                doc_roots=[restricted_root],
+                allow_roots=[allowed_root],
+            )
+            self.assertEqual(roots, [os.path.realpath(bypass_root)])
 
-    def test_resolve_docs_roots_for_search_fails_closed_when_doc_roots_all_invalid(self):
+    def test_resolve_docs_roots_for_search_fails_closed_when_allow_roots_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             allowed_root = os.path.join(tmp, "allowed")
             restricted_root = os.path.join(allowed_root, "restricted")
@@ -589,8 +588,7 @@ class TestDocRetrieval(unittest.TestCase):
                 resolve_docs_roots_for_search(
                     None,
                     doc_roots=[restricted_root],
-                    allow_roots=[allowed_root],
-                    deny_roots=[restricted_root],
+                    allow_roots=[],
                 )
 
     def test_resolve_docs_root_for_read_abs_path(self):

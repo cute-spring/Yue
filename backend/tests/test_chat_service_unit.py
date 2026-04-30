@@ -682,6 +682,51 @@ def test_action_state_updates_after_approval_resume(temp_db):
     assert len(all_states) == 1
     assert all_states[0].lifecycle_status == "queued"
 
+def test_action_state_persists_observability_fields(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_observability",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 7,
+            "ts": "2026-03-28T00:00:03Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "failed",
+            "skill_name": "excalidraw-diagram-generator",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "invocation_id": "invoke:excalidraw-diagram-generator:1.0.0:generate:req-obs",
+            "request_id": "req-obs",
+            "status": "failed",
+            "observability": {
+                "started_at": "2026-03-28T00:00:00Z",
+                "finished_at": "2026-03-28T00:00:01Z",
+                "duration_ms": 1000,
+                "error_kind": "config_error",
+                "retryable": False,
+                "artifact_path": "/tmp/diagram.excalidraw",
+            },
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+
+    state = service.get_action_state_by_invocation_id(
+        chat.id,
+        invocation_id="invoke:excalidraw-diagram-generator:1.0.0:generate:req-obs",
+    )
+
+    assert state is not None
+    assert state.observability is not None
+    assert state.observability.error_kind == "config_error"
+    assert state.observability.retryable is False
+    assert state.observability.artifact_path == "/tmp/diagram.excalidraw"
+
 def test_action_state_separates_multiple_invocations_for_same_action(temp_db):
     service, _ = temp_db
     chat = service.create_chat()

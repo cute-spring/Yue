@@ -9,7 +9,11 @@ from typing import List, Optional
 
 from pydantic import ValidationError
 
-from app.services.skills.import_models import SkillImportRecord, SkillImportStoredEntry
+from app.services.skills.import_models import (
+    SkillImportRecord,
+    SkillImportStoredEntry,
+    SkillPreflightRecord,
+)
 
 
 def _default_data_dir() -> str:
@@ -25,14 +29,20 @@ class SkillImportStore:
         self.data_dir = data_dir or _default_data_dir()
         self.imports_file = os.path.join(self.data_dir, "skill_imports.json")
         self.imports_backup_file = f"{self.imports_file}.bak"
+        self.preflight_file = os.path.join(self.data_dir, "skill_preflight.json")
+        self.preflight_backup_file = f"{self.preflight_file}.bak"
         self._lock = threading.RLock()
         self._ensure_data_file()
 
     def _ensure_data_file(self) -> None:
         os.makedirs(self.data_dir, exist_ok=True)
         if os.path.exists(self.imports_file):
-            return
-        self._atomic_write_json(self.imports_file, [])
+            if os.path.exists(self.preflight_file):
+                return
+        if not os.path.exists(self.imports_file):
+            self._atomic_write_json(self.imports_file, [])
+        if not os.path.exists(self.preflight_file):
+            self._atomic_write_json(self.preflight_file, [])
 
     def _atomic_write_json(self, path: str, data) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -131,3 +141,78 @@ class SkillImportStore:
                 entries.append(entry)
             self._save_entries(entries)
             return entry
+
+    def _recover_preflight_file_if_needed(self) -> bool:
+        if not os.path.exists(self.preflight_file):
+            return False
+        try:
+            with open(self.preflight_file, "r", encoding="utf-8") as handle:
+                json.load(handle)
+            return True
+        except Exception:
+            pass
+        if os.path.exists(self.preflight_backup_file):
+            try:
+                with open(self.preflight_backup_file, "r", encoding="utf-8") as handle:
+                    data = json.load(handle)
+                self._atomic_write_json(self.preflight_file, data)
+                return True
+            except Exception:
+                pass
+        corrupt = f"{self.preflight_file}.corrupt.{_timestamp_tag()}"
+        try:
+            os.replace(self.preflight_file, corrupt)
+        except Exception:
+            pass
+        self._atomic_write_json(self.preflight_file, [])
+        return True
+
+    def _load_preflight_records(self) -> List[SkillPreflightRecord]:
+        self._ensure_data_file()
+        self._recover_preflight_file_if_needed()
+        try:
+            with open(self.preflight_file, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception:
+            data = []
+        if not isinstance(data, list):
+            data = []
+        records: List[SkillPreflightRecord] = []
+        for item in data:
+            try:
+                records.append(SkillPreflightRecord(**item))
+            except ValidationError:
+                continue
+        return records
+
+    def _save_preflight_records(self, records: List[SkillPreflightRecord]) -> None:
+        self._atomic_write_json(self.preflight_file, [item.model_dump(mode="json") for item in records])
+
+    def list_preflight_records(self) -> List[SkillPreflightRecord]:
+        with self._lock:
+            return self._load_preflight_records()
+
+    def get_preflight_record(self, skill_ref: str) -> Optional[SkillPreflightRecord]:
+        for item in self.list_preflight_records():
+            if item.skill_ref == skill_ref:
+                return item
+        return None
+
+    def save_preflight_record(self, record: SkillPreflightRecord) -> SkillPreflightRecord:
+        with self._lock:
+            records = self._load_preflight_records()
+            updated = False
+            for index, existing in enumerate(records):
+                if existing.skill_ref == record.skill_ref:
+                    records[index] = record
+                    updated = True
+                    break
+            if not updated:
+                records.append(record)
+            self._save_preflight_records(records)
+            return record
+
+    def replace_preflight_records(self, records: List[SkillPreflightRecord]) -> List[SkillPreflightRecord]:
+        with self._lock:
+            self._save_preflight_records(records)
+            return records

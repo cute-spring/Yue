@@ -52,10 +52,15 @@ def safe_int_env_with_fallback(primary: str, legacy: str, default: int) -> int:
     return safe_int_env(legacy, default)
 
 
-def has_docs_capability(agent_config: Any) -> bool:
+DISCOVERY_EXTENSIONS = [".pdf", ".docx", ".pptx", ".xlsx", ".xlsm", ".xltx", ".xltm", ".csv", ".md", ".txt"]
+
+
+def has_document_discovery_capability(agent_config: Any) -> bool:
     tools = getattr(agent_config, "enabled_tools", []) or []
     for tool in tools:
-        if isinstance(tool, str) and "docs_" in tool:
+        if not isinstance(tool, str):
+            continue
+        if "docs_" in tool or "excel_" in tool or tool in {"builtin:exec", "exec"}:
             return True
     return False
 
@@ -83,11 +88,11 @@ def build_scope_summary_block(
     config_service: Any,
     doc_retrieval: Any,
 ) -> Tuple[Optional[str], int]:
-    if not agent_config or not has_docs_capability(agent_config):
+    if not agent_config or not has_document_discovery_capability(agent_config):
         return None, 0
     if not env_flag("PROMPT_SCOPE_SUMMARY_ENABLED", True):
         return None, 0
-    reveal_paths = env_flag("PROMPT_SCOPE_SUMMARY_REVEAL_PATHS", False)
+    reveal_paths = env_flag("PROMPT_SCOPE_SUMMARY_REVEAL_PATHS", True)
     max_roots = safe_int_env("PROMPT_SCOPE_SUMMARY_MAX_ROOTS", 3)
     doc_roots = getattr(agent_config, "doc_roots", None) or []
     doc_access = config_service.get_doc_access()
@@ -110,7 +115,14 @@ def build_scope_summary_block(
     lines.extend(f"- {root}" for root in display_roots)
     if len(effective_roots) > len(shown):
         lines.append(f"- ... and {len(effective_roots) - len(shown)} more")
-    lines.append("- If uncertain, call docs_list first to inspect paths.")
+    lines.append("### Document Discovery Hints")
+    lines.append("- For document filename/path/extension discovery, prefer OS-native search commands through exec or use docs_list first.")
+    lines.append("- If the system-ops-expert skill is visible, prefer it first for document discovery workflows before file-specific readers such as excel_profile or docs_read.")
+    lines.append("- Use exact absolute root paths above when building exec/docs/excel paths; avoid guessing with unrelated relative prefixes such as ./Desktop/...")
+    lines.append(f"- Common document extensions: {', '.join(DISCOVERY_EXTENSIONS)}")
+    lines.append("- Use exec for any efficient shell task when appropriate; document discovery is only one high-value use case.")
+    lines.append("- For file-specific readers such as excel_read/excel_query/docs_read, locate a concrete file path before calling the tool.")
+    lines.append("- Preferred roots above are guidance for document-oriented tasks; exec itself is not limited to search-only usage.")
     return "\n".join(lines), len(effective_roots)
 
 
@@ -409,9 +421,6 @@ def assemble_runtime_prompt(
         provider = provider or agent_config.provider
         model_name = model_name or agent_config.model
         system_prompt = system_prompt or agent_config.system_prompt
-        if agent_config.doc_roots and "可检索目录" not in system_prompt:
-            roots = "\n".join(f"- {r}" for r in agent_config.doc_roots)
-            system_prompt += f"\n\n可检索目录（优先使用）：\n{roots}"
         if always_skill_specs:
             always_blocks = build_always_skill_blocks(
                 always_skill_specs=always_skill_specs,

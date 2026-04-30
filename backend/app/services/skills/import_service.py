@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -26,9 +27,11 @@ class SkillImportService:
         *,
         import_store: Optional[SkillImportStore] = None,
         compatibility_evaluator: Optional[SkillCompatibilityEvaluator] = None,
+        agent_store: Optional[object] = None,
     ):
         self.import_store = import_store or SkillImportStore()
         self.compatibility_evaluator = compatibility_evaluator or SkillCompatibilityEvaluator()
+        self.agent_store = agent_store
 
     def import_from_directory(
         self,
@@ -37,6 +40,8 @@ class SkillImportService:
         source_type: SkillImportSourceType = SkillImportSourceType.DIRECTORY,
         source_ref: Optional[str] = None,
         auto_activate: bool = False,
+        auto_mount_to_default_agent: bool = False,
+        default_agent_id: Optional[str] = None,
     ) -> SkillImportResult:
         package_path = Path(package_dir).expanduser().resolve()
         display_source_ref = source_ref or str(package_path)
@@ -83,6 +88,14 @@ class SkillImportService:
         compatibility_issues = []
         errors = list(validation.errors)
         warnings = list(validation.warnings)
+        compat_generated = bool((package.metadata or {}).get("compat_generated"))
+        compat_protocol = (package.metadata or {}).get("compat_protocol")
+        compat_auto_filled_fields = list((package.metadata or {}).get("compat_missing_fields") or [])
+        if compat_generated and compat_auto_filled_fields:
+            warnings.append(
+                "Compatibility mode auto-filled fields: " + ", ".join(compat_auto_filled_fields)
+            )
+        default_agent_mount_status = "not_attempted"
 
         if validation.is_valid:
             compatibility = self.compatibility_evaluator.evaluate_package(package)
@@ -99,6 +112,15 @@ class SkillImportService:
             else:
                 lifecycle_state = SkillImportLifecycleState.REJECTED
                 reason_code = "compatibility_failed"
+
+        if auto_mount_to_default_agent and lifecycle_state == SkillImportLifecycleState.ACTIVE:
+            target_agent = default_agent_id or os.getenv("YUE_SKILL_IMPORT_DEFAULT_AGENT_ID", "builtin-action-lab")
+            default_agent_mount_status = self._mount_skill_to_agent(
+                target_agent_id=target_agent,
+                skill_ref=f"{package.name}:{package.version}",
+            )
+        elif auto_mount_to_default_agent:
+            default_agent_mount_status = "skipped_not_active"
 
         record = SkillImportRecord(
             skill_name=package.name,
@@ -119,10 +141,27 @@ class SkillImportService:
             errors=errors,
             warnings=warnings,
             compatibility_issues=compatibility_issues,
+            compat_generated=compat_generated,
+            compat_protocol=compat_protocol,
+            compat_auto_filled_fields=compat_auto_filled_fields,
+            default_agent_mount_status=default_agent_mount_status,
         )
         result = SkillImportResult(record=record, report=report, preview=preview)
         self.import_store.save_entry(SkillImportStoredEntry(**result.model_dump()))
         return result
+
+    def _mount_skill_to_agent(self, *, target_agent_id: str, skill_ref: str) -> str:
+        if self.agent_store is None:
+            return "agent_store_unavailable"
+        agent = self.agent_store.get_agent(target_agent_id)
+        if not agent:
+            return "agent_not_found"
+        visible_skills = list(getattr(agent, "visible_skills", []) or [])
+        if skill_ref in visible_skills:
+            return "already_mounted"
+        visible_skills.append(skill_ref)
+        self.agent_store.update_agent(target_agent_id, {"visible_skills": visible_skills})
+        return "mounted"
 
     def _has_active_import(self, skill_name: str) -> bool:
         for entry in self.import_store.list_entries():

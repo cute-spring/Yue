@@ -1,0 +1,25 @@
+# Example Doc Script Skill
+
+## Capability Levels
+
+- L1: Read-only analysis from references/templates.
+- L2: Action execution with controlled script output.
+- L3: Multi-step orchestration with action chaining.
+
+## Actions
+
+- `example_action`: Run `scripts/example-action.py` to produce an output artifact.
+
+## Directory Layout
+
+- `references/`: read-only knowledge and schema notes.
+- `scripts/`: executable scripts invoked by actions.
+- `templates/`: starter output templates.
+- `libraries/`: optional external assets (icons, vocab, maps).
+
+## Migration: Read-only to Action Skill
+
+1. Keep L1 with references and template responses.
+2. Add script files under `scripts/` and define manifest `actions`.
+3. Add `input_schema` and `output_schema`, then enforce approval policy.
+4. Add preflight checks and failure recovery notes before release.

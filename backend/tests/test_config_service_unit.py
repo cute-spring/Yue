@@ -109,6 +109,7 @@ def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_
     assert flags["skill_runtime_enabled"] is True
     assert flags["skill_runtime_debug_contract_enabled"] is False
     assert flags["skill_import_auto_activate_enabled"] is True
+    assert flags["skill_import_default_agent_auto_mount_enabled"] is False
     assert "skill_selector_tool_enabled" not in flags
     assert "skill_auto_mode_enabled" not in flags
     assert "skill_summary_prompt_enabled" not in flags
@@ -138,12 +139,14 @@ def test_update_feature_flags_round_trip(temp_config_file):
         "chat_trace_raw_enabled": "true",
         "skill_runtime_debug_contract_enabled": "1",
         "skill_import_auto_activate_enabled": "false",
+        "skill_import_default_agent_auto_mount_enabled": "true",
     })
 
     assert updated["chat_trace_ui_enabled"] is True
     assert updated["chat_trace_raw_enabled"] is True
     assert updated["skill_runtime_debug_contract_enabled"] is True
     assert updated["skill_import_auto_activate_enabled"] is False
+    assert updated["skill_import_default_agent_auto_mount_enabled"] is True
 
     with open(temp_config_file, "r") as f:
         persisted = json.load(f)
@@ -152,6 +155,7 @@ def test_update_feature_flags_round_trip(temp_config_file):
     assert persisted["feature_flags"]["chat_trace_raw_enabled"] is True
     assert persisted["feature_flags"]["skill_runtime_debug_contract_enabled"] is True
     assert persisted["feature_flags"]["skill_import_auto_activate_enabled"] is False
+    assert persisted["feature_flags"]["skill_import_default_agent_auto_mount_enabled"] is True
 
 
 def test_get_preferences_defaults_include_advanced_mode(temp_config_file):
@@ -313,6 +317,20 @@ def test_get_doc_access_roots_returns_tuple(temp_config_file, monkeypatch):
     allow_roots, deny_roots = service.get_doc_access_roots()
     assert allow_roots == expected.get("allow_roots", [])
     assert deny_roots == expected.get("deny_roots", [])
+
+
+def test_doc_access_persists_after_restart(temp_config_file):
+    first = ConfigService(str(temp_config_file))
+    first.update_doc_access(
+        {
+            "allow_roots": ["/tmp/a", "/tmp/b"],
+            "deny_roots": ["/tmp/a/private"],
+        }
+    )
+    second = ConfigService(str(temp_config_file))
+    allow_roots, deny_roots = second.get_doc_access_roots()
+    assert allow_roots == ["/tmp/a", "/tmp/b"]
+    assert deny_roots == ["/tmp/a/private"]
 
 
 def test_get_llm_routing_config_defaults_to_legacy_runtime_model(temp_config_file):

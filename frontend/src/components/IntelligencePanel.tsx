@@ -421,12 +421,39 @@ const buildExecDetailSections = (
   return sections;
 };
 
+const buildObservabilityDetailSection = (state: ActionState): ActionDetailSection | null => {
+  const observability = state.observability;
+  if (!observability) return null;
+  const lines: string[] = [];
+  if (observability.started_at) lines.push(`started_at: ${observability.started_at}`);
+  if (observability.finished_at) lines.push(`finished_at: ${observability.finished_at}`);
+  if (observability.duration_ms !== undefined && observability.duration_ms !== null) {
+    lines.push(`duration_ms: ${observability.duration_ms}`);
+  }
+  if (observability.error_kind) lines.push(`error_kind: ${observability.error_kind}`);
+  if (observability.retryable !== undefined && observability.retryable !== null) {
+    lines.push(`retryable: ${String(observability.retryable)}`);
+  }
+  if (observability.artifact_path) lines.push(`artifact_path: ${observability.artifact_path}`);
+  if (lines.length === 0) return null;
+  return {
+    title: 'Observability',
+    tone: 'slate',
+    content: lines.join('\n'),
+  };
+};
+
 export const getActionStateDetailSections = (state: ActionState): ActionDetailSection[] => {
   const sections: ActionDetailSection[] = [];
   const validationErrors = getStringList(state.payload?.validation_errors);
   const missingRequirements = getStringList(state.payload?.missing_requirements);
   const metadata = state.payload?.metadata;
   const mappedTool = getActionMappedTool(state);
+  const observabilitySection = buildObservabilityDetailSection(state);
+
+  if (observabilitySection) {
+    sections.push(observabilitySection);
+  }
 
   if (validationErrors.length > 0) {
     sections.push({

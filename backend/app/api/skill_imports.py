@@ -97,6 +97,10 @@ def _should_auto_activate() -> bool:
     feature_flags = _feature_flags()
     return feature_flags.get("skill_import_auto_activate_enabled", True)
 
+def _should_auto_mount_default_agent() -> bool:
+    feature_flags = _feature_flags()
+    return feature_flags.get("skill_import_default_agent_auto_mount_enabled", False)
+
 
 def _build_import_response(result):
     payload = {
@@ -126,6 +130,7 @@ async def create_skill_import(request: SkillImportCreateRequest):
             source_type=SkillImportSourceType.DIRECTORY,
             source_ref=str(package_dir),
             auto_activate=_should_auto_activate(),
+            auto_mount_to_default_agent=_should_auto_mount_default_agent(),
         )
     status_code = 201 if result.report.activation_eligibility == "eligible" else 422
     payload = _build_import_response(result)
