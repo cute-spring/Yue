@@ -24,6 +24,13 @@ interface MessageListProps {
 }
 
 export default function MessageList(props: MessageListProps) {
+  const lastAssistantIndex = () => {
+    for (let i = props.messages.length - 1; i >= 0; i -= 1) {
+      if (props.messages[i]?.role === 'assistant') return i;
+    }
+    return -1;
+  };
+
   return (
     <div 
       ref={props.chatContainerRef}
@@ -91,6 +98,7 @@ export default function MessageList(props: MessageListProps) {
           <MessageItem 
             msg={msg}
             index={index()}
+            isLatestAssistantMessage={index() === lastAssistantIndex()}
             activeAgentName={props.activeAgentName}
             isTyping={props.isTyping && index() === props.messages.length - 1}
             expandedThoughts={props.expandedThoughts}
