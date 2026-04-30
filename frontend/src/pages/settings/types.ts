@@ -52,6 +52,36 @@ export type McpTool = {
   server: string;
 };
 
+export type McpTemplateFieldType = 'text' | 'password' | 'select' | 'textarea' | 'json';
+
+export type McpTemplateField = {
+  key: string;
+  label: string;
+  type: McpTemplateFieldType;
+  required: boolean;
+  secret?: boolean;
+  placeholder?: string | null;
+  help_text?: string | null;
+  default_value?: any;
+  options: string[];
+};
+
+export type McpTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  deployment: string;
+  fields: McpTemplateField[];
+};
+
+export type McpTemplateValidationResult = {
+  ok: boolean;
+  rendered_config?: Record<string, any> | null;
+  warnings: string[];
+  error?: string | null;
+};
+
 export type CustomModel = {
   name: string;
   base_url?: string;

@@ -5,6 +5,7 @@ import type {
   LLMProvider,
   LlmForm,
   McpStatus,
+  McpTemplate,
   McpTool,
   FeatureFlags,
   Preferences,
@@ -15,6 +16,7 @@ export type SettingsDataSnapshot = {
   mcpConfigText: string;
   mcpStatus: McpStatus[];
   mcpTools: McpTool[];
+  mcpTemplates: McpTemplate[];
   providers: LLMProvider[];
   llmForm: LlmForm;
   customModels: CustomModel[];
@@ -41,6 +43,9 @@ export function useSettingsData() {
 
     const toolsRes = await fetch('/api/mcp/tools');
     const mcpTools = (await toolsRes.json()) as McpTool[];
+
+    const templatesRes = await fetch('/api/mcp/templates');
+    const mcpTemplates = (await templatesRes.json()) as McpTemplate[];
 
     const providersRes = await fetch('/api/models/providers');
     const providers = (await providersRes.json()) as LLMProvider[];
@@ -73,6 +78,7 @@ export function useSettingsData() {
       mcpConfigText: JSON.stringify(mcpConfig, null, 2),
       mcpStatus,
       mcpTools,
+      mcpTemplates,
       providers,
       llmForm,
       customModels,

@@ -36,6 +36,13 @@ def test_get_status(client, mock_mcp_manager):
     assert response.status_code == 200
     assert response.json() == {"server1": "connected"}
 
+def test_list_templates(client, mock_mcp_manager):
+    response = client.get("/api/mcp/templates")
+    assert response.status_code == 200
+    body = response.json()
+    assert any(item["id"] == "jira-company" for item in body)
+    assert any(item["id"] == "confluence-company" for item in body)
+
 def test_update_configs_success(client, mock_mcp_manager):
     mock_mcp_manager.load_config.return_value = []
     m = mock_open()
@@ -54,6 +61,52 @@ def test_update_configs_success(client, mock_mcp_manager):
 def test_update_configs_invalid(client, mock_mcp_manager):
     response = client.post("/api/mcp/", json=[{"name": "missing_command"}])
     assert response.status_code == 400
+
+def test_validate_template_success(client, mock_mcp_manager):
+    with patch("app.api.mcp.shutil.which", return_value="/usr/bin/npx"):
+        response = client.post(
+            "/api/mcp/validate",
+            json={
+                "template_id": "jira-company",
+                "values": {
+                    "serverName": "corp-jira",
+                    "command": "npx",
+                    "argsJson": '["-y","corp-jira-mcp"]',
+                    "baseUrl": "https://jira.company.internal",
+                    "baseUrlEnvKey": "JIRA_BASE_URL",
+                    "username": "alice@example.com",
+                    "usernameEnvKey": "JIRA_USERNAME",
+                    "secretEnvVar": "JIRA_TOKEN",
+                    "tokenEnvKey": "JIRA_TOKEN",
+                    "extraEnvJson": '{"JIRA_PROJECT":"CORE"}',
+                },
+            },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["rendered_config"]["name"] == "corp-jira"
+    assert body["rendered_config"]["env"]["JIRA_TOKEN"] == "${JIRA_TOKEN}"
+    assert body["rendered_config"]["env"]["JIRA_PROJECT"] == "CORE"
+
+def test_validate_template_invalid_json(client, mock_mcp_manager):
+    with patch("app.api.mcp.shutil.which", return_value="/usr/bin/npx"):
+        response = client.post(
+            "/api/mcp/validate",
+            json={
+                "template_id": "custom-company-mcp",
+                "values": {
+                    "serverName": "internal",
+                    "command": "npx",
+                    "argsJson": "{",
+                    "envJson": "{}",
+                },
+            },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert "Args must be valid JSON" in body["error"]
 
 @pytest.mark.asyncio
 async def test_reload_mcp(client, mock_mcp_manager):

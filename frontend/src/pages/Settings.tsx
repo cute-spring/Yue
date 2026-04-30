@@ -19,6 +19,8 @@ import type {
   LLMProvider,
   LlmForm,
   McpStatus,
+  McpTemplate,
+  McpTemplateValidationResult,
   McpTool,
   NewCustomModelDraft,
   Preferences,
@@ -40,6 +42,7 @@ type Tab = 'general' | 'mcp' | 'llm';
     const [mcpConfig, setMcpConfig] = createSignal("");
     const [mcpStatus, setMcpStatus] = createSignal<McpStatus[]>([]);
     const [mcpTools, setMcpTools] = createSignal<McpTool[]>([]);
+    const [mcpTemplates, setMcpTemplates] = createSignal<McpTemplate[]>([]);
     const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
     const [showManual, setShowManual] = createSignal(false);
     const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-server\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    }\n  }\n}`);
@@ -102,6 +105,7 @@ type Tab = 'general' | 'mcp' | 'llm';
       setMcpConfig(snapshot.mcpConfigText);
       setMcpStatus(snapshot.mcpStatus);
       setMcpTools(snapshot.mcpTools);
+      setMcpTemplates(snapshot.mcpTemplates);
       setProviders(snapshot.providers);
       setLlmForm(snapshot.llmForm);
       setCustomModels(snapshot.customModels);
@@ -138,6 +142,51 @@ type Tab = 'general' | 'mcp' | 'llm';
     } catch (e) {
       showToast('error', "Invalid JSON: " + e);
     }
+  };
+
+  const validateMcpTemplate = async (
+    templateId: string,
+    values: Record<string, string>,
+  ): Promise<McpTemplateValidationResult> => {
+    const res = await fetch('/api/mcp/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_id: templateId, values }),
+    });
+    return (await res.json()) as McpTemplateValidationResult;
+  };
+
+  const installMcpTemplate = async (
+    templateId: string,
+    values: Record<string, string>,
+  ): Promise<McpTemplateValidationResult> => {
+    const validation = await validateMcpTemplate(templateId, values);
+    if (!validation.ok || !validation.rendered_config) {
+      if (validation.error) showToast('error', validation.error);
+      return validation;
+    }
+
+    const res = await fetch('/api/mcp/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([validation.rendered_config]),
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      const failed = {
+        ok: false,
+        rendered_config: validation.rendered_config,
+        warnings: validation.warnings || [],
+        error: detail || 'Failed to save MCP config',
+      } satisfies McpTemplateValidationResult;
+      showToast('error', failed.error || 'Failed to save MCP config');
+      return failed;
+    }
+
+    await fetch('/api/mcp/reload', { method: 'POST' });
+    await fetchData();
+    showToast('success', `Installed MCP server "${validation.rendered_config.name}"`);
+    return validation;
   };
 
   const saveLlmConfig = async () => {
@@ -477,6 +526,7 @@ type Tab = 'general' | 'mcp' | 'llm';
           <McpSettingsTab
             mcpStatus={mcpStatus}
             mcpTools={mcpTools}
+            mcpTemplates={mcpTemplates}
             expanded={expanded}
             setExpanded={setExpanded}
             hoveredServer={hoveredServer}
@@ -498,6 +548,8 @@ type Tab = 'general' | 'mcp' | 'llm';
             deleteMcpServer={deleteMcpServer}
             confirmManual={confirmManual}
             saveMcp={saveMcp}
+            validateMcpTemplate={validateMcpTemplate}
+            installMcpTemplate={installMcpTemplate}
           />
         </Show>
 

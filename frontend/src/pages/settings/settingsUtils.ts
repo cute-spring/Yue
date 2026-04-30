@@ -1,4 +1,4 @@
-import type { LlmForm } from './types';
+import type { LlmForm, McpTemplate } from './types';
 
 export type McpServerConfig = {
   name: string;
@@ -71,6 +71,14 @@ export const parseMcpManualText = (input: string): ParseMcpManualTextResult => {
   if (servers.length === 0) return { kind: 'no_valid_servers' };
   return { kind: 'ok', servers };
 };
+
+export const buildMcpTemplateInitialValues = (template: McpTemplate): Record<string, string> =>
+  Object.fromEntries(
+    template.fields.map((field) => [
+      field.key,
+      field.default_value === undefined || field.default_value === null ? '' : String(field.default_value),
+    ]),
+  );
 
 export const mergeModelCapabilityOverrides = (
   baseModels: Record<string, any>,
