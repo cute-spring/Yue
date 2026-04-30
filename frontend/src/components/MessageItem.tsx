@@ -11,6 +11,7 @@ import { useMaybeSpeechController } from '../context/SpeechControllerContext';
 interface MessageItemProps {
   msg: Message;
   index: number;
+  isLatestAssistantMessage: boolean;
   activeAgentName: string;
   isTyping: boolean;
   expandedThoughts: Record<number, boolean>;
@@ -39,6 +40,16 @@ export const getEditShortcutAction = (event: {
   if (event.key === 'Escape') return 'cancel';
   if (event.key === 'Enter' && !event.shiftKey && (event.metaKey || event.ctrlKey)) return 'submit';
   return 'none';
+};
+
+export const shouldCollapseAssistantMessage = (args: {
+  role: Message['role'];
+  isTyping: boolean;
+  isLatestAssistantMessage: boolean;
+}): boolean => {
+  if (args.role === 'user') return false;
+  if (args.isTyping) return false;
+  return !args.isLatestAssistantMessage;
 };
 
 export const getVisionBadge = (msg: Pick<Message, 'supports_vision' | 'vision_enabled' | 'vision_fallback_mode' | 'image_count'>) => {
@@ -284,14 +295,17 @@ export default function MessageItem(props: MessageItemProps) {
 
   const isCollapsed = createMemo(() => {
     if (props.msg.role === 'user') return false;
-    
+
     // User manual overrides
     if (isManuallyExpanded()) return false;
     if (isManuallyCollapsed()) return true;
 
-    // Smart collapse: Collapse all AI messages by default,
-    // EXCEPT when the message is currently generating (typing).
-    return !props.isTyping;
+    // Keep the newest assistant response open by default so the latest answer is visible.
+    return shouldCollapseAssistantMessage({
+      role: props.msg.role,
+      isTyping: props.isTyping,
+      isLatestAssistantMessage: props.isLatestAssistantMessage,
+    });
   });
 
   const toggleCollapse = () => {
