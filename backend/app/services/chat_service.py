@@ -126,6 +126,15 @@ class ActionEvent(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+class ActionObservability(BaseModel):
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration_ms: Optional[int] = None
+    error_kind: Optional[str] = None
+    retryable: Optional[bool] = None
+    artifact_path: Optional[str] = None
+
+
 class ActionState(BaseModel):
     id: Optional[int] = None
     session_id: str
@@ -140,6 +149,7 @@ class ActionState(BaseModel):
     lifecycle_phase: Optional[str] = None
     lifecycle_status: str
     status: Optional[str] = None
+    observability: Optional[ActionObservability] = None
     payload: Dict[str, Any]
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -192,6 +202,18 @@ class ChatService:
         statements: list[str] = []
         if "invocation_id" not in columns:
             statements.append("ALTER TABLE action_states ADD COLUMN invocation_id VARCHAR")
+        if "observability_started_at" not in columns:
+            statements.append("ALTER TABLE action_states ADD COLUMN observability_started_at VARCHAR")
+        if "observability_finished_at" not in columns:
+            statements.append("ALTER TABLE action_states ADD COLUMN observability_finished_at VARCHAR")
+        if "observability_duration_ms" not in columns:
+            statements.append("ALTER TABLE action_states ADD COLUMN observability_duration_ms INTEGER")
+        if "observability_error_kind" not in columns:
+            statements.append("ALTER TABLE action_states ADD COLUMN observability_error_kind VARCHAR")
+        if "observability_retryable" not in columns:
+            statements.append("ALTER TABLE action_states ADD COLUMN observability_retryable BOOLEAN")
+        if "observability_artifact_path" not in columns:
+            statements.append("ALTER TABLE action_states ADD COLUMN observability_artifact_path VARCHAR")
         statements.append(
             "CREATE INDEX IF NOT EXISTS idx_action_states_invocation ON action_states (session_id, invocation_id)"
         )
@@ -1007,6 +1029,7 @@ class ChatService:
         invocation_id = event.get("invocation_id")
         approval_token = event.get("approval_token")
         request_id = event.get("request_id")
+        observability_payload = event.get("observability") if isinstance(event.get("observability"), dict) else {}
         state = None
         if invocation_id is not None:
             state = db.query(ActionStateModel).filter(
@@ -1039,6 +1062,30 @@ class ChatService:
         state.lifecycle_phase = event.get("lifecycle_phase")
         state.lifecycle_status = str(lifecycle_status)
         state.status = str(event.get("status")) if event.get("status") is not None else state.status
+        state.observability_started_at = (
+            str(observability_payload.get("started_at"))
+            if observability_payload.get("started_at") is not None
+            else state.observability_started_at
+        )
+        state.observability_finished_at = (
+            str(observability_payload.get("finished_at"))
+            if observability_payload.get("finished_at") is not None
+            else state.observability_finished_at
+        )
+        duration_ms = observability_payload.get("duration_ms")
+        if isinstance(duration_ms, (int, float)):
+            state.observability_duration_ms = int(duration_ms)
+        elif isinstance(duration_ms, str):
+            try:
+                state.observability_duration_ms = int(float(duration_ms))
+            except ValueError:
+                pass
+        if observability_payload.get("error_kind") is not None:
+            state.observability_error_kind = str(observability_payload.get("error_kind"))
+        if observability_payload.get("retryable") is not None:
+            state.observability_retryable = bool(observability_payload.get("retryable"))
+        if observability_payload.get("artifact_path") is not None:
+            state.observability_artifact_path = str(observability_payload.get("artifact_path"))
         state.payload_json = json.dumps(event)
 
     def _build_action_state_model(self, state: ActionStateModel) -> ActionState:
@@ -1046,6 +1093,26 @@ class ChatService:
             payload = json.loads(state.payload_json)
         except Exception:
             payload = {}
+        observability = None
+        if any(
+            value is not None
+            for value in (
+                state.observability_started_at,
+                state.observability_finished_at,
+                state.observability_duration_ms,
+                state.observability_error_kind,
+                state.observability_retryable,
+                state.observability_artifact_path,
+            )
+        ):
+            observability = ActionObservability(
+                started_at=state.observability_started_at,
+                finished_at=state.observability_finished_at,
+                duration_ms=state.observability_duration_ms,
+                error_kind=state.observability_error_kind,
+                retryable=state.observability_retryable,
+                artifact_path=state.observability_artifact_path,
+            )
         return ActionState(
             id=state.id,
             session_id=state.session_id,
@@ -1060,6 +1127,7 @@ class ChatService:
             lifecycle_phase=state.lifecycle_phase,
             lifecycle_status=state.lifecycle_status,
             status=state.status,
+            observability=observability,
             payload=payload,
             created_at=state.created_at,
             updated_at=state.updated_at,

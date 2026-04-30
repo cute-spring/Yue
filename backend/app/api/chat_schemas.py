@@ -43,6 +43,15 @@ class SummaryGenerateRequest(BaseModel):
     force: bool = False
 
 
+class ActionObservabilityResponse(BaseModel):
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    error_kind: str | None = None
+    retryable: bool | None = None
+    artifact_path: str | None = None
+
+
 class ActionStateResponse(BaseModel):
     id: int | None = None
     session_id: str
@@ -57,6 +66,7 @@ class ActionStateResponse(BaseModel):
     lifecycle_phase: str | None = None
     lifecycle_status: str
     status: str | None = None
+    observability: ActionObservabilityResponse | None = None
     payload: dict[str, Any]
     created_at: datetime
     updated_at: datetime

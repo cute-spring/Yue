@@ -150,6 +150,30 @@ describe('IntelligencePanel action helpers', () => {
     expect(sections[0].content).toContain('"ok": true');
   });
 
+  it('renders observability detail section for retryability and artifact path', () => {
+    const sections = getActionStateDetailSections({
+      skill_name: 'excalidraw-diagram-generator',
+      action_id: 'generate',
+      lifecycle_status: 'failed',
+      observability: {
+        started_at: '2026-03-28T00:00:00Z',
+        finished_at: '2026-03-28T00:00:00.220Z',
+        duration_ms: 220,
+        error_kind: 'retryable_error',
+        retryable: true,
+        artifact_path: '/tmp/diagram.excalidraw',
+      },
+      payload: {
+        event: 'skill.action.result',
+      },
+    });
+
+    expect(sections[0].title).toBe('Observability');
+    expect(sections[0].content).toContain('error_kind: retryable_error');
+    expect(sections[0].content).toContain('retryable: true');
+    expect(sections[0].content).toContain('/tmp/diagram.excalidraw');
+  });
+
   it('renders builtin exec results as stdout, stderr, and exit code sections', () => {
     const sections = getActionStateDetailSections({
       skill_name: 'exec',

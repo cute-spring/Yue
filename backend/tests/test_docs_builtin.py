@@ -7,6 +7,7 @@ import pytest
 from pydantic_ai import RunContext
 
 from app.mcp.builtin.docs import DocsListTool, DocsReadTool, DocsReadPdfTool
+from app.services.config_service import ConfigService
 
 
 @pytest.fixture
@@ -17,7 +18,7 @@ def mock_ctx():
 
 
 @pytest.mark.asyncio
-async def test_docs_list_fallback_to_default_root_when_root_dir_invalid(mock_ctx):
+async def test_docs_list_returns_structured_error_when_root_dir_invalid(mock_ctx):
     with tempfile.TemporaryDirectory() as tmp:
         docs_root = os.path.join(tmp, "docs")
         os.makedirs(docs_root, exist_ok=True)
@@ -28,14 +29,13 @@ async def test_docs_list_fallback_to_default_root_when_root_dir_invalid(mock_ctx
             tool = DocsListTool()
             resp = await tool.execute(mock_ctx, {"root_dir": "backend/docs", "include_dirs": True})
             payload = json.loads(resp)
-            assert isinstance(payload, list)
-            assert payload
-            assert payload[0]["root"] == os.path.realpath(docs_root)
-            assert any(item["path"] == "a.txt" for item in payload[0]["items"])
+            assert payload["ok"] is False
+            assert payload["error_code"] == "invalid_root_dir"
+            assert payload["requested_root_dir"] == "backend/docs"
 
 
 @pytest.mark.asyncio
-async def test_docs_read_fallback_to_default_root_when_root_dir_invalid(mock_ctx):
+async def test_docs_read_returns_structured_error_when_root_dir_invalid(mock_ctx):
     with tempfile.TemporaryDirectory() as tmp:
         docs_root = os.path.join(tmp, "docs")
         os.makedirs(docs_root, exist_ok=True)
@@ -45,8 +45,9 @@ async def test_docs_read_fallback_to_default_root_when_root_dir_invalid(mock_ctx
         with patch("app.mcp.builtin.docs._get_doc_access", return_value=([docs_root], [])):
             tool = DocsReadTool()
             resp = await tool.execute(mock_ctx, {"path": "note.txt", "root_dir": "backend/docs"})
-            assert "#L1-L3" in resp
-            assert "line1" in resp
+            payload = json.loads(resp)
+            assert payload["ok"] is False
+            assert payload["error_code"] == "invalid_root_dir"
 
 
 @pytest.mark.asyncio
@@ -70,7 +71,69 @@ async def test_docs_read_returns_structured_invalid_root_error(mock_ctx):
 
 
 @pytest.mark.asyncio
-async def test_docs_list_fails_closed_when_agent_doc_roots_invalid_by_policy(mock_ctx):
+async def test_docs_list_reads_doc_access_each_call_for_immediate_effect(mock_ctx):
+    with tempfile.TemporaryDirectory() as tmp:
+        root_a = os.path.join(tmp, "a")
+        root_b = os.path.join(tmp, "b")
+        os.makedirs(root_a, exist_ok=True)
+        os.makedirs(root_b, exist_ok=True)
+        with open(os.path.join(root_a, "a.txt"), "w", encoding="utf-8") as f:
+            f.write("a")
+        with open(os.path.join(root_b, "b.txt"), "w", encoding="utf-8") as f:
+            f.write("b")
+
+        tool = DocsListTool()
+        with patch("app.mcp.builtin.docs._get_doc_access", side_effect=[([root_a], []), ([root_b], [])]):
+            first = json.loads(await tool.execute(mock_ctx, {}))
+            second = json.loads(await tool.execute(mock_ctx, {}))
+
+        assert first[0]["root"] == os.path.realpath(root_a)
+        assert any(item["path"] == "a.txt" for item in first[0]["items"])
+        assert second[0]["root"] == os.path.realpath(root_b)
+        assert any(item["path"] == "b.txt" for item in second[0]["items"])
+
+
+@pytest.mark.asyncio
+async def test_docs_list_immediate_effect_via_real_config_service_update(mock_ctx):
+    with tempfile.TemporaryDirectory() as tmp:
+        root_a = os.path.join(tmp, "a")
+        root_b = os.path.join(tmp, "b")
+        os.makedirs(root_a, exist_ok=True)
+        os.makedirs(root_b, exist_ok=True)
+        with open(os.path.join(root_a, "a.txt"), "w", encoding="utf-8") as f:
+            f.write("a")
+        with open(os.path.join(root_b, "b.txt"), "w", encoding="utf-8") as f:
+            f.write("b")
+
+        service = ConfigService(os.path.join(tmp, "global_config.json"))
+        service.update_doc_access({"allow_roots": [root_a], "deny_roots": []})
+
+        tool = DocsListTool()
+        with patch("app.mcp.builtin.docs.config_service", service):
+            first = json.loads(await tool.execute(mock_ctx, {}))
+            service.update_doc_access({"allow_roots": [root_b], "deny_roots": []})
+            second = json.loads(await tool.execute(mock_ctx, {}))
+
+        assert first[0]["root"] == os.path.realpath(root_a)
+        assert any(item["path"] == "a.txt" for item in first[0]["items"])
+        assert second[0]["root"] == os.path.realpath(root_b)
+        assert any(item["path"] == "b.txt" for item in second[0]["items"])
+
+
+@pytest.mark.asyncio
+async def test_docs_list_fails_closed_when_allow_roots_empty(mock_ctx):
+    with tempfile.TemporaryDirectory() as tmp:
+        service = ConfigService(os.path.join(tmp, "global_config.json"))
+        service.update_doc_access({"allow_roots": [], "deny_roots": []})
+        tool = DocsListTool()
+        with patch("app.mcp.builtin.docs.config_service", service):
+            payload = json.loads(await tool.execute(mock_ctx, {}))
+        assert payload["ok"] is False
+        assert payload["error_code"] == "invalid_root_dir"
+
+
+@pytest.mark.asyncio
+async def test_docs_list_ignores_agent_doc_roots_and_uses_global_doc_access(mock_ctx):
     with tempfile.TemporaryDirectory() as tmp:
         allowed_root = os.path.join(tmp, "allowed")
         restricted_root = os.path.join(allowed_root, "restricted")
@@ -94,12 +157,11 @@ async def test_docs_list_fails_closed_when_agent_doc_roots_invalid_by_policy(moc
 
             assert payload_with_root["ok"] is False
             assert payload_with_root["error_code"] == "invalid_root_dir"
-            assert payload_without_root["ok"] is False
-            assert payload_without_root["error_code"] == "invalid_root_dir"
+            assert isinstance(payload_without_root, list)
 
 
 @pytest.mark.asyncio
-async def test_docs_read_fails_closed_when_agent_doc_roots_invalid_by_policy(mock_ctx):
+async def test_docs_read_ignores_agent_doc_roots_and_enforces_global_denied_paths(mock_ctx):
     with tempfile.TemporaryDirectory() as tmp:
         allowed_root = os.path.join(tmp, "allowed")
         restricted_root = os.path.join(allowed_root, "restricted")
@@ -118,7 +180,7 @@ async def test_docs_read_fails_closed_when_agent_doc_roots_invalid_by_policy(moc
         ):
             tool = DocsReadTool()
             resp_with_root = await tool.execute(mock_ctx, {"path": "note.txt", "root_dir": restricted_root})
-            resp_without_root = await tool.execute(mock_ctx, {"path": "note.txt"})
+            resp_without_root = await tool.execute(mock_ctx, {"path": "restricted/note.txt"})
 
             payload_with_root = json.loads(resp_with_root)
             payload_without_root = json.loads(resp_without_root)

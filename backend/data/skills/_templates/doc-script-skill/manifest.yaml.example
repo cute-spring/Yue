@@ -1,0 +1,27 @@
+name: example-doc-script-skill
+version: 1.0.0
+description: Example template for doc-plus-script runtime skills.
+entrypoint: SKILL.md
+
+actions:
+  - id: example_action
+    title: Example Action
+    tool: builtin:exec
+    approval_policy: manual
+    script: scripts/example-action.py
+    input_schema:
+      type: object
+      required:
+        - input_path
+      properties:
+        input_path:
+          type: string
+          description: Path to source file.
+    output_schema:
+      type: object
+      required:
+        - output_file_path
+      properties:
+        output_file_path:
+          type: string
+          description: Path to generated artifact.

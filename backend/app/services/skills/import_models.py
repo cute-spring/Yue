@@ -58,6 +58,10 @@ class SkillImportReport(BaseModel):
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     compatibility_issues: List[str] = Field(default_factory=list)
+    compat_generated: bool = False
+    compat_protocol: Optional[str] = None
+    compat_auto_filled_fields: List[str] = Field(default_factory=list)
+    default_agent_mount_status: str = "not_attempted"
 
 
 class SkillPreviewResource(BaseModel):
@@ -105,3 +109,45 @@ class SkillImportResult(BaseModel):
     record: SkillImportRecord
     report: SkillImportReport
     preview: SkillImportPreview
+
+
+class ExcalidrawHealthBlocker(BaseModel):
+    code: str
+    title: str
+    detail: Optional[str] = None
+    fix_command: Optional[str] = None
+    fix_path: Optional[str] = None
+
+
+class ExcalidrawHealthReport(BaseModel):
+    effective_level: str = "L0"
+    levels: List[str] = Field(default_factory=lambda: ["L1", "L2", "L3"])
+    checks: dict[str, bool] = Field(default_factory=dict)
+    blockers: List[ExcalidrawHealthBlocker] = Field(default_factory=list)
+
+
+class SkillActionObservability(BaseModel):
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration_ms: Optional[float] = None
+    error_kind: Optional[str] = None
+    retryable: Optional[bool] = None
+    artifact_path: Optional[str] = None
+
+
+class SkillPreflightRecord(BaseModel):
+    skill_name: str
+    skill_version: str
+    skill_ref: str
+    source_path: str
+    source_layer: str
+    status: str
+    issues: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
+    missing_bins: List[str] = Field(default_factory=list)
+    missing_env: List[str] = Field(default_factory=list)
+    unsupported_tools: List[str] = Field(default_factory=list)
+    os_mismatch: List[str] = Field(default_factory=list)
+    excalidraw_health: Optional[ExcalidrawHealthReport] = None
+    checked_at: datetime = Field(default_factory=datetime.utcnow)

@@ -1,5 +1,6 @@
 import os
 
+from app.services.agent_store import AgentConfig, AgentStore
 from app.services.skills.import_models import (
     SkillImportLifecycleState,
 )
@@ -116,3 +117,58 @@ def test_import_service_rejects_yue_incompatible_package_and_persists_report(tmp
     persisted = store.get_record(result.record.id)
     assert persisted is not None
     assert persisted.lifecycle_state == SkillImportLifecycleState.REJECTED
+
+
+def test_import_service_reports_compat_transform_diagnostics(tmp_path):
+    package_dir = os.path.join(str(tmp_path), "compat-skill")
+    os.makedirs(package_dir, exist_ok=True)
+    with open(os.path.join(package_dir, "SKILL.md"), "w", encoding="utf-8") as handle:
+        handle.write(
+            """---
+name: compat-skill
+description: compatibility-only fields
+---
+## When to Use This Skill
+Use this skill for diagram and workflow requests.
+"""
+        )
+
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    service = SkillImportService(import_store=store)
+
+    result = service.import_from_directory(package_dir)
+
+    assert result.report.standard_validation_status == "passed"
+    assert result.report.compat_generated is True
+    assert result.report.compat_protocol == "copilot_skill"
+    assert "version" in result.report.compat_auto_filled_fields
+    assert "entrypoint" in result.report.compat_auto_filled_fields
+    assert any("Compatibility mode auto-filled fields" in warning for warning in result.report.warnings)
+
+
+def test_import_service_auto_mounts_imported_skill_to_default_agent_when_enabled(tmp_path):
+    package_dir = _write_skill_package(str(tmp_path))
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    agent_store = AgentStore(data_dir=str(tmp_path / "agents-data"))
+    agent_store.create_agent(
+        AgentConfig(
+            id="default-import-agent",
+            name="Default Import Agent",
+            system_prompt="default",
+            visible_skills=[],
+        )
+    )
+    service = SkillImportService(import_store=store, agent_store=agent_store)
+
+    result = service.import_from_directory(
+        package_dir,
+        auto_activate=True,
+        auto_mount_to_default_agent=True,
+        default_agent_id="default-import-agent",
+    )
+
+    assert result.record.lifecycle_state == SkillImportLifecycleState.ACTIVE
+    assert result.report.default_agent_mount_status == "mounted"
+    mounted_agent = agent_store.get_agent("default-import-agent")
+    assert mounted_agent is not None
+    assert "example-skill:1.0.0" in mounted_agent.visible_skills

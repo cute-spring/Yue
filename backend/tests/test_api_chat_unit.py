@@ -411,7 +411,23 @@ def test_list_action_states(client, mock_chat_service):
             "lifecycle_phase": "execution",
             "lifecycle_status": "awaiting_approval",
             "status": "awaiting_approval",
-            "payload": {"event": "skill.action.result"},
+            "observability": {
+                "started_at": "2026-03-28T00:00:00Z",
+                "finished_at": "2026-03-28T00:00:00.220Z",
+                "duration_ms": 220,
+                "error_kind": "retryable_error",
+                "retryable": True,
+                "artifact_path": "/tmp/diagram.excalidraw",
+            },
+            "payload": {
+                "event": "skill.action.result",
+                "observability": {
+                    "duration_ms": 220,
+                    "error_kind": "retryable_error",
+                    "retryable": True,
+                    "artifact_path": "/tmp/diagram.excalidraw",
+                },
+            },
             "created_at": now,
             "updated_at": now,
         }
@@ -421,6 +437,9 @@ def test_list_action_states(client, mock_chat_service):
 
     assert response.status_code == 200
     assert response.json()[0]["skill_name"] == "action-skill"
+    assert response.json()[0]["observability"]["artifact_path"] == "/tmp/diagram.excalidraw"
+    assert response.json()[0]["payload"]["observability"]["duration_ms"] == 220
+    assert response.json()[0]["payload"]["observability"]["error_kind"] == "retryable_error"
     mock_chat_service.list_action_states.assert_called_once_with("1")
 
 @pytest.mark.asyncio
@@ -1671,14 +1690,14 @@ async def test_chat_stream_with_agent_config(client, mock_chat_service):
          patch("app.api.chat.tool_registry") as mock_registry, \
          patch("app.api.chat.get_model"), \
          patch("app.api.chat.Agent") as mock_agent_cls, \
-         patch("app.api.chat.config_service.get_doc_access", return_value={"allow_roots": ["/docs"], "deny_roots": []}):
+         patch("app.api.chat.config_service.get_doc_access", return_value={"allow_roots": ["/docs"], "deny_roots": ["/docs/private"]}):
         
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_agent_config = MagicMock()
         mock_agent_config.provider = "anthropic"
         mock_agent_config.model = "claude-3-opus"
         mock_agent_config.system_prompt = "You are a scientist."
-        mock_agent_config.doc_roots = ["/docs"]
+        mock_agent_config.doc_roots = ["/legacy/agent-doc-root"]
         mock_agent_config.enabled_tools = ["builtin:docs_read"]
         mock_agent_store.get_agent.return_value = mock_agent_config
         
@@ -1697,9 +1716,10 @@ async def test_chat_stream_with_agent_config(client, mock_chat_service):
         assert mock_agent_cls.called
         args, kwargs = mock_agent_cls.call_args
         assert "scientist" in kwargs["system_prompt"]
-        assert "可检索目录" in kwargs["system_prompt"]
         assert "### Scope Summary" in kwargs["system_prompt"]
         assert "docs" in kwargs["system_prompt"]
+        assert "/docs/private" not in kwargs["system_prompt"]
+        assert "/legacy/agent-doc-root" not in kwargs["system_prompt"]
 
 
 @pytest.mark.asyncio

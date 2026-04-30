@@ -128,7 +128,12 @@ class ExecTool(BaseTool):
         }
         super().__init__(
             name="exec",
-            description="Execute a shell command and return its output. Use with caution.",
+            description=(
+                "Execute a shell command and return its output. Use with caution. "
+                "This is a general-purpose shell tool, not limited to document search. "
+                "When the task is to discover local documents by filename, path fragment, or extension, "
+                "prefer efficient OS-native commands such as ls, find, or platform search utilities."
+            ),
             parameters=parameters,
         )
         self.config = config

@@ -146,6 +146,118 @@ class SkillLoader:
         return frontmatter, sections
 
     @staticmethod
+    def _build_compat_skill_data(
+        frontmatter: Dict[str, Any],
+        sections: Dict[str, str],
+        *,
+        source_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        metadata = dict(frontmatter.get("metadata") if isinstance(frontmatter.get("metadata"), dict) else {})
+        missing_fields: List[str] = []
+
+        version = str(frontmatter.get("version") or "").strip()
+        if not version:
+            version = "1.0.0"
+            missing_fields.append("version")
+
+        raw_name = str(frontmatter.get("name") or "").strip()
+        raw_description = str(frontmatter.get("description") or "").strip()
+        description = raw_description or f"Imported skill {raw_name}".strip()
+        if not raw_description:
+            missing_fields.append("description")
+
+        capabilities = _normalize_list(frontmatter.get("capabilities"))
+        if not capabilities:
+            capability_source = f"{raw_name} {description}".lower()
+            inferred_capabilities = []
+            for token, normalized in {
+                "diagram": "diagram",
+                "draw": "diagram",
+                "excalidraw": "diagram",
+                "workflow": "workflow",
+                "debug": "debugging",
+                "test": "testing",
+                "deploy": "deployment",
+                "security": "security",
+            }.items():
+                if token in capability_source and normalized not in inferred_capabilities:
+                    inferred_capabilities.append(normalized)
+            capabilities = inferred_capabilities or ["general"]
+            missing_fields.append("capabilities")
+
+        system_prompt = sections.get("system_prompt")
+        instructions_chunks: List[str] = []
+        section_aliases = [
+            "instructions",
+            "skill_instructions",
+            "when_to_use_this_skill",
+            "prerequisites",
+            "requirements",
+            "step_by_step_workflows",
+            "step-by-step_workflows",
+            "workflow",
+            "workflows",
+            "gotchas",
+            "troubleshooting",
+            "references",
+        ]
+        for alias in section_aliases:
+            content = (sections.get(alias) or "").strip()
+            if content:
+                instructions_chunks.append(content)
+
+        if not instructions_chunks and system_prompt:
+            instructions_chunks.append(system_prompt)
+        if not instructions_chunks and description:
+            instructions_chunks.append(description)
+        instructions = "\n\n".join(chunk for chunk in instructions_chunks if chunk).strip() or None
+
+        requested_entrypoint = str(frontmatter.get("entrypoint") or "").strip()
+        if not requested_entrypoint:
+            requested_entrypoint = "system_prompt" if system_prompt else "instructions"
+            missing_fields.append("entrypoint")
+        entrypoint = requested_entrypoint.lower().replace(" ", "_")
+        if entrypoint == "system_prompt" and not system_prompt and instructions:
+            entrypoint = "instructions"
+        if entrypoint == "instructions" and not instructions and system_prompt:
+            instructions = system_prompt
+
+        metadata["compat_generated"] = True
+        metadata["compat_protocol"] = "copilot_skill"
+        metadata["compat_missing_fields"] = missing_fields
+
+        raw_requires = frontmatter.get("requires")
+        requires = None
+        if isinstance(raw_requires, dict):
+            bins = _normalize_list(raw_requires.get("bins") or raw_requires.get("bin"))
+            env = _normalize_list(raw_requires.get("env"))
+            requires = {"bins": bins, "env": env}
+        elif isinstance(raw_requires, list) or isinstance(raw_requires, str):
+            requires = {"bins": _normalize_list(raw_requires), "env": []}
+
+        os_list = _normalize_list(frontmatter.get("os"))
+        os_list = [o.lower() for o in os_list] if os_list else None
+        install = frontmatter.get("install") if isinstance(frontmatter.get("install"), dict) else None
+
+        return {
+            "name": raw_name,
+            "version": version,
+            "description": description,
+            "capabilities": capabilities,
+            "entrypoint": entrypoint,
+            "system_prompt": system_prompt,
+            "instructions": instructions,
+            "examples": sections.get("examples"),
+            "failure_handling": sections.get("failure_handling"),
+            "source_path": source_path,
+            "requires": requires,
+            "os": os_list,
+            "metadata": metadata,
+            "install": install,
+            "always": frontmatter.get("always"),
+        }
+
+    @staticmethod
     def parse_markdown(content: str, source_path: str = None) -> Optional[SkillSpec]:
         try:
             frontmatter, sections = SkillLoader._parse_markdown_sections(content)
@@ -181,9 +293,31 @@ class SkillLoader:
             skill_data["install"] = install
 
             return SkillSpec(**skill_data)
-        except Exception as exc:
-            logger.exception("Error parsing skill in %s: %s", source_path, exc)
-            return None
+        except Exception as strict_exc:
+            try:
+                if frontmatter is None:
+                    logger.exception("Error parsing skill in %s: %s", source_path, strict_exc)
+                    return None
+                compat_skill_data = SkillLoader._build_compat_skill_data(
+                    frontmatter,
+                    sections,
+                    source_path=source_path,
+                )
+                skill = SkillSpec(**compat_skill_data)
+                logger.warning(
+                    "Parsed skill in compatibility mode for %s; missing fields=%s",
+                    source_path,
+                    compat_skill_data.get("metadata", {}).get("compat_missing_fields", []),
+                )
+                return skill
+            except Exception as compat_exc:
+                logger.exception(
+                    "Error parsing skill in %s: strict=%s compat=%s",
+                    source_path,
+                    strict_exc,
+                    compat_exc,
+                )
+                return None
 
     @staticmethod
     def _discover_reference_specs(package_dir: Path) -> List[SkillReferenceSpec]:
@@ -857,7 +991,7 @@ class SkillValidator:
     """
 
     @staticmethod
-    def validate(skill: SkillSpec) -> SkillValidationResult:
+    def validate(skill: SkillSpec, mode: str = "strict") -> SkillValidationResult:
         errors = []
         warnings = []
 
@@ -869,8 +1003,13 @@ class SkillValidator:
             errors.append("Skill entrypoint is required")
 
         entrypoint_attr = skill.entrypoint.lower().replace(" ", "_")
+        compat_mode = mode == "compat" or bool((skill.metadata or {}).get("compat_generated"))
         if not getattr(skill, entrypoint_attr, None):
-            errors.append(f"Entrypoint section '{skill.entrypoint}' not found in Markdown")
+            message = f"Entrypoint section '{skill.entrypoint}' not found in Markdown"
+            if compat_mode:
+                warnings.append(message)
+            else:
+                errors.append(message)
 
         if skill.system_prompt and len(skill.system_prompt.strip()) < 10:
             warnings.append("System prompt is very short")

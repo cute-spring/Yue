@@ -18,6 +18,7 @@ from app.services.skills.bootstrap import (
     resolve_runtime_skill_directories,
     resolve_skill_runtime_config_from_env,
 )
+from app.services.skills.import_store import SkillImportStore
 from app.services.skills.runtime_catalog import RUNTIME_MODE_IMPORT_GATE, RUNTIME_MODE_LEGACY
 
 
@@ -198,6 +199,7 @@ def test_mount_skill_runtime_routes_mounts_expected_endpoints():
     route_paths = {route.path for route in app.routes}
     assert "/api/skills/" in route_paths
     assert "/api/skill-imports/" in route_paths
+    assert "/api/skill-preflight/" in route_paths
     assert "/api/skill-groups/" in route_paths
 
 
@@ -213,6 +215,7 @@ def test_mount_skill_runtime_routes_can_disable_optional_routes():
     route_paths = {route.path for route in app.routes}
     assert "/api/skills/" in route_paths
     assert "/api/skill-imports/" not in route_paths
+    assert "/api/skill-preflight/" not in route_paths
     assert "/api/skill-groups/" not in route_paths
 
 
@@ -260,6 +263,22 @@ def test_bootstrap_skill_runtime_app_mounts_with_spec_options():
 @pytest.mark.asyncio
 async def test_bootstrap_skill_runtime_lifespan_runs_registry_and_hooks(tmp_path):
     events = []
+    workspace_dir = tmp_path / "workspace"
+    skill_dir = workspace_dir / "lifespan-preflight-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: lifespan-preflight-skill
+version: 1.0.0
+description: test
+capabilities: ["analysis"]
+entrypoint: system_prompt
+---
+## System Prompt
+You are a test skill.
+""",
+        encoding="utf-8",
+    )
 
     class FakeRegistry:
         def __init__(self):
@@ -283,7 +302,8 @@ async def test_bootstrap_skill_runtime_lifespan_runs_registry_and_hooks(tmp_path
             events.append("stop_watch")
 
     registry = FakeRegistry()
-    runtime_context = SimpleNamespace(skill_registry=registry, skill_import_store=object())
+    import_store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    runtime_context = SimpleNamespace(skill_registry=registry, skill_import_store=import_store)
     spec = RuntimeBootstrapSpec(
         config=SkillRuntimeConfig(
             builtin_skills_dir=str(tmp_path / "builtin"),
@@ -311,11 +331,15 @@ async def test_bootstrap_skill_runtime_lifespan_runs_registry_and_hooks(tmp_path
 
     async with lifespan(FastAPI()):
         assert registry.watch_started is True
-        assert (tmp_path / "workspace").exists()
+        assert workspace_dir.exists()
         assert (tmp_path / "user").exists()
 
     assert registry.watch_stopped is True
     assert events == ["load_all", "watch:user:2500", "startup", "shutdown", "stop_watch"]
+    records = import_store.list_preflight_records()
+    by_ref = {item.skill_ref: item for item in records}
+    assert "lifespan-preflight-skill:1.0.0" in by_ref
+    assert by_ref["lifespan-preflight-skill:1.0.0"].status == "available"
 
 
 @pytest.mark.asyncio
@@ -337,7 +361,13 @@ async def test_bootstrap_skill_runtime_lifespan_skips_watch_in_import_gate(tmp_p
             pass
 
     registry = FakeRegistry()
-    runtime_context = SimpleNamespace(skill_registry=registry, skill_import_store=SimpleNamespace(list_entries=lambda: []))
+    runtime_context = SimpleNamespace(
+        skill_registry=registry,
+        skill_import_store=SimpleNamespace(
+            list_entries=lambda: [],
+            replace_preflight_records=lambda _records: None,
+        ),
+    )
     spec = RuntimeBootstrapSpec(
         config=SkillRuntimeConfig(
             builtin_skills_dir=str(tmp_path / "builtin"),

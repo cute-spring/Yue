@@ -85,6 +85,7 @@ from app.services.skills.models import (
 )
 from app.services.skills.parsing import SkillLoader, SkillValidator
 from app.services.skills.policy import SkillPolicyGate
+from app.services.skills.preflight_service import SkillPreflightService
 from app.services.skills.registry import SkillRegistry
 from app.services.skills.routing import SkillRouter
 from app.services.skills.runtime_catalog import (
@@ -154,6 +155,7 @@ __all__ = [
     "SkillOverlaySpec",
     "SkillPackageSpec",
     "SkillPolicyGate",
+    "SkillPreflightService",
     "SkillReferenceSpec",
     "SkillRegistry",
     "SkillResourceSpec",

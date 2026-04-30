@@ -220,7 +220,8 @@ class SkillRegistry:
             skill.override_from = f"{existing_layer}:{existing_dir}"
             package.override_from = skill.override_from
 
-        validation = SkillValidator.validate(skill)
+        validation_mode = "compat" if bool((skill.metadata or {}).get("compat_generated")) else "strict"
+        validation = SkillValidator.validate(skill, mode=validation_mode)
         if not validation.is_valid:
             logger.error(
                 "Skill validation failed for %s: %s",
@@ -228,6 +229,9 @@ class SkillRegistry:
                 validation.errors,
             )
             return
+        if validation.warnings:
+            package.metadata = dict(package.metadata or {})
+            package.metadata["skill_validation_warnings"] = list(validation.warnings)
 
         if package.name not in self._packages:
             self._packages[package.name] = {}
