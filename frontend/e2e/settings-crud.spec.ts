@@ -26,21 +26,21 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
     {
       id: 'jira-company',
       name: 'Jira MCP',
-      description: 'Template for company Jira MCP adapters',
+      description: 'Template for Jira Cloud or internal Jira Server/Data Center. Use this when your company has its own Jira host or MCP wrapper.',
       provider: 'jira',
       deployment: 'mixed',
       fields: [
         { key: 'serverName', label: 'Server Name', type: 'text', required: true, options: [], default_value: 'company-jira' },
-        { key: 'deployment', label: 'Deployment', type: 'select', required: true, options: ['cloud', 'self_hosted'], default_value: 'self_hosted' },
+        { key: 'deployment', label: 'Deployment', type: 'select', required: true, options: ['cloud', 'self_hosted'], default_value: 'self_hosted', help_text: 'Choose the style that best matches your Jira environment.' },
         { key: 'command', label: 'Command', type: 'text', required: true, options: [], default_value: 'npx' },
-        { key: 'argsJson', label: 'Args (JSON Array)', type: 'json', required: true, options: [], default_value: '["-y","corp-jira-mcp"]' },
-        { key: 'baseUrl', label: 'Base URL', type: 'text', required: true, options: [], default_value: 'https://jira.company.internal' },
-        { key: 'baseUrlEnvKey', label: 'Base URL Env Key', type: 'text', required: true, options: [], default_value: 'JIRA_BASE_URL' },
-        { key: 'username', label: 'Username', type: 'text', required: false, options: [], default_value: 'alice@example.com' },
-        { key: 'usernameEnvKey', label: 'Username Env Key', type: 'text', required: false, options: [], default_value: 'JIRA_USERNAME' },
-        { key: 'secretEnvVar', label: 'Secret Env Var', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN' },
-        { key: 'tokenEnvKey', label: 'Token Env Key', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN' },
-        { key: 'extraEnvJson', label: 'Extra Env', type: 'json', required: false, options: [], default_value: '{}' },
+        { key: 'argsJson', label: 'Args (JSON Array)', type: 'json', required: true, options: [], default_value: '["-y", "your-company-jira-mcp-package"]', help_text: 'Replace the placeholder package or executable with the real Jira MCP implementation your company uses.' },
+        { key: 'baseUrl', label: 'Jira Base URL', type: 'text', required: true, options: [], default_value: 'https://jira.company.internal' },
+        { key: 'baseUrlEnvKey', label: 'Base URL Env Key', type: 'text', required: true, options: [], default_value: 'JIRA_BASE_URL', help_text: 'Use the exact env var name expected by your Jira MCP server.' },
+        { key: 'username', label: 'Username / Email (Optional)', type: 'text', required: false, options: [], default_value: '' },
+        { key: 'usernameEnvKey', label: 'Username Env Key', type: 'text', required: false, options: [], default_value: 'JIRA_USERNAME', help_text: 'Leave the username blank if your MCP server authenticates with only a personal token.' },
+        { key: 'secretEnvVar', label: 'Host Personal Token Env Var', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN', help_text: 'The rendered config stores ${ENV_NAME} so the personal token stays outside Yue.' },
+        { key: 'tokenEnvKey', label: 'Personal Token Env Key For MCP Server', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN', help_text: 'Use the exact personal-token env var name expected by your Jira MCP server.' },
+        { key: 'extraEnvJson', label: 'Extra Env (JSON Object)', type: 'json', required: false, options: [], default_value: '{}', help_text: 'Optional extra env vars such as project scopes, read-only flags, PAT mode, or SSL flags.' },
       ],
     },
   ];
@@ -135,17 +135,20 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
   await page.route('**/api/mcp/validate', async (route) => {
     const body = route.request().postDataJSON() as any;
     const values = body.values || {};
+    const env: Record<string, string> = {
+      [values.baseUrlEnvKey || 'JIRA_BASE_URL']: values.baseUrl || '',
+      [values.tokenEnvKey || 'JIRA_TOKEN']: `\${${values.secretEnvVar || 'JIRA_TOKEN'}}`,
+    };
+    if (values.username) {
+      env[values.usernameEnvKey || 'JIRA_USERNAME'] = values.username;
+    }
     const rendered = {
       name: values.serverName || 'company-jira',
       command: values.command || 'npx',
       args: JSON.parse(values.argsJson || '[]'),
       transport: 'stdio',
       enabled: true,
-      env: {
-        [values.baseUrlEnvKey || 'JIRA_BASE_URL']: values.baseUrl || '',
-        [values.usernameEnvKey || 'JIRA_USERNAME']: values.username || '',
-        [values.tokenEnvKey || 'JIRA_TOKEN']: `\${${values.secretEnvVar || 'JIRA_TOKEN'}}`,
-      },
+      env,
     };
     await route.fulfill({
       status: 200,
@@ -306,6 +309,15 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
 
   await page.getByTestId('mcp-add-menu-button').click();
   await page.getByRole('button', { name: 'Add from Marketplace' }).click();
+  await expect(page.getByText('Recommended onboarding defaults')).toBeVisible();
+  await expect(
+    page.getByText(
+      'Default to base URL plus personal token; username/email should stay optional unless your company MCP requires it.',
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Keep the server disabled until the real internal Jira MCP package or executable is confirmed.'),
+  ).toBeVisible();
   await page.getByLabel('Server Name *').fill('corp-jira');
   await page.getByLabel('Args (JSON Array) *').fill('["-y","corp-jira-mcp"]');
   await page.getByRole('button', { name: 'Validate' }).click();

@@ -16,13 +16,16 @@
     "command": "npx",
     "args": [
       "-y",
-      "your-jira-mcp-package"
+      "your-company-jira-mcp-package"
     ],
     "enabled": false,
     "env": {
       "JIRA_BASE_URL": "https://jira.company.internal",
-      "JIRA_USERNAME": "alice@example.com",
-      "JIRA_TOKEN": "${JIRA_TOKEN}"
+      "JIRA_TOKEN": "${JIRA_TOKEN}",
+      "JIRA_PROJECT": "YUE",
+      "JIRA_ALLOWED_PROJECTS": "YUE",
+      "JIRA_DEFAULT_JQL": "project = YUE ORDER BY updated DESC",
+      "JIRA_READ_ONLY": "true"
     }
   }
 ]

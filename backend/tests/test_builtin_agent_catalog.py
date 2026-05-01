@@ -11,13 +11,13 @@ def test_builtin_agent_catalog_loads_default_agents():
 
     ids = {agent.id for agent in agents}
     assert ids == {
-        "builtin-docs",
         "builtin-local-docs",
         "builtin-architect",
         "builtin-excel-analyst",
+        "builtin-json-canvas",
+        "builtin-jira",
         "builtin-pdf-research",
         "builtin-ppt-builder",
-        "builtin-action-lab",
         "builtin-translator",
     }
 
