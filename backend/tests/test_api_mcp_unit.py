@@ -3,6 +3,8 @@ import json
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock, AsyncMock, mock_open
 from app.main import app
+from app.mcp.templates import render_template
+from pathlib import Path
 
 @pytest.fixture
 def client():
@@ -42,6 +44,21 @@ def test_list_templates(client, mock_mcp_manager):
     body = response.json()
     assert any(item["id"] == "jira-company" for item in body)
     assert any(item["id"] == "confluence-company" for item in body)
+
+def test_example_config_documents_token_only_jira_onboarding_contract(client, mock_mcp_manager):
+    example_path = Path(__file__).resolve().parents[1] / "data" / "mcp_configs.json.example"
+    payload = json.loads(example_path.read_text(encoding="utf-8"))
+
+    jira_entry = next(item for item in payload if item["name"] == "company-jira")
+
+    assert jira_entry["enabled"] is False
+    assert jira_entry["args"] == ["-y", "your-company-jira-mcp-package"]
+    assert jira_entry["env"]["JIRA_BASE_URL"] == "https://jira.company.internal"
+    assert jira_entry["env"]["JIRA_TOKEN"] == "${JIRA_TOKEN}"
+    assert "JIRA_USERNAME" not in jira_entry["env"]
+    assert jira_entry["env"]["JIRA_ALLOWED_PROJECTS"] == "YUE"
+    assert jira_entry["env"]["JIRA_DEFAULT_JQL"] == "project = YUE ORDER BY updated DESC"
+    assert jira_entry["env"]["JIRA_READ_ONLY"] == "true"
 
 def test_update_configs_success(client, mock_mcp_manager):
     mock_mcp_manager.load_config.return_value = []
@@ -88,6 +105,30 @@ def test_validate_template_success(client, mock_mcp_manager):
     assert body["rendered_config"]["name"] == "corp-jira"
     assert body["rendered_config"]["env"]["JIRA_TOKEN"] == "${JIRA_TOKEN}"
     assert body["rendered_config"]["env"]["JIRA_PROJECT"] == "CORE"
+
+def test_render_jira_template_omits_username_env_when_username_blank():
+    result = render_template(
+        "jira-company",
+        {
+            "serverName": "corp-jira",
+            "command": "npx",
+            "argsJson": '["-y","your-company-jira-mcp-package"]',
+            "baseUrl": "https://jira.company.internal",
+            "baseUrlEnvKey": "JIRA_BASE_URL",
+            "username": "",
+            "usernameEnvKey": "JIRA_USERNAME",
+            "secretEnvVar": "JIRA_TOKEN",
+            "tokenEnvKey": "JIRA_TOKEN",
+            "extraEnvJson": '{"JIRA_READ_ONLY":"true","JIRA_ALLOWED_PROJECTS":"YUE"}',
+        },
+    )
+
+    assert result.rendered_config["name"] == "corp-jira"
+    assert result.rendered_config["env"]["JIRA_BASE_URL"] == "https://jira.company.internal"
+    assert result.rendered_config["env"]["JIRA_TOKEN"] == "${JIRA_TOKEN}"
+    assert result.rendered_config["env"]["JIRA_READ_ONLY"] == "true"
+    assert result.rendered_config["env"]["JIRA_ALLOWED_PROJECTS"] == "YUE"
+    assert "JIRA_USERNAME" not in result.rendered_config["env"]
 
 def test_validate_template_invalid_json(client, mock_mcp_manager):
     with patch("app.api.mcp.shutil.which", return_value="/usr/bin/npx"):

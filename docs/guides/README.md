@@ -31,6 +31,7 @@
 |------|------|
 | **[CONFIGURATION.md](developer/CONFIGURATION.md)** | 开发环境配置指南 |
 | **[TESTING.md](developer/TESTING.md)** | 测试框架与执行指南 |
+| **[JIRA_MCP_ONBOARDING.md](developer/JIRA_MCP_ONBOARDING.md)** | 公司内网 Jira MCP 接入与首日只读验证指南 |
 | **[Azure OpenAI Intranet Config](developer/Azure_OpenAI_Intranet_Config.md)** | 企业内网 Azure OpenAI 配置 |
 | **[UI Design Guidelines](developer/UI_DESIGN_GUIDELINES.md)** | UI 设计规范与最佳实践 |
 | **[SKILL_RUNTIME_CORE_REUSE_GUIDE.md](developer/SKILL_RUNTIME_CORE_REUSE_GUIDE.md)** | 将 Skill Runtime 复制到其他同栈项目并完成最小配置接入 |

@@ -80,6 +80,17 @@ export const buildMcpTemplateInitialValues = (template: McpTemplate): Record<str
     ]),
   );
 
+export const buildMcpTemplateOnboardingNotes = (templateId: string): string[] => {
+  if (templateId === 'jira-company') {
+    return [
+      'Default to base URL plus personal token; username/email should stay optional unless your company MCP requires it.',
+      'Keep the server disabled until the real internal Jira MCP package or executable is confirmed.',
+      'Start with read-only scope hints such as allowed projects, default JQL, or explicit read-only flags.',
+    ];
+  }
+  return [];
+};
+
 export const mergeModelCapabilityOverrides = (
   baseModels: Record<string, any>,
   providerName: string,

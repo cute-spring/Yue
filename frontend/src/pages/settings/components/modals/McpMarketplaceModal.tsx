@@ -1,12 +1,20 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import type { McpTemplate, McpTemplateValidationResult } from '../../types';
-import { buildMcpTemplateInitialValues } from '../../settingsUtils';
+import { buildMcpTemplateInitialValues, buildMcpTemplateOnboardingNotes } from '../../settingsUtils';
 
 type McpMarketplaceModalProps = {
   templates: McpTemplate[];
   onClose: () => void;
   onValidate: (templateId: string, values: Record<string, string>) => Promise<McpTemplateValidationResult>;
   onInstall: (templateId: string, values: Record<string, string>) => Promise<McpTemplateValidationResult>;
+};
+
+export const resolveMcpMarketplaceOnboardingState = (templateId: string) => {
+  const notes = buildMcpTemplateOnboardingNotes(templateId);
+  return {
+    notes,
+    showNotes: notes.length > 0,
+  };
 };
 
 export function McpMarketplaceModal(props: McpMarketplaceModalProps) {
@@ -20,6 +28,7 @@ export function McpMarketplaceModal(props: McpMarketplaceModalProps) {
   const selectedTemplate = createMemo(() =>
     props.templates.find((template) => template.id === selectedTemplateId()) || props.templates[0],
   );
+  const onboardingState = createMemo(() => resolveMcpMarketplaceOnboardingState(selectedTemplate()?.id || ''));
 
   createEffect(() => {
     const template = selectedTemplate();
@@ -107,6 +116,16 @@ export function McpMarketplaceModal(props: McpMarketplaceModalProps) {
           </div>
           <div class="flex-1 overflow-y-auto p-5 space-y-5">
             <Show when={selectedTemplate()}>
+              <Show when={onboardingState().showNotes}>
+                <div class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+                  <div class="text-sm font-medium text-sky-900">Recommended onboarding defaults</div>
+                  <div class="mt-2 space-y-1 text-sm text-sky-800">
+                    <For each={onboardingState().notes}>
+                      {(note) => <div>{note}</div>}
+                    </For>
+                  </div>
+                </div>
+              </Show>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <For each={selectedTemplate()?.fields || []}>
                   {(field) => (
