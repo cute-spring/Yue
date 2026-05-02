@@ -160,3 +160,46 @@ def test_parse_json_single_object():
     assert response.ok is True
     assert response.results[0].transport == "streamable_http"
     assert response.results[0].url == "https://example.com/stream"
+
+
+# --- Edge case tests ---
+
+
+def test_preprocess_rejects_illegal_control_chars():
+    from app.mcp.smart_paste_service import preprocess_raw_text
+
+    cleaned = preprocess_raw_text("hello\x00world\x01\n")
+    assert "\x00" not in cleaned
+    assert "\x01" not in cleaned
+    assert "\n" in cleaned
+
+
+def test_parse_redacts_authorization_header():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste('{"name":"srv","transport":"streamable_http","url":"https://example.com","headers":{"Authorization":"Bearer sk-abc123"}}')
+    assert response.results[0].headers["Authorization"] == "${AUTHORIZATION_TOKEN}"
+
+
+def test_parse_returns_ok_false_when_empty_after_clean():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste("\x00\x01\x02")
+    assert response.ok is False
+
+
+def test_parse_claude_desktop_multiple_servers():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste('{"mcpServers":{"srv1":{"command":"npx","args":["a"]},"srv2":{"command":"node","args":["b"]}}}')
+    assert len(response.results) == 2
+    names = {r.name for r in response.results}
+    assert names == {"srv1", "srv2"}
+
+
+def test_parse_command_with_env_vars_in_input():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste("npx -y @test/pkg")
+    assert response.ok is True
+    assert response.results[0].transport == "stdio"
