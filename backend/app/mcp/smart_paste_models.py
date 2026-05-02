@@ -24,6 +24,10 @@ class ParsedServerConfig(BaseModel):
     source_index: Optional[int] = None
 
 
+class SmartPasteLlmEnvelope(BaseModel):
+    results: List[ParsedServerConfig] = Field(default_factory=list)
+
+
 class SmartPasteResponse(BaseModel):
     ok: bool
     results: List[ParsedServerConfig] = Field(default_factory=list)

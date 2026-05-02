@@ -203,3 +203,38 @@ def test_parse_command_with_env_vars_in_input():
     response = parse_smart_paste("npx -y @test/pkg")
     assert response.ok is True
     assert response.results[0].transport == "stdio"
+
+
+# --- LLM envelope tests ---
+
+
+def test_smart_paste_llm_envelope_accepts_empty_results():
+    from app.mcp.smart_paste_models import SmartPasteLlmEnvelope
+
+    envelope = SmartPasteLlmEnvelope(results=[])
+    assert envelope.results == []
+
+
+def test_smart_paste_llm_envelope_validates_nested_model():
+    from app.mcp.smart_paste_models import SmartPasteLlmEnvelope
+
+    envelope = SmartPasteLlmEnvelope(
+        results=[{
+            "name": "test-srv",
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["-y", "pkg"],
+            "confidence": 0.9,
+        }]
+    )
+    assert len(envelope.results) == 1
+    assert envelope.results[0].name == "test-srv"
+    assert envelope.results[0].transport == "stdio"
+
+
+def test_system_prompt_contains_security_rules():
+    from app.mcp.smart_paste_service import SMART_PASTE_SYSTEM_PROMPT
+
+    assert "安全" in SMART_PASTE_SYSTEM_PROMPT or "secret" in SMART_PASTE_SYSTEM_PROMPT.lower()
+    assert "ENV_NAME" in SMART_PASTE_SYSTEM_PROMPT or "占位符" in SMART_PASTE_SYSTEM_PROMPT
+    assert len(SMART_PASTE_SYSTEM_PROMPT) > 200
