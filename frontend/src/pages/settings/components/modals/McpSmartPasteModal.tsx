@@ -191,6 +191,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
                         />
                         <input
                           type="text"
+                          data-testid="smart-paste-name-input"
                           value={config.name}
                           onInput={(e) => handleUpdateCandidate(index(), { name: e.currentTarget.value })}
                           class="text-sm font-semibold border rounded px-2 py-0.5 bg-white min-w-[120px]"
