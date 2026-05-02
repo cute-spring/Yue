@@ -222,3 +222,29 @@ export const normalizeModelTierConfig = (value: any): ModelTierConfig => ({
 });
 
 export type LlmForm = Record<string, any>;
+
+
+export type ParsedMcpConfig = {
+  name: string;
+  transport: 'stdio' | 'streamable_http';
+  command: string | null;
+  args: string[] | null;
+  url: string | null;
+  headers: Record<string, string> | null;
+  env: Record<string, string> | null;
+  enabled: boolean;
+  timeout: number;
+  min_version: string | null;
+  confidence: number;
+  hints: string[];
+  warnings: string[];
+  missing_fields: string[];
+  source_index?: number | null;
+};
+
+export type SmartPasteResponse = {
+  ok: boolean;
+  results: ParsedMcpConfig[];
+  parse_mode: 'rule' | 'ai' | 'hybrid';
+  error?: string | null;
+};
