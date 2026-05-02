@@ -93,3 +93,70 @@ def test_sanitize_env_preserves_non_secret():
     sanitized = sanitize_env({"HOME": "/home/user", "PATH": "/usr/bin"})
     assert sanitized["HOME"] == "/home/user"
     assert sanitized["PATH"] == "/usr/bin"
+
+
+# --- Rule parser tests ---
+
+
+def test_parse_claude_desktop_json_to_stdio_result():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste('{"mcpServers":{"fs":{"command":"npx","args":["-y","pkg"]}}}')
+    assert response.ok is True
+    assert response.parse_mode == "rule"
+    assert response.results[0].transport == "stdio"
+    assert response.results[0].command == "npx"
+
+
+def test_parse_single_url_to_streamable_http_result():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste("MCP endpoint: https://mcp.example.com/stream")
+    assert response.results[0].transport == "streamable_http"
+    assert response.results[0].url == "https://mcp.example.com/stream"
+
+
+def test_parse_npx_command_snippet():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste("npx -y @company/mcp-server --port 8080")
+    assert response.ok is True
+    assert response.parse_mode == "rule"
+    assert response.results[0].transport == "stdio"
+    assert response.results[0].command == "npx"
+    assert "-y" in response.results[0].args
+    assert "@company/mcp-server" in response.results[0].args
+
+
+def test_parse_uvx_command_snippet():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste("uvx my-mcp-package --verbose")
+    assert response.ok is True
+    assert response.results[0].transport == "stdio"
+    assert response.results[0].command == "uvx"
+
+
+def test_parse_json_array():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste('[{"name":"srv","transport":"stdio","command":"node","args":["s.js"]}]')
+    assert response.ok is True
+    assert response.results[0].name == "srv"
+
+
+def test_parse_returns_ok_false_when_nothing_extractable():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste("hello world this is not a config")
+    assert response.ok is False
+    assert response.results == []
+
+
+def test_parse_json_single_object():
+    from app.mcp.smart_paste_service import parse_smart_paste
+
+    response = parse_smart_paste('{"name":"test","transport":"streamable_http","url":"https://example.com/stream"}')
+    assert response.ok is True
+    assert response.results[0].transport == "streamable_http"
+    assert response.results[0].url == "https://example.com/stream"
