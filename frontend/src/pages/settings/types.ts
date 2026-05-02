@@ -240,6 +240,7 @@ export type ParsedMcpConfig = {
   warnings: string[];
   missing_fields: string[];
   source_index?: number | null;
+  _selected?: boolean;
 };
 
 export type SmartPasteResponse = {
