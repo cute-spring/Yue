@@ -166,6 +166,7 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
     const next: FeatureFlags = {
       chat_trace_ui_enabled: props.featureFlags().chat_trace_ui_enabled,
       chat_trace_raw_enabled: props.featureFlags().chat_trace_raw_enabled,
+      mcp_smart_paste_enabled: props.featureFlags().mcp_smart_paste_enabled,
     };
     props.setFeatureFlags(next);
     await props.saveFeatureFlags(next);

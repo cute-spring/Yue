@@ -99,6 +99,13 @@ def test_meta_enabled_defaults_true_when_unset(temp_config_file):
     assert llm_config["meta_use_runtime_model_for_title"] is False
 
 
+def test_get_feature_flags_includes_mcp_smart_paste_default_false(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+    flags = service.get_feature_flags()
+    assert "mcp_smart_paste_enabled" in flags
+    assert flags["mcp_smart_paste_enabled"] is False
+
+
 def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_file):
     service = ConfigService(str(temp_config_file))
 
@@ -106,6 +113,7 @@ def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_
 
     assert flags["chat_trace_ui_enabled"] is False
     assert flags["chat_trace_raw_enabled"] is False
+    assert flags["mcp_smart_paste_enabled"] is False
     assert flags["skill_runtime_enabled"] is True
     assert flags["skill_runtime_debug_contract_enabled"] is False
     assert flags["skill_import_auto_activate_enabled"] is True

@@ -45,7 +45,7 @@ type Tab = 'general' | 'mcp' | 'llm';
     const [mcpTemplates, setMcpTemplates] = createSignal<McpTemplate[]>([]);
     const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
     const [showManual, setShowManual] = createSignal(false);
-    const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-server\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    }\n  }\n}`);
+    const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-stdio\": {\n      \"transport\": \"stdio\",\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    },\n    \"example-http\": {\n      \"transport\": \"streamable_http\",\n      \"url\": \"https://mcp.example.com/stream\",\n      \"headers\": {\"Authorization\": \"\${MCP_TOKEN}\"}\n    }\n  }\n}`);
     const [showRaw, setShowRaw] = createSignal(false);
     const [showAddMenu, setShowAddMenu] = createSignal(false);
     const [showMarketplace, setShowMarketplace] = createSignal(false);
@@ -95,6 +95,7 @@ type Tab = 'general' | 'mcp' | 'llm';
   const [featureFlags, setFeatureFlags] = createSignal<FeatureFlags>({
     ...DEFAULT_FEATURE_FLAGS,
   });
+  const smartPasteEnabled = () => featureFlags().mcp_smart_paste_enabled;
   const [docAllowText, setDocAllowText] = createSignal("");
   const [docDenyText, setDocDenyText] = createSignal("");
   const [isSavingDocAccess, setIsSavingDocAccess] = createSignal(false);
@@ -543,6 +544,7 @@ type Tab = 'general' | 'mcp' | 'llm';
             setShowMarketplace={setShowMarketplace}
             mcpConfig={mcpConfig}
             setMcpConfig={setMcpConfig}
+            smartPasteEnabled={smartPasteEnabled}
             reloadMcp={reloadMcp}
             toggleMcpEnabled={toggleMcpEnabled}
             deleteMcpServer={deleteMcpServer}

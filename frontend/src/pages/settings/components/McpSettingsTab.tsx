@@ -25,6 +25,7 @@ type McpSettingsTabProps = {
   setShowMarketplace: Setter<boolean>;
   mcpConfig: Accessor<string>;
   setMcpConfig: Setter<string>;
+  smartPasteEnabled: Accessor<boolean>;
   reloadMcp: () => void;
   toggleMcpEnabled: (serverName: string, enabled: boolean) => void;
   deleteMcpServer: (serverName: string) => void;
@@ -110,11 +111,14 @@ export function McpSettingsTab(props: McpSettingsTabProps) {
                     >
                       {s.name}
                     </span>
+                    <span class="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-700">
+                      {s.transport}
+                    </span>
                     <Show when={s.connected}>
                       <span class="text-emerald-600">✓</span>
                     </Show>
                     <Show when={!s.connected}>
-                      <span class="text-red-600">Failed to start</span>
+                      <span class="text-red-600">Connection failed</span>
                       <button onClick={props.reloadMcp} class="text-blue-600 underline">
                         Retry
                       </button>
