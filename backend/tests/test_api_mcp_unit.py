@@ -350,4 +350,4 @@ def test_parse_endpoint_returns_error_when_flag_disabled_and_rule_fails(client, 
             json={"raw_text": "用自然语言描述的一个 MCP 配置，规则解析无法处理"}
         )
         assert response.status_code == 503
-        assert "disabled" in response.json()["detail"].lower()
+        assert "AI" in response.json()["detail"].lower() or "解析" in response.json()["detail"]

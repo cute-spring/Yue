@@ -426,9 +426,29 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
       <div class="pt-6 border-t">
         <h3 class="text-xl font-semibold border-b pb-2">Feature Flags</h3>
         <p class="text-sm text-gray-500 mt-2">
-          Toggle internal chat trace inspection controls without editing config files manually.
+          Toggle internal feature controls without editing config files manually.
         </p>
         <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4 mt-4">
+          <label class="flex items-start justify-between gap-4">
+            <span class="space-y-1">
+              <span class="block text-sm font-medium text-gray-700">Smart Paste AI 解析</span>
+              <span class="block text-xs text-gray-500">
+                开启后，粘贴自然语言描述或半结构化文本时，自动调用 AI 兜底解析 MCP 配置。
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              data-testid="settings-feature-flag-mcp-smart-paste"
+              class="mt-1 h-4 w-4 accent-emerald-600"
+              checked={props.featureFlags().mcp_smart_paste_enabled}
+              onChange={(e) =>
+                props.setFeatureFlags((current) => ({
+                  ...current,
+                  mcp_smart_paste_enabled: e.currentTarget.checked,
+                }))
+              }
+            />
+          </label>
           <label class="flex items-start justify-between gap-4">
             <span class="space-y-1">
               <span class="block text-sm font-medium text-gray-700">Trace Inspector UI</span>
@@ -471,7 +491,7 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
           </label>
           <div class="flex items-center justify-between gap-3">
             <div class="text-xs text-gray-500">
-              UI: {props.featureFlags().chat_trace_ui_enabled ? 'On' : 'Off'} • Raw: {props.featureFlags().chat_trace_raw_enabled ? 'On' : 'Off'}
+              Smart Paste: {props.featureFlags().mcp_smart_paste_enabled ? 'On' : 'Off'} • Trace UI: {props.featureFlags().chat_trace_ui_enabled ? 'On' : 'Off'} • Raw: {props.featureFlags().chat_trace_raw_enabled ? 'On' : 'Off'}
             </div>
             <button
               type="button"

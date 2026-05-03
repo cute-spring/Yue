@@ -21,8 +21,10 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
   const [saveSuccess, setSaveSuccess] = createSignal(false);
   const [sensitiveDetections, setSensitiveDetections] = createSignal<SensitiveDetection[]>([]);
   const [replacedText, setReplacedText] = createSignal('');
+  const [parseHint, setParseHint] = createSignal('');
   let abortController: AbortController | null = null;
   let textareaRef: HTMLTextAreaElement | undefined;
+  let parseHintTimer: ReturnType<typeof setTimeout> | undefined;
 
   onCleanup(() => {
     if (abortController) {
@@ -32,7 +34,9 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
 
   const doParse = async (text: string) => {
     setPhase('parsing');
+    setParseHint('');
     abortController = new AbortController();
+    parseHintTimer = setTimeout(() => setParseHint('AI 分析中，请稍候…'), 1500);
 
     try {
       const response = await props.onParse(text, abortController.signal);
@@ -50,6 +54,9 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
       }
       setParseError(e?.message || '解析失败，请重试');
       setPhase('idle');
+    } finally {
+      clearTimeout(parseHintTimer);
+      setParseHint('');
     }
   };
 
@@ -297,6 +304,14 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
 }`}
               disabled={phase() === 'parsing'}
             />
+
+            <Show when={phase() === 'parsing'}>
+              <div class="flex items-center gap-2 text-sm text-blue-600 mt-3">
+                <div class="animate-spin h-4 w-4 border-2 border-blue-300 border-t-blue-600 rounded-full" />
+                <span>{parseHint() || '解析中…'}</span>
+              </div>
+            </Show>
+
             <div class="text-xs text-gray-400 mt-1">密钥安全：token / 密码会自动转为 $&#123;ENV_NAME&#125; 占位符</div>
 
             <Show when={parseError()}>

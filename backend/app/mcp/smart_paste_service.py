@@ -311,7 +311,7 @@ def parse_smart_paste(raw_text: str, llm_enabled: bool = False) -> SmartPasteRes
 
     if not llm_enabled:
         raise SmartPasteServiceUnavailable(
-            "Smart Paste AI fallback is disabled. Rule parsing found no matches."
+            "规则解析未能识别 MCP 配置，AI 智能解析已关闭。请在系统设置中开启或尝试更标准的输入格式。"
         )
 
     return SmartPasteResponse(ok=False, error="无法从输入中解析出有效的 MCP 配置，请检查输入内容或尝试手动配置。")
@@ -389,7 +389,7 @@ async def parse_smart_paste_async(raw_text: str, llm_enabled: bool = False) -> S
 
     if not llm_enabled:
         raise SmartPasteServiceUnavailable(
-            "Smart Paste AI fallback is disabled. Rule parsing found no matches."
+            "规则解析未能识别 MCP 配置，AI 智能解析已关闭。请在系统设置中开启或尝试更标准的输入格式。"
         )
 
     llm_config = config_service.get_llm_config()
