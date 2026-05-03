@@ -1,8 +1,9 @@
 import { createSignal, For, Show, onCleanup } from 'solid-js';
 import type { ParsedMcpConfig, SmartPasteResponse } from '../../types';
-import { validateSmartPasteInput, applyTransportChange, findNameConflicts, resolveConfidenceTone } from './McpSmartPasteModal.logic';
+import { validateSmartPasteInput, applyTransportChange, findNameConflicts, resolveConfidenceTone, detectSensitiveValues, applyReplacements } from './McpSmartPasteModal.logic';
+import type { SensitiveDetection } from './McpSmartPasteModal.logic';
 
-type Phase = 'idle' | 'parsing' | 'preview' | 'saving';
+type Phase = 'idle' | 'sensitive_check' | 'parsing' | 'preview' | 'saving';
 
 type McpSmartPasteModalProps = {
   existingNames: string[];
@@ -18,6 +19,8 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
   const [parseError, setParseError] = createSignal<string | null>(null);
   const [saveError, setSaveError] = createSignal<string | null>(null);
   const [saveSuccess, setSaveSuccess] = createSignal(false);
+  const [sensitiveDetections, setSensitiveDetections] = createSignal<SensitiveDetection[]>([]);
+  const [replacedText, setReplacedText] = createSignal('');
   let abortController: AbortController | null = null;
   let textareaRef: HTMLTextAreaElement | undefined;
 
@@ -27,22 +30,12 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
     }
   });
 
-  const handleParse = async () => {
-    const validation = validateSmartPasteInput(rawText());
-    if (validation.kind === 'empty') {
-      return;
-    }
-    if (validation.kind === 'too_long') {
-      setParseError('输入文本过长，请精简后重试');
-      return;
-    }
-
-    setParseError(null);
+  const doParse = async (text: string) => {
     setPhase('parsing');
     abortController = new AbortController();
 
     try {
-      const response = await props.onParse(rawText(), abortController.signal);
+      const response = await props.onParse(text, abortController.signal);
       if (response.ok && response.results.length > 0) {
         setResults(response.results);
         setPhase('preview');
@@ -60,11 +53,50 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
     }
   };
 
+  const handleParse = async () => {
+    const validation = validateSmartPasteInput(rawText());
+    if (validation.kind === 'empty') {
+      return;
+    }
+    if (validation.kind === 'too_long') {
+      setParseError('输入文本过长，请精简后重试');
+      return;
+    }
+
+    setParseError(null);
+
+    const detections = detectSensitiveValues(rawText());
+    if (detections.length > 0) {
+      setSensitiveDetections(detections);
+      setReplacedText(applyReplacements(rawText(), detections));
+      setPhase('sensitive_check');
+      return;
+    }
+
+    await doParse(rawText());
+  };
+
   const handleCancelParse = () => {
     if (abortController) {
       abortController.abort();
       abortController = null;
     }
+    setPhase('idle');
+  };
+
+  const handleSensitiveReplaceAll = () => {
+    const cleanText = applyReplacements(rawText(), sensitiveDetections());
+    setRawText(cleanText);
+    setPhase('idle');
+    doParse(cleanText);
+  };
+
+  const handleSensitiveSendAnyway = () => {
+    setPhase('idle');
+    doParse(rawText());
+  };
+
+  const handleSensitiveBackToEdit = () => {
     setPhase('idle');
   };
 
@@ -143,6 +175,42 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
         </div>
 
         <div class="flex-1 overflow-y-auto p-4">
+          <Show when={phase() === 'sensitive_check'}>
+            <div class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-amber-600 font-semibold">⚠️</span>
+                <span class="text-sm font-semibold text-amber-800">
+                  检测到 {sensitiveDetections().length} 处疑似敏感信息
+                </span>
+              </div>
+              <p class="text-xs text-amber-700 mb-3">
+                建议在发送解析前替换为环境变量占位符，保护密钥安全。替换后可在系统环境变量中设置真实值。
+              </p>
+
+              <div class="space-y-2 max-h-[200px] overflow-y-auto mb-3">
+                <For each={sensitiveDetections()}>
+                  {(det) => (
+                    <div class="flex items-center gap-2 text-xs bg-white rounded p-2 border border-amber-100">
+                      <span class="text-red-600 font-mono bg-red-50 px-1.5 py-0.5 rounded max-w-[180px] truncate" title={det.value}>
+                        {det.value}
+                      </span>
+                      <span class="text-gray-400">→</span>
+                      <span class="text-emerald-600 font-mono bg-emerald-50 px-1.5 py-0.5 rounded">
+                        {det.placeholder}
+                      </span>
+                      <span class="text-gray-400 ml-auto text-[10px]">{det.key}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+
+              <div class="text-xs text-gray-500 mb-3">
+                <div class="font-medium mb-1">替换后预览：</div>
+                <pre class="bg-white border rounded p-2 max-h-[120px] overflow-y-auto text-[11px] whitespace-pre-wrap font-mono">{replacedText()}</pre>
+              </div>
+            </div>
+          </Show>
+
           <Show when={phase() === 'idle' || phase() === 'parsing'}>
             <div class="text-sm text-gray-500 mb-3">
               粘贴你的 MCP 配置信息，支持 Claude Desktop JSON、命令行片段、HTTP 端点或自然语言描述
@@ -306,6 +374,19 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
             </Show>
           </div>
           <div class="flex gap-2">
+            <Show when={phase() === 'sensitive_check'}>
+              <button onClick={handleSensitiveBackToEdit} class="px-3 py-1.5 rounded-md border text-sm">
+                返回编辑
+              </button>
+              <div class="flex gap-2">
+                <button onClick={handleSensitiveSendAnyway} class="px-3 py-1.5 rounded-md border text-sm text-gray-500">
+                  跳过，直接发送
+                </button>
+                <button onClick={handleSensitiveReplaceAll} class="px-4 py-1.5 rounded-md bg-amber-600 text-white text-sm">
+                  一键全部替换
+                </button>
+              </div>
+            </Show>
             <Show when={phase() === 'idle'}>
               <button onClick={props.onClose} class="px-3 py-1.5 rounded-md border text-sm">
                 取消
