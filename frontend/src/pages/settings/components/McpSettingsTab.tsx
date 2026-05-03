@@ -28,7 +28,6 @@ type McpSettingsTabProps = {
   setShowSmartPaste: Setter<boolean>;
   mcpConfig: Accessor<string>;
   setMcpConfig: Setter<string>;
-  smartPasteEnabled: Accessor<boolean>;
   reloadMcp: () => void;
   toggleMcpEnabled: (serverName: string, enabled: boolean) => void;
   deleteMcpServer: (serverName: string) => void;
@@ -86,19 +85,17 @@ export function McpSettingsTab(props: McpSettingsTabProps) {
                 >
                   Add Manually
                 </button>
-                <Show when={props.smartPasteEnabled()}>
-                  <button
-                    data-testid="mcp-smart-paste-button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.setShowAddMenu(false);
-                      props.setShowSmartPaste(true);
-                    }}
-                    class="block w-full text-left px-3 py-2 hover:bg-gray-50"
-                  >
-                    Smart Paste (AI)
-                  </button>
-                </Show>
+                <button
+                  data-testid="mcp-smart-paste-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.setShowAddMenu(false);
+                    props.setShowSmartPaste(true);
+                  }}
+                  class="block w-full text-left px-3 py-2 hover:bg-gray-50"
+                >
+                  Smart Paste (AI)
+                </button>
               </div>
             </Show>
           </div>

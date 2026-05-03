@@ -98,7 +98,6 @@ type Tab = 'general' | 'mcp' | 'llm';
   const [featureFlags, setFeatureFlags] = createSignal<FeatureFlags>({
     ...DEFAULT_FEATURE_FLAGS,
   });
-  const smartPasteEnabled = () => featureFlags().mcp_smart_paste_enabled;
   const [docAllowText, setDocAllowText] = createSignal("");
   const [docDenyText, setDocDenyText] = createSignal("");
   const [isSavingDocAccess, setIsSavingDocAccess] = createSignal(false);
@@ -576,7 +575,6 @@ type Tab = 'general' | 'mcp' | 'llm';
             setShowSmartPaste={setShowSmartPaste}
             mcpConfig={mcpConfig}
             setMcpConfig={setMcpConfig}
-            smartPasteEnabled={smartPasteEnabled}
             reloadMcp={reloadMcp}
             toggleMcpEnabled={toggleMcpEnabled}
             deleteMcpServer={deleteMcpServer}
