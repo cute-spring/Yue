@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from pydantic import ValidationError
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -343,3 +344,55 @@ async def test_parse_with_llm_returns_empty_on_total_failure():
             model_name="gpt-4o",
         )
         assert results == []
+
+
+@pytest.mark.asyncio
+async def test_parse_with_llm_times_out():
+    from app.mcp.smart_paste_service import parse_with_llm, SmartPasteTimeoutError
+
+    mock_model = MagicMock()
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run = AsyncMock(side_effect=asyncio.TimeoutError())
+
+    with patch("app.mcp.smart_paste_service.get_model", return_value=mock_model), \
+         patch("app.mcp.smart_paste_service.Agent", return_value=mock_agent_instance), \
+         patch("app.mcp.smart_paste_service.config_service") as mock_cs:
+        mock_cs.get_llm_config.return_value = {"llm_provider": "openai", "openai_model": "gpt-4o"}
+        with pytest.raises(SmartPasteTimeoutError):
+            await parse_with_llm("test", "openai", "gpt-4o", max_retries=0)
+
+
+@pytest.mark.asyncio
+async def test_parse_smart_paste_async_returns_ok_false_on_llm_failure():
+    from app.mcp.smart_paste_service import parse_smart_paste_async
+
+    with patch("app.mcp.smart_paste_service.parse_with_llm") as mock_llm, \
+         patch("app.mcp.smart_paste_service.config_service") as mock_cs:
+        mock_cs.get_llm_config.return_value = {"llm_provider": "openai", "openai_model": "gpt-4o"}
+        mock_llm.return_value = []
+
+        response = await parse_smart_paste_async("一些无法解析的文本", llm_enabled=True)
+        assert response.ok is False
+        assert response.parse_mode == "ai"
+
+
+@pytest.mark.asyncio
+async def test_parse_smart_paste_async_post_processes_llm_output():
+    from app.mcp.smart_paste_models import ParsedServerConfig
+    from app.mcp.smart_paste_service import parse_smart_paste_async
+
+    with patch("app.mcp.smart_paste_service.parse_with_llm") as mock_llm, \
+         patch("app.mcp.smart_paste_service.config_service") as mock_cs:
+        mock_cs.get_llm_config.return_value = {"llm_provider": "openai", "openai_model": "gpt-4o"}
+        mock_llm.return_value = [
+            ParsedServerConfig(
+                name="test", transport="stdio", command="npx",
+                args=["-y", "pkg"], confidence=0.9,
+            )
+        ]
+
+        response = await parse_smart_paste_async("请配置一个名为 test 的 stdio MCP 服务", llm_enabled=True)
+        assert response.ok is True
+        assert response.parse_mode == "ai"
+        assert response.results[0].enabled is False
+        assert response.results[0].timeout == 60.0
