@@ -154,12 +154,10 @@ async def delete_config(server_name: str):
 async def parse_mcp_config(request: SmartPasteRequest):
     trace_id = str(uuid.uuid4())
 
-    flags = config_service.get_feature_flags()
-    if not flags.get("mcp_smart_paste_enabled", False):
-        raise HTTPException(status_code=503, detail="Smart Paste is disabled.")
-
     try:
-        response = parse_smart_paste(request.raw_text)
+        flags = config_service.get_feature_flags()
+        llm_enabled = flags.get("mcp_smart_paste_enabled", False)
+        response = parse_smart_paste(request.raw_text, llm_enabled=llm_enabled)
         logger.info(
             "smart_paste_parse",
             extra={

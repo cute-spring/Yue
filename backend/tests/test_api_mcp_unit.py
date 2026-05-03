@@ -320,10 +320,10 @@ def test_parse_endpoint_returns_rule_result(client, mock_mcp_manager):
         assert response.json()["parse_mode"] == "rule"
 
 
-def test_parse_endpoint_returns_503_when_feature_disabled(client, mock_mcp_manager):
+def test_parse_endpoint_returns_503_when_feature_disabled_and_rule_fails(client, mock_mcp_manager):
     with patch("app.api.mcp.config_service") as mock_cs:
         mock_cs.get_feature_flags.return_value = {"mcp_smart_paste_enabled": False}
-        response = client.post("/api/mcp/parse", json={"raw_text": "npx -y @company/mcp"})
+        response = client.post("/api/mcp/parse", json={"raw_text": "hello world not a config"})
         assert response.status_code == 503
 
 
@@ -332,3 +332,22 @@ def test_parse_endpoint_rejects_empty_input(client, mock_mcp_manager):
         mock_cs.get_feature_flags.return_value = {"mcp_smart_paste_enabled": True}
         response = client.post("/api/mcp/parse", json={"raw_text": ""})
         assert response.status_code == 422
+
+
+def test_parse_endpoint_returns_rule_result_even_when_flag_disabled(client, mock_mcp_manager):
+    with patch("app.api.mcp.config_service") as mock_cs:
+        mock_cs.get_feature_flags.return_value = {"mcp_smart_paste_enabled": False}
+        response = client.post("/api/mcp/parse", json={"raw_text": "npx -y @company/mcp"})
+        assert response.status_code == 200
+        assert response.json()["parse_mode"] == "rule"
+
+
+def test_parse_endpoint_returns_error_when_flag_disabled_and_rule_fails(client, mock_mcp_manager):
+    with patch("app.api.mcp.config_service") as mock_cs:
+        mock_cs.get_feature_flags.return_value = {"mcp_smart_paste_enabled": False}
+        response = client.post(
+            "/api/mcp/parse",
+            json={"raw_text": "用自然语言描述的一个 MCP 配置，规则解析无法处理"}
+        )
+        assert response.status_code == 503
+        assert "disabled" in response.json()["detail"].lower()

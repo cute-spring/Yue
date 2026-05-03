@@ -295,7 +295,7 @@ def try_rule_parse(raw_text: str) -> Optional[SmartPasteResponse]:
     return None
 
 
-def parse_smart_paste(raw_text: str) -> SmartPasteResponse:
+def parse_smart_paste(raw_text: str, llm_enabled: bool = False) -> SmartPasteResponse:
     try:
         cleaned = preprocess_raw_text(raw_text)
     except SmartPasteInputError:
@@ -304,5 +304,10 @@ def parse_smart_paste(raw_text: str) -> SmartPasteResponse:
     rule_response = try_rule_parse(cleaned)
     if rule_response is not None:
         return rule_response
+
+    if not llm_enabled:
+        raise SmartPasteServiceUnavailable(
+            "Smart Paste AI fallback is disabled. Rule parsing found no matches."
+        )
 
     return SmartPasteResponse(ok=False, error="无法从输入中解析出有效的 MCP 配置，请检查输入内容或尝试手动配置。")

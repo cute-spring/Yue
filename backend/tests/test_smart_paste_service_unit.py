@@ -146,11 +146,11 @@ def test_parse_json_array():
 
 
 def test_parse_returns_ok_false_when_nothing_extractable():
-    from app.mcp.smart_paste_service import parse_smart_paste
+    from app.mcp.smart_paste_service import parse_smart_paste, SmartPasteServiceUnavailable
+    import pytest
 
-    response = parse_smart_paste("hello world this is not a config")
-    assert response.ok is False
-    assert response.results == []
+    with pytest.raises(SmartPasteServiceUnavailable):
+        parse_smart_paste("hello world this is not a config")
 
 
 def test_parse_json_single_object():
