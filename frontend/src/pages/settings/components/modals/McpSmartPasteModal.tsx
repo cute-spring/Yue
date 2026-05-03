@@ -133,6 +133,72 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
     setResults((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleUpdateHeader = (configIndex: number, key: string, value: string) => {
+    setResults((prev) => {
+      const next = [...prev];
+      const headers = { ...(next[configIndex].headers || {}) };
+      if (value === '' && !(key in headers)) return prev;
+      headers[key] = value;
+      next[configIndex] = { ...next[configIndex], headers };
+      return next;
+    });
+  };
+
+  const handleRemoveHeader = (configIndex: number, key: string) => {
+    setResults((prev) => {
+      const next = [...prev];
+      const headers = { ...(next[configIndex].headers || {}) };
+      delete headers[key];
+      next[configIndex] = { ...next[configIndex], headers };
+      return next;
+    });
+  };
+
+  const handleAddHeader = (configIndex: number) => {
+    setResults((prev) => {
+      const next = [...prev];
+      const headers = { ...(next[configIndex].headers || {}) };
+      let i = 0;
+      while (`header_${i}` in headers) i++;
+      headers[`header_${i}`] = '';
+      next[configIndex] = { ...next[configIndex], headers };
+      return next;
+    });
+  };
+
+  const handleUpdateEnv = (configIndex: number, key: string, value: string) => {
+    setResults((prev) => {
+      const next = [...prev];
+      const env = { ...(next[configIndex].env || {}) };
+      if (value === '' && !(key in env)) return prev;
+      env[key] = value;
+      next[configIndex] = { ...next[configIndex], env };
+      return next;
+    });
+  };
+
+  const handleRemoveEnv = (configIndex: number, key: string) => {
+    setResults((prev) => {
+      const next = [...prev];
+      const env = { ...(next[configIndex].env || {}) };
+      delete env[key];
+      next[configIndex] = { ...next[configIndex], env };
+      return next;
+    });
+  };
+
+  const handleAddEnv = (configIndex: number) => {
+    setResults((prev) => {
+      const next = [...prev];
+      const env = { ...(next[configIndex].env || {}) };
+      let i = 0;
+      while (`ENV_${i}` in env) i++;
+      env[`ENV_${i}`] = '';
+      next[configIndex] = { ...next[configIndex], env };
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     const selected = results().filter((r) => r._selected !== false);
     if (selected.length === 0) {
@@ -317,6 +383,55 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
                           />
                         </div>
                       </div>
+
+                      <div class="mt-2">
+                        <div class="flex items-center justify-between mb-1">
+                          <label class="text-xs text-gray-500">Environment Variables</label>
+                          <button
+                            onClick={() => handleAddEnv(index())}
+                            class="text-xs text-blue-600 hover:text-blue-800"
+                            disabled={phase() === 'saving'}
+                          >
+                            + Add
+                          </button>
+                        </div>
+                        <Show when={config.env && Object.keys(config.env).length > 0}>
+                          <div class="space-y-1">
+                            <For each={Object.entries(config.env || {})}>
+                              {([key, value]) => (
+                                <div class="flex items-center gap-1 text-xs">
+                                  <input
+                                    type="text"
+                                    value={key}
+                                    onInput={(e) => {
+                                      handleRemoveEnv(index(), key);
+                                      handleUpdateEnv(index(), e.currentTarget.value, value as string);
+                                    }}
+                                    class="w-2/5 border rounded px-1.5 py-0.5 bg-white font-mono"
+                                    placeholder="KEY"
+                                    disabled={phase() === 'saving'}
+                                  />
+                                  <input
+                                    type="text"
+                                    value={value as string}
+                                    onInput={(e) => handleUpdateEnv(index(), key, e.currentTarget.value)}
+                                    class="flex-1 border rounded px-1.5 py-0.5 bg-white font-mono"
+                                    placeholder="value"
+                                    disabled={phase() === 'saving'}
+                                  />
+                                  <button
+                                    onClick={() => handleRemoveEnv(index(), key)}
+                                    class="text-red-400 hover:text-red-600 px-1"
+                                    disabled={phase() === 'saving'}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </div>
                     </Show>
 
                     <Show when={config.transport === 'streamable_http'}>
@@ -329,6 +444,55 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
                           class="w-full border rounded px-2 py-0.5 bg-white font-mono"
                           disabled={phase() === 'saving'}
                         />
+                      </div>
+
+                      <div class="mt-2">
+                        <div class="flex items-center justify-between mb-1">
+                          <label class="text-xs text-gray-500">Headers</label>
+                          <button
+                            onClick={() => handleAddHeader(index())}
+                            class="text-xs text-blue-600 hover:text-blue-800"
+                            disabled={phase() === 'saving'}
+                          >
+                            + Add
+                          </button>
+                        </div>
+                        <Show when={config.headers && Object.keys(config.headers).length > 0}>
+                          <div class="space-y-1">
+                            <For each={Object.entries(config.headers || {})}>
+                              {([key, value]) => (
+                                <div class="flex items-center gap-1 text-xs">
+                                  <input
+                                    type="text"
+                                    value={key}
+                                    onInput={(e) => {
+                                      handleRemoveHeader(index(), key);
+                                      handleUpdateHeader(index(), e.currentTarget.value, value);
+                                    }}
+                                    class="w-2/5 border rounded px-1.5 py-0.5 bg-white font-mono"
+                                    placeholder="Header"
+                                    disabled={phase() === 'saving'}
+                                  />
+                                  <input
+                                    type="text"
+                                    value={value}
+                                    onInput={(e) => handleUpdateHeader(index(), key, e.currentTarget.value)}
+                                    class="flex-1 border rounded px-1.5 py-0.5 bg-white font-mono"
+                                    placeholder="value"
+                                    disabled={phase() === 'saving'}
+                                  />
+                                  <button
+                                    onClick={() => handleRemoveHeader(index(), key)}
+                                    class="text-red-400 hover:text-red-600 px-1"
+                                    disabled={phase() === 'saving'}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
                       </div>
                     </Show>
 
