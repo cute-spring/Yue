@@ -13,6 +13,7 @@ from app.mcp.templates import get_template, list_templates, render_template
 from app.mcp.smart_paste_models import SmartPasteRequest, SmartPasteResponse
 from app.mcp.smart_paste_service import (
     parse_smart_paste,
+    parse_smart_paste_async,
     SmartPasteInputError,
     SmartPasteServiceUnavailable,
     SmartPasteRateLimitError,
@@ -157,7 +158,7 @@ async def parse_mcp_config(request: SmartPasteRequest):
     try:
         flags = config_service.get_feature_flags()
         llm_enabled = flags.get("mcp_smart_paste_enabled", False)
-        response = parse_smart_paste(request.raw_text, llm_enabled=llm_enabled)
+        response = await parse_smart_paste_async(request.raw_text, llm_enabled=llm_enabled)
         logger.info(
             "smart_paste_parse",
             extra={

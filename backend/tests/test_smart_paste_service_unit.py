@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+from unittest.mock import MagicMock, AsyncMock, patch
 
 
 def test_smart_paste_request_rejects_oversized_input():
@@ -238,3 +239,107 @@ def test_system_prompt_contains_security_rules():
     assert "安全" in SMART_PASTE_SYSTEM_PROMPT or "secret" in SMART_PASTE_SYSTEM_PROMPT.lower()
     assert "ENV_NAME" in SMART_PASTE_SYSTEM_PROMPT or "占位符" in SMART_PASTE_SYSTEM_PROMPT
     assert len(SMART_PASTE_SYSTEM_PROMPT) > 200
+
+
+# --- LLM fallback tests ---
+
+
+@pytest.mark.asyncio
+async def test_parse_with_llm_returns_structured_results():
+    from app.mcp.smart_paste_models import SmartPasteLlmEnvelope, ParsedServerConfig
+    from app.mcp.smart_paste_service import parse_with_llm
+
+    mock_model = MagicMock()
+    mock_agent_instance = MagicMock()
+    mock_result = MagicMock()
+    mock_result.output = SmartPasteLlmEnvelope(
+        results=[
+            ParsedServerConfig(
+                name="test-service",
+                transport="stdio",
+                command="npx",
+                args=["-y", "test-pkg"],
+                confidence=0.85,
+                hints=["解析自自然语言描述"],
+            )
+        ]
+    )
+    mock_agent_instance.run = AsyncMock(return_value=mock_result)
+
+    with patch("app.mcp.smart_paste_service.get_model", return_value=mock_model), \
+         patch("app.mcp.smart_paste_service.Agent", return_value=mock_agent_instance), \
+         patch("app.mcp.smart_paste_service.config_service") as mock_cs:
+        mock_cs.get_llm_config.return_value = {
+            "llm_provider": "openai",
+            "openai_model": "gpt-4o",
+        }
+        results = await parse_with_llm(
+            raw_text="用 npx -y test-pkg 启动一个 stdio MCP 服务",
+            provider="openai",
+            model_name="gpt-4o",
+        )
+        assert len(results) == 1
+        assert results[0].name == "test-service"
+        assert results[0].transport == "stdio"
+
+
+@pytest.mark.asyncio
+async def test_parse_with_llm_retries_on_schema_validation_error():
+    from app.mcp.smart_paste_models import SmartPasteLlmEnvelope, ParsedServerConfig
+    from app.mcp.smart_paste_service import parse_with_llm
+
+    mock_model = MagicMock()
+    mock_agent_instance = MagicMock()
+    bad_result = MagicMock()
+    bad_result.output = None
+    good_result = MagicMock()
+    good_result.output = SmartPasteLlmEnvelope(
+        results=[
+            ParsedServerConfig(
+                name="retry-service",
+                transport="stdio",
+                command="node",
+                args=["server.js"],
+                confidence=0.8,
+            )
+        ]
+    )
+    mock_agent_instance.run = AsyncMock(side_effect=[bad_result, good_result])
+
+    with patch("app.mcp.smart_paste_service.get_model", return_value=mock_model), \
+         patch("app.mcp.smart_paste_service.Agent", return_value=mock_agent_instance), \
+         patch("app.mcp.smart_paste_service.config_service") as mock_cs:
+        mock_cs.get_llm_config.return_value = {
+            "llm_provider": "openai",
+            "openai_model": "gpt-4o",
+        }
+        results = await parse_with_llm(
+            raw_text="node server.js 作为 MCP 服务",
+            provider="openai",
+            model_name="gpt-4o",
+        )
+        assert len(results) == 1
+        assert mock_agent_instance.run.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_parse_with_llm_returns_empty_on_total_failure():
+    from app.mcp.smart_paste_service import parse_with_llm
+
+    mock_model = MagicMock()
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run = AsyncMock(side_effect=Exception("model error"))
+
+    with patch("app.mcp.smart_paste_service.get_model", return_value=mock_model), \
+         patch("app.mcp.smart_paste_service.Agent", return_value=mock_agent_instance), \
+         patch("app.mcp.smart_paste_service.config_service") as mock_cs:
+        mock_cs.get_llm_config.return_value = {
+            "llm_provider": "openai",
+            "openai_model": "gpt-4o",
+        }
+        results = await parse_with_llm(
+            raw_text="test",
+            provider="openai",
+            model_name="gpt-4o",
+        )
+        assert results == []

@@ -3,11 +3,15 @@ import logging
 import re
 import time
 import uuid
+import asyncio
 from typing import Optional
 
+from pydantic_ai import Agent
 from app.mcp.models import ServerConfig
-from app.mcp.smart_paste_models import ParsedServerConfig, SmartPasteResponse
+from app.mcp.smart_paste_models import ParsedServerConfig, SmartPasteLlmEnvelope, SmartPasteResponse
 from app.mcp.smart_paste_sanitizer import sanitize_headers, sanitize_env
+from app.services.config_service import config_service
+from app.services.model_factory import get_model
 
 logger = logging.getLogger(__name__)
 
@@ -311,3 +315,98 @@ def parse_smart_paste(raw_text: str, llm_enabled: bool = False) -> SmartPasteRes
         )
 
     return SmartPasteResponse(ok=False, error="无法从输入中解析出有效的 MCP 配置，请检查输入内容或尝试手动配置。")
+
+
+async def parse_with_llm(
+    raw_text: str,
+    provider: str,
+    model_name: str,
+    max_retries: int = 1,
+) -> list[ParsedServerConfig]:
+    model = get_model(provider, model_name)
+
+    for attempt in range(max_retries + 1):
+        agent = Agent(
+            model=model,
+            system_prompt=SMART_PASTE_SYSTEM_PROMPT,
+            result_type=SmartPasteLlmEnvelope,
+        )
+        try:
+            result = await asyncio.wait_for(
+                agent.run(raw_text),
+                timeout=8.0,
+            )
+            envelope = result.output
+            if envelope is None or not isinstance(envelope, SmartPasteLlmEnvelope):
+                if attempt < max_retries:
+                    continue
+                return []
+
+            sanitized = []
+            for item in envelope.results:
+                item_dict = item.model_dump()
+                item_dict["headers"] = sanitize_headers(item_dict.get("headers"))
+                item_dict["env"] = sanitize_env(item_dict.get("env"))
+
+                validated = _validate_with_server_config(item_dict)
+                if validated is None:
+                    continue
+
+                parsed = _build_parsed_config(
+                    validated,
+                    index=item.source_index or 0,
+                    confidence=item.confidence,
+                    hints=item.hints or ["已通过 AI 解析识别 MCP 配置"],
+                    warnings=(item.warnings or []) + (
+                        ["部分字段无法通过校验，已被调整"] if validated != item_dict else []
+                    ),
+                )
+                sanitized.append(parsed)
+            return sanitized
+
+        except (asyncio.TimeoutError, TimeoutError):
+            if attempt < max_retries:
+                continue
+            raise SmartPasteTimeoutError("AI 解析超时，请重试或使用手动配置")
+        except Exception:
+            logger.exception("LLM parse attempt %d failed", attempt + 1)
+            if attempt < max_retries:
+                continue
+            return []
+
+    return []
+
+
+async def parse_smart_paste_async(raw_text: str, llm_enabled: bool = False) -> SmartPasteResponse:
+    try:
+        cleaned = preprocess_raw_text(raw_text)
+    except SmartPasteInputError:
+        return SmartPasteResponse(ok=False, error="请输入配置信息")
+
+    rule_response = try_rule_parse(cleaned)
+    if rule_response is not None:
+        return rule_response
+
+    if not llm_enabled:
+        raise SmartPasteServiceUnavailable(
+            "Smart Paste AI fallback is disabled. Rule parsing found no matches."
+        )
+
+    llm_config = config_service.get_llm_config()
+    provider = llm_config.get("llm_provider") or llm_config.get("provider") or "openai"
+    model_name = llm_config.get("model") or llm_config.get(f"{provider}_model") or "gpt-4o"
+
+    try:
+        llm_results = await parse_with_llm(cleaned, provider, model_name)
+    except SmartPasteTimeoutError:
+        return SmartPasteResponse(ok=False, error="AI 解析超时，请重试或使用手动配置")
+    except SmartPasteServiceUnavailable:
+        raise
+
+    if not llm_results:
+        return SmartPasteResponse(
+            ok=False,
+            error="无法从输入中解析出有效的 MCP 配置，请检查输入内容或尝试手动配置。"
+        )
+
+    return SmartPasteResponse(ok=True, results=llm_results, parse_mode="ai")
