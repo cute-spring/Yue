@@ -132,6 +132,23 @@ describe('IntelligencePanel action helpers', () => {
     expect(sections[2].tone).toBe('rose');
   });
 
+  it('includes preview reason when an approval flow carries operator context', () => {
+    const sections = getActionStateDetailSections({
+      skill_name: 'jira',
+      action_id: 'add_comment',
+      lifecycle_status: 'awaiting_approval',
+      payload: {
+        metadata: {
+          preview_reason: 'Keep the issue activity log current for the sprint review.',
+        },
+      },
+    });
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].title).toBe('Preview Reason');
+    expect(sections[0].content).toContain('sprint review');
+  });
+
   it('uses tool result as a success detail section', () => {
     const sections = getActionStateDetailSections({
       skill_name: 'exec',

@@ -380,3 +380,195 @@ def test_redact_configs_case_insensitivity(mcp_manager):
     assert redacted[0]["env"]["PASSword"] == "****"
     assert redacted[0]["env"]["normal"] == "val"
 
+@pytest.mark.asyncio
+async def test_initialize_connects_streamable_http_server(mcp_manager, monkeypatch):
+    monkeypatch.setenv("MCP_API_TOKEN", "test-token")
+    config = [{
+        "name": "remote-server",
+        "transport": "streamable_http",
+        "url": "https://example.com/mcp",
+        "headers": {
+            "Authorization": "Bearer ${MCP_API_TOKEN}",
+            "X-Trace": "public"
+        },
+        "enabled": True,
+        "timeout": 12.5
+    }]
+
+    with patch.object(mcp_manager, "load_config", return_value=config), \
+         patch("app.mcp.manager.create_mcp_http_client", create=True) as mock_http_client_factory, \
+         patch("app.mcp.manager.streamable_http_client", create=True) as mock_streamable_http, \
+         patch("app.mcp.manager.ClientSession") as mock_session_cls:
+
+        mock_http_client = MagicMock()
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client_factory.return_value = mock_http_client
+        mock_streamable_http.return_value.__aenter__.return_value = (
+            AsyncMock(),
+            AsyncMock(),
+            MagicMock(return_value="session-id"),
+        )
+        mock_session = AsyncMock()
+        mock_session_cls.return_value.__aenter__.return_value = mock_session
+
+        await mcp_manager.initialize()
+
+        assert "remote-server" in mcp_manager.sessions
+        assert mcp_manager.sessions["remote-server"] == mock_session
+        assert mcp_manager.last_errors.get("remote-server") is None
+        mock_http_client_factory.assert_called_once()
+        headers = mock_http_client_factory.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer test-token"
+        assert headers["X-Trace"] == "public"
+        mock_streamable_http.assert_called_once_with(
+            "https://example.com/mcp",
+            http_client=mock_http_client,
+        )
+        mock_session.initialize.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_streamable_http_headers_can_resolve_from_config_env(mcp_manager, monkeypatch):
+    monkeypatch.setenv("HOST_REMOTE_TOKEN", "config-derived-token")
+    config = [{
+        "name": "remote-server",
+        "transport": "streamable_http",
+        "url": "https://example.com/mcp",
+        "env": {
+            "MCP_REMOTE_TOKEN": "${HOST_REMOTE_TOKEN}",
+        },
+        "headers": {
+            "Authorization": "Bearer ${MCP_REMOTE_TOKEN}",
+        },
+        "enabled": True,
+    }]
+
+    with patch.object(mcp_manager, "load_config", return_value=config), \
+         patch("app.mcp.manager.create_mcp_http_client", create=True) as mock_http_client_factory, \
+         patch("app.mcp.manager.streamable_http_client", create=True) as mock_streamable_http, \
+         patch("app.mcp.manager.ClientSession") as mock_session_cls:
+
+        mock_http_client = MagicMock()
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client_factory.return_value = mock_http_client
+        mock_streamable_http.return_value.__aenter__.return_value = (
+            AsyncMock(),
+            AsyncMock(),
+            MagicMock(return_value="session-id"),
+        )
+        mock_session = AsyncMock()
+        mock_session_cls.return_value.__aenter__.return_value = mock_session
+
+        await mcp_manager.initialize()
+
+        headers = mock_http_client_factory.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer config-derived-token"
+
+@pytest.mark.asyncio
+async def test_streamable_http_registers_http_client_with_exit_stack(mcp_manager):
+    config = {
+        "name": "remote-server",
+        "transport": "streamable_http",
+        "url": "https://example.com/mcp",
+        "headers": {"Authorization": "Bearer ${MCP_API_TOKEN}"},
+    }
+
+    mock_http_client = MagicMock()
+    mock_read = AsyncMock()
+    mock_write = AsyncMock()
+    mock_session = AsyncMock()
+
+    with patch("app.mcp.manager.create_mcp_http_client", return_value=mock_http_client), \
+         patch("app.mcp.manager.streamable_http_client", create=True) as mock_streamable_http, \
+         patch("app.mcp.manager.ClientSession") as mock_session_cls, \
+         patch.object(mcp_manager.exit_stack, "enter_async_context", new_callable=AsyncMock) as mock_enter:
+        mock_streamable_http.return_value = "transport-context"
+        mock_session_cls.return_value = "session-context"
+        mock_enter.side_effect = [
+            mock_http_client,
+            (mock_read, mock_write, MagicMock(return_value="session-id")),
+            mock_session,
+        ]
+
+        await mcp_manager.connect_to_server(config)
+
+    assert mock_enter.await_count == 3
+    assert mock_enter.await_args_list[0].args[0] is mock_http_client
+    assert mock_enter.await_args_list[1].args[0] == "transport-context"
+    assert mock_enter.await_args_list[2].args[0] == "session-context"
+
+@pytest.mark.asyncio
+async def test_initialize_and_exit_stack_close_streamable_http_in_same_task(mcp_manager):
+    class TaskBoundContext:
+        def __init__(self, value):
+            self.value = value
+            self.enter_task = None
+
+        async def __aenter__(self):
+            self.enter_task = asyncio.current_task()
+            return self.value
+
+        async def __aexit__(self, exc_type, exc, tb):
+            if asyncio.current_task() is not self.enter_task:
+                raise RuntimeError("entered and exited in different tasks")
+            return False
+
+    config = [{
+        "name": "remote-server",
+        "transport": "streamable_http",
+        "url": "https://example.com/mcp",
+        "enabled": True,
+    }]
+    init_result = MagicMock()
+    init_result.serverInfo = MagicMock(name="bing-cn-search", version="1.9.4")
+    mock_session = AsyncMock()
+    mock_session.initialize.return_value = init_result
+
+    with patch.object(mcp_manager, "load_config", return_value=config), \
+         patch("app.mcp.manager.create_mcp_http_client", return_value=TaskBoundContext(MagicMock())), \
+         patch("app.mcp.manager.streamable_http_client", return_value=TaskBoundContext((AsyncMock(), AsyncMock(), MagicMock()))), \
+         patch("app.mcp.manager.ClientSession", return_value=TaskBoundContext(mock_session)):
+        await mcp_manager.initialize()
+        await mcp_manager.exit_stack.aclose()
+
+def test_redact_configs_masks_secret_headers(mcp_manager):
+    configs = [{
+        "name": "remote-server",
+        "transport": "streamable_http",
+        "headers": {
+            "Authorization": "Bearer secret-token",
+            "X-Api-Key": "super-secret",
+            "X-Trace": "public"
+        }
+    }]
+
+    redacted = mcp_manager._redact_configs(configs)
+
+    assert redacted[0]["headers"]["Authorization"] == "****"
+    assert redacted[0]["headers"]["X-Api-Key"] == "****"
+    assert redacted[0]["headers"]["X-Trace"] == "public"
+
+def test_get_status_defaults_missing_transport_to_stdio_and_exposes_last_error(mcp_manager):
+    legacy_config = [{
+        "name": "legacy-server",
+        "enabled": True,
+        "command": "node",
+        "args": ["server.js"]
+    }]
+
+    with open(mcp_manager.config_path, "w") as f:
+        json.dump(legacy_config, f)
+
+    try:
+        mcp_manager.last_errors["legacy-server"] = "Connection timeout"
+        status = mcp_manager.get_status()
+        assert status == [{
+            "name": "legacy-server",
+            "enabled": True,
+            "connected": False,
+            "transport": "stdio",
+            "last_error": "Connection timeout",
+            "server_name": None,
+            "version": None,
+        }]
+    finally:
+        os.remove(mcp_manager.config_path)

@@ -10,6 +10,8 @@ import datetime
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
+import httpx
 from pydantic_ai import RunContext, Tool
 from pydantic import create_model, Field, BaseModel
 
@@ -17,12 +19,11 @@ from app.services import doc_retrieval
 from app.services.config_service import config_service
 
 import shutil
-from .models import ServerConfig
 from .base import McpTool, BuiltinTool
 from .builtin import builtin_tool_registry
 
 logger = logging.getLogger(__name__)
-ENV_PLACEHOLDER_RE = re.compile(r"^\$\{([A-Z0-9_]+)\}$")
+ENV_PLACEHOLDER_SUB_RE = re.compile(r"\$\{([A-Z0-9_]+)\}$|\$\{([A-Z0-9_]+)\}")
 
 class McpManager:
     _instance = None
@@ -56,23 +57,18 @@ class McpManager:
         try:
             configs = self.load_config()
             logger.info("Loading MCP configs from %s: %s", self.config_path, self._redact_configs(configs))
-            
-            # Use asyncio.gather to connect to all servers in parallel
-            tasks = []
+
             for config in configs:
                 try:
-                    # Validate config structure
-                    validated_config = ServerConfig(**config).model_dump()
+                    validated_config = self._normalize_runtime_config(config)
                     if validated_config.get("enabled", True):
-                        tasks.append(self._connect_with_retry_and_timeout(validated_config))
+                        # Keep MCP transport context entry in a single task so cleanup can
+                        # close anyio-backed transports without cross-task cancel-scope errors.
+                        await self._connect_with_retry_and_timeout(validated_config)
                 except Exception as e:
                     name = config.get("name") or "unknown"
                     logger.error("Invalid config for MCP server %s: %s", name, str(e))
                     self.last_errors[name] = f"Invalid configuration: {str(e)}"
-            
-            if tasks:
-                # Release the lock while waiting for all connections
-                await asyncio.gather(*tasks)
         finally:
             async with self._lock:
                 self.is_initializing = False
@@ -95,7 +91,8 @@ class McpManager:
 
         for attempt in range(max_retries + 1):
             try:
-                await asyncio.wait_for(self._connect_to_server_unlocked(config), timeout=timeout)
+                async with asyncio.timeout(timeout):
+                    await self._connect_to_server_unlocked(config)
                 return
             except asyncio.TimeoutError:
                 logger.error("Timeout connecting to MCP server: %s (attempt %d/%d)", name, attempt + 1, max_retries + 1)
@@ -145,93 +142,146 @@ class McpManager:
             self.sessions.pop(name, None)
             self.server_info.pop(name, None)
 
+        config = self._normalize_runtime_config(config)
         transport = config.get("transport", "stdio")
         logger.info("Connecting to MCP server: %s (%s)", name, transport)
         
         if transport == "stdio":
-            command = config.get("command")
-            args = config.get("args", [])
-            env = config.get("env", None)
-            
-            # Resolve placeholders in args
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
-            
-            resolved_args = []
-            for arg in args:
-                if isinstance(arg, str):
-                    resolved_arg = arg.replace("${PROJECT_ROOT}", project_root)
-                    resolved_args.append(resolved_arg)
-                else:
-                    resolved_args.append(arg)
-            
-            # Add proxy settings to MCP server environment if configured
-            llm_config = config_service.get_llm_config()
-            proxy_url = llm_config.get('proxy_url')
-            from app.services.llm.utils import get_ssl_verify, _build_no_proxy_value
-            ssl_verify = get_ssl_verify()
-            
-            resolved_env = self._resolve_env_placeholders(env or {})
-            mcp_env = {**os.environ, **resolved_env}
-            if proxy_url:
-                for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
-                    mcp_env[key] = proxy_url
-                
-                no_proxy_val = _build_no_proxy_value(llm_config.get('no_proxy'), llm_config)
-                mcp_env["NO_PROXY"] = no_proxy_val
-                mcp_env["no_proxy"] = no_proxy_val
-                
-            if isinstance(ssl_verify, str):
-                mcp_env["SSL_CERT_FILE"] = ssl_verify
+            read, write = await self._open_stdio_transport(config)
+            return await self._initialize_session(config, read, write)
 
-            server_params = StdioServerParameters(
-                command=command,
-                args=resolved_args,
-                env=mcp_env
+        if transport == "streamable_http":
+            read, write = await self._open_streamable_http_transport(config)
+            return await self._initialize_session(config, read, write)
+
+        raise ValueError(f"unsupported transport: {transport}")
+
+    def _normalize_runtime_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(config)
+        transport = normalized.get("transport") or "stdio"
+        normalized["transport"] = transport
+
+        if transport == "stdio":
+            if not normalized.get("command"):
+                raise ValueError("command is required for stdio transport")
+            normalized.setdefault("args", [])
+        elif transport == "streamable_http":
+            if not normalized.get("url"):
+                raise ValueError("url is required for streamable_http transport")
+            normalized.setdefault("headers", None)
+        else:
+            raise ValueError(f"unsupported transport: {transport}")
+
+        return normalized
+
+    async def _open_stdio_transport(self, config: Dict[str, Any]):
+        command = config.get("command")
+        args = config.get("args", [])
+        env = config.get("env", None)
+
+        # Resolve placeholders in args
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+
+        resolved_args = []
+        for arg in args:
+            if isinstance(arg, str):
+                resolved_arg = arg.replace("${PROJECT_ROOT}", project_root)
+                resolved_args.append(resolved_arg)
+            else:
+                resolved_args.append(arg)
+
+        # Add proxy settings to MCP server environment if configured
+        llm_config = config_service.get_llm_config()
+        proxy_url = llm_config.get('proxy_url')
+        from app.services.llm.utils import get_ssl_verify, _build_no_proxy_value
+        ssl_verify = get_ssl_verify()
+
+        resolved_env = self._resolve_env_placeholders(env or {})
+        mcp_env = {**os.environ, **resolved_env}
+        if proxy_url:
+            for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
+                mcp_env[key] = proxy_url
+
+            no_proxy_val = _build_no_proxy_value(llm_config.get('no_proxy'), llm_config)
+            mcp_env["NO_PROXY"] = no_proxy_val
+            mcp_env["no_proxy"] = no_proxy_val
+
+        if isinstance(ssl_verify, str):
+            mcp_env["SSL_CERT_FILE"] = ssl_verify
+
+        server_params = StdioServerParameters(
+            command=command,
+            args=resolved_args,
+            env=mcp_env
+        )
+
+        return await self.exit_stack.enter_async_context(stdio_client(server_params))
+
+    async def _open_streamable_http_transport(self, config: Dict[str, Any]):
+        timeout = config.get("timeout", 60.0)
+        resolved_env = self._resolve_env_placeholders(config.get("env") or {})
+        runtime_env = {**os.environ, **resolved_env}
+        resolved_headers = self._resolve_env_placeholders(config.get("headers") or {}, runtime_env)
+        http_client = create_mcp_http_client(
+            headers=resolved_headers or None,
+            timeout=httpx.Timeout(timeout),
+        )
+        http_client = await self.exit_stack.enter_async_context(http_client)
+        read, write, _get_session_id = await self.exit_stack.enter_async_context(
+            streamable_http_client(
+                config["url"],
+                http_client=http_client,
             )
-            
-            read, write = await self.exit_stack.enter_async_context(stdio_client(server_params))
-            session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-            init_result = await session.initialize()
-            
-            # Extract server version and info if available
-            server_v = "unknown"
-            if hasattr(init_result, "serverInfo"):
-                server_v = getattr(init_result.serverInfo, "version", "unknown")
-                self.server_info[name] = {
-                    "name": getattr(init_result.serverInfo, "name", "unknown"),
-                    "version": server_v
-                }
-            
-            # Version compatibility check
-            min_v = config.get("min_version")
-            if min_v and server_v != "unknown":
-                if not self._is_version_compatible(server_v, min_v):
-                    error_msg = f"Incompatible version: {server_v} < {min_v}"
-                    logger.error("MCP server %s version error: %s", name, error_msg)
-                    self.last_errors[name] = error_msg
-                    # Optionally disconnect or just keep as warning
-            
-            self.sessions[name] = session
-            self.last_errors.pop(name, None) # Clear error on success
-            logger.info("Connected to %s (version: %s)", name, server_v)
-            return session
-        
-        # TODO: Implement SSE
-        return None
+        )
+        return read, write
 
-    def _resolve_env_placeholders(self, env: Dict[str, Any]) -> Dict[str, str]:
+    async def _initialize_session(self, config: Dict[str, Any], read: Any, write: Any):
+        name = config.get("name")
+        session = await self.exit_stack.enter_async_context(ClientSession(read, write))
+        init_result = await session.initialize()
+
+        # Extract server version and info if available
+        server_v = "unknown"
+        if hasattr(init_result, "serverInfo"):
+            server_v = getattr(init_result.serverInfo, "version", "unknown")
+            self.server_info[name] = {
+                "name": getattr(init_result.serverInfo, "name", "unknown"),
+                "version": server_v
+            }
+
+        # Version compatibility check
+        min_v = config.get("min_version")
+        if min_v and server_v != "unknown":
+            if not self._is_version_compatible(server_v, min_v):
+                error_msg = f"Incompatible version: {server_v} < {min_v}"
+                logger.error("MCP server %s version error: %s", name, error_msg)
+                self.last_errors[name] = error_msg
+                # Optionally disconnect or just keep as warning
+
+        self.sessions[name] = session
+        self.last_errors.pop(name, None) # Clear error on success
+        logger.info("Connected to %s (version: %s)", name, server_v)
+        return session
+
+    def _resolve_env_placeholders(self, env: Dict[str, Any], lookup_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         resolved: Dict[str, str] = {}
         for key, value in env.items():
             if value is None:
                 continue
-            text = str(value)
-            match = ENV_PLACEHOLDER_RE.match(text)
-            if match:
-                env_key = match.group(1)
-                resolved[key] = os.environ.get(env_key, text)
-            else:
-                resolved[key] = text
+            resolved[key] = self._resolve_value_placeholders(value, lookup_env)
         return resolved
+
+    def _resolve_value_placeholders(self, value: Any, lookup_env: Optional[Dict[str, str]] = None) -> str:
+        text = str(value)
+        env_source = lookup_env or os.environ
+
+        def replace(match: re.Match[str]) -> str:
+            env_key = match.group(1) or match.group(2)
+            if not env_key:
+                return match.group(0)
+            return env_source.get(env_key, match.group(0))
+
+        return ENV_PLACEHOLDER_SUB_RE.sub(replace, text)
 
     def _is_version_compatible(self, current: str, required: str) -> bool:
         """Simple semantic version comparison."""
@@ -256,14 +306,33 @@ class McpManager:
             if isinstance(env, dict):
                 masked_env = {}
                 for k, v in env.items():
-                    key = str(k).lower()
-                    if any(token in key for token in ("key", "secret", "token", "password")):
+                    if self._looks_secret_key(k):
                         masked_env[k] = "****"
                     else:
                         masked_env[k] = v
                 item["env"] = masked_env
+            headers = item.get("headers")
+            if isinstance(headers, dict):
+                masked_headers = {}
+                for k, v in headers.items():
+                    if self._looks_secret_key(k):
+                        masked_headers[k] = "****"
+                    else:
+                        masked_headers[k] = v
+                item["headers"] = masked_headers
             redacted.append(item)
         return redacted
+
+    def _looks_secret_key(self, key: Any) -> bool:
+        normalized = str(key).lower()
+        return any(token in normalized for token in (
+            "key",
+            "secret",
+            "token",
+            "password",
+            "authorization",
+            "auth",
+        ))
 
     async def get_available_tools(self) -> List[Dict[str, Any]]:
         """

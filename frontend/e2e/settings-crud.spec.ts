@@ -13,6 +13,7 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
   let mcpServers = [
     {
       name: 'local-server',
+      transport: 'stdio',
       command: 'npx',
       args: ['-y', 'mcp-local'],
       env: {},
@@ -31,6 +32,7 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
       deployment: 'mixed',
       fields: [
         { key: 'serverName', label: 'Server Name', type: 'text', required: true, options: [], default_value: 'company-jira' },
+        { key: 'transport', label: 'Transport', type: 'select', required: true, options: ['stdio', 'streamable_http'], default_value: 'stdio', help_text: 'Use stdio for local process servers, or streamable_http for remote MCP endpoints.' },
         { key: 'deployment', label: 'Deployment', type: 'select', required: true, options: ['cloud', 'self_hosted'], default_value: 'self_hosted', help_text: 'Choose the style that best matches your Jira environment.' },
         { key: 'command', label: 'Command', type: 'text', required: true, options: [], default_value: 'npx' },
         { key: 'argsJson', label: 'Args (JSON Array)', type: 'json', required: true, options: [], default_value: '["-y", "your-company-jira-mcp-package"]', help_text: 'Replace the placeholder package or executable with the real Jira MCP implementation your company uses.' },
@@ -41,6 +43,8 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
         { key: 'secretEnvVar', label: 'Host Personal Token Env Var', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN', help_text: 'The rendered config stores ${ENV_NAME} so the personal token stays outside Yue.' },
         { key: 'tokenEnvKey', label: 'Personal Token Env Key For MCP Server', type: 'text', required: true, options: [], default_value: 'JIRA_TOKEN', help_text: 'Use the exact personal-token env var name expected by your Jira MCP server.' },
         { key: 'extraEnvJson', label: 'Extra Env (JSON Object)', type: 'json', required: false, options: [], default_value: '{}', help_text: 'Optional extra env vars such as project scopes, read-only flags, PAT mode, or SSL flags.' },
+        { key: 'url', label: 'Streamable HTTP URL', type: 'text', required: false, options: [], default_value: '', help_text: 'Required when transport is streamable_http.' },
+        { key: 'headersJson', label: 'Headers (JSON Object)', type: 'json', required: false, options: [], default_value: '{"Authorization":"${JIRA_TOKEN}"}', help_text: 'Optional request headers for streamable_http. Use placeholders like ${ENV_NAME} for secrets.' },
       ],
     },
   ];
@@ -113,7 +117,7 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
           name: server.name,
           enabled: server.enabled,
           connected: server.enabled,
-          transport: 'stdio',
+          transport: server.transport || 'stdio',
         })),
       ),
     });
@@ -135,6 +139,25 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
   await page.route('**/api/mcp/validate', async (route) => {
     const body = route.request().postDataJSON() as any;
     const values = body.values || {};
+    if (values.transport === 'streamable_http') {
+      const rendered = {
+        name: values.serverName || 'company-jira-http',
+        transport: 'streamable_http',
+        url: values.url || 'https://mcp.example.com/stream',
+        enabled: true,
+        headers: JSON.parse(values.headersJson || '{}'),
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          rendered_config: rendered,
+          warnings: ['Set JIRA_TOKEN in the host environment before reload.'],
+        }),
+      });
+      return;
+    }
     const env: Record<string, string> = {
       [values.baseUrlEnvKey || 'JIRA_BASE_URL']: values.baseUrl || '',
       [values.tokenEnvKey || 'JIRA_TOKEN']: `\${${values.secretEnvVar || 'JIRA_TOKEN'}}`,
@@ -325,6 +348,23 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
   await page.getByRole('button', { name: 'Install' }).click();
   await expect(page.getByText('Installed MCP server "corp-jira"')).toBeVisible();
   await expect(page.getByText('corp-jira', { exact: true })).toBeVisible();
+  await expect(page.getByText('stdio')).toBeVisible();
+
+  await page.getByTestId('mcp-add-menu-button').click();
+  await page.getByRole('button', { name: 'Add from Marketplace' }).click();
+  await page.getByLabel('Transport *').selectOption('streamable_http');
+  await expect(
+    page.getByText('Use your company MCP endpoint URL and keep auth in headers as ${ENV_NAME} placeholders.'),
+  ).toBeVisible();
+  await page.getByLabel('Server Name *').fill('corp-jira-http');
+  await page.getByLabel('Streamable HTTP URL').fill('https://mcp.company.internal/stream');
+  await page.getByRole('button', { name: 'Validate' }).click();
+  await expect(page.getByText('"transport": "streamable_http"')).toBeVisible();
+  await expect(page.getByText('"url": "https://mcp.company.internal/stream"')).toBeVisible();
+  await page.getByRole('button', { name: 'Install' }).click();
+  await expect(page.getByText('Installed MCP server "corp-jira-http"')).toBeVisible();
+  await expect(page.getByText('corp-jira-http', { exact: true })).toBeVisible();
+  await expect(page.getByText('streamable_http')).toBeVisible();
 
   await page.getByRole('button', { name: 'Models' }).click();
   await page.getByRole('button', { name: 'Edit' }).click();

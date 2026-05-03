@@ -889,6 +889,239 @@ actions:
             runtime_registry.skill_dirs = prev_skill_dirs
             runtime_registry.load_all()
 
+
+@pytest.mark.asyncio
+async def test_chat_stream_emits_jira_action_preview_events_from_builtin_jira_response(client, mock_chat_service, isolated_runtime_context_seam):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "jira")
+        os.makedirs(pkg_dir, exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: jira
+version: 1.0.0
+description: jira skill
+capabilities: ["project-management"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["jira_search", "jira_get_issue", "jira_write_actions"]
+---
+## System Prompt
+Jira prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: jira
+version: 1.0.0
+description: jira skill
+entrypoint: system_prompt
+capabilities: ["project-management"]
+actions:
+  - id: add_comment
+    tool: jira_add_comment
+    approval_policy: manual
+    metadata:
+      authorization_aliases: ["jira_write_actions"]
+    input_schema:
+      type: object
+      properties:
+        issue_key:
+          type: string
+        comment:
+          type: string
+      required: ["issue_key", "comment"]
+      additionalProperties: false
+""")
+
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
+        try:
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+                mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="builtin-jira",
+                    name="YUE Jira Project Assistant",
+                    system_prompt="You are a Jira assistant.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["jira_search", "jira_get_issue", "jira_write_actions"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["jira:1.0.0"],
+                )
+
+                mock_agent_instance = MagicMock()
+                mock_agent_cls.return_value = mock_agent_instance
+
+                mock_result = MagicMock()
+
+                async def mock_stream_gen():
+                    yield (
+                        "Drafted a comment preview for YUE-123.\n\n"
+                        "```jira-action-preview\n"
+                        "{\"action\":\"add_comment\",\"args\":{\"issue_key\":\"YUE-123\",\"comment\":\"Blocked on API review.\"},\"reason\":\"Keep the issue activity log current.\"}\n"
+                        "```"
+                    )
+
+                mock_result.stream_text.return_value = mock_stream_gen()
+                mock_agent_instance.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+                mock_agent_instance.run_stream.return_value.__aexit__ = AsyncMock()
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Add a Jira comment draft",
+                        "agent_id": "builtin-jira",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"event": "skill.action.preflight"' in line for line in data_lines)
+                assert any('"action_id": "add_comment"' in line for line in data_lines)
+                assert any('"lifecycle_status": "preflight_approval_required"' in line for line in data_lines)
+                assert any('"lifecycle_status": "awaiting_approval"' in line for line in data_lines)
+                assert any('"approval_token": "approval:jira:1.0.0:add_comment:' in line for line in data_lines)
+                assert mock_agent_cls.called
+        finally:
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_requested_jira_action_executes_mapped_tool_via_alias_authorization(client, mock_chat_service, isolated_runtime_context_seam):
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "jira")
+        os.makedirs(pkg_dir, exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: jira
+version: 1.0.0
+description: jira skill
+capabilities: ["project-management"]
+entrypoint: system_prompt
+constraints:
+  allowed_tools: ["jira_search", "jira_write_actions"]
+---
+## System Prompt
+Jira prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: jira
+version: 1.0.0
+description: jira skill
+entrypoint: system_prompt
+capabilities: ["project-management"]
+actions:
+  - id: add_comment
+    tool: jira_add_comment
+    approval_policy: manual
+    metadata:
+      authorization_aliases: ["jira_write_actions"]
+    input_schema:
+      type: object
+      properties:
+        issue_key:
+          type: string
+        comment:
+          type: string
+      required: ["issue_key", "comment"]
+      additionalProperties: false
+""")
+
+        runtime_registry = isolated_runtime_context_seam.skill_registry
+        prev_layered = list(runtime_registry.layered_skill_dirs)
+        prev_skill_dirs = list(runtime_registry.skill_dirs)
+        try:
+            runtime_registry.layered_skill_dirs = []
+            runtime_registry.skill_dirs = [tmp_dir]
+            runtime_registry.load_all()
+
+            with patch("app.api.chat.agent_store") as mock_agent_store, \
+                 patch("app.api.chat.tool_registry") as mock_registry, \
+                 patch("app.api.chat.get_model") as mock_get_model, \
+                 patch("app.api.chat.Agent") as mock_agent_cls:
+                mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
+                mock_chat_service.get_chat.return_value = None
+                mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
+
+                mock_jira_tool = MagicMock()
+                mock_jira_tool.name = "jira_add_comment"
+                mock_jira_tool.validate_params.side_effect = lambda args: args
+                mock_jira_tool.execute = AsyncMock(return_value='{"ok":true,"issue_key":"YUE-123"}')
+
+                async def get_tools_for_agent(_agent_id, enabled_tools=None):
+                    if enabled_tools == ["jira_add_comment"]:
+                        return [mock_jira_tool]
+                    return []
+
+                mock_registry.get_tools_for_agent = AsyncMock(side_effect=get_tools_for_agent)
+
+                mock_agent_store.get_agent.return_value = AgentConfig(
+                    id="builtin-jira",
+                    name="YUE Jira Project Assistant",
+                    system_prompt="You are a Jira assistant.",
+                    provider="openai",
+                    model="gpt-4o",
+                    enabled_tools=["jira_search", "jira_write_actions"],
+                    skill_mode="manual",
+                    visible_skills=[],
+                    resolved_visible_skills=["jira:1.0.0"],
+                )
+
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "message": "Approve Jira comment",
+                        "agent_id": "builtin-jira",
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "requested_skill": "jira:1.0.0",
+                        "requested_action": "add_comment",
+                        "requested_action_arguments": {
+                            "issue_key": "YUE-123",
+                            "comment": "Blocked on API review.",
+                        },
+                        "requested_action_approved": True,
+                        "requested_action_approval_token": "approval:jira:1.0.0:add_comment:manual",
+                    },
+                )
+                assert response.status_code == 200
+
+                lines = [line for line in response.iter_lines()]
+                data_lines = [line for line in lines if line.startswith("data: ")]
+                assert any('"lifecycle_status": "approved"' in line for line in data_lines)
+                assert any('"lifecycle_status": "succeeded"' in line for line in data_lines)
+                assert any("[Tool Result] `jira_add_comment` returned:" in line for line in data_lines)
+                assert any(call.kwargs.get("enabled_tools") == ["jira_add_comment"] for call in mock_registry.get_tools_for_agent.call_args_list)
+                mock_get_model.assert_not_called()
+                mock_agent_cls.assert_not_called()
+        finally:
+            runtime_registry.layered_skill_dirs = prev_layered
+            runtime_registry.skill_dirs = prev_skill_dirs
+            runtime_registry.load_all()
+
 @pytest.mark.asyncio
 async def test_chat_stream_requested_action_surfaces_nested_argument_validation_paths(client, mock_chat_service, isolated_runtime_context_seam):
     import os

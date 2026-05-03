@@ -2,9 +2,12 @@ import type { LlmForm, McpTemplate } from './types';
 
 export type McpServerConfig = {
   name: string;
-  command: string;
-  args: string[];
-  env: Record<string, string>;
+  transport?: 'stdio' | 'streamable_http';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
   enabled: boolean;
 };
 
@@ -22,33 +25,88 @@ export const splitRootsText = (input: string): string[] =>
 
 export const buildMcpServersFromParsedInput = (parsed: any): McpServerConfig[] => {
   if (parsed?.mcpServers && typeof parsed.mcpServers === 'object') {
-    return Object.entries(parsed.mcpServers).map(([name, config]: [string, any]) => ({
-      name,
-      command: config.command,
-      args: config.args || [],
-      env: config.env || {},
-      enabled: true,
-    }));
+    const servers: McpServerConfig[] = [];
+    Object.entries(parsed.mcpServers).forEach(([name, config]: [string, any]) => {
+      if (!config || typeof config !== 'object') return;
+      const transport = config.transport === 'streamable_http' ? 'streamable_http' : 'stdio';
+      if (transport === 'streamable_http') {
+        if (!config.url) return;
+        servers.push({
+          name,
+          transport,
+          url: config.url,
+          headers: config.headers || {},
+          env: config.env || {},
+          enabled: config.enabled !== undefined ? config.enabled : true,
+        });
+        return;
+      }
+      if (!config.command) return;
+      servers.push({
+        name,
+        transport: 'stdio',
+        command: config.command,
+        args: config.args || [],
+        env: config.env || {},
+        enabled: config.enabled !== undefined ? config.enabled : true,
+      });
+    });
+    return servers;
   }
 
   if (Array.isArray(parsed)) {
-    return parsed.map((item) => ({
-      name: item.name,
-      command: item.command,
-      args: item.args || [],
-      env: item.env || {},
-      enabled: item.enabled !== undefined ? item.enabled : true,
-    }));
+    const servers: McpServerConfig[] = [];
+    parsed.forEach((item) => {
+      if (!item || typeof item !== 'object' || !item.name) return;
+      const transport = item.transport === 'streamable_http' ? 'streamable_http' : 'stdio';
+      if (transport === 'streamable_http') {
+        if (!item.url) return;
+        servers.push({
+          name: item.name,
+          transport,
+          url: item.url,
+          headers: item.headers || {},
+          env: item.env || {},
+          enabled: item.enabled !== undefined ? item.enabled : true,
+        });
+        return;
+      }
+      if (!item.command) return;
+      servers.push({
+        name: item.name,
+        transport: 'stdio',
+        command: item.command,
+        args: item.args || [],
+        env: item.env || {},
+        enabled: item.enabled !== undefined ? item.enabled : true,
+      });
+    });
+    return servers;
   }
 
-  if (parsed?.name && parsed?.command) {
+  if (parsed?.name && (parsed?.command || parsed?.url)) {
+    const transport = parsed.transport === 'streamable_http' ? 'streamable_http' : 'stdio';
+    if (transport === 'streamable_http' && parsed?.url) {
+      return [
+        {
+          name: parsed.name,
+          transport,
+          url: parsed.url,
+          headers: parsed.headers || {},
+          env: parsed.env || {},
+          enabled: parsed.enabled !== undefined ? parsed.enabled : true,
+        },
+      ];
+    }
+    if (!parsed?.command) return [];
     return [
       {
         name: parsed.name,
+        transport: 'stdio',
         command: parsed.command,
         args: parsed.args || [],
         env: parsed.env || {},
-        enabled: true,
+        enabled: parsed.enabled !== undefined ? parsed.enabled : true,
       },
     ];
   }
@@ -80,8 +138,18 @@ export const buildMcpTemplateInitialValues = (template: McpTemplate): Record<str
     ]),
   );
 
-export const buildMcpTemplateOnboardingNotes = (templateId: string): string[] => {
+export const buildMcpTemplateOnboardingNotes = (
+  templateId: string,
+  transport: 'stdio' | 'streamable_http' = 'stdio',
+): string[] => {
   if (templateId === 'jira-company') {
+    if (transport === 'streamable_http') {
+      return [
+        'Use your company MCP endpoint URL and keep auth in headers as ${ENV_NAME} placeholders.',
+        'Prefer read-only scopes first while verifying tool behavior.',
+        'Confirm required headers and proxy/SSL requirements with your platform team.',
+      ];
+    }
     return [
       'Default to base URL plus personal token; username/email should stay optional unless your company MCP requires it.',
       'Keep the server disabled until the real internal Jira MCP package or executable is confirmed.',

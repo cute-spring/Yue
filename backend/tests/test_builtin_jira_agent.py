@@ -22,7 +22,21 @@ def test_builtin_jira_is_read_oriented_and_skill_constrained():
     assert jira_agent is not None
     assert jira_agent.skill_mode == "manual"
     assert jira_agent.visible_skills == ["jira:1.0.0"]
-    assert jira_agent.enabled_tools == []
+    assert jira_agent.enabled_tools == [
+        "jira_get_all_projects",
+        "jira_search_fields",
+        "jira_search",
+        "jira_get_issue",
+        "jira_get_transitions",
+        "jira_get_agile_boards",
+        "jira_get_board_issues",
+        "jira_get_sprints_from_board",
+        "jira_get_sprint_issues",
+        "jira_get_link_types",
+        "jira_write_actions",
+    ]
     assert jira_agent.require_citations is True
-    assert "Do not perform Jira write actions" in jira_agent.system_prompt
-    assert "ticket-draft workflows" in jira_agent.system_prompt
+    assert "Read operations are fully authorized by default" in jira_agent.system_prompt
+    assert "jira-action-preview" in jira_agent.system_prompt
+    assert "Sprint Health" in jira_agent.system_prompt
+    assert jira_agent.model == "gpt-5.4"

@@ -10,7 +10,18 @@ type McpMarketplaceModalProps = {
 };
 
 export const resolveMcpMarketplaceOnboardingState = (templateId: string) => {
-  const notes = buildMcpTemplateOnboardingNotes(templateId);
+  const notes = buildMcpTemplateOnboardingNotes(templateId, 'stdio');
+  return {
+    notes,
+    showNotes: notes.length > 0,
+  };
+};
+
+const resolveMcpMarketplaceOnboardingStateWithTransport = (
+  templateId: string,
+  transport: 'stdio' | 'streamable_http',
+) => {
+  const notes = buildMcpTemplateOnboardingNotes(templateId, transport);
   return {
     notes,
     showNotes: notes.length > 0,
@@ -28,7 +39,34 @@ export function McpMarketplaceModal(props: McpMarketplaceModalProps) {
   const selectedTemplate = createMemo(() =>
     props.templates.find((template) => template.id === selectedTemplateId()) || props.templates[0],
   );
-  const onboardingState = createMemo(() => resolveMcpMarketplaceOnboardingState(selectedTemplate()?.id || ''));
+  const selectedTransport = createMemo<'stdio' | 'streamable_http'>(() =>
+    values().transport === 'streamable_http' ? 'streamable_http' : 'stdio',
+  );
+  const onboardingState = createMemo(() =>
+    resolveMcpMarketplaceOnboardingStateWithTransport(selectedTemplate()?.id || '', selectedTransport()),
+  );
+  const visibleFields = createMemo(() => {
+    const template = selectedTemplate();
+    if (!template) return [];
+    const transport = selectedTransport();
+    const stdioOnlyKeys = new Set([
+      'command',
+      'argsJson',
+      'baseUrl',
+      'baseUrlEnvKey',
+      'username',
+      'usernameEnvKey',
+      'tokenEnvKey',
+      'extraEnvJson',
+      'envJson',
+    ]);
+    const httpOnlyKeys = new Set(['url', 'headersJson']);
+    return template.fields.filter((field) => {
+      if (transport === 'streamable_http' && stdioOnlyKeys.has(field.key)) return false;
+      if (transport === 'stdio' && httpOnlyKeys.has(field.key)) return false;
+      return true;
+    });
+  });
 
   createEffect(() => {
     const template = selectedTemplate();
@@ -111,7 +149,7 @@ export function McpMarketplaceModal(props: McpMarketplaceModalProps) {
           <div class="px-5 py-4 border-b">
             <div class="text-lg font-semibold">{selectedTemplate()?.name || 'MCP Template'}</div>
             <div class="text-sm text-gray-600 mt-1">
-              {selectedTemplate()?.description || 'Choose a template and provide the real command, args, URLs, and auth mapping your company uses.'}
+              {selectedTemplate()?.description || 'Choose a template and provide either stdio command/args or streamable HTTP URL/headers based on your company setup.'}
             </div>
           </div>
           <div class="flex-1 overflow-y-auto p-5 space-y-5">
@@ -127,7 +165,7 @@ export function McpMarketplaceModal(props: McpMarketplaceModalProps) {
                 </div>
               </Show>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <For each={selectedTemplate()?.fields || []}>
+                <For each={visibleFields()}>
                   {(field) => (
                     <div class={field.type === 'json' ? 'md:col-span-2' : ''}>
                       <label class="block text-sm font-medium text-gray-700 mb-1">

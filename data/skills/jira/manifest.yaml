@@ -1,0 +1,106 @@
+format_version: 1
+name: jira
+version: 1.0.0
+description: YUE Jira operations and project intelligence skill with read-first analysis and confirmed write actions.
+entrypoint: system_prompt
+capabilities:
+  - project-management
+  - issue-tracking
+  - sprint-analysis
+  - delivery-risk-analysis
+constraints:
+  allowed_tools:
+    - jira_get_all_projects
+    - jira_search_fields
+    - jira_search
+    - jira_get_issue
+    - jira_get_transitions
+    - jira_get_agile_boards
+    - jira_get_board_issues
+    - jira_get_sprints_from_board
+    - jira_get_sprint_issues
+    - jira_get_link_types
+    - jira_write_actions
+actions:
+  - id: add_comment
+    tool: jira_add_comment
+    approval_policy: manual
+    metadata:
+      authorization_aliases: ["jira_write_actions"]
+    input_schema:
+      type: object
+      properties:
+        issue_key:
+          type: string
+          minLength: 1
+        comment:
+          type: string
+          minLength: 1
+      required: ["issue_key", "comment"]
+      additionalProperties: false
+  - id: create_issue
+    tool: jira_create_issue
+    approval_policy: manual
+    metadata:
+      authorization_aliases: ["jira_write_actions"]
+    input_schema:
+      type: object
+      properties:
+        project_key:
+          type: string
+          minLength: 1
+        summary:
+          type: string
+          minLength: 1
+        issue_type:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        assignee:
+          type: string
+        components:
+          type: string
+        additional_fields:
+          type: object
+      required: ["project_key", "summary", "issue_type"]
+      additionalProperties: true
+  - id: update_issue
+    tool: jira_update_issue
+    approval_policy: manual
+    metadata:
+      authorization_aliases: ["jira_write_actions"]
+    input_schema:
+      type: object
+      properties:
+        issue_key:
+          type: string
+          minLength: 1
+        fields:
+          type: object
+        additional_fields:
+          type: object
+        attachments:
+          type: string
+      required: ["issue_key"]
+      additionalProperties: true
+  - id: transition_issue
+    tool: jira_transition_issue
+    approval_policy: manual
+    metadata:
+      authorization_aliases: ["jira_write_actions"]
+    input_schema:
+      type: object
+      properties:
+        issue_key:
+          type: string
+          minLength: 1
+        transition_id:
+          type: string
+          minLength: 1
+        fields:
+          type: object
+        comment:
+          type: string
+      required: ["issue_key", "transition_id"]
+      additionalProperties: false
