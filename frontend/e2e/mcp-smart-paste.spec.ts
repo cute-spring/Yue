@@ -120,3 +120,209 @@ test('smart paste parses stdio config and saves disabled entry', async ({ page }
 
   await expect(page.getByText('filesystem')).toBeVisible();
 });
+
+test('smart paste detects sensitive values and replaces before parsing', async ({ page }) => {
+  const featureFlagsState: Record<string, boolean> = {
+    chat_trace_ui_enabled: false,
+    chat_trace_raw_enabled: false,
+    mcp_smart_paste_enabled: true,
+  };
+
+  await page.route('**/api/config/feature_flags', async (route) => {
+    if (route.request().method() === 'POST') {
+      Object.assign(featureFlagsState, route.request().postDataJSON());
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(featureFlagsState),
+    });
+  });
+
+  await page.route('**/api/config/preferences', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ theme: 'light', language: 'en', default_agent: 'default', advanced_mode: false }),
+    });
+  });
+
+  await page.route('**/api/config/doc_access', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ allow_roots: [], deny_roots: [] }),
+    });
+  });
+
+  await page.route('**/api/mcp/', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/reload', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'reloaded' }) });
+  });
+
+  await page.route('**/api/mcp/status**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/tools', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/templates', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/parse', async (route) => {
+    const body = route.request().postDataJSON() as any;
+    expect(body.raw_text).not.toContain('sk-abc123');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        parse_mode: 'rule',
+        results: [{
+          name: 'secure-service',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', 'test-pkg'],
+          url: null, headers: null, env: null,
+          enabled: false, timeout: 60, min_version: null,
+          confidence: 0.9,
+          hints: ['已识别为 stdio 模式'],
+          warnings: [],
+          missing_fields: [],
+          source_index: 0,
+        }],
+      }),
+    });
+  });
+
+  await page.route('**/api/models/providers', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/agents', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'MCP' }).click();
+
+  await page.getByTestId('mcp-add-menu-button').click();
+  await page.getByTestId('mcp-smart-paste-button').click();
+
+  await page.getByTestId('smart-paste-textarea').fill('JIRA_TOKEN=sk-abc12345678901234567\nnpx -y test-pkg');
+  await page.getByTestId('smart-paste-parse-btn').click();
+
+  await expect(page.getByText('检测到 1 处疑似敏感信息')).toBeVisible();
+  await expect(page.getByText('sk-abc12345678901234567')).toBeVisible();
+
+  await page.getByText('一键全部替换').click();
+
+  await expect(page.getByTestId('smart-paste-name-input')).toHaveValue('secure-service');
+});
+
+test('smart paste allows skipping sensitive detection', async ({ page }) => {
+  const featureFlagsState: Record<string, boolean> = {
+    chat_trace_ui_enabled: false,
+    chat_trace_raw_enabled: false,
+    mcp_smart_paste_enabled: true,
+  };
+
+  await page.route('**/api/config/feature_flags', async (route) => {
+    if (route.request().method() === 'POST') {
+      Object.assign(featureFlagsState, route.request().postDataJSON());
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(featureFlagsState),
+    });
+  });
+
+  await page.route('**/api/config/preferences', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ theme: 'light', language: 'en', default_agent: 'default', advanced_mode: false }),
+    });
+  });
+
+  await page.route('**/api/config/doc_access', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ allow_roots: [], deny_roots: [] }),
+    });
+  });
+
+  await page.route('**/api/mcp/', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/reload', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'reloaded' }) });
+  });
+
+  await page.route('**/api/mcp/status**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/tools', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/templates', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/mcp/parse', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        parse_mode: 'rule',
+        results: [{
+          name: 'test-srv',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', 'test-pkg'],
+          url: null, headers: null, env: null,
+          enabled: false, timeout: 60, min_version: null,
+          confidence: 0.9,
+          hints: ['已识别为 stdio 模式'],
+          warnings: [],
+          missing_fields: [],
+          source_index: 0,
+        }],
+      }),
+    });
+  });
+
+  await page.route('**/api/models/providers', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.route('**/api/agents', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+  });
+
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'MCP' }).click();
+
+  await page.getByTestId('mcp-add-menu-button').click();
+  await page.getByTestId('mcp-smart-paste-button').click();
+
+  await page.getByTestId('smart-paste-textarea').fill('JIRA_TOKEN=sk-abc12345678901234567\nnpx -y test-pkg');
+  await page.getByTestId('smart-paste-parse-btn').click();
+
+  await expect(page.getByText('检测到 1 处疑似敏感信息')).toBeVisible();
+  await page.getByText('跳过，直接发送').click();
+
+  await expect(page.getByTestId('smart-paste-name-input')).toHaveValue('test-srv');
+});
