@@ -36,7 +36,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
     setPhase('parsing');
     setParseHint('');
     abortController = new AbortController();
-    parseHintTimer = setTimeout(() => setParseHint('AI 分析中，请稍候…'), 1500);
+    parseHintTimer = setTimeout(() => setParseHint('AI Analyzing, please wait...'), 1500);
 
     try {
       const response = await props.onParse(text, abortController.signal);
@@ -44,7 +44,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
         setResults(response.results);
         setPhase('preview');
       } else {
-        setParseError(response.error || '无法从输入中解析出有效的 MCP 配置');
+        setParseError(response.error || 'Unable to parse valid MCP configurations from input');
         setPhase('idle');
       }
     } catch (e: any) {
@@ -52,7 +52,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
         setPhase('idle');
         return;
       }
-      setParseError(e?.message || '解析失败，请重试');
+      setParseError(e?.message || 'Parse failed, please try again');
       setPhase('idle');
     } finally {
       clearTimeout(parseHintTimer);
@@ -66,7 +66,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
       return;
     }
     if (validation.kind === 'too_long') {
-      setParseError('输入文本过长，请精简后重试');
+      setParseError('Input text is too long, please shorten it and try again');
       return;
     }
 
@@ -209,13 +209,13 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
   const handleSave = async () => {
     const selected = results().filter((r) => r._selected !== false);
     if (selected.length === 0) {
-      setSaveError('请至少选择一个配置进行保存');
+      setSaveError('Please select at least one configuration to save');
       return;
     }
 
     const conflicts = findNameConflicts(props.existingNames, selected);
     if (conflicts.length > 0) {
-      setSaveError(`配置名称已存在: ${conflicts.join(', ')}`);
+      setSaveError(`Configuration name already exists: ${conflicts.join(', ')}`);
       return;
     }
 
@@ -227,7 +227,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
       setSaveSuccess(true);
       setTimeout(() => props.onClose(), 1000);
     } catch (e: any) {
-      setSaveError(e?.message || '保存失败');
+      setSaveError(e?.message || 'Save failed');
       setPhase('preview');
     }
   };
@@ -253,11 +253,11 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
               <div class="flex items-center gap-2 mb-2">
                 <span class="text-amber-600 font-semibold">⚠️</span>
                 <span class="text-sm font-semibold text-amber-800">
-                  检测到 {sensitiveDetections().length} 处疑似敏感信息
+                  Detected {sensitiveDetections().length} potential sensitive values
                 </span>
               </div>
               <p class="text-xs text-amber-700 mb-3">
-                建议在发送解析前替换为环境变量占位符，保护密钥安全。替换后可在系统环境变量中设置真实值。
+                It is recommended to replace secrets with environment variable placeholders before parsing. You can set the actual values in the system environment variables later.
               </p>
 
               <div class="space-y-2 max-h-[200px] overflow-y-auto mb-3">
@@ -278,16 +278,28 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
               </div>
 
               <div class="text-xs text-gray-500 mb-3">
-                <div class="font-medium mb-1">替换后预览：</div>
+                <div class="font-medium mb-1">Replacement Preview:</div>
                 <pre class="bg-white border rounded p-2 max-h-[120px] overflow-y-auto text-[11px] whitespace-pre-wrap font-mono">{replacedText()}</pre>
               </div>
             </div>
           </Show>
 
           <Show when={phase() === 'idle' || phase() === 'parsing'}>
-            <div class="text-sm text-gray-500 mb-3">
-              粘贴你的 MCP 配置信息，支持 Claude Desktop JSON、命令行片段、HTTP 端点或自然语言描述
+            <div class="mb-4 space-y-3">
+              <div class="p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                <div class="text-sm font-semibold text-blue-800 mb-1 flex items-center gap-1.5">
+                  <span class="text-base">💡</span> Smart Paste Guide
+                </div>
+                <ul class="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                  <li>Paste <span class="font-mono bg-blue-100 px-1 rounded">Claude Desktop</span> JSON configuration directly.</li>
+                  <li>Supports command-line instructions including <span class="font-mono bg-blue-100 px-1 rounded">npx</span> or <span class="font-mono bg-blue-100 px-1 rounded">docker</span>.</li>
+                  <li>Supports <span class="font-mono bg-blue-100 px-1 rounded">HTTP/SSE</span> connection URLs.</li>
+                  <li>You can even describe it in natural language, e.g., "Add a local Python-based MCP service".</li>
+                  <li class="font-medium">Security: Secrets will be automatically replaced with placeholders. Please fill in actual values in the preview later.</li>
+                </ul>
+              </div>
             </div>
+
             <textarea
               ref={textareaRef}
               data-testid="smart-paste-textarea"
@@ -308,11 +320,11 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
             <Show when={phase() === 'parsing'}>
               <div class="flex items-center gap-2 text-sm text-blue-600 mt-3">
                 <div class="animate-spin h-4 w-4 border-2 border-blue-300 border-t-blue-600 rounded-full" />
-                <span>{parseHint() || '解析中…'}</span>
+                <span>{parseHint() || 'Analyzing...'}</span>
               </div>
             </Show>
 
-            <div class="text-xs text-gray-400 mt-1">密钥安全：token / 密码会自动转为 $&#123;ENV_NAME&#125; 占位符</div>
+            <div class="text-xs text-gray-400 mt-1">Security: tokens / passwords will be replaced with ${"{"}ENV_NAME{"}"} placeholders</div>
 
             <Show when={parseError()}>
               <div class="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
@@ -322,8 +334,13 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
           </Show>
 
           <Show when={phase() === 'preview' || phase() === 'saving'}>
-            <div class="text-sm text-gray-500 mb-3">
-              解析完成，确认以下配置后保存：
+            <div class="mb-3 p-3 bg-emerald-50 border border-emerald-100 rounded-lg">
+              <div class="text-sm font-semibold text-emerald-800 mb-1 flex items-center gap-1.5">
+                <span class="text-base">✅</span> Parse Successful
+              </div>
+              <p class="text-xs text-emerald-700">
+                AI has identified the configurations. If they contain <span class="font-mono bg-emerald-100 px-1 rounded">${"{"}ENV_NAME{"}"}</span> placeholders, please make sure to replace them with <b>actual values</b> in the inputs below before saving, otherwise the service might fail to connect.
+              </p>
             </div>
             <div class="space-y-3">
               <For each={results()}>
@@ -523,7 +540,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
                     </Show>
                     <Show when={config.missing_fields.length > 0}>
                       <div class="mt-1 text-xs text-red-500">
-                        缺少字段: {config.missing_fields.join(', ')}
+                        Missing fields: {config.missing_fields.join(', ')}
                       </div>
                     </Show>
                   </div>
@@ -538,7 +555,7 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
             </Show>
             <Show when={saveSuccess()}>
               <div class="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
-                保存成功！
+                Save Successful!
               </div>
             </Show>
           </Show>
@@ -548,27 +565,27 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
           <div>
             <Show when={phase() === 'parsing'}>
               <button onClick={handleCancelParse} class="px-3 py-1.5 rounded-md border text-sm">
-                取消
+                Cancel
               </button>
             </Show>
           </div>
           <div class="flex gap-2">
             <Show when={phase() === 'sensitive_check'}>
               <button onClick={handleSensitiveBackToEdit} class="px-3 py-1.5 rounded-md border text-sm">
-                返回编辑
+                Back to Edit
               </button>
               <div class="flex gap-2">
                 <button onClick={handleSensitiveSendAnyway} class="px-3 py-1.5 rounded-md border text-sm text-gray-500">
-                  跳过，直接发送
+                  Skip and Send
                 </button>
                 <button onClick={handleSensitiveReplaceAll} class="px-4 py-1.5 rounded-md bg-amber-600 text-white text-sm">
-                  一键全部替换
+                  Replace All
                 </button>
               </div>
             </Show>
             <Show when={phase() === 'idle'}>
               <button onClick={props.onClose} class="px-3 py-1.5 rounded-md border text-sm">
-                取消
+                Cancel
               </button>
               <button
                 onClick={handleParse}
@@ -576,12 +593,12 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
                 data-testid="smart-paste-parse-btn"
                 class="px-4 py-1.5 rounded-md bg-blue-700 text-white text-sm disabled:opacity-50"
               >
-                AI 解析
+                AI Parse
               </button>
             </Show>
             <Show when={phase() === 'preview'}>
               <button onClick={() => { setPhase('idle'); setParseError(null); }} class="px-3 py-1.5 rounded-md border text-sm">
-                重新解析
+                Reparse
               </button>
               <button
                 onClick={handleSave}
@@ -589,18 +606,18 @@ export function McpSmartPasteModal(props: McpSmartPasteModalProps) {
                 data-testid="smart-paste-save-btn"
                 class="px-4 py-1.5 rounded-md bg-emerald-600 text-white text-sm disabled:opacity-50"
               >
-                确认并保存
+                Confirm and Save
               </button>
             </Show>
             <Show when={phase() === 'preview' && parseError()}>
               <button onClick={handleRetry} class="px-3 py-1.5 rounded-md border text-sm">
-                重试
+                Retry
               </button>
             </Show>
             <Show when={phase() === 'saving'}>
               <div class="flex items-center gap-2 text-sm text-gray-500">
                 <div class="animate-spin h-4 w-4 border-2 border-gray-300 border-t-emerald-600 rounded-full" />
-                保存中...
+                Saving...
               </div>
             </Show>
           </div>
