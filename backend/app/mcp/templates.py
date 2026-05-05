@@ -74,6 +74,15 @@ DEFAULT_TEMPLATES: List[McpTemplate] = [
         fields=[
             _field("serverName", "Server Name", required=True, default_value="company-jira"),
             _field(
+                "transport",
+                "Transport",
+                type="select",
+                required=True,
+                default_value="stdio",
+                options=["stdio", "streamable_http"],
+                help_text="Use stdio for local process servers, or streamable_http for remote MCP endpoints.",
+            ),
+            _field(
                 "deployment",
                 "Deployment",
                 type="select",
@@ -139,6 +148,20 @@ DEFAULT_TEMPLATES: List[McpTemplate] = [
                 default_value="{}",
                 help_text="Optional extra env vars such as project scopes, read-only flags, PAT mode, or SSL flags.",
             ),
+            _field(
+                "url",
+                "Streamable HTTP URL",
+                default_value="",
+                placeholder="https://mcp.company.internal/stream",
+                help_text="Required when transport is streamable_http.",
+            ),
+            _field(
+                "headersJson",
+                "Headers (JSON Object)",
+                type="json",
+                default_value='{"Authorization":"${JIRA_TOKEN}"}',
+                help_text='Optional request headers for streamable_http. Use placeholders like ${ENV_NAME} for secrets.',
+            ),
         ],
     ),
     McpTemplate(
@@ -152,6 +175,15 @@ DEFAULT_TEMPLATES: List[McpTemplate] = [
         deployment="mixed",
         fields=[
             _field("serverName", "Server Name", required=True, default_value="company-confluence"),
+            _field(
+                "transport",
+                "Transport",
+                type="select",
+                required=True,
+                default_value="stdio",
+                options=["stdio", "streamable_http"],
+                help_text="Use stdio for local process servers, or streamable_http for remote MCP endpoints.",
+            ),
             _field(
                 "deployment",
                 "Deployment",
@@ -214,6 +246,20 @@ DEFAULT_TEMPLATES: List[McpTemplate] = [
                 default_value="{}",
                 help_text="Optional extra env vars such as space filters or SSL flags.",
             ),
+            _field(
+                "url",
+                "Streamable HTTP URL",
+                default_value="",
+                placeholder="https://mcp.company.internal/stream",
+                help_text="Required when transport is streamable_http.",
+            ),
+            _field(
+                "headersJson",
+                "Headers (JSON Object)",
+                type="json",
+                default_value='{"Authorization":"${CONFLUENCE_TOKEN}"}',
+                help_text='Optional request headers for streamable_http. Use placeholders like ${ENV_NAME} for secrets.',
+            ),
         ],
     ),
     McpTemplate(
@@ -227,6 +273,14 @@ DEFAULT_TEMPLATES: List[McpTemplate] = [
         deployment="custom_mcp",
         fields=[
             _field("serverName", "Server Name", required=True, default_value="company-internal-mcp"),
+            _field(
+                "transport",
+                "Transport",
+                type="select",
+                required=True,
+                default_value="stdio",
+                options=["stdio", "streamable_http"],
+            ),
             _field("command", "Command", required=True, default_value="npx"),
             _field(
                 "argsJson",
@@ -241,6 +295,20 @@ DEFAULT_TEMPLATES: List[McpTemplate] = [
                 type="json",
                 default_value='{"INTERNAL_API_TOKEN":"${INTERNAL_API_TOKEN}"}',
                 help_text="Use ${ENV_NAME} placeholders so secrets come from the host environment.",
+            ),
+            _field(
+                "url",
+                "Streamable HTTP URL",
+                default_value="",
+                placeholder="https://mcp.company.internal/stream",
+                help_text="Required when transport is streamable_http.",
+            ),
+            _field(
+                "headersJson",
+                "Headers (JSON Object)",
+                type="json",
+                default_value='{"Authorization":"${INTERNAL_API_TOKEN}"}',
+                help_text='Optional request headers for streamable_http. Use placeholders like ${ENV_NAME} for secrets.',
             ),
         ],
     ),
@@ -312,6 +380,29 @@ def _build_adapter_config(
     default_token_env_key: str,
 ) -> TemplateRenderResult:
     server_name = _require_text(values, "serverName", "Server name")
+    transport = _optional_text(values, "transport") or "stdio"
+    if transport == "streamable_http":
+        url = _require_text(values, "url", "Streamable HTTP URL")
+        headers = _parse_json_object(values.get("headersJson") or "{}", "Headers")
+        warnings: List[str] = []
+        secret_env_var = _optional_text(values, "secretEnvVar")
+        if secret_env_var:
+            warnings.append(f"Set {secret_env_var} in the Yue host environment before reloading MCP.")
+        if not url.lower().startswith(("https://", "http://")):
+            warnings.append("Streamable HTTP URL should start with http:// or https://.")
+        if not headers:
+            warnings.append("Add required authentication headers if your MCP endpoint enforces auth.")
+        return TemplateRenderResult(
+            rendered_config={
+                "name": server_name,
+                "transport": "streamable_http",
+                "url": url,
+                "headers": headers,
+                "enabled": True,
+            },
+            warnings=warnings,
+        )
+
     command = _require_text(values, "command", "Command")
     args = _parse_json_array(_require_text(values, "argsJson", "Args"), "Args")
     base_url = _require_text(values, "baseUrl", base_url_label)
@@ -370,6 +461,31 @@ def render_template(template_id: str, values: Dict[str, Any]) -> TemplateRenderR
         )
     if template_id == "custom-company-mcp":
         server_name = _require_text(values, "serverName", "Server name")
+        transport = _optional_text(values, "transport") or "stdio"
+        if transport == "streamable_http":
+            url = _require_text(values, "url", "Streamable HTTP URL")
+            headers = _parse_json_object(values.get("headersJson") or "{}", "Headers")
+            warnings: List[str] = []
+            placeholder_keys = [key for key, value in headers.items() if PLACEHOLDER_ENV_RE.match(value)]
+            if placeholder_keys:
+                warnings.append(
+                    "This config uses host env placeholders for headers: "
+                    + ", ".join(sorted(placeholder_keys))
+                    + ". Make sure those env vars are set before reloading MCP."
+                )
+            if not headers:
+                warnings.append("Add required authentication headers if your MCP endpoint enforces auth.")
+            return TemplateRenderResult(
+                rendered_config={
+                    "name": server_name,
+                    "transport": "streamable_http",
+                    "url": url,
+                    "headers": headers,
+                    "enabled": True,
+                },
+                warnings=warnings,
+            )
+
         command = _require_text(values, "command", "Command")
         args = _parse_json_array(_require_text(values, "argsJson", "Args"), "Args")
         env = _parse_json_object(values.get("envJson") or "{}", "Env")

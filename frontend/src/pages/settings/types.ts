@@ -41,7 +41,7 @@ export type McpStatus = {
   name: string;
   enabled: boolean;
   connected: boolean;
-  transport: string;
+  transport: 'stdio' | 'streamable_http';
   last_error?: string;
 };
 
@@ -183,11 +183,13 @@ export type DocAccess = {
 export type FeatureFlags = {
   chat_trace_ui_enabled: boolean;
   chat_trace_raw_enabled: boolean;
+  mcp_smart_paste_enabled: boolean;
 };
 
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   chat_trace_ui_enabled: false,
   chat_trace_raw_enabled: false,
+  mcp_smart_paste_enabled: false,
 };
 
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
@@ -203,6 +205,9 @@ export const normalizeFeatureFlags = (value: any): FeatureFlags => ({
   chat_trace_raw_enabled: typeof value?.chat_trace_raw_enabled === 'boolean'
     ? value.chat_trace_raw_enabled
     : DEFAULT_FEATURE_FLAGS.chat_trace_raw_enabled,
+  mcp_smart_paste_enabled: typeof value?.mcp_smart_paste_enabled === 'boolean'
+    ? value.mcp_smart_paste_enabled
+    : DEFAULT_FEATURE_FLAGS.mcp_smart_paste_enabled,
 });
 
 const normalizeModelTierEntry = (value: any, fallback: ModelTierConfigEntry): ModelTierConfigEntry => ({
@@ -217,3 +222,30 @@ export const normalizeModelTierConfig = (value: any): ModelTierConfig => ({
 });
 
 export type LlmForm = Record<string, any>;
+
+
+export type ParsedMcpConfig = {
+  name: string;
+  transport: 'stdio' | 'streamable_http';
+  command: string | null;
+  args: string[] | null;
+  url: string | null;
+  headers: Record<string, string> | null;
+  env: Record<string, string> | null;
+  enabled: boolean;
+  timeout: number;
+  min_version: string | null;
+  confidence: number;
+  hints: string[];
+  warnings: string[];
+  missing_fields: string[];
+  source_index?: number | null;
+  _selected?: boolean;
+};
+
+export type SmartPasteResponse = {
+  ok: boolean;
+  results: ParsedMcpConfig[];
+  parse_mode: 'rule' | 'ai' | 'hybrid';
+  error?: string | null;
+};

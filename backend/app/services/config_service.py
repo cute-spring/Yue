@@ -265,6 +265,10 @@ class ConfigService:
             "multimodal_enabled": _coerce_bool(flags.get("multimodal_enabled"), True),
             "multimodal_image_only_submit_enabled": _coerce_bool(flags.get("multimodal_image_only_submit_enabled"), True),
             "multimodal_vision_fallback_enabled": _coerce_bool(flags.get("multimodal_vision_fallback_enabled"), False),
+            "mcp_smart_paste_enabled": _coerce_bool(
+                flags.get("mcp_smart_paste_enabled"),
+                False,
+            ),
         }
 
     def update_feature_flags(self, feature_flags: Dict[str, Any]) -> Dict[str, bool]:

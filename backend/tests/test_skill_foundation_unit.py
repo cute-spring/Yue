@@ -2378,5 +2378,29 @@ def test_skill_action_execution_service_rejects_invalid_approval_token():
     assert approval_result.lifecycle_status == "invalid"
     assert approval_result.metadata["reason"] == "approval_token_mismatch"
 
+
+def test_skill_policy_gate_accepts_action_authorization_aliases():
+    action = RuntimeSkillActionDescriptor(
+        id="add_comment",
+        name="jira",
+        version="1.0.0",
+        tool="jira_add_comment",
+        approval_policy="manual",
+        metadata={"authorization_aliases": ["jira_write_actions"]},
+    )
+
+    invocation = SkillPolicyGate.validate_action_invocation(
+        action,
+        enabled_tools=["jira_write_actions"],
+        arguments={
+            "issue_key": "YUE-123",
+            "comment": "Blocked on API review.",
+        },
+    )
+
+    assert invocation.accepted is True
+    assert invocation.mapped_tool == "jira_add_comment"
+    assert invocation.missing_requirements == []
+
 if __name__ == "__main__":
     pytest.main([__file__])

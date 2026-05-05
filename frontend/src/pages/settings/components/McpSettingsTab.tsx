@@ -1,9 +1,10 @@
 import type { Accessor, Setter } from 'solid-js';
 import { For, Show } from 'solid-js';
-import type { McpStatus, McpTemplate, McpTemplateValidationResult, McpTool } from '../types';
+import type { McpStatus, McpTemplate, McpTemplateValidationResult, McpTool, ParsedMcpConfig, SmartPasteResponse } from '../types';
 import { McpManualModal } from './modals/McpManualModal';
 import { McpMarketplaceModal } from './modals/McpMarketplaceModal';
 import { McpRawConfigModal } from './modals/McpRawConfigModal';
+import { McpSmartPasteModal } from './modals/McpSmartPasteModal';
 
 type McpSettingsTabProps = {
   mcpStatus: Accessor<McpStatus[]>;
@@ -23,6 +24,8 @@ type McpSettingsTabProps = {
   setShowRaw: Setter<boolean>;
   showMarketplace: Accessor<boolean>;
   setShowMarketplace: Setter<boolean>;
+  showSmartPaste: Accessor<boolean>;
+  setShowSmartPaste: Setter<boolean>;
   mcpConfig: Accessor<string>;
   setMcpConfig: Setter<string>;
   reloadMcp: () => void;
@@ -32,6 +35,8 @@ type McpSettingsTabProps = {
   saveMcp: () => Promise<void>;
   validateMcpTemplate: (templateId: string, values: Record<string, string>) => Promise<McpTemplateValidationResult>;
   installMcpTemplate: (templateId: string, values: Record<string, string>) => Promise<McpTemplateValidationResult>;
+  parseMcpSmartPaste: (rawText: string, signal: AbortSignal) => Promise<SmartPasteResponse>;
+  saveMcpSmartPaste: (configs: ParsedMcpConfig[]) => Promise<void>;
 };
 
 export function McpSettingsTab(props: McpSettingsTabProps) {
@@ -80,6 +85,17 @@ export function McpSettingsTab(props: McpSettingsTabProps) {
                 >
                   Add Manually
                 </button>
+                <button
+                  data-testid="mcp-smart-paste-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.setShowAddMenu(false);
+                    props.setShowSmartPaste(true);
+                  }}
+                  class="block w-full text-left px-3 py-2 hover:bg-gray-50"
+                >
+                  Smart Paste (AI)
+                </button>
               </div>
             </Show>
           </div>
@@ -110,11 +126,14 @@ export function McpSettingsTab(props: McpSettingsTabProps) {
                     >
                       {s.name}
                     </span>
+                    <span class="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-700">
+                      {s.transport}
+                    </span>
                     <Show when={s.connected}>
                       <span class="text-emerald-600">✓</span>
                     </Show>
                     <Show when={!s.connected}>
-                      <span class="text-red-600">Failed to start</span>
+                      <span class="text-red-600">Connection failed</span>
                       <button onClick={props.reloadMcp} class="text-blue-600 underline">
                         Retry
                       </button>
@@ -225,6 +244,14 @@ export function McpSettingsTab(props: McpSettingsTabProps) {
             await props.saveMcp();
             props.setShowRaw(false);
           }}
+        />
+      </Show>
+      <Show when={props.showSmartPaste()}>
+        <McpSmartPasteModal
+          existingNames={props.mcpStatus().map((s) => s.name)}
+          onClose={() => props.setShowSmartPaste(false)}
+          onParse={props.parseMcpSmartPaste}
+          onSave={props.saveMcpSmartPaste}
         />
       </Show>
     </div>

@@ -470,6 +470,15 @@ export const getActionStateDetailSections = (state: ActionState): ActionDetailSe
     });
   }
 
+  const previewReason = typeof metadata?.preview_reason === 'string' ? metadata.preview_reason.trim() : '';
+  if (previewReason) {
+    sections.push({
+      title: 'Preview Reason',
+      tone: 'slate',
+      content: previewReason,
+    });
+  }
+
   const toolError = tryFormatStructuredValue(metadata?.tool_error);
   if (toolError) {
     const rendererSections =

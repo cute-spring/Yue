@@ -20,6 +20,9 @@ export function McpRawConfigModal(props: McpRawConfigModalProps) {
             value={props.mcpConfig}
             onInput={(e) => props.setMcpConfig(e.currentTarget.value)}
           />
+          <div class="text-xs text-gray-500 mt-2">
+            Use `transport: "stdio"` with `command`/`args`, or `transport: "streamable_http"` with `url`/`headers`. Legacy entries without `transport` are treated as `stdio`.
+          </div>
         </div>
         <div class="px-4 py-3 flex justify-end gap-2 border-t">
           <button onClick={props.onClose} class="px-3 py-1.5 rounded-md border">

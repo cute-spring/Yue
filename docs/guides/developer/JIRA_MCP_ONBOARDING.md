@@ -10,6 +10,7 @@ This guide prepares YUE for a company-internal Jira MCP server that authenticate
 - Direct tools on the agent: none
 - Safety posture: read, summarize, inspect, and draft only; no Jira mutation path is enabled in `v1`
 - Import-gate note: this onboarding is config-first. It does not require enabling a live MCP package command yet, and it remains compatible with `YUE_SKILL_RUNTIME_MODE=import-gate` because the built-in agent contract stays stable while MCP server details remain externalized
+- Forward policy note: future live Jira integration should treat reads as default-authorized, while any create/update/comment/transition/link or other non-read action must still require explicit user confirmation
 
 ## Operator setup flow
 
@@ -64,6 +65,12 @@ Notes:
    - fetch one known issue
    - run a bounded JQL query using the default project scope
 8. Stop if the server asks for extra auth fields or non-read flags that are not documented by the company MCP contract.
+
+When write support is enabled later:
+
+- keep read flows default-open
+- require a preview for every non-read Jira action
+- require explicit user confirmation before every non-read Jira execution
 
 ## Contract note
 

@@ -21,7 +21,7 @@ export function McpManualModal(props: McpManualModalProps) {
             onInput={(e) => props.setManualText(e.currentTarget.value)}
           />
           <div class="text-xs text-gray-500 mt-2">
-            Please confirm the source and identify risks before configuration.
+            Supports both transports: `stdio` (command/args/env) and `streamable_http` (url/headers/env). Missing `transport` defaults to `stdio`.
           </div>
         </div>
         <div class="px-4 py-3 flex justify-end gap-2 border-t">

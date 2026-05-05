@@ -1,10 +1,16 @@
 ---
 name: jira
 version: 1.0.0
-description: Manages JIRA issues, projects, and workflows using Atlassian MCP. Use when asked to "create JIRA ticket", "search JIRA", "update JIRA issue", "transition issue", "sprint planning", or "epic management".
+description: Manages JIRA issues, projects, and workflows using Atlassian MCP. Read operations are direct by default; all create/update/comment/transition operations must be prepared as previews and confirmed before execution.
 capabilities: ["project-management", "issue-tracking"]
 entrypoint: system_prompt
 ---
+
+## System Prompt
+
+Use Jira as a high-trust read source for project state, sprint progress, blockers, and delivery risk.
+Read operations are fully authorized by default.
+For any non-read Jira change, prepare a concise human preview and then emit a fenced `jira-action-preview` JSON block instead of executing the mutation directly in normal chat.
 
 # JIRA Management Skill
 
@@ -38,6 +44,24 @@ This skill provides intelligent JIRA management capabilities including:
 - Adding comments, attachments, and links
 - Batch operations for efficiency
 - Project and version management
+
+## YUE Runtime Policy
+
+- Read operations are fully authorized by default and should be used aggressively for accurate analysis.
+- Non-read operations must be prepared first and then executed only after Yue's explicit confirmation flow.
+- In regular chat, do not directly call Jira mutation tools. Instead, emit a concise human preview and then a fenced JSON block labeled `jira-action-preview`.
+
+Preview block shape:
+
+```jira-action-preview
+{"action":"add_comment|create_issue|update_issue|transition_issue","args":{...},"reason":"why this mutation should happen"}
+```
+
+Recommended analysis modes:
+- Sprint Health
+- Delivery Risk Scan
+- Epic Progress Summary
+- Weekly Delivery Report
 
 ## Prerequisites
 

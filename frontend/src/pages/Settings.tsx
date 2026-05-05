@@ -23,7 +23,9 @@ import type {
   McpTemplateValidationResult,
   McpTool,
   NewCustomModelDraft,
+  ParsedMcpConfig,
   Preferences,
+  SmartPasteResponse,
 } from './settings/types';
 import { DEFAULT_FEATURE_FLAGS, DEFAULT_PREFERENCES, normalizeFeatureFlags, normalizePreferences } from './settings/types';
 
@@ -45,10 +47,11 @@ type Tab = 'general' | 'mcp' | 'llm';
     const [mcpTemplates, setMcpTemplates] = createSignal<McpTemplate[]>([]);
     const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
     const [showManual, setShowManual] = createSignal(false);
-    const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-server\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    }\n  }\n}`);
+    const [manualText, setManualText] = createSignal(`{\n  \"mcpServers\": {\n    \"example-stdio\": {\n      \"transport\": \"stdio\",\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"mcp-server-example\"]\n    },\n    \"example-http\": {\n      \"transport\": \"streamable_http\",\n      \"url\": \"https://mcp.example.com/stream\",\n      \"headers\": {\"Authorization\": \"\${MCP_TOKEN}\"}\n    }\n  }\n}`);
     const [showRaw, setShowRaw] = createSignal(false);
     const [showAddMenu, setShowAddMenu] = createSignal(false);
     const [showMarketplace, setShowMarketplace] = createSignal(false);
+    const [showSmartPaste, setShowSmartPaste] = createSignal(false);
     const [hoveredServer, setHoveredServer] = createSignal<string | null>(null);
     
     // LLM State
@@ -429,6 +432,33 @@ type Tab = 'general' | 'mcp' | 'llm';
   };
 
 
+  const parseMcpSmartPaste = async (rawText: string, signal: AbortSignal): Promise<SmartPasteResponse> => {
+    const res = await fetch('/api/mcp/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw_text: rawText }),
+      signal,
+    });
+    return await res.json();
+  };
+
+  const saveMcpSmartPaste = async (configs: ParsedMcpConfig[]) => {
+    const payload = configs.map(({ _selected, source_index, confidence, hints, warnings, missing_fields, ...rest }) => rest);
+    const res = await fetch('/api/mcp/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Save failed' }));
+      throw new Error(typeof err.detail === 'string' ? err.detail : '保存失败');
+    }
+    await fetch('/api/mcp/reload', { method: 'POST' });
+    await fetchData();
+    setShowSmartPaste(false);
+  };
+
+
   const deleteCustomModel = async (name: string) => {
     setConfirmDelete({ id: name, type: 'model' });
   };
@@ -541,6 +571,8 @@ type Tab = 'general' | 'mcp' | 'llm';
             setShowRaw={setShowRaw}
             showMarketplace={showMarketplace}
             setShowMarketplace={setShowMarketplace}
+            showSmartPaste={showSmartPaste}
+            setShowSmartPaste={setShowSmartPaste}
             mcpConfig={mcpConfig}
             setMcpConfig={setMcpConfig}
             reloadMcp={reloadMcp}
@@ -550,6 +582,8 @@ type Tab = 'general' | 'mcp' | 'llm';
             saveMcp={saveMcp}
             validateMcpTemplate={validateMcpTemplate}
             installMcpTemplate={installMcpTemplate}
+            parseMcpSmartPaste={parseMcpSmartPaste}
+            saveMcpSmartPaste={saveMcpSmartPaste}
           />
         </Show>
 

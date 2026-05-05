@@ -1066,6 +1066,7 @@ def test_handle_tool_call_mismatch_retry_emits_retry_and_success():
             request=request,
             model_capabilities=[],
             vision_enabled=False,
+            authorized_tools=[],
         )
 
         outputs = []
@@ -1116,6 +1117,7 @@ def test_handle_tool_call_mismatch_retry_emits_mismatch_when_unresolved():
             request=_make_request(),
             model_capabilities=[],
             vision_enabled=False,
+            authorized_tools=[],
         )
 
         outputs = []

@@ -31,6 +31,25 @@ class SkillPolicyGate:
         return None
 
     @staticmethod
+    def _get_action_authorization_aliases(action: RuntimeSkillActionDescriptor) -> List[str]:
+        aliases = action.metadata.get("authorization_aliases") if isinstance(action.metadata, dict) else None
+        if not isinstance(aliases, list):
+            return []
+        return [item.strip() for item in aliases if isinstance(item, str) and item.strip()]
+
+    @staticmethod
+    def is_action_tool_authorized(
+        action: RuntimeSkillActionDescriptor,
+        *,
+        enabled_tools: Optional[List[str]] = None,
+    ) -> bool:
+        allowed = set(enabled_tools or [])
+        mapped_tool = SkillPolicyGate.map_action_to_tool(action)
+        if mapped_tool and mapped_tool in allowed:
+            return True
+        return any(alias in allowed for alias in SkillPolicyGate._get_action_authorization_aliases(action))
+
+    @staticmethod
     def requires_approval(action: RuntimeSkillActionDescriptor) -> bool:
         safety = (action.safety or "").strip().lower()
         approval_policy = (action.approval_policy or "").strip().lower()
@@ -227,7 +246,7 @@ class SkillPolicyGate:
 
         if not mapped_tool:
             validation_errors.append("Action tool binding is missing")
-        if mapped_tool and mapped_tool not in enabled_tools:
+        if mapped_tool and not SkillPolicyGate.is_action_tool_authorized(action, enabled_tools=enabled_tools):
             missing_requirements.append(f"tool:{mapped_tool}")
         argument_errors, validated_arguments = SkillPolicyGate.validate_action_arguments(action, arguments)
         validation_errors.extend(argument_errors)

@@ -1,13 +1,25 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ValidationError
 import json
 import logging
 import os
 import shutil
+import uuid
 from app.mcp.manager import mcp_manager
+from app.mcp.models import ServerConfig
 from app.mcp.registry import tool_registry
 from app.mcp.templates import get_template, list_templates, render_template
+from app.mcp.smart_paste_models import SmartPasteRequest, SmartPasteResponse
+from app.mcp.smart_paste_service import (
+    parse_smart_paste,
+    parse_smart_paste_async,
+    SmartPasteInputError,
+    SmartPasteServiceUnavailable,
+    SmartPasteRateLimitError,
+    SmartPasteTimeoutError,
+)
+from app.services.config_service import config_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -30,21 +42,6 @@ async def templates():
 async def status():
     return mcp_manager.get_status()
 
-class ServerConfig(BaseModel):
-    name: str
-    transport: str = "stdio"
-    command: str
-    args: List[str] = []
-    enabled: bool = True
-    env: Optional[Dict[str, str]] = None
-
-    @field_validator("transport")
-    @classmethod
-    def validate_transport(cls, v: str):
-        if v not in {"stdio"}:
-            raise ValueError("unsupported transport")
-        return v
-
 
 class TemplateValidationRequest(BaseModel):
     template_id: str
@@ -57,10 +54,17 @@ class TemplateValidationResponse(BaseModel):
     warnings: List[str] = []
     error: Optional[str] = None
 
+
+def _dump_server_config(config: ServerConfig) -> Dict[str, Any]:
+    data = config.model_dump(exclude_none=True, exclude_unset=True)
+    data["transport"] = config.transport
+    data["enabled"] = config.enabled
+    return data
+
 @router.post("/")
 async def update_configs(configs: List[Dict[str, Any]]):
     try:
-        incoming = [ServerConfig(**c).model_dump() for c in configs]
+        incoming = [_dump_server_config(ServerConfig(**c)) for c in configs]
         merged_map: Dict[str, Dict[str, Any]] = {}
         # Load existing
         existing = mcp_manager.load_config()
@@ -72,17 +76,14 @@ async def update_configs(configs: List[Dict[str, Any]]):
         for c in incoming:
             name = c.get("name")
             if name:
-                if name in merged_map:
-                    merged_map[name].update(c)
-                else:
-                    merged_map[name] = c
+                merged_map[name] = c
         validated = list(merged_map.values())
         with open(CONFIG_PATH, 'w') as f:
             json.dump(validated, f, indent=2)
         # Note: Changes require server restart to take full effect for now
         return validated
     except ValidationError as ve:
-        raise HTTPException(status_code=400, detail=ve.errors())
+        raise HTTPException(status_code=400, detail=ve.errors(include_context=False))
     except Exception as e:
         logger.exception("Failed to update MCP configs")
         raise HTTPException(status_code=500, detail=str(e))
@@ -96,13 +97,14 @@ async def validate_template_config(request: TemplateValidationRequest):
 
     try:
         result = render_template(request.template_id, request.values)
-        validated = ServerConfig(**result.rendered_config).model_dump()
-        command = validated.get("command")
-        if command and not shutil.which(command):
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
-            local_cmd = os.path.join(project_root, command)
-            if not os.path.exists(local_cmd):
-                raise ValueError(f"Command not found locally: {command}")
+        validated = _dump_server_config(ServerConfig(**result.rendered_config))
+        if validated.get("transport", "stdio") == "stdio":
+            command = validated.get("command")
+            if command and not shutil.which(command):
+                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+                local_cmd = os.path.join(project_root, command)
+                if not os.path.exists(local_cmd):
+                    raise ValueError(f"Command not found locally: {command}")
         return TemplateValidationResponse(ok=True, rendered_config=validated, warnings=result.warnings)
     except ValueError as exc:
         return TemplateValidationResponse(ok=False, error=str(exc))
@@ -147,3 +149,31 @@ async def delete_config(server_name: str):
     except Exception as e:
         logger.exception(f"Failed to delete MCP server '{server_name}'")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/parse", response_model=SmartPasteResponse)
+async def parse_mcp_config(request: SmartPasteRequest):
+    trace_id = str(uuid.uuid4())
+
+    try:
+        flags = config_service.get_feature_flags()
+        llm_enabled = flags.get("mcp_smart_paste_enabled", False)
+        response = await parse_smart_paste_async(request.raw_text, llm_enabled=llm_enabled)
+        logger.info(
+            "smart_paste_parse",
+            extra={
+                "trace_id": trace_id,
+                "raw_text_length": len(request.raw_text),
+                "parse_mode": response.parse_mode,
+                "result_count": len(response.results),
+            },
+        )
+        return response
+    except SmartPasteInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except SmartPasteRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    except SmartPasteServiceUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except SmartPasteTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc))

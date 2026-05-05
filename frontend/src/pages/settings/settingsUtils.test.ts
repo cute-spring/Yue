@@ -23,7 +23,7 @@ describe('MCP manual parsing', () => {
       },
     });
     expect(parsed).toEqual([
-      { name: 'fs', command: 'npx', args: ['-y', 'x'], env: {}, enabled: true },
+      { name: 'fs', transport: 'stdio', command: 'npx', args: ['-y', 'x'], env: {}, enabled: true },
     ]);
   });
 
@@ -35,6 +35,24 @@ describe('MCP manual parsing', () => {
     if (result.kind === 'ok') {
       expect(result.servers[0].enabled).toBe(false);
       expect(result.servers[0].name).toBe('a');
+      expect(result.servers[0].transport).toBe('stdio');
+    }
+  });
+
+  it('parses streamable_http server in array format', () => {
+    const result = parseMcpManualText(
+      JSON.stringify([{ name: 'remote', transport: 'streamable_http', url: 'https://mcp.example.com/sse', headers: { Authorization: '${MCP_TOKEN}' } }]),
+    );
+    expect(result.kind).toBe('ok');
+    if (result.kind === 'ok') {
+      expect(result.servers[0]).toEqual({
+        name: 'remote',
+        transport: 'streamable_http',
+        url: 'https://mcp.example.com/sse',
+        headers: { Authorization: '${MCP_TOKEN}' },
+        env: {},
+        enabled: true,
+      });
     }
   });
 
@@ -107,6 +125,14 @@ describe('MCP template helpers', () => {
       'Default to base URL plus personal token; username/email should stay optional unless your company MCP requires it.',
       'Keep the server disabled until the real internal Jira MCP package or executable is confirmed.',
       'Start with read-only scope hints such as allowed projects, default JQL, or explicit read-only flags.',
+    ]);
+  });
+
+  it('builds jira onboarding notes for streamable_http transport', () => {
+    expect(buildMcpTemplateOnboardingNotes('jira-company', 'streamable_http')).toEqual([
+      'Use your company MCP endpoint URL and keep auth in headers as ${ENV_NAME} placeholders.',
+      'Prefer read-only scopes first while verifying tool behavior.',
+      'Confirm required headers and proxy/SSL requirements with your platform team.',
     ]);
   });
 

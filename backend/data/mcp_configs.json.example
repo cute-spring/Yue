@@ -27,5 +27,14 @@
       "JIRA_DEFAULT_JQL": "project = YUE ORDER BY updated DESC",
       "JIRA_READ_ONLY": "true"
     }
+  },
+  {
+    "name": "example-remote-server",
+    "transport": "streamable_http",
+    "url": "https://mcp.example.com/stream",
+    "enabled": false,
+    "headers": {
+      "Authorization": "${MCP_REMOTE_TOKEN}"
+    }
   }
 ]

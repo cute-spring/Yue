@@ -11,6 +11,11 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from app.api.chat_trace_schemas import RequestAttachmentItem, RequestHistoryItem, RequestSnapshotRecord
 from app.api.chat_stream_types import StreamRunContext, StreamRunMetrics
 from app.services.chat_streaming import StreamEventEmitter, StreamState
+from app.services.jira import (
+    extract_jira_action_preview,
+    find_agent_jira_skill_ref,
+    resolve_repo_jira_skill_runtime,
+)
 from app.services.llm.routing import RoutingContext, resolve_runtime_model
 from app.services.skills.models import (
     RuntimeSkillActionApprovalRequest,
@@ -123,6 +128,7 @@ class PreparedRuntime:
     request: Any
     model_capabilities: Any
     vision_enabled: bool
+    authorized_tools: List[str]
 
 
 @dataclass
@@ -224,6 +230,80 @@ async def _invoke_requested_action_platform_tool(
     return result
 
 
+def _split_skill_ref(skill_ref: str) -> tuple[str, Optional[str]]:
+    if ":" in skill_ref:
+        name, version = skill_ref.split(":", 1)
+        return name, version or None
+    return skill_ref, None
+
+
+async def _emit_jira_action_preview_events(
+    *,
+    ctx: StreamRunContext,
+    prepared: PreparedRuntime,
+    deps: StreamRunnerDeps,
+) -> AsyncIterator[str]:
+    if getattr(ctx.request, "requested_action", None):
+        return
+
+    preview = extract_jira_action_preview(ctx.stream_state.full_response)
+    if preview is None:
+        return
+
+    skill_ref = find_agent_jira_skill_ref(ctx.agent_config)
+    if not skill_ref:
+        return
+
+    skill_name, skill_version = _split_skill_ref(skill_ref)
+    action_service = _resolve_requested_action_service(
+        skill_ref=skill_ref,
+        skill_registry=deps.prompt.skill_registry,
+        default_action_service=deps.prompt.skill_action_execution_service,
+        provider=ctx.provider,
+        model_name=ctx.model_name,
+    )
+    preflight_result = action_service.preflight(
+        RuntimeSkillActionExecutionRequest(
+            request_id=ctx.request_id,
+            invocation=RuntimeSkillActionInvocationRequest(
+                skill_name=skill_name,
+                skill_version=skill_version,
+                action_id=preview.action_id,
+                provider=ctx.provider,
+                model_name=ctx.model_name,
+                arguments=preview.arguments,
+                enabled_tools=prepared.authorized_tools,
+            ),
+        )
+    )
+    lifecycle_results = [preflight_result]
+    lifecycle_results.extend(
+        action_service.build_stub_execution_results(
+            preflight_result=preflight_result,
+        )
+    )
+
+    for lifecycle_result in lifecycle_results:
+        for event_payload in lifecycle_result.event_payloads:
+            metadata = event_payload.get("metadata") if isinstance(event_payload.get("metadata"), dict) else {}
+            if preview.reason:
+                event_payload = {
+                    **event_payload,
+                    "metadata": {
+                        **metadata,
+                        "preview_reason": preview.reason,
+                    },
+                }
+            enveloped_event = prepared.emitter.event_payload(event_payload)
+            deps.chat_service.add_action_event(
+                ctx.chat_id,
+                enveloped_event,
+                assistant_turn_id=ctx.assistant_turn_id,
+                run_id=ctx.run_id,
+            )
+            yield deps.serialize_sse_payload(enveloped_event)
+
+
 def _resolve_requested_action_tool_args(preflight_result: Any, request: Any) -> Dict[str, Any]:
     return (
         (preflight_result.metadata or {}).get("validated_arguments")
@@ -239,6 +319,66 @@ def _resolve_requested_action_request_id(request: Any) -> str:
         if len(parts) == 2 and parts[1]:
             return parts[1]
     return uuid.uuid4().hex[:12]
+
+
+def _resolve_requested_action_skill_fallback(
+    *,
+    requested_skill: Any,
+    skill_registry: Any,
+    provider: Optional[str],
+    model_name: Optional[str],
+) -> Any:
+    if not isinstance(requested_skill, str) or not requested_skill.strip():
+        return None
+    skill_name, skill_version = _split_skill_ref(requested_skill.strip())
+    get_full_skill = getattr(skill_registry, "get_full_skill", None)
+    if callable(get_full_skill):
+        resolved = get_full_skill(
+            skill_name,
+            skill_version,
+            provider=provider,
+            model_name=model_name,
+        )
+        if resolved is not None:
+            return resolved
+    get_skill = getattr(skill_registry, "get_skill", None)
+    if callable(get_skill):
+        resolved = get_skill(skill_name, skill_version)
+        if resolved is not None:
+            return resolved
+    resolved, _service = resolve_repo_jira_skill_runtime(
+        requested_skill.strip(),
+        provider=provider,
+        model_name=model_name,
+    )
+    return resolved
+
+
+def _resolve_requested_action_service(
+    *,
+    skill_ref: str,
+    skill_registry: Any,
+    default_action_service: Any,
+    provider: Optional[str],
+    model_name: Optional[str],
+) -> Any:
+    skill_name, skill_version = _split_skill_ref(skill_ref)
+    get_action_descriptors = getattr(skill_registry, "get_action_descriptors", None)
+    if callable(get_action_descriptors):
+        descriptors = get_action_descriptors(
+            skill_name,
+            skill_version,
+            provider=provider,
+            model_name=model_name,
+        )
+        if descriptors:
+            return default_action_service
+    _skill, fallback_service = resolve_repo_jira_skill_runtime(
+        skill_ref,
+        provider=provider,
+        model_name=model_name,
+    )
+    return fallback_service or default_action_service
 
 
 def _summarize_history_item(item: Any) -> RequestHistoryItem:
@@ -704,6 +844,23 @@ async def _prepare_runtime_dependencies(
     if getattr(request, "requested_action", None):
         selected_skill = prompt_prep.selected_skill_spec
         if selected_skill is None:
+            selected_skill = _resolve_requested_action_skill_fallback(
+                requested_skill=getattr(request, "requested_skill", None),
+                skill_registry=deps.prompt.skill_registry,
+                provider=ctx.provider,
+                model_name=ctx.model_name,
+            )
+        action_service = deps.prompt.skill_action_execution_service
+        requested_skill_ref = getattr(request, "requested_skill", None)
+        if isinstance(requested_skill_ref, str) and requested_skill_ref.strip():
+            action_service = _resolve_requested_action_service(
+                skill_ref=requested_skill_ref.strip(),
+                skill_registry=deps.prompt.skill_registry,
+                default_action_service=deps.prompt.skill_action_execution_service,
+                provider=ctx.provider,
+                model_name=ctx.model_name,
+            )
+        if selected_skill is None:
             blocked_payload = {
                 "event": "skill.action.result",
                 "status": "blocked",
@@ -726,7 +883,7 @@ async def _prepare_runtime_dependencies(
             return
 
         action_request_id = _resolve_requested_action_request_id(request)
-        preflight_result = deps.prompt.skill_action_execution_service.preflight(
+        preflight_result = action_service.preflight(
             RuntimeSkillActionExecutionRequest(
                 request_id=action_request_id,
                 invocation=RuntimeSkillActionInvocationRequest(
@@ -747,7 +904,7 @@ async def _prepare_runtime_dependencies(
             preflight_result.lifecycle_status == "preflight_approval_required"
             and getattr(request, "requested_action_approved", None) is not None
         ):
-            approval_result = deps.prompt.skill_action_execution_service.build_approval_result(
+            approval_result = action_service.build_approval_result(
                 preflight_result=preflight_result,
                 approval_request=RuntimeSkillActionApprovalRequest(
                     skill_name=selected_skill.name,
@@ -770,7 +927,7 @@ async def _prepare_runtime_dependencies(
 
         if should_execute_tool:
             tool_args = _resolve_requested_action_tool_args(preflight_result, request)
-            queued_result = deps.prompt.skill_action_execution_service.build_transition_result(
+            queued_result = action_service.build_transition_result(
                 invocation=preflight_result.invocation,
                 status="queued",
                 request_id=preflight_result.request_id,
@@ -783,7 +940,7 @@ async def _prepare_runtime_dependencies(
                     "tool_args": tool_args,
                 },
             )
-            running_result = deps.prompt.skill_action_execution_service.build_transition_result(
+            running_result = action_service.build_transition_result(
                 invocation=preflight_result.invocation,
                 status="running",
                 request_id=preflight_result.request_id,
@@ -816,12 +973,12 @@ async def _prepare_runtime_dependencies(
                     tool_tracker=tool_tracker,
                     agent_id=request.agent_id,
                     mapped_tool=preflight_result.invocation.mapped_tool or "",
-                    enabled_tools=prompt_prep.final_tools_list,
+                    enabled_tools=[preflight_result.invocation.mapped_tool or ""],
                     arguments=tool_args,
                 )
                 async for tool_payload in _drain_tool_event_queue(ctx=ctx, deps=deps):
                     yield tool_payload
-                success_result = deps.prompt.skill_action_execution_service.build_transition_result(
+                success_result = action_service.build_transition_result(
                     invocation=preflight_result.invocation,
                     status="succeeded",
                     request_id=preflight_result.request_id,
@@ -840,7 +997,7 @@ async def _prepare_runtime_dependencies(
                 async for tool_payload in _drain_tool_event_queue(ctx=ctx, deps=deps):
                     yield tool_payload
                 tool_error_payload = str(tool_err)
-                failed_result = deps.prompt.skill_action_execution_service.build_transition_result(
+                failed_result = action_service.build_transition_result(
                     invocation=preflight_result.invocation,
                     status="failed",
                     request_id=preflight_result.request_id,
@@ -857,7 +1014,7 @@ async def _prepare_runtime_dependencies(
                 lifecycle_results = [failed_result]
         else:
             lifecycle_results.extend(
-                deps.prompt.skill_action_execution_service.build_stub_execution_results(
+                action_service.build_stub_execution_results(
                     preflight_result=preflight_result,
                     approval_result=approval_result,
                 )
@@ -1013,6 +1170,7 @@ async def _prepare_runtime_dependencies(
         request=request,
         model_capabilities=model_capabilities,
         vision_enabled=vision_enabled,
+        authorized_tools=list(prompt_prep.final_tools_list),
     )
 
 
@@ -1181,6 +1339,12 @@ async def _postprocess_stream_run(
     )
     if citation_payload:
         yield prepared.emitter.emit(citation_payload)
+    async for payload in _emit_jira_action_preview_events(
+        ctx=ctx,
+        prepared=prepared,
+        deps=deps,
+    ):
+        yield payload
 
 
 def _finalize_stream_run(

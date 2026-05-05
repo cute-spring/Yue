@@ -8,6 +8,7 @@ Add a YUE-specific built-in Jira agent that supports project-safe Jira discovery
 - Keep `v1` read-oriented and low risk.
 - Reuse the existing built-in agent YAML loading path and project skill runtime.
 - Prepare the platform for later Jira write actions without enabling them yet.
+- Establish the later-stage authorization model now: reads default-open, all non-read Jira mutations require explicit user confirmation.
 
 ## 3. Non-Goals
 - No automatic Jira writes in `v1`.
@@ -37,6 +38,7 @@ This keeps the agent narrowly constrained. The Jira skill can later encapsulate 
 - The agent must not claim that a ticket was created or updated unless a future explicit write path confirms success.
 - The agent should surface uncertainty rather than guessing workflow states or custom fields.
 - Responses should cite Jira evidence when the underlying skill or tool provides it.
+- Future write-capable versions may recommend any permission-allowed Jira mutation, but must still preview and require user confirmation before execution.
 
 ## 7. MCP Integration
 The project example MCP configuration should expose a Jira server template with:
@@ -62,7 +64,7 @@ This keeps deployment reproducible while allowing teams to replace the package a
 
 ### Phase 2
 - Add guarded write-preview workflows
-- Require explicit confirmation before mutation
+- Require explicit confirmation before any non-read Jira mutation
 
 ### Phase 3
 - Add controlled create/update/transition flows after permission and audit strategy are finalized
