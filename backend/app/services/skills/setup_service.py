@@ -16,9 +16,9 @@ from app.services.skills.setup_models import InstallSetupSpec, SetupValidationRe
 
 _DISALLOWED_CHARS = ("\n", "\r", ";", "&&", "||", "|", "`", "$(", ">", "<", "&")
 _GLOBAL_INSTALL_FLAGS = {"--user", "-g", "--global"}
-_PATH_FLAGS = {"-r", "--requirement", "--prefix", "--dir", "--cwd"}
+_PATH_FLAGS = {"-r", "--requirement", "--prefix", "--dir", "--cwd", "--python"}
 _PYTHON_EXECUTABLES = {"python", "pip", "uv"}
-_NODE_EXECUTABLES = {"npm", "pnpm", "yarn"}
+_NODE_EXECUTABLES = {"node", "npm", "pnpm", "yarn"}
 _DEFAULT_NODE_PREFIX = Path(".yue/node")
 _DEFAULT_PYTHON_VENV = Path(".yue/python/venv")
 
@@ -104,6 +104,21 @@ class SkillSetupService:
             raise RuntimeError(f"setup command rejected by Phase 1 policy: {token}")
         return resolved
 
+    @staticmethod
+    def _normalize_token_path(root: Path, token: str) -> Path:
+        token_path = Path(token).expanduser()
+        if token_path.is_absolute():
+            return Path(os.path.abspath(str(token_path)))
+        return Path(os.path.abspath(str(root / token_path)))
+
+    @staticmethod
+    def _expected_env_python_path(root: Path) -> Path:
+        return Path(os.path.abspath(str(root / _DEFAULT_PYTHON_VENV / "bin" / "python")))
+
+    @staticmethod
+    def _expected_env_pip_path(root: Path) -> Path:
+        return Path(os.path.abspath(str(root / _DEFAULT_PYTHON_VENV / "bin" / "pip")))
+
     def _validate_common_command(self, command: str, runtime: str, source_path: str) -> tuple[list[str], Path, Path]:
         if any(token in command for token in _DISALLOWED_CHARS):
             raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
@@ -124,25 +139,47 @@ class SkillSetupService:
         if executable_name not in allowed_executables:
             raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
         if "/" in executable or executable.startswith("."):
-            exec_path = self._resolve_token_path(root, executable)
-            if executable_name == "pip" and exec_path != (root / _DEFAULT_PYTHON_VENV / "bin" / "pip").resolve():
-                raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
-            if executable_name == "python" and exec_path != (root / _DEFAULT_PYTHON_VENV / "bin" / "python").resolve():
-                raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+            normalized_exec_path = self._normalize_token_path(root, executable)
+            if normalized_exec_path not in {
+                self._expected_env_python_path(root),
+                self._expected_env_pip_path(root),
+            }:
+                exec_path = self._resolve_token_path(root, executable)
+                if executable_name == "pip" and exec_path != (root / _DEFAULT_PYTHON_VENV / "bin" / "pip").resolve():
+                    raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+                if executable_name == "python" and exec_path != (root / _DEFAULT_PYTHON_VENV / "bin" / "python").resolve():
+                    raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
 
         for index, token in enumerate(tokens[1:], start=1):
             if token in _GLOBAL_INSTALL_FLAGS or token in {"-c", "-e"}:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
-            if token in _PATH_FLAGS and index + 1 < len(tokens):
-                self._resolve_token_path(root, tokens[index + 1])
+            if token in _PATH_FLAGS:
+                if index + 1 >= len(tokens):
+                    raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+                next_token = tokens[index + 1]
+                normalized_next_path = self._normalize_token_path(root, next_token)
+                if token == "--python" and executable_name == "uv":
+                    if normalized_next_path != self._expected_env_python_path(root):
+                        raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+                elif normalized_next_path in {
+                    self._expected_env_python_path(root),
+                    self._expected_env_pip_path(root),
+                }:
+                    continue
+                else:
+                    self._resolve_token_path(root, next_token)
             elif token.startswith("/") or token.startswith("."):
+                normalized_token_path = self._normalize_token_path(root, token)
+                if normalized_token_path in {
+                    self._expected_env_python_path(root),
+                    self._expected_env_pip_path(root),
+                }:
+                    continue
                 self._resolve_token_path(root, token)
         return tokens, root, env_root
 
     def _validate_python_command(self, tokens: list[str], root: Path, env_root: Path, command: str) -> list[str]:
         executable_name = Path(tokens[0]).name
-        env_python = (root / _DEFAULT_PYTHON_VENV / "bin" / "python").resolve()
-        env_pip = (root / _DEFAULT_PYTHON_VENV / "bin" / "pip").resolve()
 
         if executable_name == "python" and tokens[:3] == ["python", "-m", "venv"]:
             if len(tokens) != 4 or self._resolve_token_path(root, tokens[3]) != env_root:
@@ -150,27 +187,55 @@ class SkillSetupService:
             return tokens
 
         if executable_name == "python":
-            exec_path = (root / tokens[0]).resolve() if ("/" in tokens[0] or tokens[0].startswith(".")) else None
-            if exec_path != env_python:
+            exec_path = self._normalize_token_path(root, tokens[0]) if ("/" in tokens[0] or tokens[0].startswith(".")) else None
+            if exec_path != self._expected_env_python_path(root):
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
             if tokens[1:4] != ["-m", "pip", "install"]:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
             return tokens
 
         if executable_name == "pip":
-            exec_path = self._resolve_token_path(root, tokens[0]) if ("/" in tokens[0] or tokens[0].startswith(".")) else None
-            if exec_path != env_pip or "install" not in tokens[1:]:
+            exec_path = self._normalize_token_path(root, tokens[0]) if ("/" in tokens[0] or tokens[0].startswith(".")) else None
+            if exec_path != self._expected_env_pip_path(root) or "install" not in tokens[1:]:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
             return tokens
+
+        if executable_name == "uv":
+            if tokens[:2] == ["uv", "venv"]:
+                if len(tokens) != 3 or self._resolve_token_path(root, tokens[2]) != env_root:
+                    raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+                return tokens
+            if tokens[:3] == ["uv", "pip", "install"]:
+                if "--python" not in tokens:
+                    raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+                python_index = tokens.index("--python")
+                if python_index + 1 >= len(tokens):
+                    raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+                python_path = self._normalize_token_path(root, tokens[python_index + 1])
+                if python_path != self._expected_env_python_path(root):
+                    raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+                return tokens
+            raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
 
         raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
 
     def _validate_node_command(self, tokens: list[str], root: Path, env_root: Path, command: str) -> list[str]:
         executable_name = Path(tokens[0]).name
+        if executable_name == "node":
+            if len(tokens) < 2 or tokens[1].startswith("-"):
+                raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+            script_path = self._resolve_token_path(root, tokens[1])
+            if not script_path.is_file():
+                raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+            return tokens
+
         if executable_name == "npm":
             if "install" not in tokens[1:] or "--prefix" not in tokens:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
-            prefix_path = self._resolve_token_path(root, tokens[tokens.index("--prefix") + 1])
+            prefix_index = tokens.index("--prefix")
+            if prefix_index + 1 >= len(tokens):
+                raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+            prefix_path = self._resolve_token_path(root, tokens[prefix_index + 1])
             if prefix_path != env_root:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
             return tokens
@@ -178,7 +243,10 @@ class SkillSetupService:
         if executable_name == "pnpm":
             if "install" not in tokens[1:] or "--dir" not in tokens:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
-            dir_path = self._resolve_token_path(root, tokens[tokens.index("--dir") + 1])
+            dir_index = tokens.index("--dir")
+            if dir_index + 1 >= len(tokens):
+                raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+            dir_path = self._resolve_token_path(root, tokens[dir_index + 1])
             if dir_path != env_root:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
             return tokens
@@ -186,7 +254,10 @@ class SkillSetupService:
         if executable_name == "yarn":
             if "install" not in tokens[1:] or "--cwd" not in tokens:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
-            cwd_path = self._resolve_token_path(root, tokens[tokens.index("--cwd") + 1])
+            cwd_index = tokens.index("--cwd")
+            if cwd_index + 1 >= len(tokens):
+                raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
+            cwd_path = self._resolve_token_path(root, tokens[cwd_index + 1])
             if cwd_path != env_root:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
             return tokens
@@ -200,8 +271,14 @@ class SkillSetupService:
             if runtime == "python"
             else self._validate_node_command(tokens, root, env_root, command)
         )
-        cwd = str(root if runtime == "python" else env_root)
-        return validated, cwd
+        return validated, str(root)
+
+    def _prepare_runtime_directories(self, runtime: str, source_path: str) -> None:
+        env_root = Path(self.isolated_env_path_for(runtime, source_path)).resolve()
+        if runtime == "python":
+            env_root.parent.mkdir(parents=True, exist_ok=True)
+            return
+        env_root.mkdir(parents=True, exist_ok=True)
 
     def _refresh_current_fingerprint(self, item: SkillPreflightRecord) -> str:
         return self.compute_package_fingerprint(item.source_path)
@@ -263,6 +340,7 @@ class SkillSetupService:
         try:
             for command in setup.commands:
                 argv, cwd = self._validate_command(command, setup.runtime, item.source_path)
+                self._prepare_runtime_directories(setup.runtime, item.source_path)
                 Path(cwd).mkdir(parents=True, exist_ok=True)
                 started_at = datetime.utcnow()
                 result = self._command_runner(command=argv, cwd=cwd)

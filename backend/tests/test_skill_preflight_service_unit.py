@@ -31,7 +31,11 @@ You are {name}.
 def _write_setup_skill_package(root: Path, name: str, *, runtime: str = "python") -> Path:
     package_dir = root / name
     package_dir.mkdir(parents=True, exist_ok=True)
-    commands = ["python -m venv .yue/python/venv"] if runtime == "python" else ["npm install"]
+    commands = (
+        ["python -m venv .yue/python/venv"]
+        if runtime == "python"
+        else ["npm install --prefix .yue/node"]
+    )
     (package_dir / "SKILL.md").write_text(
         f"""---
 name: {name}

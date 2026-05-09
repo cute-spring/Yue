@@ -215,7 +215,7 @@ def test_node_setup_creates_isolated_directory_before_execution(tmp_path):
     result = service.run_setup("demo:1.0.0")
 
     assert result.setup_status == "succeeded"
-    assert seen == [str(source / ".yue" / "node")]
+    assert seen == [str(source)]
 
 
 def test_pnpm_setup_positive_path(tmp_path):
@@ -241,7 +241,7 @@ def test_pnpm_setup_positive_path(tmp_path):
 
     assert result.setup_status == "succeeded"
     assert len(seen) == 1
-    assert seen[0]["cwd"] == str(source / ".yue" / "node")
+    assert seen[0]["cwd"] == str(source)
 
 
 def test_yarn_setup_positive_path(tmp_path):
@@ -267,7 +267,133 @@ def test_yarn_setup_positive_path(tmp_path):
 
     assert result.setup_status == "succeeded"
     assert len(seen) == 1
-    assert seen[0]["cwd"] == str(source / ".yue" / "node")
+    assert seen[0]["cwd"] == str(source)
+
+
+def test_uv_setup_positive_path(tmp_path):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "requirements.txt").write_text("", encoding="utf-8")
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.last_setup_commands = [
+        "uv venv .yue/python/venv",
+        "uv pip install --python .yue/python/venv/bin/python -r requirements.txt",
+    ]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    seen: list[dict] = []
+
+    def _runner(**kwargs):
+        seen.append(kwargs)
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "succeeded"
+    assert [item["command"] for item in seen] == [
+        ["uv", "venv", ".yue/python/venv"],
+        ["uv", "pip", "install", "--python", ".yue/python/venv/bin/python", "-r", "requirements.txt"],
+    ]
+    assert [item["cwd"] for item in seen] == [str(source), str(source)]
+
+
+def test_venv_python_and_pip_positive_paths(tmp_path):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "requirements.txt").write_text("", encoding="utf-8")
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.last_setup_commands = [
+        "python -m venv .yue/python/venv",
+        ".yue/python/venv/bin/python -m pip install -r requirements.txt",
+        ".yue/python/venv/bin/pip install -r requirements.txt",
+    ]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    seen: list[dict] = []
+
+    def _runner(**kwargs):
+        seen.append(kwargs)
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "succeeded"
+    assert [item["command"] for item in seen] == [
+        ["python", "-m", "venv", ".yue/python/venv"],
+        [".yue/python/venv/bin/python", "-m", "pip", "install", "-r", "requirements.txt"],
+        [".yue/python/venv/bin/pip", "install", "-r", "requirements.txt"],
+    ]
+    assert [item["cwd"] for item in seen] == [str(source), str(source), str(source)]
+
+
+def test_node_script_setup_positive_path(tmp_path):
+    source = tmp_path / "skill"
+    scripts_dir = source / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    (scripts_dir / "setup-local.mjs").write_text("console.log('setup');\n", encoding="utf-8")
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = ["node scripts/setup-local.mjs"]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    seen: list[dict] = []
+
+    def _runner(**kwargs):
+        seen.append(kwargs)
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "succeeded"
+    assert len(seen) == 1
+    assert seen[0]["command"] == ["node", "scripts/setup-local.mjs"]
+    assert seen[0]["cwd"] == str(source)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "npm install --prefix",
+        "pnpm install --dir",
+        "yarn install --cwd",
+    ],
+)
+def test_node_setup_rejected_when_path_flag_has_no_value(tmp_path, command):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = [command]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    calls: list[dict] = []
+    service = SkillSetupService(
+        import_store=store,
+        command_runner=lambda **kwargs: calls.append(kwargs) or type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})(),
+    )
+
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "failed"
+    assert "Phase 1 policy" in (result.setup_last_error or "")
+    assert calls == []
 
 
 @pytest.mark.parametrize(

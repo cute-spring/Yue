@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import shutil
 from types import SimpleNamespace
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -54,6 +57,14 @@ You are {name}.
         encoding="utf-8",
     )
     return package_dir
+
+
+def _copy_fixture_into_backend_runtime(fixture_name: str) -> Path:
+    backend_root = Path(__file__).resolve().parents[1]
+    fixture_root = backend_root / "tests" / "fixtures" / "skills" / fixture_name
+    runtime_root = backend_root / "data_temp" / "test_skill_setup_runtime" / f"{fixture_name}-{uuid4().hex}"
+    shutil.copytree(fixture_root, runtime_root)
+    return runtime_root
 
 
 @pytest.fixture
@@ -322,34 +333,86 @@ def test_excalidraw_preflight_exposes_capability_level_and_blockers(client):
     assert first_blocker["fix_path"].endswith("/libraries")
 
 
-def test_setup_endpoints_require_trust_then_run(client):
+def test_setup_endpoints_require_trust_then_run(client, tmp_path):
     test_client, store, _agent_store = client
     record = _record(skill_name="setup-skill", status="available", layer="workspace")
-    record.setup_capable = True
-    record.setup_required = True
-    record.setup_runtime = "python"
-    record.setup_supported_runtimes = ["python"]
-    record.last_setup_commands = ["python -V"]
-    store.replace_preflight_records([record])
+    backend_root = Path(__file__).resolve().parents[1]
+    source = backend_root / "data_temp" / f"test-setup-skill-{uuid4().hex}"
+    source.mkdir(parents=True, exist_ok=True)
+    try:
+        record.source_path = str(source)
+        record.setup_capable = True
+        record.setup_required = True
+        record.setup_runtime = "python"
+        record.setup_supported_runtimes = ["python"]
+        record.last_setup_commands = ["python -m venv .yue/python/venv"]
+        store.replace_preflight_records([record])
 
-    setup_before_trust = test_client.post("/api/skill-preflight/setup-skill:1.0.0/setup", json={})
-    assert setup_before_trust.status_code == 422
-    assert setup_before_trust.json()["detail"]["code"] == "skill_setup_requires_trust"
+        setup_before_trust = test_client.post("/api/skill-preflight/setup-skill:1.0.0/setup", json={})
+        assert setup_before_trust.status_code == 422
+        assert setup_before_trust.json()["detail"]["code"] == "skill_setup_requires_trust"
 
-    trust_response = test_client.post("/api/skill-preflight/setup-skill:1.0.0/trust")
-    assert trust_response.status_code == 200
-    trusted_item = trust_response.json()["item"]
-    assert trusted_item["trust_status"] == "trusted"
+        trust_response = test_client.post("/api/skill-preflight/setup-skill:1.0.0/trust")
+        assert trust_response.status_code == 200
+        trusted_item = trust_response.json()["item"]
+        assert trusted_item["trust_status"] == "trusted"
 
-    setup_response = test_client.post("/api/skill-preflight/setup-skill:1.0.0/setup", json={})
-    assert setup_response.status_code == 200
-    setup_item = setup_response.json()["item"]
-    assert setup_item["setup_status"] in {"succeeded", "failed"}
+        setup_response = test_client.post("/api/skill-preflight/setup-skill:1.0.0/setup", json={})
+        assert setup_response.status_code == 200
+        setup_item = setup_response.json()["item"]
+        assert setup_item["setup_status"] == "succeeded"
 
-    state_response = test_client.get("/api/skill-preflight/setup-skill:1.0.0/setup")
-    assert state_response.status_code == 200
-    state_item = state_response.json()["item"]
-    assert state_item["setup_capable"] is True
-    assert state_item["setup_status_message"]
-    assert "setup_audit_summary" in state_item
-    assert isinstance(state_item["setup_audit_summary"]["total"], int)
+        state_response = test_client.get("/api/skill-preflight/setup-skill:1.0.0/setup")
+        assert state_response.status_code == 200
+        state_item = state_response.json()["item"]
+        assert state_item["setup_capable"] is True
+        assert state_item["setup_status_message"]
+        assert "setup_audit_summary" in state_item
+        assert isinstance(state_item["setup_audit_summary"]["total"], int)
+    finally:
+        shutil.rmtree(source, ignore_errors=True)
+
+
+def test_setup_endpoints_rescan_trust_and_run_real_uv_demo_skill(client, monkeypatch):
+    test_client, store, _agent_store = client
+    from app.api import skill_preflight as skill_preflight_module
+
+    runtime_root = _copy_fixture_into_backend_runtime("trusted-local-setup-uv-demo")
+    monkeypatch.setattr(
+        skill_preflight_module,
+        "_resolve_preflight_directories",
+        lambda: [SkillDirectorySpec(layer="workspace", path=str(runtime_root.parent))],
+    )
+
+    try:
+        rescan_response = test_client.post("/api/skill-preflight/rescan")
+        assert rescan_response.status_code == 200
+        rescan_item = rescan_response.json()["items"][0]
+        assert rescan_item["skill_ref"] == "trusted-local-setup-uv-demo:1.0.0"
+        assert rescan_item["setup_capable"] is True
+        assert rescan_item["setup_runtime"] == "python"
+        assert rescan_item["trust_status"] == "untrusted"
+        assert rescan_item["setup_status"] == "available"
+
+        trust_response = test_client.post("/api/skill-preflight/trusted-local-setup-uv-demo:1.0.0/trust")
+        assert trust_response.status_code == 200
+        trusted_item = trust_response.json()["item"]
+        assert trusted_item["trust_status"] == "trusted"
+
+        setup_response = test_client.post("/api/skill-preflight/trusted-local-setup-uv-demo:1.0.0/setup", json={})
+        assert setup_response.status_code == 200
+        setup_item = setup_response.json()["item"]
+        assert setup_item["setup_status"] == "succeeded"
+        assert setup_item["trust_status"] == "trusted"
+        assert setup_item["setup_audit_summary"]["total"] == 2
+
+        state_response = test_client.get("/api/skill-preflight/trusted-local-setup-uv-demo:1.0.0/setup")
+        assert state_response.status_code == 200
+        state_item = state_response.json()["item"]
+        assert state_item["setup_status"] == "succeeded"
+        assert state_item["setup_status_message"] == "Trusted setup completed."
+        assert state_item["setup_next_action"] == "Setup is complete."
+        assert Path(state_item["isolated_env_path"]).exists()
+        assert store.get_preflight_record("trusted-local-setup-uv-demo:1.0.0") is not None
+    finally:
+        shutil.rmtree(runtime_root, ignore_errors=True)

@@ -1,0 +1,12 @@
+format_version: 1
+name: trusted-local-setup-uv-demo
+version: 1.0.0
+description: Demo skill package for trusted local setup end-to-end tests.
+capabilities: ["analysis"]
+entrypoint: system_prompt
+install:
+  setup:
+    runtime: python
+    commands:
+      - uv venv .yue/python/venv
+      - uv pip install --python .yue/python/venv/bin/python -r requirements.txt
