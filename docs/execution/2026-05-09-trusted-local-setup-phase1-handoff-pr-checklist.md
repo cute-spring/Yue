@@ -59,7 +59,7 @@ This document captures:
 
 ### Nice-To-Have Follow-Up
 
-- [ ] Document operator-facing trusted setup workflow in user/developer docs
+- [x] Document operator-facing trusted setup workflow in user/developer docs (completed 2026-05-09 session 4)
 - [ ] Add PR/commit hygiene around selecting only this feature's files because the worktree also contains unrelated untracked files
 
 ## Known Non-Blocking Notes
@@ -142,4 +142,27 @@ This document captures:
 - [x] Backend test suite — 70 passed
 - [x] Frontend build — clean
 - [x] TypeScript compilation — clean
+- [x] `git diff --check` — clean
+
+## Session 4 (2026-05-09) — Documentation
+
+### Completed
+
+- **Trusted Local Setup Guide**: Added [docs/guides/developer/TRUSTED_LOCAL_SETUP_GUIDE.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/guides/developer/TRUSTED_LOCAL_SETUP_GUIDE.md) covering:
+  - Concept and manifest contract format
+  - Supported runtimes (python/node) with allowed command patterns
+  - Package manager quick reference (npm/pnpm/yarn/pip)
+  - Trust → Setup lifecycle (untrusted → trusted → succeeded/failed → retry)
+  - Fingerprint binding and drift detection
+  - Isolated environment paths and policy gates
+  - API endpoints (trust, setup, get state, error codes)
+  - Setup audit observability format
+  - SkillHealth UI integration (button states, displayed info)
+  - Troubleshooting common errors
+
+### Verified (Session 4)
+
+- [x] Document follows existing developer guide conventions
+- [x] All Near-Term Hardening items complete
+- [x] All Nice-To-Have documentation items complete
 - [x] `git diff --check` — clean
