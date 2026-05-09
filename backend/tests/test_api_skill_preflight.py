@@ -351,3 +351,5 @@ def test_setup_endpoints_require_trust_then_run(client):
     state_item = state_response.json()["item"]
     assert state_item["setup_capable"] is True
     assert state_item["setup_status_message"]
+    assert "setup_audit_summary" in state_item
+    assert isinstance(state_item["setup_audit_summary"]["total"], int)

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from app.mcp.builtin.exec import build_exec_tool_config, run_exec_argv
-from app.services.skills.import_models import SkillPreflightRecord
+from app.services.skills.import_models import SetupAuditEntry, SkillPreflightRecord
 from app.services.skills.import_store import SkillImportStore
 from app.services.skills.setup_models import InstallSetupSpec, SetupValidationResult
 
@@ -256,6 +256,7 @@ class SkillSetupService:
 
         item.setup_status = "running"
         item.setup_last_error = None
+        item.setup_audit_entries = []
         item.last_setup_started_at = datetime.utcnow()
         self.import_store.save_preflight_record(item)
 
@@ -263,7 +264,22 @@ class SkillSetupService:
             for command in setup.commands:
                 argv, cwd = self._validate_command(command, setup.runtime, item.source_path)
                 Path(cwd).mkdir(parents=True, exist_ok=True)
+                started_at = datetime.utcnow()
                 result = self._command_runner(command=argv, cwd=cwd)
+                finished_at = datetime.utcnow()
+                duration_ms = round((finished_at - started_at).total_seconds() * 1000)
+                entry = SetupAuditEntry(
+                    command=command,
+                    argv=argv,
+                    cwd=cwd,
+                    exit_code=result.returncode,
+                    stdout_size=len(result.stdout or ""),
+                    stderr_size=len(result.stderr or ""),
+                    duration_ms=duration_ms,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                )
+                item.setup_audit_entries.append(entry)
                 if result.returncode != 0:
                     err = (result.stderr or result.stdout or "").strip()
                     raise RuntimeError(err or f"setup command failed: {command}")

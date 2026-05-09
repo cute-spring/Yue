@@ -88,6 +88,13 @@ def _serialize_preflight_item(item, visible_skill_refs: set[str]) -> dict:
     else:
         data["setup_status_message"] = "Ready to run trusted setup."
         data["setup_next_action"] = "Run setup in isolated environment."
+    audit_entries = data.get("setup_audit_entries") or []
+    data["setup_audit_summary"] = {
+        "total": len(audit_entries),
+        "succeeded": sum(1 for e in audit_entries if e.get("exit_code") == 0),
+        "failed": sum(1 for e in audit_entries if e.get("exit_code") != 0),
+        "total_duration_ms": sum(e.get("duration_ms", 0) for e in audit_entries),
+    }
     if data.get("skill_name") == EXCALIDRAW_SKILL_NAME:
         data["excalidraw_health"] = _build_excalidraw_health(data)
     return data

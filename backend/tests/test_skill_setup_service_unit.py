@@ -301,6 +301,99 @@ def test_npm_setup_rejected_without_prefix_or_without_install(tmp_path, command,
     assert calls == []
 
 
+def test_run_setup_audit_entries_populated_on_success(tmp_path):
+    from datetime import datetime
+
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    def _runner(**kwargs):
+        return type("R", (), {"returncode": 0, "stderr": "install log\n", "stdout": "ok\n"})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "succeeded"
+    assert len(result.setup_audit_entries) == 1
+    entry = result.setup_audit_entries[0]
+    assert entry.command == "python -m venv .yue/python/venv"
+    assert len(entry.argv) == 4
+    assert entry.exit_code == 0
+    assert entry.stdout_size > 0
+    assert entry.stderr_size > 0
+    assert entry.duration_ms >= 0
+    assert isinstance(entry.started_at, datetime)
+    assert isinstance(entry.finished_at, datetime)
+    assert entry.finished_at >= entry.started_at
+
+
+def test_run_setup_audit_entries_captures_failure_before_raise(tmp_path):
+    from datetime import datetime
+
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.last_setup_commands = [
+        record.last_setup_commands[0],
+        "python -m venv .yue/python/venv",
+    ]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    call_count = [0]
+
+    def _runner(**kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return type("R", (), {"returncode": 0, "stderr": "", "stdout": "first ok\n"})()
+        return type("R", (), {"returncode": 1, "stderr": "boom\n", "stdout": ""})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "failed"
+    assert len(result.setup_audit_entries) == 2
+    assert result.setup_audit_entries[0].exit_code == 0
+    assert result.setup_audit_entries[0].stdout_size > 0
+    assert result.setup_audit_entries[1].exit_code == 1
+    assert result.setup_audit_entries[1].stderr_size > 0
+    assert result.setup_audit_entries[1].duration_ms >= 0
+    assert isinstance(result.setup_audit_entries[1].started_at, datetime)
+    assert "boom" in (result.setup_last_error or "")
+
+
+def test_run_setup_audit_entries_reset_on_rerun(tmp_path):
+    from app.services.skills.import_models import SetupAuditEntry
+
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    record.setup_audit_entries = [
+        SetupAuditEntry(command="stale", argv=["stale"], cwd="/tmp", exit_code=0, stdout_size=1, stderr_size=0, duration_ms=1)
+    ]
+    store.save_preflight_record(record)
+
+    def _runner(**kwargs):
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": "fresh\n"})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "succeeded"
+    assert len(result.setup_audit_entries) == 1
+    assert result.setup_audit_entries[0].command == "python -m venv .yue/python/venv"
+
+
 @pytest.mark.parametrize(
     "command",
     [
