@@ -5,13 +5,20 @@ import {
   copyFixCommandsToClipboard,
   getExcalidrawHealthSummary,
   filterPreflightRecords,
+  formatSetupErrorMessage,
   formatMountErrorMessage,
+  getSetupLastFailureMessage,
   groupPreflightRecordsByAvailability,
   getMountActionState,
   getRecordStatusMessage,
+  getSetupActionState,
+  getSetupStatusMessage,
+  getSetupSupportMessage,
+  getTrustStatusMessage,
   getVisibilityStateLabel,
   mountSkillToAgent,
   rescanSkillPreflight,
+  trustAndSetupSkill,
   type SkillPreflightRecord,
 } from './SkillHealth';
 
@@ -29,6 +36,11 @@ const sampleRecords: SkillPreflightRecord[] = [
     status_message: 'Ready to mount.',
     next_action: 'Mount this skill to the default agent.',
     visible_in_default_agent: false,
+    setup_capable: false,
+    setup_required: false,
+    trust_status: 'untrusted',
+    setup_status: 'not_needed',
+    setup_supported_runtimes: [],
     checked_at: '2026-04-25T00:00:00Z',
   },
   {
@@ -44,6 +56,13 @@ const sampleRecords: SkillPreflightRecord[] = [
     status_message: 'missing binary',
     next_action: 'Resolve listed issues, then rerun preflight.',
     visible_in_default_agent: false,
+    setup_capable: true,
+    setup_required: true,
+    trust_status: 'untrusted',
+    setup_status: 'available',
+    setup_supported_runtimes: ['python'],
+    setup_status_message: 'Setup requires explicit trust.',
+    setup_next_action: 'Trust this skill, then run setup.',
     checked_at: '2026-04-25T00:00:00Z',
   },
 ];
@@ -121,6 +140,75 @@ describe('SkillHealth helpers', () => {
     expect(formatMountErrorMessage('agent_not_found')).toContain('Target agent');
   });
 
+  it('derives trust-and-setup action state from backend contract', () => {
+    expect(getSetupActionState(sampleRecords[0])).toEqual({
+      visible: false,
+      label: 'Setup Unsupported',
+      disabled: true,
+    });
+    expect(getSetupActionState(sampleRecords[1])).toEqual({
+      visible: true,
+      label: 'Trust & Setup',
+      disabled: false,
+    });
+    expect(
+      getSetupActionState({
+        ...sampleRecords[1],
+        trust_status: 'trusted',
+        setup_status: 'failed',
+      }),
+    ).toEqual({
+      visible: true,
+      label: 'Retry Setup',
+      disabled: false,
+    });
+    expect(
+      getSetupActionState({
+        ...sampleRecords[1],
+        trust_status: 'trusted',
+        setup_status: 'succeeded',
+      }),
+    ).toEqual({
+      visible: false,
+      label: 'Setup Complete',
+      disabled: true,
+    });
+  });
+
+  it('describes trusted setup support, trust state, and last failure separately', () => {
+    expect(getSetupSupportMessage(sampleRecords[0])).toBe('Trusted setup support: Not supported.');
+    expect(getTrustStatusMessage(sampleRecords[0])).toBe('Trusted: No');
+    expect(getSetupLastFailureMessage(sampleRecords[0])).toBeNull();
+
+    expect(getSetupSupportMessage(sampleRecords[1])).toBe('Trusted setup support: Supported (python).');
+    expect(getTrustStatusMessage(sampleRecords[1])).toBe('Trusted: No');
+    expect(getSetupLastFailureMessage(sampleRecords[1])).toBeNull();
+
+    expect(
+      getSetupLastFailureMessage({
+        ...sampleRecords[1],
+        setup_status: 'failed',
+        setup_last_error: 'pip install failed',
+      }),
+    ).toBe('pip install failed');
+  });
+
+  it('prefers backend setup status message when present', () => {
+    expect(getSetupStatusMessage(sampleRecords[1])).toBe('Setup requires explicit trust.');
+    expect(
+      getSetupStatusMessage({
+        ...sampleRecords[1],
+        setup_status_message: '',
+        setup_last_error: 'pip install failed',
+      }),
+    ).toBe('pip install failed');
+  });
+
+  it('maps setup error code to actionable text', () => {
+    expect(formatSetupErrorMessage('skill_setup_requires_trust')).toContain('Trust');
+    expect(formatSetupErrorMessage('skill_setup_not_supported')).toContain('manifest');
+  });
+
   it('separates visibility label from availability status', () => {
     expect(getVisibilityStateLabel(false)).toBe('Hidden in default agent');
     expect(getVisibilityStateLabel(true)).toBe('Visible in default agent');
@@ -143,6 +231,33 @@ describe('SkillHealth helpers', () => {
     expect(result.ok).toBe(true);
     expect(result.summary?.total).toBe(2);
     expect(result.items).toHaveLength(2);
+  });
+
+  it('trusts then runs setup for a skill', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ item: { ...sampleRecords[1], trust_status: 'trusted' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ item: { ...sampleRecords[1], trust_status: 'trusted', setup_status: 'succeeded' } }),
+      });
+
+    const result = await trustAndSetupSkill('fix-skill:1.0.0', fetchMock as any);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/skill-preflight/fix-skill:1.0.0/trust', {
+      method: 'POST',
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/skill-preflight/fix-skill:1.0.0/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.item?.trust_status).toBe('trusted');
+    expect(result.item?.setup_status).toBe('succeeded');
   });
 
   it('groups records by available vs non-available', () => {

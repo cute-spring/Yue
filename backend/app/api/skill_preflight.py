@@ -9,6 +9,7 @@ from app.services.skill_service import get_stage4_lite_runtime_context
 from app.services.skills.bootstrap import resolve_skill_runtime_config_from_env
 from app.services.skills.directories import SkillDirectoryResolver
 from app.services.skills.preflight_service import SkillPreflightService
+from app.services.skills.setup_service import SkillSetupService
 
 router = APIRouter()
 EXCALIDRAW_SKILL_NAME = "excalidraw-diagram-generator"
@@ -16,6 +17,10 @@ EXCALIDRAW_SKILL_NAME = "excalidraw-diagram-generator"
 
 class SkillPreflightMountRequest(BaseModel):
     agent_id: Optional[str] = None
+
+
+class SkillPreflightSetupRequest(BaseModel):
+    pass
 
 
 def _runtime_context():
@@ -64,6 +69,25 @@ def _serialize_preflight_item(item, visible_skill_refs: set[str]) -> dict:
     data["visible_in_default_agent"] = data.get("skill_ref") in visible_skill_refs
     data["status_message"] = status_message
     data["next_action"] = next_action
+    setup_capable = bool(data.get("setup_capable"))
+    trust_status = data.get("trust_status") or "untrusted"
+    setup_status = data.get("setup_status") or "not_needed"
+    data["setup_required"] = bool(setup_capable and setup_status != "succeeded")
+    if not setup_capable:
+        data["setup_status_message"] = "No trusted setup contract declared."
+        data["setup_next_action"] = "Use Mount if preflight is available."
+    elif trust_status != "trusted":
+        data["setup_status_message"] = "Setup requires explicit trust."
+        data["setup_next_action"] = "Trust this skill, then run setup."
+    elif setup_status == "succeeded":
+        data["setup_status_message"] = "Trusted setup completed."
+        data["setup_next_action"] = "Setup is complete."
+    elif setup_status == "failed":
+        data["setup_status_message"] = data.get("setup_last_error") or "Trusted setup failed."
+        data["setup_next_action"] = "Fix setup issues, then rerun setup."
+    else:
+        data["setup_status_message"] = "Ready to run trusted setup."
+        data["setup_next_action"] = "Run setup in isolated environment."
     if data.get("skill_name") == EXCALIDRAW_SKILL_NAME:
         data["excalidraw_health"] = _build_excalidraw_health(data)
     return data
@@ -209,6 +233,68 @@ async def get_skill_preflight(skill_ref: str):
     item = _runtime_store().get_preflight_record(skill_ref)
     if item is None:
         raise HTTPException(status_code=404, detail="skill_preflight_not_found")
+    visible_skill_refs = _default_agent_visible_skill_refs()
+    return {"item": _serialize_preflight_item(item, visible_skill_refs)}
+
+
+@router.get("/{skill_ref}/setup")
+async def get_skill_preflight_setup(skill_ref: str):
+    setup_service = SkillSetupService(import_store=_runtime_store())
+    try:
+        item = setup_service.get_setup_state(skill_ref)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="skill_preflight_not_found")
+    visible_skill_refs = _default_agent_visible_skill_refs()
+    return {"item": _serialize_preflight_item(item, visible_skill_refs)}
+
+
+@router.post("/{skill_ref}/trust")
+async def trust_skill_preflight(skill_ref: str):
+    setup_service = SkillSetupService(import_store=_runtime_store())
+    try:
+        item = setup_service.trust_skill(skill_ref)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="skill_preflight_not_found")
+    except ValueError:
+        _raise_actionable_error(
+            status_code=422,
+            code="skill_setup_not_supported",
+            message="Skill does not declare a Phase 1 install.setup contract.",
+            next_action="Add manifest install.setup runtime and commands first.",
+        )
+    except RuntimeError:
+        _raise_actionable_error(
+            status_code=409,
+            code="skill_setup_requires_rescan",
+            message="Skill package changed since preflight.",
+            next_action="Rescan preflight, then review and trust the current package.",
+        )
+    visible_skill_refs = _default_agent_visible_skill_refs()
+    return {"item": _serialize_preflight_item(item, visible_skill_refs)}
+
+
+@router.post("/{skill_ref}/setup")
+async def setup_skill_preflight(skill_ref: str, request: SkillPreflightSetupRequest):
+    del request
+    setup_service = SkillSetupService(import_store=_runtime_store())
+    try:
+        item = setup_service.run_setup(skill_ref)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="skill_preflight_not_found")
+    except PermissionError:
+        _raise_actionable_error(
+            status_code=422,
+            code="skill_setup_requires_trust",
+            message="Skill must be trusted before setup can run.",
+            next_action="Call trust endpoint first.",
+        )
+    except ValueError:
+        _raise_actionable_error(
+            status_code=422,
+            code="skill_setup_not_supported",
+            message="Skill setup is unavailable or manifest contract is invalid.",
+            next_action="Verify install.setup runtime and commands in manifest.",
+        )
     visible_skill_refs = _default_agent_visible_skill_refs()
     return {"item": _serialize_preflight_item(item, visible_skill_refs)}
 

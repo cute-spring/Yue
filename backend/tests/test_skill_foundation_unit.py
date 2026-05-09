@@ -258,7 +258,50 @@ Package prompt.
         assert [ref.path for ref in package.references] == ["references/guide.md"]
         assert [script.path for script in package.scripts] == ["scripts/run.py"]
         assert [overlay.path for overlay in package.overlays] == ["agents/openai.yaml"]
-        assert package.overlays[0].provider == "openai"
+        assert package.install is None
+
+def test_skill_loader_parse_package_reads_manifest_install_setup():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pkg_dir = os.path.join(tmp_dir, "pkg-skill")
+        os.makedirs(pkg_dir, exist_ok=True)
+        with open(os.path.join(pkg_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: package-skill
+version: 1.0.0
+description: packaged
+capabilities: ["pkg"]
+entrypoint: system_prompt
+---
+## System Prompt
+Package prompt.
+""")
+        with open(os.path.join(pkg_dir, "manifest.yaml"), "w") as f:
+            f.write("""format_version: 1
+name: package-skill
+version: 1.0.0
+description: packaged
+capabilities: ["pkg"]
+entrypoint: system_prompt
+install:
+  setup:
+    runtime: python
+    commands:
+      - python -m venv .yue/python/venv
+      - python -m pip install -r requirements.txt
+""")
+
+        package = SkillLoader.parse_package(pkg_dir)
+
+        assert package is not None
+        assert package.install == {
+            "setup": {
+                "runtime": "python",
+                "commands": [
+                    "python -m venv .yue/python/venv",
+                    "python -m pip install -r requirements.txt",
+                ],
+            }
+        }
 
 def test_skill_loader_discovers_model_specific_overlay_from_filename():
     with tempfile.TemporaryDirectory() as tmp_dir:

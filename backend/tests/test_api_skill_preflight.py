@@ -29,6 +29,11 @@ def _record(
         issues=issues or [],
         warnings=[],
         suggestions=[],
+        setup_capable=False,
+        setup_required=False,
+        trust_status="untrusted",
+        setup_status="not_needed",
+        setup_supported_runtimes=[],
     )
 
 
@@ -315,3 +320,34 @@ def test_excalidraw_preflight_exposes_capability_level_and_blockers(client):
     assert first_blocker["fix_command"].startswith("python ")
     assert "split-excalidraw-library.py" in first_blocker["fix_command"]
     assert first_blocker["fix_path"].endswith("/libraries")
+
+
+def test_setup_endpoints_require_trust_then_run(client):
+    test_client, store, _agent_store = client
+    record = _record(skill_name="setup-skill", status="available", layer="workspace")
+    record.setup_capable = True
+    record.setup_required = True
+    record.setup_runtime = "python"
+    record.setup_supported_runtimes = ["python"]
+    record.last_setup_commands = ["python -V"]
+    store.replace_preflight_records([record])
+
+    setup_before_trust = test_client.post("/api/skill-preflight/setup-skill:1.0.0/setup", json={})
+    assert setup_before_trust.status_code == 422
+    assert setup_before_trust.json()["detail"]["code"] == "skill_setup_requires_trust"
+
+    trust_response = test_client.post("/api/skill-preflight/setup-skill:1.0.0/trust")
+    assert trust_response.status_code == 200
+    trusted_item = trust_response.json()["item"]
+    assert trusted_item["trust_status"] == "trusted"
+
+    setup_response = test_client.post("/api/skill-preflight/setup-skill:1.0.0/setup", json={})
+    assert setup_response.status_code == 200
+    setup_item = setup_response.json()["item"]
+    assert setup_item["setup_status"] in {"succeeded", "failed"}
+
+    state_response = test_client.get("/api/skill-preflight/setup-skill:1.0.0/setup")
+    assert state_response.status_code == 200
+    state_item = state_response.json()["item"]
+    assert state_item["setup_capable"] is True
+    assert state_item["setup_status_message"]
