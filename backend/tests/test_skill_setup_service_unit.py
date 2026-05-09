@@ -216,3 +216,202 @@ def test_node_setup_creates_isolated_directory_before_execution(tmp_path):
 
     assert result.setup_status == "succeeded"
     assert seen == [str(source / ".yue" / "node")]
+
+
+def test_pnpm_setup_positive_path(tmp_path):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = ["pnpm install --dir .yue/node"]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    seen: list[dict] = []
+
+    def _runner(**kwargs):
+        seen.append(kwargs)
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "succeeded"
+    assert len(seen) == 1
+    assert seen[0]["cwd"] == str(source / ".yue" / "node")
+
+
+def test_yarn_setup_positive_path(tmp_path):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = ["yarn install --cwd .yue/node"]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    seen: list[dict] = []
+
+    def _runner(**kwargs):
+        seen.append(kwargs)
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    service = SkillSetupService(import_store=store, command_runner=_runner)
+    result = service.run_setup("demo:1.0.0")
+
+    assert result.setup_status == "succeeded"
+    assert len(seen) == 1
+    assert seen[0]["cwd"] == str(source / ".yue" / "node")
+
+
+@pytest.mark.parametrize(
+    "command,setup_runtime",
+    [
+        ("npm install", "node"),
+        ("npm run build", "node"),
+        ("npm install -g express", "node"),
+    ],
+)
+def test_npm_setup_rejected_without_prefix_or_without_install(tmp_path, command, setup_runtime):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = setup_runtime
+    record.setup_supported_runtimes = [setup_runtime]
+    record.last_setup_commands = [command]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    calls: list[dict] = []
+    service = SkillSetupService(
+        import_store=store,
+        command_runner=lambda **kwargs: calls.append(kwargs) or type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})(),
+    )
+
+    result = service.run_setup("demo:1.0.0")
+    assert result.setup_status == "failed"
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pnpm install",
+        "pnpm install --prefix .yue/node",
+        "pnpm run build --dir .yue/node",
+    ],
+)
+def test_pnpm_setup_rejected_without_dir_or_without_install(tmp_path, command):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = [command]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    calls: list[dict] = []
+    service = SkillSetupService(
+        import_store=store,
+        command_runner=lambda **kwargs: calls.append(kwargs) or type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})(),
+    )
+
+    result = service.run_setup("demo:1.0.0")
+    assert result.setup_status == "failed"
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "yarn install",
+        "yarn install --prefix .yue/node",
+        "yarn run build --cwd .yue/node",
+    ],
+)
+def test_yarn_setup_rejected_without_cwd_or_without_install(tmp_path, command):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = [command]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    calls: list[dict] = []
+    service = SkillSetupService(
+        import_store=store,
+        command_runner=lambda **kwargs: calls.append(kwargs) or type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})(),
+    )
+
+    result = service.run_setup("demo:1.0.0")
+    assert result.setup_status == "failed"
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "npm install --prefix ../escape",
+        "pnpm install --dir /tmp/out",
+        "yarn install --cwd ../escape",
+    ],
+)
+def test_node_setup_rejected_when_env_path_escapes_root(tmp_path, command):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = [command]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    calls: list[dict] = []
+    service = SkillSetupService(
+        import_store=store,
+        command_runner=lambda **kwargs: calls.append(kwargs) or type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})(),
+    )
+
+    result = service.run_setup("demo:1.0.0")
+    assert result.setup_status == "failed"
+    assert calls == []
+
+
+def test_node_setup_rejected_with_non_node_executable(tmp_path):
+    source = tmp_path / "skill"
+    source.mkdir(parents=True, exist_ok=True)
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    record = _record("demo:1.0.0", str(source))
+    record.trust_status = "trusted"
+    record.setup_runtime = "node"
+    record.setup_supported_runtimes = ["node"]
+    record.last_setup_commands = ["python -m venv .yue/python/venv"]
+    record.package_fingerprint = SkillSetupService.compute_package_fingerprint(str(source))
+    store.save_preflight_record(record)
+
+    calls: list[dict] = []
+    service = SkillSetupService(
+        import_store=store,
+        command_runner=lambda **kwargs: calls.append(kwargs) or type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})(),
+    )
+
+    result = service.run_setup("demo:1.0.0")
+    assert result.setup_status == "failed"
+    assert calls == []

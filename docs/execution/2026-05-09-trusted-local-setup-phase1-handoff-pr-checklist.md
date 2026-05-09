@@ -52,9 +52,9 @@ This document captures:
 
 ### Near-Term Hardening
 
-- [ ] Align `run_exec_argv` more fully with `ExecTool` policy behavior, especially `allow_patterns` and `restrict_to_workspace`
+- [x] Align `run_exec_argv` more fully with `ExecTool` policy behavior, especially `allow_patterns` and `restrict_to_workspace` (completed 2026-05-09 session 2)
 - [ ] Add richer setup observability if desired, such as per-command audit details
-- [ ] Add more positive-path node setup coverage across supported package managers
+- [x] Add more positive-path node setup coverage across supported package managers (completed 2026-05-09 session 2)
 - [ ] Add browser-level visual regression coverage for SkillHealth
 
 ### Nice-To-Have Follow-Up
@@ -74,6 +74,30 @@ This document captures:
 - [x] Backend contract is covered by tests
 - [x] Frontend contract is covered by tests
 - [x] No new blocker found in final review
-- [ ] Stage only Phase 1 related files
-- [ ] Write commit message
-- [ ] Prepare PR summary with implemented scope, verification, and residual risks
+- [x] Stage only Phase 1 related files (PR #106 merged)
+- [x] Write commit message (PR #106 merged)
+- [x] Prepare PR summary with implemented scope, verification, and residual risks (PR #106 merged)
+
+## Session 2 (2026-05-09) — Near-Term Hardening
+
+### Completed
+
+- **Align `run_exec_argv` with `ExecTool` policy**: Added `allow_patterns` and `restrict_to_workspace` checks to `run_exec_argv` in [backend/app/mcp/builtin/exec.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/mcp/builtin/exec.py#L115-L143). Previously `run_exec_argv` only enforced `deny_patterns`; now it mirrors all three policy gates from `ExecTool._guard_command`. 4 new tests in `test_base_tool_unit.py`.
+
+- **Node setup cross-package-manager coverage**: Added 8 tests in [backend/tests/test_skill_setup_service_unit.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/tests/test_skill_setup_service_unit.py):
+  - Positive paths: pnpm (`install --dir`), yarn (`install --cwd`)
+  - Rejection paths: missing `--prefix`/`--dir`/`--cwd`, missing `install`, global flags, env path escape across all three managers, cross-runtime executable rejection
+
+### Verified (Session 2)
+
+- [x] `test_base_tool_unit.py` — 19 passed (4 new)
+- [x] `test_skill_setup_service_unit.py` — 27 passed (8 new node tests)
+- [x] `test_skill_preflight_service_unit.py` — passed
+- [x] `test_api_skill_preflight.py` — passed
+- [x] `test_skill_import_store_unit.py` — passed
+- [x] `test_skill_foundation_unit.py` — passed
+- [x] `test_skill_runtime_bootstrap_unit.py` — 15 passed
+- [x] `test_exec_builtin.py` — passed
+- [x] `python -m compileall app` — clean
+- [x] `git diff --check` — clean
+- [x] **148 total tests passed across 8 suites**

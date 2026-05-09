@@ -123,6 +123,16 @@ def run_exec_argv(command: list[str], cwd: str, config: ExecToolConfig | None = 
         if re.search(pattern, command_str, re.IGNORECASE):
             raise PermissionError(f"Command contains denied pattern: {pattern}")
 
+    if effective_config.allow_patterns:
+        allowed = any(re.search(pattern, command_str, re.IGNORECASE) for pattern in effective_config.allow_patterns)
+        if not allowed:
+            raise PermissionError("Command is not in allowlist")
+
+    if effective_config.restrict_to_workspace:
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
+        if not str(cwd_path).startswith(project_root):
+            raise PermissionError(f"Working directory {cwd_path} is outside of project root {project_root}")
+
     env = os.environ.copy()
     if effective_config.path_append:
         env["PATH"] = env.get("PATH", "") + os.pathsep + effective_config.path_append
