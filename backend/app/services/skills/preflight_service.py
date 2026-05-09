@@ -8,6 +8,7 @@ from app.services.skills.import_models import SkillPreflightRecord
 from app.services.skills.import_store import SkillImportStore
 from app.services.skills.models import SkillDirectorySpec
 from app.services.skills.parsing import SkillLoader, SkillValidator
+from app.services.skills.setup_service import SkillSetupService
 
 
 class SkillPreflightService:
@@ -19,6 +20,7 @@ class SkillPreflightService:
     ):
         self.import_store = import_store or SkillImportStore()
         self.compatibility_evaluator = compatibility_evaluator or SkillCompatibilityEvaluator()
+        self.setup_service = SkillSetupService(import_store=self.import_store)
 
     def refresh(self, directories: Iterable[SkillDirectorySpec]) -> List[SkillPreflightRecord]:
         records: List[SkillPreflightRecord] = []
@@ -82,14 +84,35 @@ class SkillPreflightService:
             )
 
         compatibility = self.compatibility_evaluator.evaluate_package(package)
+        setup_validation = self.setup_service.parse_install_setup(package.install) if package.install is not None else None
+        setup_errors = list(setup_validation.errors) if setup_validation and not setup_validation.valid else []
+        setup_capable = bool(setup_validation and setup_validation.valid and setup_validation.setup is not None)
+        setup_runtime = setup_validation.setup.runtime if setup_validation and setup_validation.setup else None
+        setup_commands = list(setup_validation.setup.commands) if setup_validation and setup_validation.setup else []
+        setup_supported_runtimes = [setup_runtime] if setup_runtime else []
+        package_fingerprint = None
+        fingerprint_path = package.source_dir or package.manifest_path or package.skill_markdown_path
+        if fingerprint_path:
+            package_fingerprint = self.setup_service.compute_package_fingerprint(fingerprint_path)
+        previous = self.import_store.get_preflight_record(f"{package.name}:{package.version}")
+        prior_trust = "trusted" if previous and previous.package_fingerprint == package_fingerprint and previous.trust_status == "trusted" else "untrusted"
+        prior_status = "available" if setup_capable and prior_trust == "trusted" else ("not_needed" if not setup_capable else "available")
+        if previous and previous.package_fingerprint == package_fingerprint and previous.setup_status in {"running", "succeeded", "failed"}:
+            prior_status = previous.setup_status
+        if not setup_capable:
+            prior_trust = "untrusted"
+            prior_status = "not_needed"
         issues = list(compatibility.issues)
+        issues.extend(setup_errors)
         suggestions = self._build_suggestions(compatibility)
+        if setup_errors:
+            suggestions.append("Fix manifest install.setup to use only python/node runtime and plain command strings.")
 
         asset_issues, asset_suggestions = self._evaluate_excalidraw_assets(package)
         issues.extend(asset_issues)
         suggestions.extend(asset_suggestions)
 
-        status = "available" if compatibility.status == "compatible" and not asset_issues else "needs_fix"
+        status = "available" if compatibility.status == "compatible" and not asset_issues and not setup_errors else "needs_fix"
         return SkillPreflightRecord(
             skill_name=package.name,
             skill_version=package.version,
@@ -103,6 +126,18 @@ class SkillPreflightService:
             missing_env=list(compatibility.missing_env),
             unsupported_tools=list(compatibility.unsupported_tools),
             os_mismatch=list(compatibility.os_mismatch),
+            setup_capable=setup_capable,
+            setup_required=setup_capable,
+            trust_status=prior_trust,
+            setup_status=prior_status,
+            setup_supported_runtimes=setup_supported_runtimes,
+            setup_runtime=setup_runtime,
+            isolated_env_path=self.setup_service.isolated_env_path_for(setup_runtime, str(candidate)) if setup_runtime else None,
+            package_fingerprint=package_fingerprint,
+            last_setup_commands=setup_commands,
+            setup_last_error=previous.setup_last_error if previous and previous.package_fingerprint == package_fingerprint else None,
+            last_setup_started_at=previous.last_setup_started_at if previous and previous.package_fingerprint == package_fingerprint else None,
+            last_setup_finished_at=previous.last_setup_finished_at if previous and previous.package_fingerprint == package_fingerprint else None,
         )
 
     def _build_from_markdown(self, *, candidate: Path, layer: str) -> SkillPreflightRecord:

@@ -150,4 +150,16 @@ class SkillPreflightRecord(BaseModel):
     unsupported_tools: List[str] = Field(default_factory=list)
     os_mismatch: List[str] = Field(default_factory=list)
     excalidraw_health: Optional[ExcalidrawHealthReport] = None
+    setup_capable: bool = False
+    setup_required: bool = False
+    trust_status: str = "untrusted"
+    setup_status: str = "not_needed"
+    setup_supported_runtimes: List[str] = Field(default_factory=list)
+    setup_runtime: Optional[str] = None
+    isolated_env_path: Optional[str] = None
+    package_fingerprint: Optional[str] = None
+    last_setup_started_at: Optional[datetime] = None
+    last_setup_finished_at: Optional[datetime] = None
+    last_setup_commands: List[str] = Field(default_factory=list)
+    setup_last_error: Optional[str] = None
     checked_at: datetime = Field(default_factory=datetime.utcnow)

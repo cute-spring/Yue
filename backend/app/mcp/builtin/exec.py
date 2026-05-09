@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import re
+import shlex
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -108,6 +110,32 @@ def build_exec_tool_config() -> ExecToolConfig:
     if not isinstance(settings, dict):
         settings = {}
     return ExecToolConfig.from_settings(settings)
+
+
+def run_exec_argv(command: list[str], cwd: str, config: ExecToolConfig | None = None) -> subprocess.CompletedProcess[str]:
+    effective_config = config or build_exec_tool_config()
+    cwd_path = Path(cwd).expanduser().resolve()
+    if not cwd_path.exists() or not cwd_path.is_dir():
+        raise FileNotFoundError("Working directory not found.")
+
+    command_str = shlex.join(command)
+    for pattern in effective_config.deny_patterns:
+        if re.search(pattern, command_str, re.IGNORECASE):
+            raise PermissionError(f"Command contains denied pattern: {pattern}")
+
+    env = os.environ.copy()
+    if effective_config.path_append:
+        env["PATH"] = env.get("PATH", "") + os.pathsep + effective_config.path_append
+
+    return subprocess.run(
+        command,
+        cwd=str(cwd_path),
+        shell=False,
+        text=True,
+        capture_output=True,
+        timeout=effective_config.timeout_s,
+        env=env,
+    )
 
 
 class ExecTool(BaseTool):

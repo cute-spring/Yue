@@ -15,6 +15,12 @@ export type MountResult = {
   error: string | null;
 };
 
+export type SetupResult = {
+  ok: boolean;
+  item: SkillPreflightRecord | null;
+  error: string | null;
+};
+
 export type PreflightSummary = {
   total: number;
   available: number;
@@ -91,6 +97,16 @@ export const getMountActionState = (status: SkillPreflightStatus): { label: stri
 export const getVisibilityStateLabel = (isVisibleInDefaultAgent: boolean): string =>
   isVisibleInDefaultAgent ? 'Visible in default agent' : 'Hidden in default agent';
 
+export const getSetupSupportMessage = (record: SkillPreflightRecord): string => {
+  if (!record.setup_capable) return 'Trusted setup support: Not supported.';
+  const runtimes = record.setup_supported_runtimes?.filter(Boolean) || [];
+  const runtimeSuffix = runtimes.length > 0 ? ` (${runtimes.join(', ')})` : '';
+  return `Trusted setup support: Supported${runtimeSuffix}.`;
+};
+
+export const getTrustStatusMessage = (record: SkillPreflightRecord): string =>
+  `Trusted: ${record.trust_status === 'trusted' ? 'Yes' : 'No'}`;
+
 export const getRecordStatusMessage = (record: SkillPreflightRecord): string => {
   if (record.status_message?.trim()) return record.status_message.trim();
   if (record.issues.length > 0) return record.issues[0];
@@ -113,6 +129,56 @@ export const formatMountErrorMessage = (errorCode: string | null): string => {
     return 'Network error. Check backend connectivity and retry.';
   }
   return 'Mount failed. Please retry.';
+};
+
+export const getSetupActionState = (
+  record: SkillPreflightRecord,
+): { visible: boolean; label: string; disabled: boolean } => {
+  if (!record.setup_capable) {
+    return { visible: false, label: 'Setup Unsupported', disabled: true };
+  }
+  if (record.setup_status === 'running') {
+    return { visible: false, label: 'Running Setup', disabled: true };
+  }
+  if (record.setup_status === 'pending') {
+    return { visible: false, label: 'Setup Pending', disabled: true };
+  }
+  if (record.setup_status === 'succeeded') {
+    return { visible: false, label: 'Setup Complete', disabled: true };
+  }
+  if (record.setup_status === 'failed' && record.trust_status === 'trusted') {
+    return { visible: true, label: 'Retry Setup', disabled: false };
+  }
+  if (record.setup_status === 'failed' || record.trust_status !== 'trusted') {
+    return { visible: true, label: 'Trust & Setup', disabled: false };
+  }
+  return { visible: true, label: 'Run Setup', disabled: false };
+};
+
+export const getSetupLastFailureMessage = (record: SkillPreflightRecord): string | null =>
+  record.setup_last_error?.trim() || null;
+
+export const getSetupStatusMessage = (record: SkillPreflightRecord): string => {
+  if (record.setup_status_message?.trim()) return record.setup_status_message.trim();
+  if (record.setup_last_error?.trim()) return record.setup_last_error.trim();
+  if (!record.setup_capable) return 'No trusted setup contract declared.';
+  if (record.trust_status !== 'trusted') return 'Setup requires explicit trust.';
+  if (record.setup_status === 'succeeded') return 'Trusted setup completed.';
+  if (record.setup_status === 'failed') return 'Trusted setup failed.';
+  return 'Ready to run trusted setup.';
+};
+
+export const formatSetupErrorMessage = (errorCode: string | null): string => {
+  if (errorCode === 'skill_setup_requires_trust') {
+    return 'Trust this skill before running setup.';
+  }
+  if (errorCode === 'skill_setup_not_supported') {
+    return 'Setup is unavailable until a manifest install.setup contract is declared.';
+  }
+  if (errorCode === 'network_error') {
+    return 'Network error. Check backend connectivity and retry.';
+  }
+  return 'Setup failed. Please retry.';
 };
 
 export const groupPreflightRecordsByAvailability = (
@@ -174,6 +240,53 @@ export const mountSkillToAgent = async (
     return { ok: true, mountStatus: payload?.mount_status || null, error: null };
   } catch {
     return { ok: false, mountStatus: null, error: 'network_error' };
+  }
+};
+
+export const trustAndSetupSkill = async (
+  skillRef: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SetupResult> => {
+  try {
+    const trustResponse = await fetchImpl(`/api/skill-preflight/${skillRef}/trust`, {
+      method: 'POST',
+    });
+    const trustPayload = await trustResponse.json();
+    if (!trustResponse.ok) {
+      const detail = trustPayload?.detail;
+      const errorCode =
+        typeof detail === 'string'
+          ? detail
+          : typeof detail?.code === 'string'
+            ? detail.code
+            : 'skill_setup_failed';
+      return { ok: false, item: null, error: errorCode };
+    }
+
+    const setupResponse = await fetchImpl(`/api/skill-preflight/${skillRef}/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const setupPayload = await setupResponse.json();
+    if (!setupResponse.ok) {
+      const detail = setupPayload?.detail;
+      const errorCode =
+        typeof detail === 'string'
+          ? detail
+          : typeof detail?.code === 'string'
+            ? detail.code
+            : 'skill_setup_failed';
+      return { ok: false, item: null, error: errorCode };
+    }
+
+    return {
+      ok: true,
+      item: (setupPayload?.item || trustPayload?.item || null) as SkillPreflightRecord | null,
+      error: null,
+    };
+  } catch {
+    return { ok: false, item: null, error: 'network_error' };
   }
 };
 
@@ -256,6 +369,22 @@ export default function SkillHealth() {
     });
   };
 
+  const handleTrustAndSetup = async (skillRef: string) => {
+    setBusyRef(skillRef);
+    setNotice(null);
+    const result = await trustAndSetupSkill(skillRef);
+    setBusyRef(null);
+    if (!result.ok) {
+      setNotice({ type: 'error', message: formatSetupErrorMessage(result.error) });
+      return;
+    }
+    if (result.item) {
+      setRecords((prev) => prev.map((item) => (item.skill_ref === skillRef ? result.item! : item)));
+    }
+    const setupStatus = result.item?.setup_status || 'completed';
+    setNotice({ type: 'success', message: `Trust & Setup result: ${setupStatus}` });
+  };
+
   onMount(load);
 
   return (
@@ -336,6 +465,7 @@ export default function SkillHealth() {
           <For each={grouped().available}>
             {(item) => {
               const action = () => getMountActionState(item.status);
+              const setupAction = () => getSetupActionState(item);
               const health = () => getExcalidrawHealthSummary(item);
               return (
                 <div class="p-5 space-y-3">
@@ -349,6 +479,19 @@ export default function SkillHealth() {
                         Availability: {item.status} | Visibility:{' '}
                         {getVisibilityStateLabel(Boolean(item.visible_in_default_agent) || mountedRefs().has(item.skill_ref))}
                       </div>
+                      <div class="text-xs text-gray-500 mt-1">
+                        Trusted setup support: {getSetupSupportMessage(item)}
+                      </div>
+                      <div class="text-xs text-gray-500 mt-1">{getTrustStatusMessage(item)}</div>
+                      <div class="text-xs text-gray-500 mt-1">Setup status: {getSetupStatusMessage(item)}</div>
+                      <Show when={getSetupLastFailureMessage(item)}>
+                        <div class="text-xs text-gray-500 mt-1">
+                          Last failure: {getSetupLastFailureMessage(item)}
+                        </div>
+                      </Show>
+                      <Show when={item.setup_next_action}>
+                        <div class="text-xs text-gray-500 mt-1">Next: {item.setup_next_action}</div>
+                      </Show>
                       <div class="text-xs text-gray-500 mt-1">Action: {item.next_action || 'Review diagnostics.'}</div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -363,6 +506,16 @@ export default function SkillHealth() {
                       >
                         {busyRef() === item.skill_ref ? 'Mounting...' : action().label}
                       </button>
+                      <Show when={setupAction().visible}>
+                        <button
+                          type="button"
+                          disabled={setupAction().disabled || busyRef() === item.skill_ref}
+                          onClick={() => handleTrustAndSetup(item.skill_ref)}
+                          class="px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-700 text-xs font-bold uppercase tracking-wider hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          {busyRef() === item.skill_ref ? 'Working...' : setupAction().label}
+                        </button>
+                      </Show>
                     </div>
                   </div>
                   <Show when={item.issues.length > 0}>
@@ -415,6 +568,7 @@ export default function SkillHealth() {
           <For each={grouped().nonAvailable}>
             {(item) => {
               const action = () => getMountActionState(item.status);
+              const setupAction = () => getSetupActionState(item);
               const health = () => getExcalidrawHealthSummary(item);
               return (
                 <div class="p-5 space-y-3">
@@ -428,6 +582,19 @@ export default function SkillHealth() {
                         Availability: {item.status} | Visibility:{' '}
                         {getVisibilityStateLabel(Boolean(item.visible_in_default_agent) || mountedRefs().has(item.skill_ref))}
                       </div>
+                      <div class="text-xs text-gray-500 mt-1">
+                        Trusted setup support: {getSetupSupportMessage(item)}
+                      </div>
+                      <div class="text-xs text-gray-500 mt-1">{getTrustStatusMessage(item)}</div>
+                      <div class="text-xs text-gray-500 mt-1">Setup status: {getSetupStatusMessage(item)}</div>
+                      <Show when={getSetupLastFailureMessage(item)}>
+                        <div class="text-xs text-gray-500 mt-1">
+                          Last failure: {getSetupLastFailureMessage(item)}
+                        </div>
+                      </Show>
+                      <Show when={item.setup_next_action}>
+                        <div class="text-xs text-gray-500 mt-1">Next: {item.setup_next_action}</div>
+                      </Show>
                       <div class="text-xs text-gray-500 mt-1">Action: {item.next_action || 'Review diagnostics.'}</div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -442,6 +609,16 @@ export default function SkillHealth() {
                       >
                         {busyRef() === item.skill_ref ? 'Mounting...' : action().label}
                       </button>
+                      <Show when={setupAction().visible}>
+                        <button
+                          type="button"
+                          disabled={setupAction().disabled || busyRef() === item.skill_ref}
+                          onClick={() => handleTrustAndSetup(item.skill_ref)}
+                          class="px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-700 text-xs font-bold uppercase tracking-wider hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          {busyRef() === item.skill_ref ? 'Working...' : setupAction().label}
+                        </button>
+                      </Show>
                     </div>
                   </div>
                   <Show when={item.issues.length > 0}>
