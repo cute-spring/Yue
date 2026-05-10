@@ -84,3 +84,4 @@ backend/data/exports/
 !backend/data/agents.json
 !backend/data/global_config.json.example
 !backend/data/mcp_configs.json.example
+output/hatch-pet/
