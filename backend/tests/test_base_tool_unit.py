@@ -184,3 +184,94 @@ def test_exec_tool_allowlist_enforced():
         result = str(e)
 
     assert result and "allowlist" in result
+
+
+def test_run_exec_argv_allowlist_rejects_non_matching_command(tmp_path):
+    from app.mcp.builtin.exec import ExecToolConfig, run_exec_argv
+
+    config = ExecToolConfig(
+        timeout_s=30,
+        working_dir=None,
+        deny_patterns=[],
+        allow_patterns=["^echo\\b"],
+        restrict_to_workspace=False,
+        path_append="",
+        max_output_chars=1000,
+        max_concurrency=None,
+        enable_windows_path_checks=False,
+        log_rejections=False,
+    )
+
+    with pytest.raises(PermissionError, match="allowlist"):
+        run_exec_argv(["ls"], str(tmp_path), config=config)
+
+
+def test_run_exec_argv_allowlist_passes_matching_command(tmp_path):
+    from app.mcp.builtin.exec import ExecToolConfig, run_exec_argv
+
+    config = ExecToolConfig(
+        timeout_s=30,
+        working_dir=None,
+        deny_patterns=[],
+        allow_patterns=["^echo\\b"],
+        restrict_to_workspace=False,
+        path_append="",
+        max_output_chars=1000,
+        max_concurrency=None,
+        enable_windows_path_checks=False,
+        log_rejections=False,
+    )
+
+    result = run_exec_argv(["echo", "hello"], str(tmp_path), config=config)
+    assert result.returncode == 0
+    assert "hello" in result.stdout
+
+
+def test_run_exec_argv_restrict_to_workspace_rejects_outside_cwd():
+    from app.mcp.builtin.exec import ExecToolConfig, run_exec_argv
+
+    config = ExecToolConfig(
+        timeout_s=30,
+        working_dir=None,
+        deny_patterns=[],
+        allow_patterns=[],
+        restrict_to_workspace=True,
+        path_append="",
+        max_output_chars=1000,
+        max_concurrency=None,
+        enable_windows_path_checks=False,
+        log_rejections=False,
+    )
+
+    with pytest.raises(PermissionError, match="outside of project root"):
+        run_exec_argv(["echo", "hello"], "/tmp", config=config)
+
+
+def test_run_exec_argv_restrict_to_workspace_passes_inside_cwd():
+    import tempfile
+    import os as _os
+    from app.mcp.builtin.exec import ExecToolConfig, run_exec_argv
+
+    project_root = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "../../"))
+    work_dir = tempfile.mkdtemp(dir=project_root, prefix=".test-run-exec-argv-")
+
+    config = ExecToolConfig(
+        timeout_s=30,
+        working_dir=None,
+        deny_patterns=[],
+        allow_patterns=[],
+        restrict_to_workspace=True,
+        path_append="",
+        max_output_chars=1000,
+        max_concurrency=None,
+        enable_windows_path_checks=False,
+        log_rejections=False,
+    )
+
+    try:
+        result = run_exec_argv(["echo", "hello"], work_dir, config=config)
+        assert result.returncode == 0
+        assert "hello" in result.stdout
+    finally:
+        import shutil
+        shutil.rmtree(work_dir, ignore_errors=True)

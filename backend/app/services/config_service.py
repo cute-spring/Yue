@@ -255,7 +255,7 @@ class ConfigService:
             "skill_import_auto_activate_enabled": _coerce_bool(flags.get("skill_import_auto_activate_enabled"), True),
             "skill_import_default_agent_auto_mount_enabled": _coerce_bool(
                 flags.get("skill_import_default_agent_auto_mount_enabled"),
-                False,
+                True,
             ),
             "transparency_event_v2_enabled": _coerce_bool(flags.get("transparency_event_v2_enabled"), True),
             "transparency_turn_binding_enabled": _coerce_bool(flags.get("transparency_turn_binding_enabled"), True),

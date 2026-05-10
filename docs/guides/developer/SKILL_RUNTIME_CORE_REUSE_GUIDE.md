@@ -468,6 +468,7 @@ SKILL_RUNTIME_INCLUDE_SKILL_GROUPS=true
 2. 能生成 import preview
 3. 能生成 compatibility report
 4. 能进入 active 状态
+5. 若 skill 兼容且已激活，导入响应会返回 `default_agent_mount`，并默认自动挂载到 `Skill Playground`（`builtin-action-lab`）
 
 ### 10.3 路由验证
 

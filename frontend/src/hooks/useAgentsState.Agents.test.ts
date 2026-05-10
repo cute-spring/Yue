@@ -2,13 +2,28 @@ import { createRoot } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { Agent } from '../types';
-import { buildAgentPayload, resolveAgentModelFormState, useAgentsState } from './useAgentsState';
+import {
+  AGENTS_AUTO_REFRESH_INTERVAL_MS,
+  bindAgentAutoRefresh,
+  buildAgentPayload,
+  resolveAgentModelFormState,
+  useAgentsState,
+} from './useAgentsState';
 
 const originalWindow = (globalThis as any).window;
+const originalDocument = (globalThis as any).document;
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
+  vi.useFakeTimers();
   (globalThis as any).window = {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    setInterval,
+    clearInterval,
+  };
+  (globalThis as any).document = {
+    visibilityState: 'visible',
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   };
@@ -26,7 +41,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   (globalThis as any).window = originalWindow;
+  (globalThis as any).document = originalDocument;
   globalThis.fetch = originalFetch;
 });
 
@@ -142,5 +159,49 @@ describe('buildAgentPayload', () => {
       expect(state.formVoiceInputProvider()).toBe('azure');
       dispose();
     });
+  });
+
+  test('refreshes agents on window focus, visibility return, and polling while visible', async () => {
+    const windowListeners = new Map<string, EventListener>();
+    const documentListeners = new Map<string, EventListener>();
+    const addWindowListener = vi.fn((type: string, listener: EventListener) => {
+      windowListeners.set(type, listener);
+    });
+    const addDocumentListener = vi.fn((type: string, listener: EventListener) => {
+      documentListeners.set(type, listener);
+    });
+
+    (globalThis as any).window = {
+      addEventListener: addWindowListener,
+      removeEventListener: vi.fn(),
+      setInterval,
+      clearInterval,
+    };
+    (globalThis as any).document = {
+      visibilityState: 'visible',
+      addEventListener: addDocumentListener,
+      removeEventListener: vi.fn(),
+    };
+
+    const refresh = vi.fn();
+    const cleanup = bindAgentAutoRefresh(refresh);
+    expect(addWindowListener).toHaveBeenCalledWith('focus', expect.any(Function));
+    expect(addDocumentListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+
+    windowListeners.get('focus')?.(new Event('focus'));
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    (globalThis as any).document.visibilityState = 'visible';
+    documentListeners.get('visibilitychange')?.(new Event('visibilitychange'));
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    vi.advanceTimersByTime(AGENTS_AUTO_REFRESH_INTERVAL_MS);
+    expect(refresh).toHaveBeenCalledTimes(3);
+
+    (globalThis as any).document.visibilityState = 'hidden';
+    vi.advanceTimersByTime(AGENTS_AUTO_REFRESH_INTERVAL_MS);
+    expect(refresh).toHaveBeenCalledTimes(3);
+
+    cleanup();
   });
 });

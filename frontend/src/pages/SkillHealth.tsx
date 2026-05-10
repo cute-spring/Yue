@@ -35,6 +35,59 @@ export type RescanResult = {
   error: string | null;
 };
 
+export type SkillImportResponse = {
+  import?: {
+    id?: string;
+    skill_name?: string;
+    skill_version?: string;
+    lifecycle_state?: string;
+  };
+  report?: {
+    activation_eligibility?: string;
+    default_agent_mount_status?: string;
+    default_agent_mount_target_agent_id?: string | null;
+    default_agent_mount_message?: string | null;
+  };
+  preview?: {
+    skill_name?: string;
+    skill_version?: string;
+  };
+  default_agent_mount?: {
+    target_agent_id?: string | null;
+    status?: string | null;
+    message?: string | null;
+  };
+  detail?: string | { code?: string };
+};
+
+export type SkillImportResult = {
+  ok: boolean;
+  payload: SkillImportResponse | null;
+  error: string | null;
+};
+
+export type SkillInstallCandidate = {
+  skillRef: string;
+  skillName: string;
+  sourcePath: string;
+  status: SkillPreflightStatus;
+  statusMessage: string | null;
+};
+
+export type SkillStatusBadge = {
+  label: string;
+  className: string;
+};
+
+export type PageNotice = {
+  type: 'success' | 'error';
+  message: string;
+  actionLabel?: string;
+  action?: () => void;
+};
+
+export const SKILL_RECORD_HIGHLIGHT_DURATION_MS = 2200;
+
 export const getExcalidrawHealthSummary = (
   record: SkillPreflightRecord,
 ): { visible: boolean; effectiveLevel: string; blockers: string[]; repairCommands: string[] } => {
@@ -181,12 +234,110 @@ export const formatSetupErrorMessage = (errorCode: string | null): string => {
   return 'Setup failed. Please retry.';
 };
 
+export const formatImportErrorMessage = (errorCode: string | null): string => {
+  if (errorCode === 'import_source_missing') {
+    return 'Please provide a local skill directory path.';
+  }
+  if (errorCode === 'import_source_not_found') {
+    return 'Skill directory was not found. Check the path and retry.';
+  }
+  if (errorCode === 'skill_parse_failed') {
+    return 'Skill import failed because the package could not be parsed.';
+  }
+  if (errorCode === 'skill_standard_validation_failed') {
+    return 'Skill import failed because the package contract is invalid.';
+  }
+  if (errorCode === 'skill_yue_compatibility_failed') {
+    return 'Skill import failed because the package is not compatible with Yue yet.';
+  }
+  if (errorCode === 'network_error') {
+    return 'Network error. Check backend connectivity and retry.';
+  }
+  return 'Skill import failed. Please retry.';
+};
+
+export const formatImportSuccessMessage = (payload: SkillImportResponse): string => {
+  const skillName = payload.import?.skill_name || payload.preview?.skill_name || 'Skill';
+  const mountMessage = payload.default_agent_mount?.message || payload.report?.default_agent_mount_message || '';
+  if (mountMessage.trim()) {
+    return `${skillName} imported successfully. ${mountMessage.trim()}`;
+  }
+  return `${skillName} imported successfully.`;
+};
+
 export const groupPreflightRecordsByAvailability = (
   records: SkillPreflightRecord[],
 ): { available: SkillPreflightRecord[]; nonAvailable: SkillPreflightRecord[] } => ({
   available: records.filter((item) => item.status === 'available'),
   nonAvailable: records.filter((item) => item.status !== 'available'),
 });
+
+export const getSkillInstallCandidates = (records: SkillPreflightRecord[]): SkillInstallCandidate[] => {
+  const byPath = new Map<string, SkillInstallCandidate>();
+  records.forEach((item) => {
+    const sourcePath = item.source_path?.trim();
+    if (!sourcePath || item.source_layer !== 'workspace') return;
+    const current = byPath.get(sourcePath);
+    const next: SkillInstallCandidate = {
+      skillRef: item.skill_ref,
+      skillName: item.skill_name,
+      sourcePath,
+      status: item.status,
+      statusMessage: getRecordStatusMessage(item),
+    };
+    if (!current || (current.status !== 'available' && item.status === 'available')) {
+      byPath.set(sourcePath, next);
+    }
+  });
+  return Array.from(byPath.values()).sort((left, right) => {
+    const nameOrder = left.skillName.localeCompare(right.skillName);
+    if (nameOrder !== 0) return nameOrder;
+    return left.sourcePath.localeCompare(right.sourcePath);
+  });
+};
+
+export const getSkillStatusBadge = (status: SkillPreflightStatus): SkillStatusBadge => {
+  if (status === 'available') {
+    return {
+      label: 'Available',
+      className: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    };
+  }
+  if (status === 'needs_fix') {
+    return {
+      label: 'Needs Fix',
+      className: 'bg-amber-100 text-amber-700 border-amber-200',
+    };
+  }
+  return {
+    label: 'Unavailable',
+    className: 'bg-rose-100 text-rose-700 border-rose-200',
+  };
+};
+
+export const getSkillPreflightRecordAnchorId = (skillRef: string): string =>
+  `skill-record-${encodeURIComponent(skillRef)}`;
+
+export const getSkillRecordCardClass = (isHighlighted: boolean): string =>
+  isHighlighted
+    ? 'p-5 space-y-3 scroll-mt-24 bg-amber-50 ring-2 ring-amber-200 transition-colors duration-300'
+    : 'p-5 space-y-3 scroll-mt-24 transition-colors duration-300';
+
+export const formatInstallCandidateSelectionMessage = (candidate: SkillInstallCandidate): string | null => {
+  if (candidate.status === 'needs_fix') {
+    const detail = candidate.statusMessage?.trim();
+    const suffix = detail ? ` Current issue: ${detail}` : '';
+    return `${candidate.skillName} is selectable, but preflight currently reports Needs Fix. Import may still require follow-up repair steps.${suffix}`;
+  }
+  if (candidate.status === 'unavailable') {
+    const detail = candidate.statusMessage?.trim();
+    const suffix = detail ? ` Current issue: ${detail}` : '';
+    return `${candidate.skillName} is selectable, but preflight currently reports Unavailable. Import will likely fail until the package issues are fixed.${suffix}`;
+  }
+  return null;
+};
+
+export const canInstallCandidateDirectly = (candidate: SkillInstallCandidate): boolean => candidate.status === 'available';
 
 export const rescanSkillPreflight = async (fetchImpl: typeof fetch = fetch): Promise<RescanResult> => {
   try {
@@ -212,6 +363,33 @@ export const rescanSkillPreflight = async (fetchImpl: typeof fetch = fetch): Pro
     };
   } catch {
     return { ok: false, items: [], summary: null, error: 'network_error' };
+  }
+};
+
+export const importSkillFromPath = async (
+  sourcePath: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SkillImportResult> => {
+  try {
+    const response = await fetchImpl('/api/skill-imports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_type: 'directory', source_path: sourcePath }),
+    });
+    const payload = (await response.json()) as SkillImportResponse;
+    if (!response.ok) {
+      const detail = payload?.detail;
+      const errorCode =
+        typeof detail === 'string'
+          ? detail
+          : typeof detail?.code === 'string'
+            ? detail.code
+            : 'skill_import_failed';
+      return { ok: false, payload, error: errorCode };
+    }
+    return { ok: true, payload, error: null };
+  } catch {
+    return { ok: false, payload: null, error: 'network_error' };
   }
 };
 
@@ -292,13 +470,18 @@ export const trustAndSetupSkill = async (
 
 export default function SkillHealth() {
   const [records, setRecords] = createSignal<SkillPreflightRecord[]>([]);
+  const [importSourcePath, setImportSourcePath] = createSignal('');
+  const [importBusy, setImportBusy] = createSignal(false);
   const [statusFilter, setStatusFilter] = createSignal<SkillPreflightStatus | 'all'>('all');
   const [layerFilter, setLayerFilter] = createSignal<string | 'all'>('all');
   const [query, setQuery] = createSignal('');
   const [busyRef, setBusyRef] = createSignal<string | null>(null);
   const [rescanBusy, setRescanBusy] = createSignal(false);
   const [mountedRefs, setMountedRefs] = createSignal<Set<string>>(new Set());
-  const [notice, setNotice] = createSignal<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [highlightedSkillRef, setHighlightedSkillRef] = createSignal<string | null>(null);
+  const [notice, setNotice] = createSignal<PageNotice | null>(null);
+
+  let highlightResetTimer: number | undefined;
 
   const filtered = createMemo(() =>
     filterPreflightRecords(records(), {
@@ -314,6 +497,7 @@ export default function SkillHealth() {
   });
 
   const grouped = createMemo(() => groupPreflightRecordsByAvailability(filtered()));
+  const installCandidates = createMemo(() => getSkillInstallCandidates(records()));
 
   const load = async () => {
     try {
@@ -361,6 +545,74 @@ export default function SkillHealth() {
     });
   };
 
+  const handleImport = async () => {
+    const sourcePath = importSourcePath().trim();
+    await runImport(sourcePath, { clearInput: true });
+  };
+
+  const runImport = async (sourcePath: string, options?: { clearInput?: boolean }) => {
+    if (!sourcePath) {
+      setNotice({ type: 'error', message: 'Please provide a local skill directory path.' });
+      return;
+    }
+    setImportBusy(true);
+    setNotice(null);
+    const result = await importSkillFromPath(sourcePath);
+    setImportBusy(false);
+    if (!result.ok || !result.payload) {
+      setNotice({ type: 'error', message: formatImportErrorMessage(result.error) });
+      return;
+    }
+    const importedSkillRef =
+      result.payload.import?.skill_name && result.payload.import?.skill_version
+        ? `${result.payload.import.skill_name}:${result.payload.import.skill_version}`
+        : null;
+    const mountStatus = result.payload.default_agent_mount?.status || result.payload.report?.default_agent_mount_status;
+    if (importedSkillRef && (mountStatus === 'mounted' || mountStatus === 'already_mounted')) {
+      setMountedRefs((prev) => new Set(prev).add(importedSkillRef));
+    }
+    const refreshResult = await rescanSkillPreflight();
+    if (refreshResult.ok) {
+      setRecords(refreshResult.items);
+    }
+    setNotice({
+      type: 'success',
+      message: formatImportSuccessMessage(result.payload),
+    });
+    if (options?.clearInput) {
+      setImportSourcePath('');
+    }
+  };
+
+  const handleInstallCandidateSelect = (candidate: SkillInstallCandidate) => {
+    setImportSourcePath(candidate.sourcePath);
+    if (canInstallCandidateDirectly(candidate)) {
+      void runImport(candidate.sourcePath, { clearInput: true });
+      return;
+    }
+    const message = formatInstallCandidateSelectionMessage(candidate);
+    if (!message) return;
+    setNotice({
+      type: 'error',
+      message,
+      actionLabel: 'Show record',
+      action: () => {
+        setStatusFilter('all');
+        setLayerFilter('all');
+        setQuery(candidate.skillName);
+        setHighlightedSkillRef(candidate.skillRef);
+        if (highlightResetTimer) window.clearTimeout(highlightResetTimer);
+        highlightResetTimer = window.setTimeout(() => {
+          setHighlightedSkillRef((current) => (current === candidate.skillRef ? null : current));
+        }, SKILL_RECORD_HIGHLIGHT_DURATION_MS);
+        requestAnimationFrame(() => {
+          const element = document.getElementById(getSkillPreflightRecordAnchorId(candidate.skillRef));
+          element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      },
+    });
+  };
+
   const handleCopyFixCommands = async (commands: string[]) => {
     const ok = await copyFixCommandsToClipboard(commands);
     setNotice({
@@ -391,7 +643,7 @@ export default function SkillHealth() {
     <div class="max-w-7xl mx-auto p-4 md:p-8">
       <div class="mb-8 space-y-1">
         <h2 class="text-4xl font-black text-gray-900 tracking-tight">Skill Health</h2>
-        <p class="text-gray-500 text-lg">Inspect preflight status and mount available skills.</p>
+        <p class="text-gray-500 text-lg">Inspect preflight status and mount available skills to Skill Playground.</p>
       </div>
 
       <Show when={notice()}>
@@ -404,9 +656,76 @@ export default function SkillHealth() {
             }`}
           >
             {item().message}
+            <Show when={item().actionLabel && item().action}>
+              <button
+                type="button"
+                onClick={() => item().action?.()}
+                class="ml-3 underline underline-offset-2 font-black"
+              >
+                {item().actionLabel}
+              </button>
+            </Show>
           </div>
         )}
       </Show>
+
+      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-4 mb-4 space-y-3">
+        <div>
+          <h3 class="text-lg font-black text-gray-800">Install Skill</h3>
+          <p class="text-sm text-gray-500 mt-1">
+            Import a local skill directory and automatically mount healthy skills to Skill Playground.
+          </p>
+        </div>
+        <div class="flex flex-col md:flex-row gap-3">
+          <input
+            type="text"
+            value={importSourcePath()}
+            onInput={(e) => setImportSourcePath(e.currentTarget.value)}
+            list="skill-install-candidates"
+            placeholder="/absolute/path/to/skill-directory"
+            class="min-w-[220px] flex-1 border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-violet-500 outline-none"
+          />
+          <datalist id="skill-install-candidates">
+            <For each={installCandidates()}>
+              {(candidate) => <option value={candidate.sourcePath}>{candidate.skillName}</option>}
+            </For>
+          </datalist>
+          <button
+            type="button"
+            onClick={handleImport}
+            disabled={importBusy()}
+            class="px-4 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 text-xs font-bold uppercase tracking-wider hover:bg-emerald-50 disabled:opacity-50"
+          >
+            {importBusy() ? 'Installing...' : 'Install Skill'}
+          </button>
+        </div>
+        <Show when={installCandidates().length > 0}>
+          <div class="space-y-2">
+            <p class="text-xs font-bold uppercase tracking-wider text-gray-500">Workspace Suggestions</p>
+            <p class="text-sm text-gray-500">Available suggestions install immediately. Non-ready suggestions show why they are blocked.</p>
+            <div class="flex flex-wrap gap-2">
+              <For each={installCandidates().slice(0, 6)}>
+                {(candidate) => {
+                  const badge = () => getSkillStatusBadge(candidate.status);
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleInstallCandidateSelect(candidate)}
+                      disabled={importBusy()}
+                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-gray-200 text-xs font-semibold text-gray-700 hover:border-violet-300 hover:text-violet-700 disabled:opacity-50"
+                    >
+                      <span>{importBusy() && importSourcePath() === candidate.sourcePath ? 'Installing...' : candidate.skillName}</span>
+                      <span class={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${badge().className}`}>
+                        {badge().label}
+                      </span>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </Show>
+      </div>
 
       <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-4 mb-4 flex flex-wrap gap-3">
         <input
@@ -468,7 +787,10 @@ export default function SkillHealth() {
               const setupAction = () => getSetupActionState(item);
               const health = () => getExcalidrawHealthSummary(item);
               return (
-                <div class="p-5 space-y-3">
+                <div
+                  id={getSkillPreflightRecordAnchorId(item.skill_ref)}
+                  class={getSkillRecordCardClass(highlightedSkillRef() === item.skill_ref)}
+                >
                   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div>
                       <div class="font-bold text-gray-900">{item.skill_ref}</div>
@@ -571,7 +893,10 @@ export default function SkillHealth() {
               const setupAction = () => getSetupActionState(item);
               const health = () => getExcalidrawHealthSummary(item);
               return (
-                <div class="p-5 space-y-3">
+                <div
+                  id={getSkillPreflightRecordAnchorId(item.skill_ref)}
+                  class={getSkillRecordCardClass(highlightedSkillRef() === item.skill_ref)}
+                >
                   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div>
                       <div class="font-bold text-gray-900">{item.skill_ref}</div>

@@ -117,7 +117,7 @@ def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_
     assert flags["skill_runtime_enabled"] is True
     assert flags["skill_runtime_debug_contract_enabled"] is False
     assert flags["skill_import_auto_activate_enabled"] is True
-    assert flags["skill_import_default_agent_auto_mount_enabled"] is False
+    assert flags["skill_import_default_agent_auto_mount_enabled"] is True
     assert "skill_selector_tool_enabled" not in flags
     assert "skill_auto_mode_enabled" not in flags
     assert "skill_summary_prompt_enabled" not in flags

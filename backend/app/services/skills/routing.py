@@ -90,12 +90,25 @@ class SkillRouter:
         return []
 
     def get_visible_skills(self, agent: Any) -> List[SkillSpec]:
+        return self._get_skills_for_refs(self.resolve_visible_skill_refs(agent))
+
+    def resolve_auto_routable_skill_refs(self, agent: Any) -> List[str]:
         visible_refs = self.resolve_visible_skill_refs(agent)
-        if not visible_refs:
+        auto_routable_refs = _dedupe_skill_refs(getattr(agent, "auto_routable_skills", None) or [])
+        if not auto_routable_refs:
+            return visible_refs
+        auto_routable_ref_set = set(auto_routable_refs)
+        return [ref for ref in visible_refs if ref in auto_routable_ref_set]
+
+    def get_auto_routable_skills(self, agent: Any) -> List[SkillSpec]:
+        return self._get_skills_for_refs(self.resolve_auto_routable_skill_refs(agent))
+
+    def _get_skills_for_refs(self, refs: List[str]) -> List[SkillSpec]:
+        if not refs:
             return []
 
         visible = []
-        for name_version in visible_refs:
+        for name_version in refs:
             name, version = self._split_skill_ref(name_version)
             skill = self.registry.get_skill(name, version)
             if skill:
@@ -196,6 +209,8 @@ class SkillRouter:
 
     def route_with_contract(self, agent: Any, task: str, requested_skill: str = None) -> Dict[str, Any]:
         visible_refs = self.resolve_visible_skill_refs(agent)
+        auto_routable_refs = self.resolve_auto_routable_skill_refs(agent)
+        auto_routable_ref_set = set(auto_routable_refs)
         visible_skills = self.get_visible_skills(agent)
         effective_requested_skill = requested_skill or self.infer_requested_skill(agent, task)
         selected_skill = self.route(agent, task, requested_skill=requested_skill)
@@ -247,12 +262,21 @@ class SkillRouter:
             task_tokens = set(self._tokenize_ascii(task or ""))
             task_cjk = set(self._tokenize_cjk(task or ""))
             for entry in visible_entries:
+                entry_ref = (
+                    f"{entry['name']}:{entry['version']}"
+                    if entry["version"]
+                    else entry["name"]
+                )
                 skill = entry["skill"]
                 score_rows.append({
                     "name": entry["name"],
                     "version": entry["version"],
                     "score": self._score_skill(skill, task_text, task_tokens, task_cjk)
-                    if skill is not None and entry["available"] else 0,
+                    if (
+                        skill is not None
+                        and entry["available"]
+                        and entry_ref in auto_routable_ref_set
+                    ) else 0,
                     "available": entry["available"],
                     "visible": True,
                 })
@@ -334,19 +358,20 @@ class SkillRouter:
 
     def route_with_score(self, agent: Any, task: str, requested_skill: str = None) -> tuple[Optional[SkillSpec], int]:
         visible_skills = self.get_visible_skills(agent)
-        available_skills = [s for s in visible_skills if s.availability is not False]
         if not visible_skills:
             return None, 0
+        available_visible_skills = [s for s in visible_skills if s.availability is not False]
         effective_requested_skill = requested_skill or self.infer_requested_skill(agent, task)
         if effective_requested_skill:
             if ":" in effective_requested_skill:
                 req_name, req_version = effective_requested_skill.split(":", 1)
             else:
                 req_name, req_version = effective_requested_skill, None
-            for skill in available_skills:
+            for skill in available_visible_skills:
                 if skill.name == req_name and (not req_version or skill.version == req_version):
                     return skill, 1000
             return None, 0
+        available_skills = [s for s in self.get_auto_routable_skills(agent) if s.availability is not False]
         task_text = (task or "").lower()
         task_tokens = set(self._tokenize_ascii(task or ""))
         task_cjk = set(self._tokenize_cjk(task or ""))

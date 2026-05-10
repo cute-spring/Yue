@@ -107,6 +107,11 @@ def _build_import_response(result):
         "import": result.record.model_dump(mode="json"),
         "report": result.report.model_dump(mode="json"),
         "preview": result.preview.model_dump(mode="json"),
+        "default_agent_mount": {
+            "target_agent_id": result.report.default_agent_mount_target_agent_id,
+            "status": result.report.default_agent_mount_status,
+            "message": result.report.default_agent_mount_message,
+        },
     }
     if result.record.lifecycle_state == SkillImportLifecycleState.ACTIVE:
         refresh_skill_runtime_catalog()

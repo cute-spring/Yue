@@ -62,6 +62,8 @@ class SkillImportReport(BaseModel):
     compat_protocol: Optional[str] = None
     compat_auto_filled_fields: List[str] = Field(default_factory=list)
     default_agent_mount_status: str = "not_attempted"
+    default_agent_mount_target_agent_id: Optional[str] = None
+    default_agent_mount_message: Optional[str] = None
 
 
 class SkillPreviewResource(BaseModel):
@@ -135,6 +137,18 @@ class SkillActionObservability(BaseModel):
     artifact_path: Optional[str] = None
 
 
+class SetupAuditEntry(BaseModel):
+    command: str
+    argv: List[str] = Field(default_factory=list)
+    cwd: str = ""
+    exit_code: int = -1
+    stdout_size: int = 0
+    stderr_size: int = 0
+    duration_ms: float = 0.0
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
 class SkillPreflightRecord(BaseModel):
     skill_name: str
     skill_version: str
@@ -162,4 +176,5 @@ class SkillPreflightRecord(BaseModel):
     last_setup_finished_at: Optional[datetime] = None
     last_setup_commands: List[str] = Field(default_factory=list)
     setup_last_error: Optional[str] = None
+    setup_audit_entries: List[SetupAuditEntry] = Field(default_factory=list)
     checked_at: datetime = Field(default_factory=datetime.utcnow)

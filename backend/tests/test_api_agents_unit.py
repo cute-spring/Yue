@@ -25,6 +25,7 @@ def test_list_agents(client, mock_agent_store):
             id="1",
             name="Agent 1",
             system_prompt="Prompt 1",
+            auto_routable_skills=["planner:1.0.0"],
             model_selection_mode="tier",
             model_tier="heavy",
             model_role="reasoning",
@@ -43,6 +44,7 @@ def test_list_agents(client, mock_agent_store):
     assert response.json()[0]["model_tier"] == "heavy"
     assert response.json()[0]["model_role"] == "reasoning"
     assert response.json()[0]["upgrade_on_tools"] is False
+    assert response.json()[0]["auto_routable_skills"] == ["planner:1.0.0"]
     assert response.json()[0]["voice_azure_config"]["api_key_configured"] is True
     assert "api_key" not in response.json()[0]["voice_azure_config"]
 

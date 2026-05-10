@@ -7,6 +7,8 @@ This guide explains the new preflight + health workflow for copied skill package
 - Auto-discover copied packages at startup
 - Classify skill status as `available`, `needs_fix`, or `unavailable`
 - Show actionable diagnostics in UI
+- Import local skill directories from the Skill Health page
+- Auto-mount newly imported healthy skills to `Skill Playground`
 - Mount available skills to default agent with one click
 
 ## Backend Flow
@@ -27,6 +29,11 @@ Preflight records include:
 - Diagnostics (`issues`, `warnings`, `suggestions`)
 - Actionability (`mountable`, `status_message`, `next_action`)
 - Visibility (`visible_in_default_agent`)
+
+Healthy imports can also be auto-mounted to the default playground agent:
+
+- Agent id: `builtin-action-lab`
+- Display name: `Skill Playground`
 
 ## API Endpoints
 
@@ -55,6 +62,41 @@ Preflight records include:
 
 If `agent_id` is omitted, backend mounts to `builtin-action-lab`.
 
+### Import a local skill directory
+
+- `POST /api/skill-imports`
+- Request body:
+
+```json
+{
+  "source_type": "directory",
+  "source_path": "/absolute/path/to/skill-directory"
+}
+```
+
+Successful responses now surface explicit default-agent mount details:
+
+```json
+{
+  "import": {
+    "skill_name": "fireworks-tech-graph",
+    "skill_version": "1.0.0",
+    "lifecycle_state": "active"
+  },
+  "report": {
+    "activation_eligibility": "compatible",
+    "default_agent_mount_status": "mounted",
+    "default_agent_mount_target_agent_id": "builtin-action-lab",
+    "default_agent_mount_message": "Skill was auto-mounted to Skill Playground (builtin-action-lab)."
+  },
+  "default_agent_mount": {
+    "status": "mounted",
+    "target_agent_id": "builtin-action-lab",
+    "message": "Skill was auto-mounted to Skill Playground (builtin-action-lab)."
+  }
+}
+```
+
 ### Mount error payload
 
 Non-2xx mount responses now return actionable structured detail:
@@ -78,12 +120,32 @@ A dedicated page is available at:
 Current UI behavior:
 
 - Filter by status, source layer, and keyword
+- Import a local skill directory from the `Install Skill` entrypoint
+- Show workspace-backed install suggestions without requiring manual path entry
+- Render suggestion status badges (`Available`, `Needs Fix`, `Unavailable`)
+- Warn when a selected suggestion is not healthy, including the current issue summary
+- Let operators jump from the warning notice to the exact preflight record (`Show record`)
+- Scroll and briefly highlight the target record after jump
 - Display diagnostics (`issues`, `warnings`, `suggestions`)
 - Distinguish:
   - Availability (`available|needs_fix|unavailable`)
   - Visibility in default agent (`visible_in_default_agent`)
 - Render actionable status copy (`status_message`, `next_action`)
+- Show import success notices that include `Skill Playground` auto-mount results
 - Execute one-click mount for `available` skills
+
+## Regression Checklist
+
+When changing skill import, preflight serialization, or the Skill Health page, verify:
+
+- `Install Skill` still accepts a local absolute path and posts to `POST /api/skill-imports`
+- successful import still shows the `Skill Playground` auto-mount message
+- successful import still triggers a rescan and shows the newly imported record
+- workspace suggestions still render for workspace preflight records only
+- `Needs Fix` and `Unavailable` suggestions still show warning copy before import
+- `Show record` still jumps to the matching preflight card
+- the jumped-to card still receives temporary highlight styling
+- `available` records remain mountable and `needs_fix` records remain blocked
 
 ## Action Observability (Excalidraw)
 
@@ -114,6 +176,8 @@ Frontend:
 ```bash
 cd frontend
 npm run test -- src/pages/SkillHealth.test.ts
+npm run test:e2e -- skill-health-visual.spec.ts --grep "workspace suggestion warns and jumps to highlighted record for needs-fix skill"
+npm run test:e2e -- skill-health-visual.spec.ts --grep "install flow shows auto-mount success notice and refreshes records"
 npm run build
 ```
 
@@ -123,6 +187,8 @@ npm run build
   - Check startup preflight scanning and `skill_ref`.
 - `skill_preflight_not_mountable`:
   - Resolve preflight issues first, then retry mount.
+- `import_source_not_found`:
+  - Verify the selected local path exists and points to a skill directory.
 - `agent_not_found`:
   - Ensure target agent exists.
 - `agent_store_unavailable`:

@@ -14,7 +14,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `cd ../backend && rm -f ${e2eDataDir}/yue.db ${e2eDataDir}/yue.db-wal ${e2eDataDir}/yue.db-shm && PYTHONPATH=. YUE_DATA_DIR=${e2eDataDir} .venv/bin/python scripts/seed_trace_smoke_e2e.py --data-dir ${e2eDataDir} && PYTHONPATH=. YUE_DATA_DIR=${e2eDataDir} uvicorn app.main:app --host 127.0.0.1 --port 8003`,
+      command: `cd ../backend && rm -f ${e2eDataDir}/yue.db ${e2eDataDir}/yue.db-wal ${e2eDataDir}/yue.db-shm && PYTHONPATH=. YUE_DATA_DIR=${e2eDataDir} python scripts/seed_trace_smoke_e2e.py --data-dir ${e2eDataDir} && PYTHONPATH=. YUE_DATA_DIR=${e2eDataDir} uvicorn app.main:app --host 127.0.0.1 --port 8003`,
       url: 'http://127.0.0.1:8003/docs',
       reuseExistingServer: true,
       timeout: 120000,

@@ -2,11 +2,20 @@ import { describe, expect, it, vi } from 'vitest';
 
 // @ts-ignore -- IDE diagnostics intermittently fail to resolve sibling .tsx module in this workspace layout.
 import {
+  canInstallCandidateDirectly,
   copyFixCommandsToClipboard,
   getExcalidrawHealthSummary,
   filterPreflightRecords,
+  formatImportErrorMessage,
+  formatImportSuccessMessage,
+  formatInstallCandidateSelectionMessage,
   formatSetupErrorMessage,
   formatMountErrorMessage,
+  getSkillInstallCandidates,
+  getSkillPreflightRecordAnchorId,
+  getSkillRecordCardClass,
+  getSkillStatusBadge,
+  SKILL_RECORD_HIGHLIGHT_DURATION_MS,
   getSetupLastFailureMessage,
   groupPreflightRecordsByAvailability,
   getMountActionState,
@@ -16,6 +25,7 @@ import {
   getSetupSupportMessage,
   getTrustStatusMessage,
   getVisibilityStateLabel,
+  importSkillFromPath,
   mountSkillToAgent,
   rescanSkillPreflight,
   trustAndSetupSkill,
@@ -207,6 +217,163 @@ describe('SkillHealth helpers', () => {
   it('maps setup error code to actionable text', () => {
     expect(formatSetupErrorMessage('skill_setup_requires_trust')).toContain('Trust');
     expect(formatSetupErrorMessage('skill_setup_not_supported')).toContain('manifest');
+  });
+
+  it('imports skill successfully and exposes auto-mount details', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        import: { skill_name: 'fireworks-tech-graph', skill_version: '1.0.0' },
+        report: {
+          default_agent_mount_status: 'mounted',
+          default_agent_mount_target_agent_id: 'builtin-action-lab',
+          default_agent_mount_message: 'Skill was auto-mounted to Skill Playground (builtin-action-lab).',
+        },
+        default_agent_mount: {
+          status: 'mounted',
+          target_agent_id: 'builtin-action-lab',
+          message: 'Skill was auto-mounted to Skill Playground (builtin-action-lab).',
+        },
+      }),
+    }));
+
+    const result = await importSkillFromPath('/tmp/fireworks-tech-graph', fetchMock as any);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/skill-imports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_type: 'directory', source_path: '/tmp/fireworks-tech-graph' }),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.payload?.default_agent_mount?.status).toBe('mounted');
+    expect(formatImportSuccessMessage(result.payload!)).toContain('auto-mounted to Skill Playground');
+  });
+
+  it('returns normalized import error when request fails', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ detail: 'import_source_not_found' }),
+    }));
+    const result = await importSkillFromPath('/tmp/missing-skill', fetchMock as any);
+    expect(result).toEqual({
+      ok: false,
+      payload: { detail: 'import_source_not_found' },
+      error: 'import_source_not_found',
+    });
+    expect(formatImportErrorMessage(result.error)).toContain('not found');
+  });
+
+  it('builds install candidates from workspace skills, deduped by path', () => {
+    const candidates = getSkillInstallCandidates([
+      ...sampleRecords,
+      {
+        ...sampleRecords[1],
+        skill_name: 'fix-skill-shadow',
+        skill_ref: 'fix-skill-shadow:1.0.0',
+        source_layer: 'workspace',
+        source_path: '/tmp/ok-skill',
+      },
+      {
+        ...sampleRecords[0],
+        skill_name: 'alpha-skill',
+        skill_ref: 'alpha-skill:1.0.0',
+        source_path: '/tmp/alpha-skill',
+      },
+    ]);
+
+    expect(candidates).toEqual([
+      {
+        skillRef: 'alpha-skill:1.0.0',
+        skillName: 'alpha-skill',
+        sourcePath: '/tmp/alpha-skill',
+        status: 'available',
+        statusMessage: 'Ready to mount.',
+      },
+      {
+        skillRef: 'ok-skill:1.0.0',
+        skillName: 'ok-skill',
+        sourcePath: '/tmp/ok-skill',
+        status: 'available',
+        statusMessage: 'Ready to mount.',
+      },
+    ]);
+  });
+
+  it('maps skill status to suggestion badge styling', () => {
+    expect(getSkillStatusBadge('available')).toEqual({
+      label: 'Available',
+      className: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    });
+    expect(getSkillStatusBadge('needs_fix')).toEqual({
+      label: 'Needs Fix',
+      className: 'bg-amber-100 text-amber-700 border-amber-200',
+    });
+    expect(getSkillStatusBadge('unavailable')).toEqual({
+      label: 'Unavailable',
+      className: 'bg-rose-100 text-rose-700 border-rose-200',
+    });
+  });
+
+  it('warns when selecting a non-ready install candidate', () => {
+    expect(
+      formatInstallCandidateSelectionMessage({
+        skillRef: 'fix-skill:1.0.0',
+        skillName: 'fix-skill',
+        sourcePath: '/tmp/fix-skill',
+        status: 'needs_fix',
+        statusMessage: 'missing binary',
+      }),
+    ).toContain('Current issue: missing binary');
+    expect(
+      formatInstallCandidateSelectionMessage({
+        skillRef: 'bad-skill:1.0.0',
+        skillName: 'bad-skill',
+        sourcePath: '/tmp/bad-skill',
+        status: 'unavailable',
+        statusMessage: 'parse failed',
+      }),
+    ).toContain('Current issue: parse failed');
+    expect(
+      formatInstallCandidateSelectionMessage({
+        skillRef: 'ok-skill:1.0.0',
+        skillName: 'ok-skill',
+        sourcePath: '/tmp/ok-skill',
+        status: 'available',
+        statusMessage: 'Ready to mount.',
+      }),
+    ).toBeNull();
+  });
+
+  it('allows one-click install only for available suggestions', () => {
+    expect(
+      canInstallCandidateDirectly({
+        skillRef: 'ok-skill:1.0.0',
+        skillName: 'ok-skill',
+        sourcePath: '/tmp/ok-skill',
+        status: 'available',
+        statusMessage: 'Ready to mount.',
+      }),
+    ).toBe(true);
+    expect(
+      canInstallCandidateDirectly({
+        skillRef: 'fix-skill:1.0.0',
+        skillName: 'fix-skill',
+        sourcePath: '/tmp/fix-skill',
+        status: 'needs_fix',
+        statusMessage: 'missing binary',
+      }),
+    ).toBe(false);
+  });
+
+  it('builds a stable anchor id for each preflight record', () => {
+    expect(getSkillPreflightRecordAnchorId('fix-skill:1.0.0')).toBe('skill-record-fix-skill%3A1.0.0');
+  });
+
+  it('returns highlighted card styling for focused records', () => {
+    expect(getSkillRecordCardClass(true)).toContain('ring-2');
+    expect(getSkillRecordCardClass(true)).toContain('bg-amber-50');
+    expect(getSkillRecordCardClass(false)).not.toContain('ring-2');
+    expect(SKILL_RECORD_HIGHLIGHT_DURATION_MS).toBe(2200);
   });
 
   it('separates visibility label from availability status', () => {

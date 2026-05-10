@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.services.agent_store import AgentStore
 from app.services.skills.import_models import (
     SkillImportLifecycleState,
 )
@@ -80,12 +81,17 @@ def client(tmp_path, monkeypatch):
     from app.api import skill_imports as skill_imports_module
 
     store = SkillImportStore(data_dir=str(tmp_path / "data"))
-    service = SkillImportService(import_store=store)
+    agent_store = AgentStore(data_dir=str(tmp_path / "agents-data"))
+    service = SkillImportService(import_store=store, agent_store=agent_store)
     runtime_context = SimpleNamespace(
         skill_import_store=store,
         skill_import_service=service,
     )
     monkeypatch.setattr(skill_imports_module, "get_stage4_lite_runtime_context", lambda: runtime_context)
+    monkeypatch.setattr(skill_imports_module, "_feature_flags", lambda: {
+        "skill_import_auto_activate_enabled": True,
+        "skill_import_default_agent_auto_mount_enabled": True,
+    })
 
     app = FastAPI()
     app.include_router(skill_imports_module.router, prefix="/api/skill-imports")
@@ -117,6 +123,12 @@ def test_post_import_and_get_and_list(client, tmp_path):
     assert payload["report"]["activation_eligibility"] == "eligible"
     assert payload["preview"]["skill_name"] == "imported-skill"
     assert payload["import"]["lifecycle_state"] == SkillImportLifecycleState.ACTIVE.value
+    assert payload["report"]["default_agent_mount_status"] == "mounted"
+    assert payload["report"]["default_agent_mount_target_agent_id"] == "builtin-action-lab"
+    assert "Skill Playground" in payload["report"]["default_agent_mount_message"]
+    assert payload["default_agent_mount"]["status"] == "mounted"
+    assert payload["default_agent_mount"]["target_agent_id"] == "builtin-action-lab"
+    assert "Skill Playground" in payload["default_agent_mount"]["message"]
 
     import_id = payload["import"]["id"]
 
@@ -132,6 +144,65 @@ def test_post_import_and_get_and_list(client, tmp_path):
     assert isinstance(list_payload["items"], list)
     assert len(list_payload["items"]) == 1
     assert list_payload["items"][0]["id"] == import_id
+
+
+def test_post_import_real_fireworks_tech_graph_reports_auto_mount_and_is_queryable(client):
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    package_dir = os.path.join(repo_root, "..", "data", "skills", "fireworks-tech-graph")
+
+    create_response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": package_dir},
+    )
+
+    assert create_response.status_code == 201
+    payload = create_response.json()
+    assert payload["import"]["skill_name"] == "fireworks-tech-graph"
+    assert payload["import"]["lifecycle_state"] == SkillImportLifecycleState.ACTIVE.value
+    assert payload["preview"]["skill_name"] == "fireworks-tech-graph"
+    assert payload["report"]["compatibility_status"] == "compatible"
+    assert payload["report"]["default_agent_mount_status"] in {"mounted", "already_mounted"}
+    assert payload["report"]["default_agent_mount_target_agent_id"] == "builtin-action-lab"
+    assert "Skill Playground" in payload["report"]["default_agent_mount_message"]
+    assert payload["default_agent_mount"]["status"] in {"mounted", "already_mounted"}
+    assert payload["default_agent_mount"]["target_agent_id"] == "builtin-action-lab"
+
+    import_id = payload["import"]["id"]
+    get_response = client.get(f"/api/skill-imports/{import_id}")
+    assert get_response.status_code == 200
+    get_payload = get_response.json()
+    assert get_payload["import"]["skill_name"] == "fireworks-tech-graph"
+    assert get_payload["report"]["default_agent_mount_target_agent_id"] == "builtin-action-lab"
+
+
+def test_post_import_resolves_unique_nested_skill_root_from_repo_directory(client, tmp_path):
+    repo_root = tmp_path / "drawio-repo"
+    nested_root = repo_root / "skills" / "drawio-skill"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    (nested_root / "SKILL.md").write_text(
+        """---
+name: drawio-skill
+version: 1.5.2
+description: Draw diagrams
+capabilities: ["diagram"]
+entrypoint: instructions
+---
+## Instructions
+Use for diagrams.
+""",
+        encoding="utf-8",
+    )
+
+    create_response = client.post(
+        "/api/skill-imports",
+        json={"source_type": "directory", "source_path": str(repo_root)},
+    )
+
+    assert create_response.status_code == 201
+    payload = create_response.json()
+    assert payload["import"]["skill_name"] == "drawio-skill"
+    assert payload["import"]["skill_version"] == "1.5.2"
+    assert payload["preview"]["skill_name"] == "drawio-skill"
 
 
 def test_activate_and_deactivate_import(client, tmp_path):

@@ -172,3 +172,53 @@ def test_import_service_auto_mounts_imported_skill_to_default_agent_when_enabled
     mounted_agent = agent_store.get_agent("default-import-agent")
     assert mounted_agent is not None
     assert "example-skill:1.0.0" in mounted_agent.visible_skills
+
+
+def test_import_service_auto_mount_creates_skill_playground_when_default_missing(tmp_path):
+    package_dir = _write_skill_package(str(tmp_path))
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    agent_store = AgentStore(data_dir=str(tmp_path / "agents-data"))
+    agent_store.delete_agent("builtin-action-lab")
+    service = SkillImportService(import_store=store, agent_store=agent_store)
+
+    result = service.import_from_directory(
+        package_dir,
+        auto_activate=True,
+        auto_mount_to_default_agent=True,
+    )
+
+    assert result.record.lifecycle_state == SkillImportLifecycleState.ACTIVE
+    assert result.report.default_agent_mount_status == "mounted"
+    mounted_agent = agent_store.get_agent("builtin-action-lab")
+    assert mounted_agent is not None
+    assert mounted_agent.name == "Skill Playground"
+    assert "example-skill:1.0.0" in mounted_agent.visible_skills
+    assert "example-skill:1.0.0" not in mounted_agent.auto_routable_skills
+
+
+def test_import_service_resolves_unique_nested_skill_root(tmp_path):
+    repo_root = tmp_path / "drawio-repo"
+    nested_root = repo_root / "skills" / "drawio-skill"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    with open(nested_root / "SKILL.md", "w", encoding="utf-8") as handle:
+        handle.write(
+            """---
+name: drawio-skill
+version: 1.5.2
+description: Draw diagrams
+capabilities: ["diagram"]
+entrypoint: instructions
+---
+## Instructions
+Use for diagrams.
+"""
+        )
+
+    store = SkillImportStore(data_dir=str(tmp_path / "data"))
+    service = SkillImportService(import_store=store)
+
+    result = service.import_from_directory(repo_root)
+
+    assert result.record.skill_name == "drawio-skill"
+    assert result.record.skill_version == "1.5.2"
+    assert result.record.lifecycle_state == SkillImportLifecycleState.INACTIVE

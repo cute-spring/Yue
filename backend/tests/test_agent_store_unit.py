@@ -6,6 +6,15 @@ import tempfile
 import subprocess
 from pathlib import Path
 from app.services.agent_store import AgentStore, AgentConfig
+from app.services.skills.import_models import (
+    SkillImportLifecycleState,
+    SkillImportPreview,
+    SkillImportRecord,
+    SkillImportReport,
+    SkillImportSourceType,
+    SkillImportStoredEntry,
+)
+from app.services.skills.import_store import SkillImportStore
 
 @pytest.fixture
 def temp_dirs():
@@ -140,9 +149,22 @@ def test_builtin_agents_expose_skill_friendly_defaults(agent_store):
 
     action_lab = agent_store.get_agent("builtin-action-lab")
     assert action_lab is not None
-    assert action_lab.skill_mode == "manual"
+    assert action_lab.skill_mode == "auto"
     assert "system-ops-expert:1.0.0" in action_lab.visible_skills
     assert "ppt-expert:1.0.0" in action_lab.visible_skills
+    assert action_lab.auto_routable_skills == ["system-ops-expert:1.0.0", "ppt-expert:1.0.0"]
+
+
+def test_ensure_skill_playground_agent_recreates_missing_default(agent_store):
+    assert agent_store.delete_agent("builtin-action-lab") is True
+
+    recreated = agent_store.ensure_skill_playground_agent()
+
+    assert recreated.id == "builtin-action-lab"
+    assert recreated.name == "Skill Playground"
+    assert recreated.skill_mode == "auto"
+    assert "system-ops-expert:1.0.0" in recreated.visible_skills
+    assert recreated.auto_routable_skills == ["system-ops-expert:1.0.0", "ppt-expert:1.0.0"]
 
 
 def test_builtin_agent_customizations_survive_restart(temp_dirs):
@@ -251,6 +273,7 @@ def test_agent_config_defaults_include_agent_kind():
     assert cfg.upgrade_on_multi_skill is True
     assert cfg.skill_groups == []
     assert cfg.extra_visible_skills == []
+    assert cfg.auto_routable_skills == []
     assert cfg.voice_input_enabled is True
     assert cfg.voice_input_provider == "browser"
     assert cfg.voice_azure_config is None
@@ -288,9 +311,116 @@ def test_agent_store_loads_legacy_record_with_new_defaults(temp_dirs):
     assert loaded.upgrade_on_multi_skill is True
     assert loaded.skill_groups == []
     assert loaded.extra_visible_skills == []
+    assert loaded.auto_routable_skills == []
     assert loaded.voice_input_enabled is True
     assert loaded.voice_input_provider == "browser"
     assert loaded.voice_azure_config is None
+
+
+def test_agent_store_backfills_skill_playground_auto_routable_defaults(temp_dirs):
+    data_dir, _legacy_dir = temp_dirs
+    store = AgentStore(data_dir=data_dir)
+    agents_file = os.path.join(data_dir, "agents.json")
+    with open(agents_file, "w") as f:
+        json.dump(
+            [
+                {
+                    "id": "builtin-action-lab",
+                    "name": "Skill Playground",
+                    "system_prompt": "playground",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "skill_mode": "auto",
+                    "visible_skills": [
+                        "system-ops-expert:1.0.0",
+                        "ppt-expert:1.0.0",
+                        "drawio-skill:1.5.2",
+                    ],
+                }
+            ],
+            f,
+        )
+
+    reloaded = AgentStore(data_dir=data_dir)
+    playground = reloaded.get_agent("builtin-action-lab")
+    assert playground is not None
+    assert playground.visible_skills == [
+        "system-ops-expert:1.0.0",
+        "ppt-expert:1.0.0",
+        "drawio-skill:1.5.2",
+    ]
+    assert playground.auto_routable_skills == [
+        "system-ops-expert:1.0.0",
+        "ppt-expert:1.0.0",
+    ]
+
+
+def test_backfill_skill_playground_visible_skills_from_active_imports(temp_dirs):
+    data_dir, _legacy_dir = temp_dirs
+    store = AgentStore(data_dir=data_dir)
+    import_store = SkillImportStore(data_dir=data_dir)
+
+    import_store.save_entry(
+        SkillImportStoredEntry(
+            record=SkillImportRecord(
+                skill_name="drawio-skill",
+                skill_version="1.5.2",
+                source_type=SkillImportSourceType.DIRECTORY,
+                source_ref="/tmp/drawio-skill",
+                package_format="package_directory",
+                lifecycle_state=SkillImportLifecycleState.ACTIVE,
+            ),
+            report=SkillImportReport(
+                import_id="imp_drawio",
+                parse_status="passed",
+                standard_validation_status="passed",
+                compatibility_status="compatible",
+                activation_eligibility="eligible",
+            ),
+            preview=SkillImportPreview(
+                skill_name="drawio-skill",
+                skill_version="1.5.2",
+                description="Draw diagrams",
+                capabilities=["diagram"],
+                entrypoint="instructions",
+            ),
+        )
+    )
+    import_store.save_entry(
+        SkillImportStoredEntry(
+            record=SkillImportRecord(
+                skill_name="inactive-skill",
+                skill_version="1.0.0",
+                source_type=SkillImportSourceType.DIRECTORY,
+                source_ref="/tmp/inactive-skill",
+                package_format="package_directory",
+                lifecycle_state=SkillImportLifecycleState.INACTIVE,
+            ),
+            report=SkillImportReport(
+                import_id="imp_inactive",
+                parse_status="passed",
+                standard_validation_status="passed",
+                compatibility_status="compatible",
+                activation_eligibility="eligible",
+            ),
+            preview=SkillImportPreview(
+                skill_name="inactive-skill",
+                skill_version="1.0.0",
+                description="Inactive skill",
+                capabilities=["analysis"],
+                entrypoint="system_prompt",
+            ),
+        )
+    )
+
+    playground = store.backfill_skill_playground_visible_skills_from_imports(import_store)
+
+    assert "drawio-skill:1.5.2" in playground.visible_skills
+    assert "inactive-skill:1.0.0" not in playground.visible_skills
+    assert "drawio-skill:1.5.2" not in playground.auto_routable_skills
+
+    replay = store.backfill_skill_playground_visible_skills_from_imports(import_store)
+    assert replay.visible_skills.count("drawio-skill:1.5.2") == 1
 
 
 def test_agent_store_seeds_missing_builtin_from_catalog_dir(temp_dirs):

@@ -1,6 +1,42 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { Agent, AgentModelSelectionMode, McpTool, ModelTier, SkillSpec, SmartDraft, SkillGroup } from '../types';
 
+export const AGENTS_AUTO_REFRESH_INTERVAL_MS = 15000;
+
+export const bindAgentAutoRefresh = (refresh: () => void | Promise<void>) => {
+  const refreshIfVisible = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return;
+    }
+    void refresh();
+  };
+  const handleWindowFocus = () => {
+    void refreshIfVisible();
+  };
+  const handleVisibilityChange = () => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
+    void refresh();
+  };
+  const timerId = window.setInterval(() => {
+    void refreshIfVisible();
+  }, AGENTS_AUTO_REFRESH_INTERVAL_MS);
+
+  window.addEventListener('focus', handleWindowFocus);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+
+  return () => {
+    window.removeEventListener('focus', handleWindowFocus);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+    window.clearInterval(timerId);
+  };
+};
+
 type BuildAgentPayloadInput = {
   name: string;
   systemPrompt: string;
@@ -231,7 +267,7 @@ export function useAgentsState() {
   };
 
   onMount(async () => {
-    loadAgents();
+    void loadAgents();
     loadTools();
     loadProviders();
     loadDocAccess();
@@ -244,7 +280,11 @@ export function useAgentsState() {
       }
     };
     window.addEventListener('click', handleClickOutside);
-    onCleanup(() => window.removeEventListener('click', handleClickOutside));
+    const cleanupAutoRefresh = bindAgentAutoRefresh(loadAgents);
+    onCleanup(() => {
+      window.removeEventListener('click', handleClickOutside);
+      cleanupAutoRefresh();
+    });
   });
 
   const openCreate = () => {
