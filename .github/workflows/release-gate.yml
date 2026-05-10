@@ -21,7 +21,7 @@ jobs:
           pip install -r backend/requirements.txt
       - name: Run Release Readiness Gate Check
         run: |
-          python scripts/check_gate_completeness.py --report docs/release_readiness_gate/phase1/gate_reports/RRG-20260314-001.md
+          python scripts/check_gate_completeness.py
 
   contract-gate:
     runs-on: ubuntu-latest
@@ -38,18 +38,27 @@ jobs:
           pip install pytest
       - name: Run Unified Contract Gate Tests
         run: |
-          pytest backend/tests/test_contract_gate_unit.py
+          cd backend
+          PYTHONPATH=. pytest tests/test_contract_gate_unit.py
 
   smoke-e2e-frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
       - name: Install frontend dependencies
         run: |
           cd frontend
@@ -76,4 +85,4 @@ jobs:
       - name: Run frontend smoke e2e
         run: |
           cd frontend
-          npx playwright test e2e/title-refinement.spec.ts e2e/chat-paste-image.spec.ts e2e/advanced-mode-sync.spec.ts e2e/feature-flags-sync.spec.ts --reporter=line
+          PYTHON_BIN=python npx playwright test e2e/title-refinement.spec.ts e2e/chat-paste-image.spec.ts e2e/advanced-mode-sync.spec.ts e2e/feature-flags-sync.spec.ts --reporter=line
