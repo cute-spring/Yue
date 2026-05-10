@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from app.api import chat, agents, mcp, models, config, notebook, health, export, speech, files
 from app.mcp.manager import mcp_manager
+from app.services.agent_store import agent_store
 from app.services.skill_service import (
     get_stage4_lite_host_config_adapter,
     get_stage4_lite_runtime_context,
@@ -58,6 +59,9 @@ _skill_runtime_bootstrap_spec = build_skill_runtime_bootstrap_spec_from_env(
 async def _on_startup() -> None:
     # Initialize MCP Manager first
     await mcp_manager.initialize()
+    agent_store.backfill_skill_playground_visible_skills_from_imports(
+        getattr(_runtime_context(), "skill_import_store", None)
+    )
     # Start Health Monitor
     await health_monitor.start()
 

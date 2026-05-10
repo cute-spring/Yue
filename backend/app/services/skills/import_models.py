@@ -62,6 +62,8 @@ class SkillImportReport(BaseModel):
     compat_protocol: Optional[str] = None
     compat_auto_filled_fields: List[str] = Field(default_factory=list)
     default_agent_mount_status: str = "not_attempted"
+    default_agent_mount_target_agent_id: Optional[str] = None
+    default_agent_mount_message: Optional[str] = None
 
 
 class SkillPreviewResource(BaseModel):

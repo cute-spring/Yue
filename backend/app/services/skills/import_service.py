@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from app.services.agent_store import DEFAULT_SKILL_PLAYGROUND_AGENT_ID
 from app.services.skills.compatibility import SkillCompatibilityEvaluator
 from app.services.skills.import_models import (
     SkillImportLifecycleState,
@@ -22,6 +23,20 @@ from app.services.skills.parsing import SkillLoader
 
 
 class SkillImportService:
+    _SKIP_NESTED_DISCOVERY_DIR_NAMES = {
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        "node_modules",
+        "dist",
+        "build",
+        ".next",
+        ".nuxt",
+        ".venv",
+        "venv",
+    }
+
     def __init__(
         self,
         *,
@@ -43,7 +58,7 @@ class SkillImportService:
         auto_mount_to_default_agent: bool = False,
         default_agent_id: Optional[str] = None,
     ) -> SkillImportResult:
-        package_path = Path(package_dir).expanduser().resolve()
+        package_path = self._resolve_import_package_path(Path(package_dir).expanduser().resolve())
         display_source_ref = source_ref or str(package_path)
 
         package = SkillLoader.parse_package(package_path)
@@ -96,6 +111,7 @@ class SkillImportService:
                 "Compatibility mode auto-filled fields: " + ", ".join(compat_auto_filled_fields)
             )
         default_agent_mount_status = "not_attempted"
+        default_agent_mount_target_agent_id: Optional[str] = None
 
         if validation.is_valid:
             compatibility = self.compatibility_evaluator.evaluate_package(package)
@@ -114,13 +130,21 @@ class SkillImportService:
                 reason_code = "compatibility_failed"
 
         if auto_mount_to_default_agent and lifecycle_state == SkillImportLifecycleState.ACTIVE:
-            target_agent = default_agent_id or os.getenv("YUE_SKILL_IMPORT_DEFAULT_AGENT_ID", "builtin-action-lab")
+            target_agent = default_agent_id or os.getenv(
+                "YUE_SKILL_IMPORT_DEFAULT_AGENT_ID",
+                DEFAULT_SKILL_PLAYGROUND_AGENT_ID,
+            )
+            default_agent_mount_target_agent_id = target_agent
             default_agent_mount_status = self._mount_skill_to_agent(
                 target_agent_id=target_agent,
                 skill_ref=f"{package.name}:{package.version}",
             )
         elif auto_mount_to_default_agent:
             default_agent_mount_status = "skipped_not_active"
+            default_agent_mount_target_agent_id = default_agent_id or os.getenv(
+                "YUE_SKILL_IMPORT_DEFAULT_AGENT_ID",
+                DEFAULT_SKILL_PLAYGROUND_AGENT_ID,
+            )
 
         record = SkillImportRecord(
             skill_name=package.name,
@@ -145,15 +169,53 @@ class SkillImportService:
             compat_protocol=compat_protocol,
             compat_auto_filled_fields=compat_auto_filled_fields,
             default_agent_mount_status=default_agent_mount_status,
+            default_agent_mount_target_agent_id=default_agent_mount_target_agent_id,
+            default_agent_mount_message=self._build_default_agent_mount_message(
+                status=default_agent_mount_status,
+                target_agent_id=default_agent_mount_target_agent_id,
+            ),
         )
         result = SkillImportResult(record=record, report=report, preview=preview)
         self.import_store.save_entry(SkillImportStoredEntry(**result.model_dump()))
         return result
 
+    def _resolve_import_package_path(self, package_path: Path) -> Path:
+        direct_package = SkillLoader.parse_package(package_path)
+        if direct_package is not None:
+            return package_path
+        if not package_path.exists() or not package_path.is_dir():
+            return package_path
+
+        nested_candidates: list[Path] = []
+        seen: set[Path] = set()
+        for current_root, dirnames, filenames in os.walk(package_path):
+            current_path = Path(current_root)
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not name.startswith(".") and name not in self._SKIP_NESTED_DISCOVERY_DIR_NAMES
+            ]
+            if "SKILL.md" not in filenames:
+                continue
+            candidate = current_path.resolve()
+            if candidate == package_path or candidate in seen:
+                continue
+            seen.add(candidate)
+            if SkillLoader.parse_package(candidate) is not None:
+                nested_candidates.append(candidate)
+
+        if len(nested_candidates) == 1:
+            return nested_candidates[0]
+        return package_path
+
     def _mount_skill_to_agent(self, *, target_agent_id: str, skill_ref: str) -> str:
         if self.agent_store is None:
             return "agent_store_unavailable"
         agent = self.agent_store.get_agent(target_agent_id)
+        if agent is None and target_agent_id == DEFAULT_SKILL_PLAYGROUND_AGENT_ID:
+            ensure_agent = getattr(self.agent_store, "ensure_skill_playground_agent", None)
+            if callable(ensure_agent):
+                agent = ensure_agent()
         if not agent:
             return "agent_not_found"
         visible_skills = list(getattr(agent, "visible_skills", []) or [])
@@ -162,6 +224,22 @@ class SkillImportService:
         visible_skills.append(skill_ref)
         self.agent_store.update_agent(target_agent_id, {"visible_skills": visible_skills})
         return "mounted"
+
+    @staticmethod
+    def _build_default_agent_mount_message(*, status: str, target_agent_id: Optional[str]) -> Optional[str]:
+        if status == "not_attempted":
+            return "Auto-mount to Skill Playground was not attempted."
+        if status == "skipped_not_active":
+            return "Skill was not active, so auto-mount to Skill Playground was skipped."
+        if status == "mounted":
+            return f"Skill was auto-mounted to Skill Playground ({target_agent_id})."
+        if status == "already_mounted":
+            return f"Skill was already mounted to Skill Playground ({target_agent_id})."
+        if status == "agent_store_unavailable":
+            return "Skill import succeeded, but auto-mount could not run because agent storage is unavailable."
+        if status == "agent_not_found":
+            return f"Skill import succeeded, but target agent {target_agent_id} was not found for auto-mount."
+        return f"Skill import completed with auto-mount status: {status}."
 
     def _has_active_import(self, skill_name: str) -> bool:
         for entry in self.import_store.list_entries():

@@ -38,6 +38,7 @@ class AgentConfigPublic(BaseModel):
     require_citations: bool = False
     skill_mode: str = "off"
     visible_skills: list[str] = []
+    auto_routable_skills: list[str] = []
     agent_kind: str = "traditional"
     skill_groups: list[str] = []
     extra_visible_skills: list[str] = []

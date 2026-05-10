@@ -12,6 +12,20 @@ from app.services.skills.setup_service import SkillSetupService
 
 
 class SkillPreflightService:
+    _SKIP_RECURSIVE_DIR_NAMES = {
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        "node_modules",
+        "dist",
+        "build",
+        ".next",
+        ".nuxt",
+        ".venv",
+        "venv",
+    }
+
     def __init__(
         self,
         *,
@@ -34,19 +48,50 @@ class SkillPreflightService:
         if not root.exists() or not root.is_dir():
             return []
 
-        candidates: List[Path] = []
-        if (root / "SKILL.md").exists():
-            candidates.append(root)
-        for child in sorted(root.iterdir()):
-            if child.is_dir() and (child / "SKILL.md").exists():
-                candidates.append(child)
-            elif child.is_file() and child.suffix.lower() == ".md":
-                candidates.append(child)
+        recursive = spec.layer == "workspace"
+        candidates = self._collect_candidates(root, recursive=recursive)
 
         records: List[SkillPreflightRecord] = []
         for candidate in candidates:
             records.append(self._build_preflight_record(candidate=candidate, layer=spec.layer))
         return records
+
+    def _collect_candidates(self, root: Path, *, recursive: bool) -> List[Path]:
+        candidates: List[Path] = []
+        seen: set[Path] = set()
+
+        def add_candidate(path: Path) -> None:
+            resolved = path.resolve()
+            if resolved in seen:
+                return
+            seen.add(resolved)
+            candidates.append(resolved)
+
+        if (root / "SKILL.md").exists():
+            add_candidate(root)
+
+        if recursive:
+            for skill_file in sorted(self._iter_nested_skill_files(root)):
+                add_candidate(skill_file.parent)
+        else:
+            for child in sorted(root.iterdir()):
+                if child.is_dir() and (child / "SKILL.md").exists():
+                    add_candidate(child)
+                elif child.is_file() and child.suffix.lower() == ".md":
+                    add_candidate(child)
+
+        return candidates
+
+    def _iter_nested_skill_files(self, root: Path):
+        for current_root, dirnames, filenames in __import__("os").walk(root):
+            current_path = Path(current_root)
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not name.startswith(".") and name not in self._SKIP_RECURSIVE_DIR_NAMES
+            ]
+            if "SKILL.md" in filenames:
+                yield current_path / "SKILL.md"
 
     def _build_preflight_record(self, *, candidate: Path, layer: str) -> SkillPreflightRecord:
         fmt = SkillLoader.detect_format(candidate)

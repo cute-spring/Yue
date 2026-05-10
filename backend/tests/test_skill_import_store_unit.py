@@ -33,7 +33,6 @@ def _base_record_dump(*, name: str, status: str) -> dict:
             "last_setup_finished_at",
             "last_setup_commands",
             "setup_last_error",
-            "setup_audit_entries",
         }
     )
 
@@ -116,28 +115,3 @@ def test_import_store_replace_preflight_records_overwrites_previous(tmp_path):
     assert items[0].setup_status == "failed"
     assert items[0].setup_supported_runtimes == ["node"]
     assert items[0].setup_last_error == "npm install failed"
-
-
-def test_import_store_loads_record_without_setup_audit_entries(tmp_path):
-    import json
-    import os
-
-    store = SkillImportStore(data_dir=str(tmp_path / "data"))
-    record = _preflight_record(name="legacy-skill", status="available")
-    record.setup_capable = True
-    record.setup_runtime = "python"
-    record.setup_status = "succeeded"
-    record.trust_status = "trusted"
-    record.last_setup_commands = ["python -m venv .yue/python/venv"]
-
-    data = record.model_dump(mode="json")
-    data.pop("setup_audit_entries", None)
-
-    os.makedirs(store.data_dir, exist_ok=True)
-    with open(store.preflight_file, "w", encoding="utf-8") as f:
-        json.dump([data], f)
-
-    items = store.list_preflight_records()
-    assert len(items) == 1
-    assert items[0].skill_ref == "legacy-skill:1.0.0"
-    assert items[0].setup_audit_entries == []

@@ -225,3 +225,32 @@ def test_preflight_service_derives_setup_state_from_manifest(tmp_path):
     assert record.trust_status == "untrusted"
     assert record.setup_status == "available"
     assert record.package_fingerprint and record.package_fingerprint.startswith("sha256:")
+
+
+def test_preflight_service_recursively_discovers_nested_workspace_skills(tmp_path):
+    skills_dir = tmp_path / "skills"
+    nested_root = skills_dir / "drawio-repo" / "skills" / "drawio-skill"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    (nested_root / "SKILL.md").write_text(
+        """---
+name: drawio-skill
+version: 1.5.2
+description: Draw diagrams
+capabilities: ["diagram"]
+entrypoint: instructions
+---
+## Instructions
+Use for diagrams.
+""",
+        encoding="utf-8",
+    )
+
+    service = SkillPreflightService(import_store=SkillImportStore(data_dir=str(tmp_path / "data")))
+    records = service.refresh([SkillDirectorySpec(layer="workspace", path=str(skills_dir))])
+
+    assert len(records) == 1
+    record = records[0]
+    assert record.skill_name == "drawio-skill"
+    assert record.skill_ref == "drawio-skill:1.5.2"
+    assert record.source_path == str(nested_root.resolve())
+    assert record.status == "available"

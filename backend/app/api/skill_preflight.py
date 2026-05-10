@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from app.services.agent_store import DEFAULT_SKILL_PLAYGROUND_AGENT_ID
 from app.services.skill_service import get_stage4_lite_runtime_context
 from app.services.skills.bootstrap import resolve_skill_runtime_config_from_env
 from app.services.skills.directories import SkillDirectoryResolver
@@ -44,7 +45,7 @@ def _default_agent_visible_skill_refs() -> set[str]:
     runtime_service = _runtime_context().skill_import_service
     if runtime_service is None or runtime_service.agent_store is None:
         return set()
-    agent = runtime_service.agent_store.get_agent("builtin-action-lab")
+    agent = runtime_service.agent_store.get_agent(DEFAULT_SKILL_PLAYGROUND_AGENT_ID)
     if agent is None:
         return set()
     return set(getattr(agent, "visible_skills", []) or [])
@@ -52,7 +53,7 @@ def _default_agent_visible_skill_refs() -> set[str]:
 
 def _status_message_and_next_action(status: str, issues: list[str]) -> tuple[str, str]:
     if status == "available":
-        return "Ready to mount.", "Mount this skill to the default agent."
+        return "Ready to mount.", "Mount this skill to Skill Playground."
     if status == "needs_fix":
         message = issues[0] if issues else "Preflight checks found issues."
         return message, "Resolve listed issues, then rerun preflight."
@@ -333,7 +334,7 @@ async def mount_skill_preflight(skill_ref: str, request: SkillPreflightMountRequ
             next_action="Check runtime bootstrap wiring and retry.",
         )
 
-    target_agent_id = request.agent_id or "builtin-action-lab"
+    target_agent_id = request.agent_id or DEFAULT_SKILL_PLAYGROUND_AGENT_ID
     mount_status = runtime_service._mount_skill_to_agent(
         target_agent_id=target_agent_id,
         skill_ref=skill_ref,

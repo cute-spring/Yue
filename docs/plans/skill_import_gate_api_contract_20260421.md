@@ -207,7 +207,10 @@ Supported request mode:
     "activation_eligibility": "eligible",
     "errors": [],
     "warnings": [],
-    "compatibility_issues": []
+    "compatibility_issues": [],
+    "default_agent_mount_status": "mounted",
+    "default_agent_mount_target_agent_id": "builtin-action-lab",
+    "default_agent_mount_message": "Skill was auto-mounted to Skill Playground (builtin-action-lab)."
   },
   "preview": {
     "skill_name": "pdf-insight-extractor",
@@ -222,6 +225,11 @@ Supported request mode:
     "actions": [],
     "overlays": [],
     "always": false
+  },
+  "default_agent_mount": {
+    "target_agent_id": "builtin-action-lab",
+    "status": "mounted",
+    "message": "Skill was auto-mounted to Skill Playground (builtin-action-lab)."
   }
 }
 ```
@@ -231,6 +239,7 @@ Supported request mode:
 - import should be idempotent only by explicit future policy, not by default
 - repeated imports of the same package may create different import records
 - default policy may auto-activate when evaluation is compatible and activation-eligible
+- default policy may also auto-mount newly activated healthy skills to `Skill Playground`
 - explicit activation endpoint remains available for controlled/manual activation policy
 
 ## 5.2 List imports

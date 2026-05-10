@@ -132,13 +132,13 @@ const mockPreflightRecords = [
   },
 ];
 
-async function mockSkillPreflightApi(page: any, overrides: any = {}) {
+async function mockSkillPreflightApi(page: any, records: any[] = mockPreflightRecords) {
   await page.route('**/api/skill-preflight', async (route: any) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ items: mockPreflightRecords }),
+        body: JSON.stringify({ items: records }),
       });
       return;
     }
@@ -150,8 +150,13 @@ async function mockSkillPreflightApi(page: any, overrides: any = {}) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        summary: { total: 5, available: 3, needs_fix: 2, unavailable: 0 },
-        items: mockPreflightRecords,
+        summary: {
+          total: records.length,
+          available: records.filter((item) => item.status === 'available').length,
+          needs_fix: records.filter((item) => item.status === 'needs_fix').length,
+          unavailable: records.filter((item) => item.status === 'unavailable').length,
+        },
+        items: records,
       }),
     });
   });
@@ -200,9 +205,11 @@ test.describe('SkillHealth visual regression', () => {
 
   test('displays record details for an available skill', async ({ page }) => {
     await page.goto('/skill-health');
-    await expect(page.getByText('ok-skill:1.0.0')).toBeVisible();
-    await expect(page.getByText('Layer: workspace')).toBeVisible();
-    await expect(page.getByText('Suggestions: Keep this skill updated.')).toBeVisible();
+    const record = page.locator('[id="skill-record-ok-skill%3A1.0.0"]');
+    await expect(record).toBeVisible();
+    await expect(record).toContainText('ok-skill:1.0.0');
+    await expect(record).toContainText('Layer: workspace | Path: /tmp/ok-skill');
+    await expect(record).toContainText('Suggestions: Keep this skill updated.');
   });
 
   test('displays record details for a needs_fix skill with issues', async ({ page }) => {
@@ -215,10 +222,10 @@ test.describe('SkillHealth visual regression', () => {
 
   test('mount button is enabled for available and disabled for needs_fix', async ({ page }) => {
     await page.goto('/skill-health');
-    const mountButtons = page.getByRole('button', { name: 'Mount' });
-    await expect(mountButtons.first()).toBeEnabled();
-    const needsFixButton = page.getByRole('button', { name: 'Needs Fix' });
-    await expect(needsFixButton.nth(0)).toBeDisabled();
+    const availableRecord = page.locator('[id="skill-record-ok-skill%3A1.0.0"]');
+    await expect(availableRecord.getByRole('button', { name: 'Mount' })).toBeEnabled();
+    const needsFixRecord = page.locator('[id="skill-record-fix-skill%3A1.0.0"]');
+    await expect(needsFixRecord.getByRole('button', { name: 'Needs Fix' })).toBeDisabled();
   });
 
   test('shows Trust & Setup button for setup-capable untrusted skill', async ({ page }) => {
@@ -235,22 +242,20 @@ test.describe('SkillHealth visual regression', () => {
 
   test('shows Setup Complete (disabled) for succeeded setup', async ({ page }) => {
     await page.goto('/skill-health');
-    await expect(page.getByRole('button', { name: 'Setup Complete' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Setup Complete' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Setup Complete' })).toHaveCount(0);
   });
 
   test('shows Setup Unsupported (disabled) for non-setup-capable skills', async ({ page }) => {
     await page.goto('/skill-health');
-    await expect(page.getByRole('button', { name: 'Setup Unsupported' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Setup Unsupported' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Setup Unsupported' })).toHaveCount(0);
   });
 
   test('displays setup status messages correctly', async ({ page }) => {
     await page.goto('/skill-health');
-    await expect(page.getByText('Setup status: No trusted setup contract declared.')).toBeVisible();
-    await expect(page.getByText('Setup status: Setup requires explicit trust.')).toBeVisible();
-    await expect(page.getByText('Setup status: pip install failed')).toBeVisible();
-    await expect(page.getByText('Setup status: Trusted setup completed.')).toBeVisible();
+    await expect(page.getByText('Setup status: No trusted setup contract declared.').first()).toBeVisible();
+    await expect(page.getByText('Setup status: Setup requires explicit trust.').first()).toBeVisible();
+    await expect(page.getByText('Setup status: pip install failed').first()).toBeVisible();
+    await expect(page.getByText('Setup status: Trusted setup completed.').first()).toBeVisible();
   });
 
   test('displays trust status messages', async ({ page }) => {
@@ -458,5 +463,144 @@ test.describe('SkillHealth visual regression', () => {
     await page.goto('/skill-health');
     await expect(page.locator('span:has-text("available")').first()).toBeVisible();
     await expect(page.locator('span:has-text("needs_fix")').first()).toBeVisible();
+  });
+
+  test('workspace suggestion warns and jumps to highlighted record for needs-fix skill', async ({ page }) => {
+    await page.unroute('**/api/skill-preflight');
+    await page.unroute('**/api/skill-preflight/rescan');
+    await mockSkillPreflightApi(page, [
+      mockPreflightRecords[0],
+      {
+        ...mockPreflightRecords[1],
+        source_layer: 'workspace',
+      },
+    ]);
+
+    await page.goto('/skill-health');
+
+    await page.getByRole('button', { name: /fix-skill/i }).click();
+
+    await expect(page.getByPlaceholder('/absolute/path/to/skill-directory')).toHaveValue('/tmp/fix-skill');
+    await expect(
+      page.getByText(
+        'fix-skill is selectable, but preflight currently reports Needs Fix. Import may still require follow-up repair steps. Current issue: missing binary',
+      ),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Show record' }).click();
+
+    await expect(page.getByPlaceholder('Search by skill, issue, suggestion')).toHaveValue('fix-skill');
+    const highlightedRecord = page.locator('[id="skill-record-fix-skill%3A1.0.0"]');
+    await expect(highlightedRecord).toBeVisible();
+    await expect(highlightedRecord).toHaveClass(/ring-2/);
+    await expect(highlightedRecord).toContainText('Issues: missing binary: python3');
+  });
+
+  test('workspace available suggestion installs immediately and refreshes records', async ({ page }) => {
+    const installedRecord = {
+      skill_name: 'fireworks-tech-graph',
+      skill_version: '1.0.0',
+      skill_ref: 'fireworks-tech-graph:1.0.0',
+      source_path: '/tmp/fireworks-tech-graph',
+      source_layer: 'workspace',
+      status: 'available',
+      issues: [],
+      warnings: [],
+      suggestions: [],
+      status_message: 'Ready to mount.',
+      next_action: 'Mount this skill to the default agent.',
+      visible_in_default_agent: true,
+      setup_capable: false,
+      setup_required: false,
+      trust_status: 'untrusted',
+      setup_status: 'not_needed',
+      setup_supported_runtimes: [],
+      checked_at: '2026-04-25T00:00:00Z',
+    };
+    const candidateRecord = {
+      ...installedRecord,
+      visible_in_default_agent: false,
+    };
+    let importRequested = false;
+    let rescanCount = 0;
+
+    await page.unroute('**/api/skill-preflight');
+    await page.unroute('**/api/skill-preflight/rescan');
+
+    await page.route('**/api/skill-preflight', async (route) => {
+      if (route.request().method() === 'GET') {
+        const items = rescanCount > 0 ? [...mockPreflightRecords, installedRecord] : [...mockPreflightRecords, candidateRecord];
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.route('**/api/skill-preflight/rescan', async (route) => {
+      rescanCount += 1;
+      const items = [...mockPreflightRecords, installedRecord];
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          summary: { total: items.length, available: 4, needs_fix: 2, unavailable: 0 },
+          items,
+        }),
+      });
+    });
+
+    await page.route('**/api/skill-imports', async (route) => {
+      importRequested = true;
+      const body = route.request().postDataJSON() as any;
+      expect(body).toEqual({
+        source_type: 'directory',
+        source_path: '/tmp/fireworks-tech-graph',
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          import: {
+            id: 'import-fireworks-tech-graph',
+            skill_name: 'fireworks-tech-graph',
+            skill_version: '1.0.0',
+            lifecycle_state: 'active',
+          },
+          report: {
+            activation_eligibility: 'compatible',
+            default_agent_mount_status: 'mounted',
+            default_agent_mount_target_agent_id: 'builtin-action-lab',
+            default_agent_mount_message:
+              'Skill was auto-mounted to Skill Playground (builtin-action-lab).',
+          },
+          default_agent_mount: {
+            status: 'mounted',
+            target_agent_id: 'builtin-action-lab',
+            message: 'Skill was auto-mounted to Skill Playground (builtin-action-lab).',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/skill-health');
+
+    await page.getByRole('button', { name: /^fireworks-tech-graph/i }).click();
+
+    await expect(
+      page.getByText(
+        'fireworks-tech-graph imported successfully. Skill was auto-mounted to Skill Playground (builtin-action-lab).',
+      ),
+    ).toBeVisible();
+    await expect(page.getByPlaceholder('/absolute/path/to/skill-directory')).toHaveValue('');
+    const importedRecord = page.locator('[id="skill-record-fireworks-tech-graph%3A1.0.0"]');
+    await expect(importedRecord).toBeVisible();
+    await expect(importedRecord).toContainText('fireworks-tech-graph:1.0.0');
+    await expect(importedRecord).toContainText('Visible in default agent');
+    expect(importRequested).toBe(true);
+    expect(rescanCount).toBe(1);
   });
 });

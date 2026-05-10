@@ -1057,6 +1057,51 @@ def test_skill_router_requested_skill_still_has_highest_priority():
     assert score == 1000
 
 
+def test_skill_router_auto_mode_uses_auto_routable_subset_but_preserves_explicit_visible_selection():
+    registry = SkillRegistry()
+    planner = SkillSpec(
+        name="release-test-planner",
+        version="1.2.0",
+        description="planner",
+        capabilities=["planning"],
+        entrypoint="system_prompt",
+        system_prompt="planner",
+        os=[platform.system().lower()]
+    )
+    debugger = SkillSpec(
+        name="backend-api-debugger",
+        version="1.0.0",
+        description="Inspect service failures quickly",
+        capabilities=["debug", "api-debugging"],
+        entrypoint="system_prompt",
+        system_prompt="debugger",
+        os=[platform.system().lower()]
+    )
+    registry.register(planner)
+    registry.register(debugger)
+    router = SkillRouter(registry)
+    agent = type(
+        "Agent",
+        (),
+        {
+            "visible_skills": ["release-test-planner:1.2.0", "backend-api-debugger:1.0.0"],
+            "auto_routable_skills": ["release-test-planner:1.2.0"],
+        },
+    )()
+
+    selected, score = router.route_with_score(agent, "debug this 500 error in production")
+    assert selected is None
+    assert score == 0
+
+    selected, score = router.route_with_score(
+        agent,
+        "please use backend-api-debugger to inspect this 500 error",
+    )
+    assert selected is not None
+    assert selected.name == "backend-api-debugger"
+    assert score == 1000
+
+
 def test_skill_router_prefers_system_ops_expert_for_document_discovery_intent():
     registry = SkillRegistry()
     system_ops = SkillSpec(

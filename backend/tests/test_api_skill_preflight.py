@@ -351,7 +351,6 @@ def test_setup_endpoints_require_trust_then_run(client, tmp_path):
         setup_before_trust = test_client.post("/api/skill-preflight/setup-skill:1.0.0/setup", json={})
         assert setup_before_trust.status_code == 422
         assert setup_before_trust.json()["detail"]["code"] == "skill_setup_requires_trust"
-
         trust_response = test_client.post("/api/skill-preflight/setup-skill:1.0.0/trust")
         assert trust_response.status_code == 200
         trusted_item = trust_response.json()["item"]

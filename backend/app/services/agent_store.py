@@ -10,6 +10,17 @@ from pydantic import BaseModel, Field
 
 from app.services.builtin_agent_catalog import BuiltinAgentCatalog
 
+DEFAULT_SKILL_PLAYGROUND_AGENT_ID = "builtin-action-lab"
+DEFAULT_SKILL_PLAYGROUND_AGENT_NAME = "Skill Playground"
+DEFAULT_SKILL_PLAYGROUND_VISIBLE_SKILLS = [
+    "system-ops-expert:1.0.0",
+    "ppt-expert:1.0.0",
+]
+DEFAULT_SKILL_PLAYGROUND_AUTO_ROUTABLE_SKILLS = [
+    "system-ops-expert:1.0.0",
+    "ppt-expert:1.0.0",
+]
+
 
 def _default_data_dir() -> str:
     return os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data"))
@@ -37,6 +48,7 @@ class AgentConfig(BaseModel):
     require_citations: bool = False
     skill_mode: str = "off"  # off | manual | auto
     visible_skills: List[str] = []
+    auto_routable_skills: List[str] = []
     agent_kind: str = "traditional"
     skill_groups: List[str] = []
     extra_visible_skills: List[str] = []
@@ -129,13 +141,48 @@ class AgentStore:
         agents: List[AgentConfig] = []
         for spec in self._builtin_catalog.list_builtin_agents():
             agents.append(AgentConfig(**spec.payload))
+        if not any(agent.id == DEFAULT_SKILL_PLAYGROUND_AGENT_ID for agent in agents):
+            agents.append(self._build_default_skill_playground_agent())
         return agents
+
+    @staticmethod
+    def _build_default_skill_playground_agent() -> AgentConfig:
+        return AgentConfig(
+            id=DEFAULT_SKILL_PLAYGROUND_AGENT_ID,
+            name=DEFAULT_SKILL_PLAYGROUND_AGENT_NAME,
+            system_prompt=(
+                "You are Yue's shared Skill Playground agent. "
+                "Use mounted skills when they clearly help, keep responses practical, "
+                "and treat this agent as the default sandbox for trying newly installed skills."
+            ),
+            skill_mode="auto",
+            visible_skills=list(DEFAULT_SKILL_PLAYGROUND_VISIBLE_SKILLS),
+            auto_routable_skills=list(DEFAULT_SKILL_PLAYGROUND_AUTO_ROUTABLE_SKILLS),
+            agent_kind="universal",
+        )
 
     def _ensure_builtin_agents(self):
         agents = self.list_agents()
         builtins = self._builtin_agents()
 
         changed_any = False
+        for index, agent in enumerate(agents):
+            if agent.id != DEFAULT_SKILL_PLAYGROUND_AGENT_ID:
+                continue
+            if getattr(agent, "auto_routable_skills", None):
+                continue
+            visible_skill_set = set(getattr(agent, "visible_skills", None) or [])
+            auto_routable_skills = [
+                ref
+                for ref in DEFAULT_SKILL_PLAYGROUND_AUTO_ROUTABLE_SKILLS
+                if ref in visible_skill_set
+            ]
+            if not auto_routable_skills:
+                auto_routable_skills = list(DEFAULT_SKILL_PLAYGROUND_AUTO_ROUTABLE_SKILLS)
+            updated = agent.model_copy(update={"auto_routable_skills": auto_routable_skills})
+            agents[index] = updated
+            changed_any = True
+
         existing_ids = {agent.id for agent in agents}
         for builtin in builtins:
             if builtin.id in existing_ids:
@@ -167,6 +214,52 @@ class AgentStore:
                 if agent.id == agent_id:
                     return agent
             return None
+
+    def ensure_skill_playground_agent(self) -> AgentConfig:
+        with self._lock:
+            agent = self.get_agent(DEFAULT_SKILL_PLAYGROUND_AGENT_ID)
+            if agent is not None:
+                return agent
+            agent = self._build_default_skill_playground_agent()
+            agents = self.list_agents()
+            agents.append(agent)
+            self._save_agents(agents)
+            return agent
+
+    def backfill_skill_playground_visible_skills_from_imports(self, import_store: object | None) -> AgentConfig:
+        with self._lock:
+            agent = self.ensure_skill_playground_agent()
+            if import_store is None or not hasattr(import_store, "list_entries"):
+                return agent
+
+            visible_skills = list(getattr(agent, "visible_skills", None) or [])
+            visible_skill_set = set(visible_skills)
+            changed = False
+
+            for entry in import_store.list_entries():
+                record = getattr(entry, "record", None)
+                if record is None:
+                    continue
+                lifecycle_state = getattr(record, "lifecycle_state", "")
+                if getattr(lifecycle_state, "value", lifecycle_state) != "active":
+                    continue
+                if not getattr(record, "skill_name", None) or not getattr(record, "skill_version", None):
+                    continue
+                skill_ref = f"{record.skill_name}:{record.skill_version}"
+                if skill_ref in visible_skill_set:
+                    continue
+                visible_skills.append(skill_ref)
+                visible_skill_set.add(skill_ref)
+                changed = True
+
+            if not changed:
+                return agent
+
+            updated = self.update_agent(
+                agent.id,
+                {"visible_skills": visible_skills},
+            )
+            return updated or self.get_agent(agent.id) or agent
 
     def create_agent(self, agent: AgentConfig) -> AgentConfig:
         with self._lock:

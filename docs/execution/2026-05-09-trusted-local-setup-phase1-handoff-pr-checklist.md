@@ -53,13 +53,13 @@ This document captures:
 ### Near-Term Hardening
 
 - [x] Align `run_exec_argv` more fully with `ExecTool` policy behavior, especially `allow_patterns` and `restrict_to_workspace` (completed 2026-05-09 session 2)
-- [x] Add richer setup observability if desired, such as per-command audit details (completed 2026-05-09 session 2)
+- [ ] Add richer setup observability if desired, such as per-command audit details
 - [x] Add more positive-path node setup coverage across supported package managers (completed 2026-05-09 session 2)
-- [x] Add browser-level visual regression coverage for SkillHealth (completed 2026-05-09 session 3)
+- [ ] Add browser-level visual regression coverage for SkillHealth
 
 ### Nice-To-Have Follow-Up
 
-- [x] Document operator-facing trusted setup workflow in user/developer docs (completed 2026-05-09 session 4)
+- [ ] Document operator-facing trusted setup workflow in user/developer docs
 - [ ] Add PR/commit hygiene around selecting only this feature's files because the worktree also contains unrelated untracked files
 
 ## Known Non-Blocking Notes
@@ -101,68 +101,3 @@ This document captures:
 - [x] `python -m compileall app` — clean
 - [x] `git diff --check` — clean
 - [x] **148 total tests passed across 8 suites**
-
-## Session 2 (continued) — Setup Observability
-
-- **SetupAuditEntry model**: Added `SetupAuditEntry` in [backend/app/services/skills/import_models.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/import_models.py) with fields: `command`, `argv`, `cwd`, `exit_code`, `stdout_size`, `stderr_size`, `duration_ms`, `started_at`, `finished_at`.
-- **Per-command audit collection**: `run_setup` in [backend/app/services/skills/setup_service.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/services/skills/setup_service.py) now records timing, stdout/stderr sizes, and exit codes for each command in the setup for loop.
-- **API audit summary**: `_serialize_preflight_item` in [backend/app/api/skill_preflight.py](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/backend/app/api/skill_preflight.py) exposes `setup_audit_summary` (total/succeeded/failed/total_duration_ms).
-- **Legacy compat**: Import store handles records without `setup_audit_entries` (backward compatible).
-- 4 new backend tests: success audit population, failure capture, rerun reset, legacy compat.
-- **152 total backend tests passed across 8 suites**.
-
-## Session 3 (2026-05-09) — SkillHealth Visual Regression Coverage
-
-### Completed
-
-- **Playwright e2e spec**: Added [frontend/e2e/skill-health-visual.spec.ts](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/frontend/e2e/skill-health-visual.spec.ts) with 22 test cases covering:
-  - Page title and filter controls rendering
-  - Available / non-available sections with correct counts
-  - Record details: skill_ref, layer, path, status badges, issues, warnings, suggestions
-  - Mount button states (enabled for available, disabled for needs_fix)
-  - Trust & Setup button states (Trust & Setup, Retry Setup, Setup Complete, Setup Unsupported)
-  - Setup status messages, trust status messages, last failure messages
-  - Setup support messages (python/node/not supported)
-  - Excalidraw health section (level, blockers, fix commands, Copy Fix Commands)
-  - Visibility labels (Hidden/Visible in default agent)
-  - Setup next action display
-  - Status filter and layer filter interactions
-  - Search input filtering by name and issue text
-  - Mount action API request + success/error notice
-  - Trust & Setup flow (sequential API calls)
-  - Trust rejection before setup if trust fails
-  - Retry Setup flow for failed skills
-  - Rescan action API call + notice
-  - Network error handling on page load
-
-### Verified (Session 3)
-
-- [x] `SkillHealth.test.ts` — 18 passed
-- [x] Frontend full unit suite — 189 passed
-- [x] Backend test suite — 70 passed
-- [x] Frontend build — clean
-- [x] TypeScript compilation — clean
-- [x] `git diff --check` — clean
-
-## Session 4 (2026-05-09) — Documentation
-
-### Completed
-
-- **Trusted Local Setup Guide**: Added [docs/guides/developer/TRUSTED_LOCAL_SETUP_GUIDE.md](file:///Users/gavinzhang/ws-ai-recharge-2026/Yue/docs/guides/developer/TRUSTED_LOCAL_SETUP_GUIDE.md) covering:
-  - Concept and manifest contract format
-  - Supported runtimes (python/node) with allowed command patterns
-  - Package manager quick reference (npm/pnpm/yarn/pip)
-  - Trust → Setup lifecycle (untrusted → trusted → succeeded/failed → retry)
-  - Fingerprint binding and drift detection
-  - Isolated environment paths and policy gates
-  - API endpoints (trust, setup, get state, error codes)
-  - Setup audit observability format
-  - SkillHealth UI integration (button states, displayed info)
-  - Troubleshooting common errors
-
-### Verified (Session 4)
-
-- [x] Document follows existing developer guide conventions
-- [x] All Near-Term Hardening items complete
-- [x] All Nice-To-Have documentation items complete
-- [x] `git diff --check` — clean
