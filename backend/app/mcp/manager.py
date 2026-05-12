@@ -56,10 +56,25 @@ class McpManager:
             
         try:
             configs = self.load_config()
+            if not isinstance(configs, list):
+                logger.error(
+                    "Invalid MCP config root type: expected list, got %s. MCP will be marked unavailable.",
+                    type(configs).__name__,
+                )
+                self.last_errors["__global__"] = (
+                    f"Invalid MCP config root type: {type(configs).__name__}"
+                )
+                return
             logger.info("Loading MCP configs from %s: %s", self.config_path, self._redact_configs(configs))
 
             for config in configs:
                 try:
+                    if not isinstance(config, dict):
+                        logger.error("Invalid MCP config item type: %s", type(config).__name__)
+                        self.last_errors["unknown"] = (
+                            f"Invalid MCP config item type: {type(config).__name__}"
+                        )
+                        continue
                     validated_config = self._normalize_runtime_config(config)
                     if validated_config.get("enabled", True):
                         # Keep MCP transport context entry in a single task so cleanup can
@@ -69,6 +84,10 @@ class McpManager:
                     name = config.get("name") or "unknown"
                     logger.error("Invalid config for MCP server %s: %s", name, str(e))
                     self.last_errors[name] = f"Invalid configuration: {str(e)}"
+        except Exception as e:
+            # Never let MCP bootstrap crash application startup.
+            logger.exception("Unexpected fatal error during MCP initialization; continuing with MCP disabled")
+            self.last_errors["__global__"] = f"MCP initialize failed: {e}"
         finally:
             async with self._lock:
                 self.is_initializing = False
@@ -121,9 +140,12 @@ class McpManager:
             return []
         try:
             with open(self.config_path, 'r') as f:
-                return json.load(f)
+                configs = json.load(f)
+                self.last_errors.pop("__global__", None)
+                return configs
         except Exception as e:
             logger.exception("Error loading MCP config")
+            self.last_errors["__global__"] = f"Error loading MCP config: {e}"
             return []
 
     async def connect_to_server(self, config: Dict[str, Any]):

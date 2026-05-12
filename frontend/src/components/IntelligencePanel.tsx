@@ -1,6 +1,7 @@
 import { For, Show, Switch, Match, createMemo, createSignal, createEffect, onCleanup } from 'solid-js';
 import MermaidViewer from './MermaidViewer';
 import { ActionState, Message } from '../types';
+import { buildExportSvgString, downloadBlob, getMermaidExportPrefs, svgStringToPngBlob } from '../utils/mermaidExport';
 
 const tryFormatStructuredValue = (value: unknown): string => {
   if (value == null) return '';
@@ -638,18 +639,88 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
     }, 1800);
   };
 
-  const downloadHtml = () => {
-    if (!props.previewContent || (props.previewContent.lang !== 'html' && props.previewContent.lang !== 'xml')) return;
-    
-    const blob = new Blob([props.previewContent.content], { type: 'text/html' });
+  const isSvgPreview = createMemo(() => {
+    const preview = props.previewContent;
+    if (!preview) return false;
+    const lang = (preview.lang || '').toLowerCase();
+    const content = (preview.content || '').trimStart().toLowerCase();
+    if (lang === 'svg') return true;
+    return lang === 'xml' && content.startsWith('<svg');
+  });
+
+  const normalizeSvgMarkup = (raw: string): string => {
+    const fallbackDoc = new DOMParser().parseFromString(raw, 'text/html');
+    const fallbackSvg = fallbackDoc.querySelector('svg');
+    if (!fallbackSvg) return raw;
+
+    const normalized = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    for (const attr of Array.from(fallbackSvg.attributes || [])) {
+      normalized.setAttribute(attr.name, attr.value);
+    }
+    for (const child of Array.from(fallbackSvg.childNodes || [])) {
+      normalized.appendChild(child.cloneNode(true));
+    }
+    if (!normalized.getAttribute('xmlns')) {
+      normalized.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    }
+    return new XMLSerializer().serializeToString(normalized);
+  };
+
+  const downloadPreviewArtifact = () => {
+    if (!props.previewContent) return;
+    const isHtmlPreview = props.previewContent.lang === 'html' || props.previewContent.lang === 'xml';
+    const svgPreview = isSvgPreview();
+    if (!isHtmlPreview && !svgPreview) return;
+
+    let content = props.previewContent.content;
+    if (svgPreview) {
+      // Normalize SVG markup before download so malformed XML (e.g. duplicate attributes)
+      // from model/tool output does not trigger parser errors when opened directly.
+      try {
+        content = normalizeSvgMarkup(content);
+      } catch (error) {
+        console.warn('Failed to normalize SVG preview before download, using original content.', error);
+      }
+    }
+
+    const mimeType = svgPreview ? 'image/svg+xml;charset=utf-8' : 'text/html;charset=utf-8';
+    const ext = svgPreview ? 'svg' : 'html';
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `artifact-${Date.now()}.html`;
+    a.download = `artifact-${Date.now()}.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const saveSvgPreviewAsPng = async () => {
+    if (!props.previewContent || !isSvgPreview()) return;
+    try {
+      const normalizedMarkup = normalizeSvgMarkup(props.previewContent.content);
+      const parsed = new DOMParser().parseFromString(normalizedMarkup, 'image/svg+xml');
+      const svgEl = parsed.documentElement;
+      if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') {
+        throw new Error('Preview content is not a valid SVG document');
+      }
+
+      const prefs = getMermaidExportPrefs();
+      const normalizedSvg = buildExportSvgString(svgEl as unknown as SVGSVGElement, {
+        padding: prefs.padding,
+        background: prefs.background,
+        backgroundColor: prefs.backgroundColor,
+      });
+      const pngBlob = await svgStringToPngBlob(normalizedSvg, prefs.scale);
+      if (!pngBlob) {
+        throw new Error('Failed to render PNG from SVG preview');
+      }
+
+      downloadBlob(pngBlob, `artifact-${Date.now()}.png`);
+    } catch (error) {
+      console.error('Failed to save SVG preview as PNG:', error);
+    }
   };
 
   return (
@@ -700,19 +771,34 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
             </h2>
           </div>
           <div class="flex items-center gap-1 relative z-[120]">
-            <Show when={props.intelligenceTab === 'preview' && (props.previewContent?.lang === 'html' || props.previewContent?.lang === 'xml')}>
+            <Show when={props.intelligenceTab === 'preview' && (props.previewContent?.lang === 'html' || props.previewContent?.lang === 'xml' || isSvgPreview())}>
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
-                  downloadHtml();
+                  downloadPreviewArtifact();
                 }}
                 class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary transition-all border border-primary/30 active:scale-95 mr-2 relative z-[130]"
-                title="Download as HTML file"
+                title={isSvgPreview() ? 'Download as SVG file' : 'Download as HTML file'}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                <span class="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Download</span>
+                <span class="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">{isSvgPreview() ? 'Download SVG' : 'Download HTML'}</span>
+              </button>
+            </Show>
+            <Show when={props.intelligenceTab === 'preview' && isSvgPreview()}>
+              <button 
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  await saveSvgPreviewAsPng();
+                }}
+                class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary transition-all border border-primary/30 active:scale-95 mr-2 relative z-[130]"
+                title="Save as PNG file"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3 3m0 0l-3-3m3 3V8" />
+                </svg>
+                <span class="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Save PNG</span>
               </button>
             </Show>
             <button onClick={() => {
@@ -756,7 +842,7 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
               <div class="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
                 <div class="flex items-center justify-between mb-4">
                   <h3 class="text-xs font-black text-text-primary uppercase tracking-[0.2em]">Artifact Preview</h3>
-                  <div class="flex items-center gap-2">
+                  <div class="flex items-center gap-2 flex-wrap justify-end">
                     <span class="text-[10px] font-mono bg-primary/10 text-primary px-2 py-1 rounded">{props.previewContent?.lang}</span>
                   </div>
                 </div>
