@@ -58,7 +58,13 @@ _skill_runtime_bootstrap_spec = build_skill_runtime_bootstrap_spec_from_env(
 
 async def _on_startup() -> None:
     # Initialize MCP Manager first
-    await mcp_manager.initialize()
+    try:
+        await mcp_manager.initialize()
+    except Exception:
+        # Defense-in-depth: MCP failures should degrade MCP capability only,
+        # not block the whole application startup.
+        logger.exception("MCP initialization failed; continuing startup with MCP unavailable")
+        mcp_manager.last_errors["__global__"] = "MCP initialization failed during startup"
     agent_store.backfill_skill_playground_visible_skills_from_imports(
         getattr(_runtime_context(), "skill_import_store", None)
     )

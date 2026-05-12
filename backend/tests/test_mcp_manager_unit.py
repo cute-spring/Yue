@@ -311,6 +311,14 @@ def test_load_config_error(mcp_manager):
             configs = mcp_manager.load_config()
             assert configs == []
 
+def test_load_config_invalid_json_sets_global_error(mcp_manager):
+    with patch("builtins.open", mock_open(read_data="{invalid json")):
+        with patch("os.path.exists", return_value=True):
+            configs = mcp_manager.load_config()
+    assert configs == []
+    assert "__global__" in mcp_manager.last_errors
+    assert "Error loading MCP config" in mcp_manager.last_errors["__global__"]
+
 @pytest.mark.asyncio
 async def test_connect_to_server_existing_session(mcp_manager):
     mock_session = MagicMock()
@@ -337,6 +345,23 @@ async def test_connect_to_server_existing_closed_session(mcp_manager):
         await mcp_manager.connect_to_server(config)
         assert "closed" in mcp_manager.sessions
         assert mcp_manager.sessions["closed"] != mock_session
+
+@pytest.mark.asyncio
+async def test_initialize_single_server_failure_does_not_block_other_servers(mcp_manager):
+    config = [
+        {"name": "bad-server", "enabled": True, "transport": "stdio", "command": "node"},
+        {"name": "good-server", "enabled": True, "transport": "stdio", "command": "node"},
+    ]
+    with patch.object(mcp_manager, "load_config", return_value=config), \
+         patch.object(
+             mcp_manager,
+             "_connect_with_retry_and_timeout",
+             side_effect=[Exception("bad server failed"), None],
+         ) as mock_connect:
+        await mcp_manager.initialize()
+
+    assert mock_connect.await_count == 2
+    assert mcp_manager.last_errors["bad-server"] == "Invalid configuration: bad server failed"
 
 @pytest.mark.asyncio
 async def test_convert_tool_wrapper_execution(mcp_manager):
