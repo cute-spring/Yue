@@ -123,6 +123,9 @@ echo "🧠 Skill runtime mode: ${YUE_SKILL_RUNTIME_MODE}"
 
 echo "📡 Starting backend service on http://127.0.0.1:8003..."
 cd "$ROOT_DIR/backend"
+# Add sibling dependency to PYTHONPATH
+export PYTHONPATH="$ROOT_DIR/../midterm-session-memory/src:${PYTHONPATH:-}"
+
 if command -v uv &> /dev/null; then
     YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" uv run python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
 elif [ -f ".venv/bin/activate" ]; then
