@@ -289,6 +289,11 @@ export default function MessageItem(props: MessageItemProps) {
   const userAttachments = createMemo(() => getRenderableUserAttachments(props.msg));
   const speechMessageId = () => getSpeechMessageId(props.msg, props.index);
   const speechState = () => speechController?.getMessageState(speechMessageId()) || 'idle';
+  const userMessageContainerClass = () =>
+    [
+      'bg-surface text-text-primary px-6 py-4 shadow-sm border border-border/40 rounded-[26px] rounded-br-none',
+      isEditing() ? 'w-full max-w-[92%] lg:max-w-[56rem]' : 'max-w-[85%] lg:max-w-[75%]',
+    ].join(' ');
 
   const [isManuallyExpanded, setIsManuallyExpanded] = createSignal(false);
   const [isManuallyCollapsed, setIsManuallyCollapsed] = createSignal(false);
@@ -582,7 +587,7 @@ export default function MessageItem(props: MessageItemProps) {
         aria-label={props.msg.role === 'assistant' ? 'Assistant message. Press R to read aloud or stop.' : undefined}
         class={`group relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
         props.msg.role === 'user' 
-          ? 'bg-surface text-text-primary px-6 py-4 shadow-sm border border-border/40 rounded-[26px] rounded-br-none max-w-[85%] lg:max-w-[75%]' 
+          ? userMessageContainerClass()
           : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none max-w-[85%] lg:max-w-[75%]'
       }`}
       >
@@ -676,9 +681,10 @@ export default function MessageItem(props: MessageItemProps) {
                </div>
              </Show>
              <Show when={isEditing()}>
-               <div class="flex flex-col gap-2 mt-2 w-full min-w-[250px] relative z-20">
+               <div class="relative z-20 mt-2 flex w-full min-w-[280px] flex-col gap-3">
                  <textarea
-                   class="w-full bg-background/80 backdrop-blur-md border border-primary/30 rounded-xl p-3 text-[15px] text-text-primary focus:outline-none focus:border-primary/60 resize-y min-h-[100px]"
+                   class="w-full rounded-2xl border border-primary/25 bg-background/90 p-4 text-[15px] leading-7 text-text-primary shadow-sm backdrop-blur-md transition focus:outline-none focus:border-primary/60 focus:ring-4 focus:ring-primary/10 resize-y min-h-[180px]"
+                   rows={8}
                    value={editContent()}
                    disabled={isSavingEdit()}
                    onInput={(e) => setEditContent(e.currentTarget.value)}
@@ -689,7 +695,9 @@ export default function MessageItem(props: MessageItemProps) {
                  <Show when={editError()}>
                    <div class="text-xs text-rose-500">{editError()}</div>
                  </Show>
-                 <div class="flex justify-end gap-2 mt-1">
+                 <div class="flex items-center justify-between gap-3">
+                   <div class="text-[11px] text-text-secondary/60">Shift + Enter 换行，Cmd/Ctrl + Enter 提交</div>
+                   <div class="flex justify-end gap-2">
                    <button
                      disabled={isSavingEdit()}
                      onClick={closeEdit}
@@ -706,6 +714,7 @@ export default function MessageItem(props: MessageItemProps) {
                    >
                      Save & Submit
                    </button>
+                   </div>
                  </div>
                </div>
              </Show>

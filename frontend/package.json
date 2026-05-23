@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.45.0",
+    "@rollup/wasm-node": "^4.60.4",
     "@types/katex": "^0.16.8",
     "@vitest/ui": "^4.0.18",
     "autoprefixer": "^10.4.16",
