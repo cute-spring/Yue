@@ -7,25 +7,66 @@ PROJECT_ROOT=$(pwd)
 
 echo "Checking dependencies..."
 
+frontend_runtime_healthcheck() {
+    node -e "require('rollup'); console.log('rollup-ok')" >/dev/null 2>&1
+}
+
+activate_rollup_wasm_fallback() {
+    if [ ! -d "node_modules/@rollup/wasm-node" ]; then
+        echo "Installing @rollup/wasm-node fallback..."
+        npm install
+    fi
+
+    if [ -e "node_modules/rollup" ] || [ -L "node_modules/rollup" ]; then
+        rm -rf "node_modules/rollup"
+    fi
+
+    ln -sfn "@rollup/wasm-node" "node_modules/rollup"
+}
+
 # Frontend detection and installation
 echo "--- Frontend ---"
-if [ -d "frontend/node_modules" ]; then
-    echo "Frontend dependencies already installed. Skipping."
-else
-    echo "Frontend dependencies not found. Installing..."
-    if [ -d "frontend" ]; then
-        cd frontend
-        if command -v npm &> /dev/null; then
+if [ -d "frontend" ]; then
+    cd frontend
+    if command -v npm &> /dev/null; then
+        if [ ! -d "node_modules" ]; then
+            echo "Frontend dependencies not found. Installing..."
             npm install
             echo "Frontend dependencies installed successfully."
+        elif frontend_runtime_healthcheck; then
+            echo "Frontend dependencies already installed and healthy."
         else
-            echo "Error: npm is not installed. Please install Node.js and npm."
-            exit 1
+            echo "Frontend dependencies exist but runtime check failed. Repairing..."
+            rm -rf node_modules/@rollup
+            npm install
+            if frontend_runtime_healthcheck; then
+                echo "Frontend runtime repaired successfully."
+            else
+                echo "Native Rollup repair failed. Activating WASM fallback..."
+                activate_rollup_wasm_fallback
+                if frontend_runtime_healthcheck; then
+                    echo "Frontend runtime repaired successfully with WASM fallback."
+                else
+                    echo "WASM fallback did not recover frontend runtime. Reinstalling frontend dependencies..."
+                    rm -rf node_modules
+                    npm install
+                    activate_rollup_wasm_fallback
+                    if frontend_runtime_healthcheck; then
+                        echo "Frontend dependencies reinstalled successfully with WASM fallback."
+                    else
+                        echo "Error: frontend dependencies are still unhealthy after reinstall."
+                        exit 1
+                    fi
+                fi
+            fi
         fi
-        cd "$PROJECT_ROOT"
     else
-        echo "Warning: frontend directory not found."
+        echo "Error: npm is not installed. Please install Node.js and npm."
+        exit 1
     fi
+    cd "$PROJECT_ROOT"
+else
+    echo "Warning: frontend directory not found."
 fi
 
 # Backend detection and installation
