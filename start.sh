@@ -9,9 +9,50 @@ BACKEND_MAX_WAIT_SECONDS=60
 FRONTEND_URL="http://localhost:3000"
 FRONTEND_MAX_WAIT_SECONDS=60
 YUE_SKILL_RUNTIME_MODE="${YUE_SKILL_RUNTIME_MODE:-legacy}"
+BACKEND_PYTHON=""
 
 log() {
     echo "$1"
+}
+
+add_path_if_dir() {
+    local dir="$1"
+    if [ -d "$dir" ] && [[ ":$PATH:" != *":$dir:"* ]]; then
+        PATH="$dir:$PATH"
+    fi
+}
+
+ensure_runtime_tooling() {
+    add_path_if_dir "/Applications/Codex.app/Contents/Resources"
+    add_path_if_dir "/opt/homebrew/bin"
+    add_path_if_dir "/usr/local/bin"
+}
+
+resolve_backend_python() {
+    if [ -x "$ROOT_DIR/backend/.venv/bin/python" ]; then
+        BACKEND_PYTHON="$ROOT_DIR/backend/.venv/bin/python"
+        return 0
+    fi
+    if command -v python >/dev/null 2>&1; then
+        BACKEND_PYTHON="$(command -v python)"
+        return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        BACKEND_PYTHON="$(command -v python3)"
+        return 0
+    fi
+    return 1
+}
+
+require_frontend_runtime() {
+    if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        return 0
+    fi
+
+    log "❌ Node.js/npm were not found on PATH."
+    log "   Checked PATH: $PATH"
+    log "   Install Node.js or update start.sh PATH bootstrap locations."
+    exit 1
 }
 
 frontend_healthcheck() {
@@ -118,23 +159,38 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+ensure_runtime_tooling
+
 echo "🚀 Starting Yue Agent Platform..."
 echo "🧠 Skill runtime mode: ${YUE_SKILL_RUNTIME_MODE}"
 
 echo "📡 Starting backend service on http://127.0.0.1:8003..."
 cd "$ROOT_DIR/backend"
-# Add sibling dependency to PYTHONPATH
-export PYTHONPATH="$ROOT_DIR/../midterm-session-memory/src:${PYTHONPATH:-}"
 
-if command -v uv &> /dev/null; then
-    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" uv run python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
-elif [ -f ".venv/bin/activate" ]; then
-    source ".venv/bin/activate"
-    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
-else
-    echo "⚠️  Warning: backend environment not found. Attempting to run with system python..."
-    YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" python -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
+if ! resolve_backend_python; then
+    echo "❌ No usable Python interpreter was found."
+    echo "   Expected backend/.venv/bin/python, python, or python3."
+    exit 1
 fi
+
+if ! "$BACKEND_PYTHON" - <<'PY' >/dev/null 2>&1
+try:
+    import midterm_memory  # noqa: F401
+except Exception:
+    raise SystemExit(1)
+PY
+then
+    if [ -d "$ROOT_DIR/../midterm-session-memory/src" ]; then
+        echo "⚠️  midterm-session-memory is not installed; falling back to sibling src/ on PYTHONPATH."
+        export PYTHONPATH="$ROOT_DIR/../midterm-session-memory/src:${PYTHONPATH:-}"
+    else
+        echo "❌ midterm-session-memory is not installed and no sibling source checkout was found."
+        echo "   Run ./setup.sh first, or install the package manually."
+        exit 1
+    fi
+fi
+
+YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" "$BACKEND_PYTHON" -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 cd "$ROOT_DIR"
 
@@ -158,6 +214,7 @@ done
 echo " ready"
 
 echo "💻 Starting frontend service on http://localhost:3000..."
+require_frontend_runtime
 ensure_frontend_runtime_ready
 cd "$ROOT_DIR/frontend"
 npm run dev > "$ROOT_DIR/frontend.log" 2>&1 &

@@ -6,8 +6,6 @@ from pydantic_ai.messages import ImageUrl, ModelRequest, ModelResponse, TextPart
 
 
 EST_CHARS_PER_TOKEN = 3
-MAX_CONTEXT_TOKENS = 100000
-MAX_SINGLE_MSG_TOKENS = 20000
 
 
 def estimate_tokens(text: str) -> int:
@@ -32,6 +30,14 @@ def safe_int_env(name: str, default: int) -> int:
     except Exception:
         return default
     return value if value > 0 else default
+
+
+def prompt_history_max_context_tokens() -> int:
+    return safe_int_env("PROMPT_HISTORY_MAX_CONTEXT_TOKENS", 100000)
+
+
+def prompt_history_max_single_message_tokens() -> int:
+    return safe_int_env("PROMPT_HISTORY_MAX_SINGLE_MESSAGE_TOKENS", 20000)
 
 
 def env_flag_with_fallback(primary: str, legacy: str, default: bool) -> bool:
@@ -136,18 +142,20 @@ def build_history_from_chat(
         return []
 
     current_tokens = 0
+    max_context_tokens = prompt_history_max_context_tokens()
+    max_single_msg_tokens = prompt_history_max_single_message_tokens()
     temp_history: List[Any] = []
 
     for message in reversed(existing_chat.messages):
         content = message.content or ""
         msg_tokens = estimate_tokens(content)
 
-        if msg_tokens > MAX_SINGLE_MSG_TOKENS:
-            keep_chars = MAX_SINGLE_MSG_TOKENS * EST_CHARS_PER_TOKEN
+        if msg_tokens > max_single_msg_tokens:
+            keep_chars = max_single_msg_tokens * EST_CHARS_PER_TOKEN
             content = content[:keep_chars] + "\n... (content truncated due to length)"
-            msg_tokens = MAX_SINGLE_MSG_TOKENS
+            msg_tokens = max_single_msg_tokens
 
-        if current_tokens + msg_tokens > MAX_CONTEXT_TOKENS:
+        if current_tokens + msg_tokens > max_context_tokens:
             logger.info("Context limit reached. Dropping older messages. Current tokens: %s", current_tokens)
             break
 
@@ -358,6 +366,7 @@ def assemble_runtime_prompt(
     markdown_skill_adapter: Any,
     skill_policy_gate: Any,
     build_scope_summary_block: Callable[[Any], Tuple[Optional[str], int]],
+    session_context_block: Optional[str] = None,
     runtime_seams: Any = None,
 ) -> PromptAssemblyResult:
     system_prompt = request_system_prompt
@@ -453,6 +462,13 @@ def assemble_runtime_prompt(
         else:
             system_prompt = summary_block
     summary_injected = bool(summary_block and not selected_skill_spec)
+
+    if session_context_block:
+        system_prompt = system_prompt or ""
+        if system_prompt:
+            system_prompt = f"{system_prompt}\n\n{session_context_block}"
+        else:
+            system_prompt = session_context_block
 
     provider = provider or "openai"
     model_name = model_name or "gpt-4o"

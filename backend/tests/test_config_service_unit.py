@@ -104,6 +104,8 @@ def test_get_feature_flags_includes_mcp_smart_paste_default_false(temp_config_fi
     flags = service.get_feature_flags()
     assert "mcp_smart_paste_enabled" in flags
     assert flags["mcp_smart_paste_enabled"] is False
+    assert "session_context_enabled" in flags
+    assert flags["session_context_enabled"] is False
 
 
 def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_file):
@@ -114,6 +116,7 @@ def test_get_feature_flags_defaults_include_chat_trace_raw_disabled(temp_config_
     assert flags["chat_trace_ui_enabled"] is False
     assert flags["chat_trace_raw_enabled"] is False
     assert flags["mcp_smart_paste_enabled"] is False
+    assert flags["session_context_enabled"] is False
     assert flags["skill_runtime_enabled"] is True
     assert flags["skill_runtime_debug_contract_enabled"] is False
     assert flags["skill_import_auto_activate_enabled"] is True
@@ -145,6 +148,7 @@ def test_update_feature_flags_round_trip(temp_config_file):
     updated = service.update_feature_flags({
         "chat_trace_ui_enabled": True,
         "chat_trace_raw_enabled": "true",
+        "session_context_enabled": True,
         "skill_runtime_debug_contract_enabled": "1",
         "skill_import_auto_activate_enabled": "false",
         "skill_import_default_agent_auto_mount_enabled": "true",
@@ -152,6 +156,7 @@ def test_update_feature_flags_round_trip(temp_config_file):
 
     assert updated["chat_trace_ui_enabled"] is True
     assert updated["chat_trace_raw_enabled"] is True
+    assert updated["session_context_enabled"] is True
     assert updated["skill_runtime_debug_contract_enabled"] is True
     assert updated["skill_import_auto_activate_enabled"] is False
     assert updated["skill_import_default_agent_auto_mount_enabled"] is True
@@ -161,6 +166,7 @@ def test_update_feature_flags_round_trip(temp_config_file):
 
     assert persisted["feature_flags"]["chat_trace_ui_enabled"] is True
     assert persisted["feature_flags"]["chat_trace_raw_enabled"] is True
+    assert persisted["feature_flags"]["session_context_enabled"] is True
     assert persisted["feature_flags"]["skill_runtime_debug_contract_enabled"] is True
     assert persisted["feature_flags"]["skill_import_auto_activate_enabled"] is False
     assert persisted["feature_flags"]["skill_import_default_agent_auto_mount_enabled"] is True

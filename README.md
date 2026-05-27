@@ -33,6 +33,12 @@
 ./check.sh
 ```
 
+### 4. 记忆依赖部署
+`Yue` 的 session-context 能力依赖 `midterm-session-memory` 这个独立 Python 包。  
+本地开发可以直接使用同级源码仓库；远端或正式环境建议安装内部 wheel。
+
+详细说明见 [Session Context Deployment Guide](docs/guides/developer/SESSION_CONTEXT_DEPLOYMENT_GUIDE.md)。
+
 ---
 
 ## 🛠️ 脚本说明 (CLI Tools)

@@ -1,0 +1,34 @@
+{
+  "case_id": "browser_validation_standalone_negative",
+  "source": "browser_validation_20260524",
+  "chat_id": "b84a6a13-4fcb-45c3-903d-ac7f5bbb79c6",
+  "current_input": "另外写个 pytest fixture",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Get-EXOMailbox -Identity Alice | Export-Csv mailbox.csv",
+      "timestamp": "2026-05-24T13:02:07.423128Z",
+      "assistant_turn_id": "turn_neg_1",
+      "run_id": "run_neg_1"
+    },
+    {
+      "role": "assistant",
+      "content": "文档在 docs/specs/session_context_api_spec_20260522.md",
+      "timestamp": "2026-05-24T13:02:07.424827Z",
+      "assistant_turn_id": "turn_neg_2",
+      "run_id": "run_neg_2"
+    },
+    {
+      "role": "user",
+      "content": "另外写个 pytest fixture",
+      "timestamp": "2026-05-24T13:02:07.426272Z"
+    }
+  ],
+  "tool_calls": [],
+  "expected": {
+    "action": "no_context_needed",
+    "reason": "no_reference_signal",
+    "signal_strength": "none",
+    "prompt_blocks": []
+  }
+}

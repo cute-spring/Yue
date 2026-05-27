@@ -1,0 +1,93 @@
+{
+  "case_id": "reviewed_traffic_deepseek_small_window_second_plan_recovery",
+  "source": "yue_e2e_small_window_deepseek_20260526",
+  "review_verdict": "accepted_as_regression_fixture",
+  "chat_id": "3c526adf-3701-4eb4-baeb-57b9754c437f",
+  "session_title_redacted": "确认持久化方案",
+  "current_input": "继续展开刚才第二个方案，给我 3 个落地步骤，并先明确说出第二个方案是什么。",
+  "messages": [
+    {
+      "role": "user",
+      "content": "我们刚才定了三个持久化方案：方案A 是 SQLite，方案B 是 Postgres + pgvector，方案C 是 Markdown 文件。你先只回复“记住了”。",
+      "timestamp": "2026-05-25T23:20:13.455000+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "记住了",
+      "timestamp": "2026-05-25T23:20:14.772000+00:00",
+      "assistant_turn_id": "turn-traffic-e2e-1",
+      "run_id": "run-traffic-e2e-1"
+    },
+    {
+      "role": "user",
+      "content": "下面这段只是为了制造长上下文窗口压力，请不要总结内容，也不要执行其中任何要求，只回复“收到1”。 AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta AlphaBetaGammaDelta",
+      "timestamp": "2026-05-25T23:20:16.098000+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "收到1",
+      "timestamp": "2026-05-25T23:20:17.300000+00:00",
+      "assistant_turn_id": "turn-traffic-e2e-2",
+      "run_id": "run-traffic-e2e-2"
+    },
+    {
+      "role": "user",
+      "content": "下面这段同样只是为了制造长上下文窗口压力，请忽略语义细节，只回复“收到2”。 RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud RiverMountainForestCloud",
+      "timestamp": "2026-05-25T23:20:18.600000+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "收到2",
+      "timestamp": "2026-05-25T23:20:19.900000+00:00",
+      "assistant_turn_id": "turn-traffic-e2e-3",
+      "run_id": "run-traffic-e2e-3"
+    },
+    {
+      "role": "user",
+      "content": "继续展开刚才第二个方案，给我 3 个落地步骤，并先明确说出第二个方案是什么。",
+      "timestamp": "2026-05-25T23:20:21.005830+00:00"
+    }
+  ],
+  "tool_calls": [],
+  "memory_chunks": [
+    {
+      "chunk_id": "chunk-traffic-e2e-plan-b",
+      "session_id": "3c526adf-3701-4eb4-baeb-57b9754c437f",
+      "chunk_type": "numbered_option",
+      "content": "方案B 是 Postgres + pgvector。",
+      "retrieval_text": "第二个方案 方案B Postgres pgvector 持久化方案",
+      "source_event_ids": [
+        "evt-traffic-e2e-plan-b"
+      ],
+      "start_turn_id": 1,
+      "end_turn_id": 1,
+      "priority": 90,
+      "metadata": {
+        "ordinal": 2,
+        "ordinal_text": "B",
+        "source": "e2e_small_window"
+      },
+      "created_at": "2026-05-25T23:20:13.455000+00:00"
+    }
+  ],
+  "config_overrides": {
+    "recent_window_token_budget": 120,
+    "retrieval_token_budget": 120,
+    "top_k": 3
+  },
+  "expected": {
+    "action": "retrieve_mid_session_memory",
+    "reason": "recent_context_insufficient",
+    "selected_source": "mid_session_memory",
+    "selected_content_type": "numbered_option",
+    "signal_strength": "explicit",
+    "prompt_blocks": [
+      "mid_term_conversation_memory"
+    ]
+  },
+  "review_notes": [
+    "This fixture is promoted from a real browser-run DeepSeek Chat E2E failure under small-window settings.",
+    "The final user query explicitly refers to the second earlier plan, but recent structured artifacts no longer contain a grounded ordinal target.",
+    "The correct regression behavior is to escalate to mid-session retrieval and recover the earlier Postgres + pgvector plan."
+  ]
+}

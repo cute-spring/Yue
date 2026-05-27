@@ -1,0 +1,54 @@
+{
+  "case_id": "reviewed_traffic_explicit_path_access",
+  "source": "local_yue_db_manual_review_20260525",
+  "review_verdict": "accepted_current_behavior",
+  "session_title_redacted": "Excel 文件处理说明",
+  "current_input": "can you access <path>",
+  "messages": [
+    {
+      "role": "user",
+      "content": "list all excel name which you can access",
+      "timestamp": "2026-05-25T00:00:00+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "I do not have access to a local file system or a persistent database of Excel files. I can only interact with files that you explicitly provide, upload, or designate within our current session environment.",
+      "timestamp": "2026-05-25T00:00:01+00:00",
+      "assistant_turn_id": "turn-traffic-003-a",
+      "run_id": "run-traffic-003-a"
+    },
+    {
+      "role": "user",
+      "content": "can you access <path>",
+      "timestamp": "2026-05-25T00:00:02+00:00"
+    }
+  ],
+  "tool_calls": [
+    {
+      "session_id": "reviewed-traffic-003",
+      "call_id": "call-traffic-003-1",
+      "tool_name": "exec",
+      "assistant_turn_id": "turn-traffic-003-b",
+      "run_id": "run-traffic-003-b",
+      "args": {
+        "command": "ls <path>"
+      },
+      "result": "Online-Store-Orders.xlsx Product-Sales-Region.xlsx <token>.xlsx sample-2-sheets.xlsx",
+      "status": "success",
+      "started_ts": "2026-05-25T00:00:03+00:00",
+      "finished_ts": "2026-05-25T00:00:04+00:00",
+      "created_at": "2026-05-25T00:00:03+00:00",
+      "finished_at": "2026-05-25T00:00:04+00:00"
+    }
+  ],
+  "expected": {
+    "action": "no_context_needed",
+    "reason": "no_reference_signal",
+    "signal_strength": "none",
+    "prompt_blocks": []
+  },
+  "review_notes": [
+    "The current input carries the explicit path, so Yue does not need session-memory carryover to resolve the user intent.",
+    "This is still useful as a traffic-derived negative control because the session contains prior contradictory assistant text."
+  ]
+}

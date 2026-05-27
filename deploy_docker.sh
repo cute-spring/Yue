@@ -8,6 +8,10 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}🚀 开始 Yue Agent Platform Docker 部署流程...${NC}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+YUE_DIR="$WORKSPACE_ROOT/Yue"
+
 # 1. 检查 Docker 环境
 if ! command -v docker &> /dev/null; then
     echo -e "${RED}❌ 未检测到 Docker，请先安装 Docker Desktop。${NC}"
@@ -30,7 +34,8 @@ fi
 
 # 3. 构建镜像
 echo -e "${GREEN}📦 正在构建 Docker 镜像 (yue-agent)... 这可能需要几分钟。${NC}"
-docker build -t yue-agent .
+cd "$WORKSPACE_ROOT"
+docker build -f Yue/Dockerfile -t yue-agent .
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ 镜像构建失败。请检查网络连接或 Dockerfile。${NC}"
@@ -49,7 +54,7 @@ echo -e "${GREEN}▶️  正在启动新容器...${NC}"
 docker run -d \
   --name yue-agent \
   -p 8000:8000 \
-  --env-file backend/.env \
+  --env-file "$YUE_DIR/backend/.env" \
   --restart unless-stopped \
   yue-agent
 

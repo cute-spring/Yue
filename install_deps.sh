@@ -72,11 +72,41 @@ fi
 # Backend detection and installation
 echo "--- Backend ---"
 
+install_midterm_session_memory() {
+    local install_spec="${YUE_MIDTERM_SESSION_MEMORY_INSTALL_SPEC:-}"
+    if [ -n "$install_spec" ]; then
+        echo "Installing midterm-session-memory from YUE_MIDTERM_SESSION_MEMORY_INSTALL_SPEC=$install_spec ..."
+        if command -v uv &> /dev/null; then
+            uv pip install "$install_spec"
+        else
+            pip install "$install_spec"
+        fi
+        echo "midterm-session-memory installed successfully from install spec."
+        return 0
+    fi
+
+    local midterm_path="$PROJECT_ROOT/../midterm-session-memory"
+    if [ ! -d "$midterm_path" ]; then
+        echo "Warning: sibling midterm-session-memory repository not found at $midterm_path."
+        echo "         Session-context features will require installing the package separately."
+        return 0
+    fi
+
+    echo "Installing midterm-session-memory as a Python package..."
+    if command -v uv &> /dev/null; then
+        uv pip install "$midterm_path"
+    else
+        pip install "$midterm_path"
+    fi
+    echo "midterm-session-memory installed successfully."
+}
+
 if command -v uv &> /dev/null; then
     echo "uv detected. Using uv for backend dependency management..."
     cd backend
     uv sync
     echo "Backend dependencies synced successfully with uv."
+    install_midterm_session_memory
     cd "$PROJECT_ROOT"
 else
     echo "uv not found. Falling back to pip..."
@@ -109,6 +139,7 @@ else
     if [ -f "requirements.txt" ]; then
         echo "Installing dependencies from requirements.txt..."
         pip install -r requirements.txt
+        install_midterm_session_memory
         echo "Backend dependencies installed successfully with pip."
     else
         echo "Warning: requirements.txt not found. Skipping dependency installation."

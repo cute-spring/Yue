@@ -140,3 +140,38 @@ def test_assemble_runtime_prompt_does_not_inject_agent_doc_roots_legacy_block():
     assert "### Scope Summary" in result.system_prompt
     assert "可检索目录" not in result.system_prompt
     assert "/agent/legacy-root" not in result.system_prompt
+
+
+def test_assemble_runtime_prompt_appends_reference_host_session_context_after_existing_blocks():
+    agent = SimpleNamespace(
+        name="Normal Agent",
+        system_prompt="You are helpful.",
+        provider="openai",
+        model="gpt-4o",
+        enabled_tools=["builtin:docs_read"],
+        doc_roots=[],
+    )
+
+    result = chat_prompting.assemble_runtime_prompt(
+        agent_config=agent,
+        request_system_prompt=None,
+        request_message="what did we choose earlier",
+        provider=None,
+        model_name=None,
+        selected_skill_spec=None,
+        always_skill_specs=[],
+        summary_block="### Summary\nEarlier we chose option A.",
+        feature_flags={"skill_runtime_enabled": True},
+        skill_registry=SimpleNamespace(get_full_skill=lambda *_args, **_kwargs: None),
+        markdown_skill_adapter=SimpleNamespace(to_descriptor=lambda *_args, **_kwargs: None),
+        skill_policy_gate=SimpleNamespace(check_tool_intersection=lambda *_args, **_kwargs: []),
+        build_scope_summary_block=lambda _agent: ("### Scope Summary\n- /workspace/docs", 1),
+        session_context_block="### Session Context\n[recent_context:recent_conversation]\nEarlier we chose option A.",
+        runtime_seams=None,
+    )
+
+    assert "### Scope Summary" in result.system_prompt
+    assert "### Summary" in result.system_prompt
+    assert "### Session Context" in result.system_prompt
+    assert result.system_prompt.index("### Scope Summary") < result.system_prompt.index("### Summary")
+    assert result.system_prompt.index("### Summary") < result.system_prompt.index("### Session Context")

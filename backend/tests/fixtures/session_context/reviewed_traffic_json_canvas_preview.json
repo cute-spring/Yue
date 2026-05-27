@@ -1,0 +1,39 @@
+{
+  "case_id": "reviewed_traffic_json_canvas_preview",
+  "source": "local_yue_db_manual_review_20260525",
+  "review_verdict": "accepted_current_behavior",
+  "session_title_redacted": "软件开发流程图",
+  "current_input": "如何直接preview 上面的 JSON Canvas 数据呢？",
+  "messages": [
+    {
+      "role": "user",
+      "content": "创建JSON Canvas，画软件开发流程：需求→设计→开发→测试→上线",
+      "timestamp": "2026-05-25T00:10:00+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "这是一个为您生成的软件开发流程 JSON Canvas 文件。您可以将以下代码保存为 `.canvas` 文件并在 Obsidian 中打开。",
+      "timestamp": "2026-05-25T00:10:01+00:00",
+      "assistant_turn_id": "turn-traffic-004-a",
+      "run_id": "run-traffic-004-a"
+    },
+    {
+      "role": "user",
+      "content": "如何直接preview 上面的 JSON Canvas 数据呢？",
+      "timestamp": "2026-05-25T00:10:02+00:00"
+    }
+  ],
+  "tool_calls": [],
+  "expected": {
+    "action": "retrieve_mid_session_memory",
+    "reason": "recent_context_insufficient",
+    "signal_strength": "explicit",
+    "prompt_blocks": [
+      "mid_term_conversation_memory"
+    ]
+  },
+  "review_notes": [
+    "The phrase '上面的 JSON Canvas 数据' is an explicit deictic reference to earlier assistant output.",
+    "The exported traffic-derived candidate was judged strong enough to keep as a reviewed retrieval-positive case."
+  ]
+}
