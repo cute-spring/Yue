@@ -1,6 +1,6 @@
 # Session Context Dependency Deployment Guide
 
-This guide explains how `Yue` should consume `midterm-session-memory` in three deployment modes.
+This guide explains how `Yue` should consume `session-context-manager` in three deployment modes.
 
 ## 1. Local development with sibling source checkout
 
@@ -9,7 +9,7 @@ This is the fastest developer loop when both repositories live under the same wo
 ```text
 ws-ai-recharge-2026/
   ├─ Yue/
-  └─ midterm-session-memory/
+  └─ session-context-manager/
 ```
 
 Run:
@@ -25,30 +25,30 @@ If the package is not installed yet, `install_deps.sh` will fall back to the sib
 
 This is the recommended deployment shape for machines that should not depend on source checkouts.
 
-Build the wheel in the `midterm-session-memory` repository:
+Build the wheel in the `session-context-manager` repository:
 
 ```bash
-cd ../midterm-session-memory
+cd ../session-context-manager
 ./scripts/build_wheel.sh
 ```
 
 Then install it on the target host:
 
 ```bash
-pip install /path/to/midterm_session_memory-0.1.0-py3-none-any.whl
+pip install /path/to/session_context_manager-0.1.0-py3-none-any.whl
 ```
 
 Or point `Yue` at that artifact directly:
 
 ```bash
-export YUE_MIDTERM_SESSION_MEMORY_INSTALL_SPEC=/path/to/midterm_session_memory-0.1.0-py3-none-any.whl
+export YUE_SESSION_CONTEXT_MANAGER_INSTALL_SPEC=/path/to/session_context_manager-0.1.0-py3-none-any.whl
 ./setup.sh
 ./start.sh
 ```
 
 ## 3. Docker image with both projects baked in
 
-The Docker deployment path currently copies both the `Yue` backend and the `midterm-session-memory` package into the image, then installs the package during build.
+The Docker deployment path currently copies both the `Yue` backend and the `session-context-manager` package into the image, then installs the package during build.
 
 This is convenient for self-contained container deployment, but the wheel-based flow is still the cleaner long-term release boundary for non-container hosts.
 
@@ -64,8 +64,8 @@ After installation, confirm the dependency is available:
 
 ```bash
 python3 - <<'PY'
-import midterm_memory
-print(midterm_memory.__file__)
+import session_context_manager
+print(session_context_manager.__file__)
 PY
 ```
 

@@ -24,7 +24,7 @@ from app.services.memory.session_context_host import (
     build_session_context_inspection_payload,
     render_exported_prompt_context,
 )
-from midterm_memory import (
+from session_context_manager import (
     ContextEvent,
     ContextResolutionAction,
     ContextResolutionConfig,

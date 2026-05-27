@@ -175,16 +175,19 @@ fi
 
 if ! "$BACKEND_PYTHON" - <<'PY' >/dev/null 2>&1
 try:
-    import midterm_memory  # noqa: F401
+    import session_context_manager  # noqa: F401
 except Exception:
     raise SystemExit(1)
 PY
 then
-    if [ -d "$ROOT_DIR/../midterm-session-memory/src" ]; then
-        echo "⚠️  midterm-session-memory is not installed; falling back to sibling src/ on PYTHONPATH."
+    if [ -d "$ROOT_DIR/../session-context-manager/src" ]; then
+        echo "⚠️  session-context-manager is not installed; falling back to sibling src/ on PYTHONPATH."
+        export PYTHONPATH="$ROOT_DIR/../session-context-manager/src:${PYTHONPATH:-}"
+    elif [ -d "$ROOT_DIR/../midterm-session-memory/src" ]; then
+        echo "⚠️  session-context-manager is not installed; falling back to legacy sibling src/ on PYTHONPATH."
         export PYTHONPATH="$ROOT_DIR/../midterm-session-memory/src:${PYTHONPATH:-}"
     else
-        echo "❌ midterm-session-memory is not installed and no sibling source checkout was found."
+        echo "❌ session-context-manager is not installed and no sibling source checkout was found."
         echo "   Run ./setup.sh first, or install the package manually."
         exit 1
     fi

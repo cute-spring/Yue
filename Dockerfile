@@ -24,9 +24,9 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 # Copy backend code
 COPY Yue/backend/ ./backend/
 
-# Copy and install the midterm session memory package
-COPY midterm-session-memory/ ./midterm-session-memory/
-RUN pip install --no-cache-dir ./midterm-session-memory
+# Copy and install the session context manager package
+COPY session-context-manager/ ./session-context-manager/
+RUN pip install --no-cache-dir ./session-context-manager
 
 # Copy frontend build from stage 1 to backend's static folder
 COPY --from=frontend-builder /app/frontend/dist ./backend/static

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Sequence
 
-from midterm_memory import (
+from session_context_manager import (
     ChunkBuilder,
     ContextEvent,
     ContextResolutionConfig,

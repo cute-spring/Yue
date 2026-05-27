@@ -10,7 +10,7 @@ from typing import Any
 
 from app.services.chat_service import Message, ToolCall
 from app.services.memory.session_context_host import YueHostEventAdapter
-from midterm_memory import ContextResolutionConfig, SessionContextManager, SessionContextReplayCase
+from session_context_manager import ContextResolutionConfig, SessionContextManager, SessionContextReplayCase
 
 
 _REFERENCE_SIGNAL_PATTERN = re.compile(
@@ -269,4 +269,3 @@ def export_traffic_derived_candidates(*, db_path: str, limit: int = 10) -> Traff
         )
     finally:
         connection.close()
-
