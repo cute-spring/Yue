@@ -608,6 +608,9 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
     }
     return null;
   });
+  const isFullscreenPreview = createMemo(
+    () => props.isArtifactFullscreen && props.intelligenceTab === 'preview',
+  );
 
   const isGroupExpanded = (groupKey: string) => !!expandedActionGroups()[groupKey];
   const getVisibleInvocationCount = (groupKey: string) =>
@@ -729,124 +732,161 @@ export default function IntelligencePanel(props: IntelligencePanelProps) {
         fixed lg:relative inset-y-0 right-0 bg-surface border-l border-border transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-30
         ${props.showKnowledge 
           ? (props.isArtifactFullscreen 
-              ? 'fixed inset-0 w-screen h-screen translate-x-0 opacity-100 z-[100]' 
+              ? 'fixed inset-0 w-full h-full translate-x-0 opacity-100 z-[100] overflow-hidden' 
               : (props.isArtifactExpanded ? 'translate-x-0 w-[55vw] opacity-100' : 'translate-x-0 w-[420px] opacity-100'))
           : 'translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 overflow-hidden'}
       `}
     >
-      <div class={`${props.isArtifactFullscreen ? 'w-screen' : (props.isArtifactExpanded ? 'w-[55vw]' : 'w-[420px]')} h-full flex flex-col transition-all duration-300`}>
-        <div class={`p-5 border-b border-border flex justify-between items-center bg-surface backdrop-blur-md sticky top-0 z-[110] ${props.isArtifactFullscreen ? 'px-12' : ''}`}>
-          <div class="flex items-center gap-4">
-            <div class="flex items-center gap-1 bg-background/50 p-1 rounded-xl border border-border">
-              <button 
-                onClick={() => props.setIsArtifactFullscreen(!props.isArtifactFullscreen)} 
-                class={`text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-lg transition-all active:scale-90 ${props.isArtifactFullscreen ? 'text-primary bg-primary/10' : ''}`}
-                title={props.isArtifactFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  {props.isArtifactFullscreen 
-                    ? <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9L4 4m0 0l5 0M4 4l0 5m11 0l5-5m0 0l-5 0m5 0l0 5m-5 6l5 5m0 0l-5 0m5 0l0-5m-11 0l-5 5m0 0l5 0m-5 0l0-5" />
-                    : <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                  }
-                </svg>
-              </button>
-              <Show when={!props.isArtifactFullscreen}>
+      <div class={`${props.isArtifactFullscreen ? 'w-full' : (props.isArtifactExpanded ? 'w-[55vw]' : 'w-[420px]')} h-full flex flex-col transition-all duration-300`}>
+        <div class={`border-b border-border bg-surface/95 backdrop-blur-md sticky top-0 z-[110] ${props.isArtifactFullscreen ? 'px-2 pb-3 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-3 lg:px-4' : 'p-5'}`}>
+          <div class="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3">
+            <div class="flex min-w-0 items-center gap-4">
+              <div class="flex shrink-0 items-center gap-1 bg-background/50 p-1 rounded-xl border border-border">
                 <button 
-                  onClick={() => props.setIsArtifactExpanded(!props.isArtifactExpanded)} 
-                  class="text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-lg transition-all active:scale-90"
-                  title={props.isArtifactExpanded ? "Collapse view" : "Expand view"}
+                  onClick={() => props.setIsArtifactFullscreen(!props.isArtifactFullscreen)} 
+                  class={`text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-lg transition-all active:scale-90 ${props.isArtifactFullscreen ? 'text-primary bg-primary/10' : ''}`}
+                  title={props.isArtifactFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    {props.isArtifactExpanded 
-                      ? <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                      : <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    {props.isArtifactFullscreen 
+                      ? <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9L4 4m0 0l5 0M4 4l0 5m11 0l5-5m0 0l-5 0m5 0l0 5m-5 6l5 5m0 0l-5 0m5 0l0-5m-11 0l-5 5m0 0l5 0m-5 0l0-5" />
+                      : <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                     }
                   </svg>
                 </button>
-              </Show>
+                <Show when={!props.isArtifactFullscreen}>
+                  <button 
+                    onClick={() => props.setIsArtifactExpanded(!props.isArtifactExpanded)} 
+                    class="text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-lg transition-all active:scale-90"
+                    title={props.isArtifactExpanded ? "Collapse view" : "Expand view"}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      {props.isArtifactExpanded 
+                        ? <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        : <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                      }
+                    </svg>
+                  </button>
+                </Show>
+              </div>
+              <h2 class="min-w-0 font-black text-text-primary text-xs uppercase tracking-[0.2em] flex items-center gap-2.5">
+                <div class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                <span class="truncate">Intelligence Hub</span>
+              </h2>
             </div>
-            <h2 class="font-black text-text-primary text-xs uppercase tracking-[0.2em] flex items-center gap-2.5">
-              <div class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
-              Intelligence Hub
-            </h2>
-          </div>
-          <div class="flex items-center gap-1 relative z-[120]">
-            <Show when={props.intelligenceTab === 'preview' && (props.previewContent?.lang === 'html' || props.previewContent?.lang === 'xml' || isSvgPreview())}>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  downloadPreviewArtifact();
-                }}
-                class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary transition-all border border-primary/30 active:scale-95 mr-2 relative z-[130]"
-                title={isSvgPreview() ? 'Download as SVG file' : 'Download as HTML file'}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                <span class="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">{isSvgPreview() ? 'Download SVG' : 'Download HTML'}</span>
+            <div class="flex shrink-0 items-center gap-2 relative z-[120]">
+              <Show when={isFullscreenPreview() && props.previewContent && (props.previewContent.lang === 'html' || props.previewContent.lang === 'xml' || isSvgPreview())}>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    downloadPreviewArtifact();
+                  }}
+                  class="flex shrink-0 items-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-primary transition-all hover:bg-primary/15 active:scale-95 whitespace-nowrap shadow-sm"
+                  title={isSvgPreview() ? 'Download as SVG file' : 'Download as HTML file'}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  <span class="hidden text-[10px] font-bold uppercase tracking-[0.16em] sm:inline">{isSvgPreview() ? 'Download SVG' : 'Download HTML'}</span>
+                </button>
+              </Show>
+              <Show when={isFullscreenPreview() && isSvgPreview()}>
+                <button 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await saveSvgPreviewAsPng();
+                  }}
+                  class="flex shrink-0 items-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-primary transition-all hover:bg-primary/15 active:scale-95 whitespace-nowrap shadow-sm"
+                  title="Save as PNG file"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3 3m0 0l-3-3m3 3V8" />
+                  </svg>
+                  <span class="hidden text-[10px] font-bold uppercase tracking-[0.16em] sm:inline">Save PNG</span>
+                </button>
+              </Show>
+              <button onClick={() => {
+                props.setShowKnowledge(false);
+                props.setIsArtifactFullscreen(false);
+              }} class={`text-text-secondary hover:text-primary rounded-xl transition-all active:scale-90 border ${props.isArtifactFullscreen ? 'bg-background/80 border-border px-3 py-2 shadow-sm hover:border-primary/30 hover:bg-primary/5' : 'border-transparent p-2.5 hover:border-border/70 hover:bg-primary/10'}`} title="Close">
+                <span class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span class={`text-[10px] font-bold uppercase tracking-[0.16em] ${props.isArtifactFullscreen ? 'hidden sm:inline' : 'hidden'}`}>Close</span>
+                </span>
               </button>
-            </Show>
-            <Show when={props.intelligenceTab === 'preview' && isSvgPreview()}>
-              <button 
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  await saveSvgPreviewAsPng();
-                }}
-                class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary transition-all border border-primary/30 active:scale-95 mr-2 relative z-[130]"
-                title="Save as PNG file"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3 3m0 0l-3-3m3 3V8" />
-                </svg>
-                <span class="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Save PNG</span>
-              </button>
-            </Show>
-            <button onClick={() => {
-              props.setShowKnowledge(false);
-              props.setIsArtifactFullscreen(false);
-            }} class="text-text-secondary hover:text-primary p-2 hover:bg-primary/10 rounded-xl transition-all active:scale-90" title="Close">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            </div>
           </div>
         </div>
 
         {/* Intelligence Tabs */}
-        <div class="flex border-b border-border bg-background/50 p-1">
-          <button 
-            onClick={() => props.setIntelligenceTab('actions')}
-            class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'actions' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
-          >
-            Actions
-          </button>
-          <button 
-            onClick={() => props.setIntelligenceTab('stats')}
-            class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'stats' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
-          >
-            Stats
-          </button>
-          <Show when={props.previewContent}>
+        <div class="border-b border-border bg-background/50 p-1">
+          <div class="mx-auto flex w-full max-w-[1600px]">
             <button 
-              onClick={() => props.setIntelligenceTab('preview')}
-              class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'preview' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+              onClick={() => props.setIntelligenceTab('actions')}
+              class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'actions' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
             >
-              Preview
+              Actions
             </button>
-          </Show>
+            <button 
+              onClick={() => props.setIntelligenceTab('stats')}
+              class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'stats' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+            >
+              Stats
+            </button>
+            <Show when={props.previewContent}>
+              <button 
+                onClick={() => props.setIntelligenceTab('preview')}
+                class={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${props.intelligenceTab === 'preview' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+              >
+                Preview
+              </button>
+            </Show>
+          </div>
         </div>
 
-        <div class="p-6 space-y-8 overflow-y-auto flex-1 scrollbar-thin relative z-0">
+        <div class={`overflow-y-auto flex-1 scrollbar-thin relative z-0 ${props.isArtifactFullscreen ? 'px-2 py-4 sm:px-3 lg:px-4' : 'p-6'} space-y-8`}>
           <Switch>
             <Match when={props.intelligenceTab === 'preview'}>
-              <div class="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
-                <div class="flex items-center justify-between mb-4">
-                  <h3 class="text-xs font-black text-text-primary uppercase tracking-[0.2em]">Artifact Preview</h3>
-                  <div class="flex items-center gap-2 flex-wrap justify-end">
-                    <span class="text-[10px] font-mono bg-primary/10 text-primary px-2 py-1 rounded">{props.previewContent?.lang}</span>
+              <div class="mx-auto flex h-full w-full max-w-[1600px] flex-col animate-in fade-in slide-in-from-right-4 duration-300">
+                <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <h3 class="pt-1 text-xs font-black text-text-primary uppercase tracking-[0.2em]">Artifact Preview</h3>
+                  <div class="flex max-w-full flex-wrap items-center justify-end gap-2">
+                    <span class="shrink-0 text-[10px] font-mono bg-primary/10 text-primary px-2 py-1 rounded">{props.previewContent?.lang}</span>
+                    <Show when={!props.isArtifactFullscreen && props.previewContent && (props.previewContent.lang === 'html' || props.previewContent.lang === 'xml' || isSvgPreview())}>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadPreviewArtifact();
+                        }}
+                        class="flex shrink-0 items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/15 hover:bg-primary/20 text-primary transition-all border border-primary/25 active:scale-95 whitespace-nowrap"
+                        title={isSvgPreview() ? 'Download as SVG file' : 'Download as HTML file'}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <span class="text-[10px] font-bold uppercase tracking-wider hidden md:inline">{isSvgPreview() ? 'Download SVG' : 'Download HTML'}</span>
+                      </button>
+                    </Show>
+                    <Show when={!props.isArtifactFullscreen && isSvgPreview()}>
+                      <button 
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await saveSvgPreviewAsPng();
+                        }}
+                        class="flex shrink-0 items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/15 hover:bg-primary/20 text-primary transition-all border border-primary/25 active:scale-95 whitespace-nowrap"
+                        title="Save as PNG file"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3 3m0 0l-3-3m3 3V8" />
+                        </svg>
+                        <span class="text-[10px] font-bold uppercase tracking-wider hidden md:inline">Save PNG</span>
+                      </button>
+                    </Show>
                   </div>
                 </div>
-                <div class="flex-1 bg-white rounded-xl overflow-hidden border border-border shadow-sm relative">
+                <div class={`flex-1 bg-white overflow-hidden shadow-sm relative ${props.isArtifactFullscreen ? 'min-h-0 rounded-xl border border-border' : 'rounded-xl border border-border'}`}>
                   <Show when={props.previewContent?.lang === 'html' || props.previewContent?.lang === 'xml'}>
                     <iframe 
                       srcdoc={props.previewContent?.content} 
