@@ -1,9 +1,9 @@
 # Stage 1: Build Frontend
 FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
-COPY frontend/package*.json ./
+COPY Yue/frontend/package*.json ./
 RUN npm install
-COPY frontend/ ./
+COPY Yue/frontend/ ./
 RUN npm run build
 
 # Stage 2: Backend and Runtime
@@ -18,11 +18,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY backend/requirements.txt ./backend/
+COPY Yue/backend/requirements.txt ./backend/
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy backend code
-COPY backend/ ./backend/
+COPY Yue/backend/ ./backend/
+
+# Copy and install the session context manager package
+COPY session-context-manager/ ./session-context-manager/
+RUN pip install --no-cache-dir ./session-context-manager
 
 # Copy frontend build from stage 1 to backend's static folder
 COPY --from=frontend-builder /app/frontend/dist ./backend/static

@@ -1,4 +1,8 @@
 import asyncio
+from datetime import datetime, timedelta
+import os
+import shutil
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,6 +18,13 @@ from app.api.chat_stream_runner import (
     _prepare_prompt_runtime,
 )
 from app.api.chat_tool_events import ToolEventTracker
+from app.models.chat import Message as MessageModel, Session as SessionModel
+from app.services.chat_service import ChatService
+from app.services.memory.session_context_host import YuePromptContextBridge, YueSessionContextService
+from app.services import chat_prompting
+from session_context_manager import ExportedPromptContext, PromptContextBlock, ResolutionCandidate, export_prompt_context
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 def _make_deps() -> StreamRunnerDeps:
@@ -93,6 +104,72 @@ def _make_request(**overrides):
     }
     base.update(overrides)
     return SimpleNamespace(**base)
+
+
+def _make_temp_chat_service():
+    temp_dir = tempfile.mkdtemp()
+    db_file = os.path.join(temp_dir, "test_stream_runner_session_context.db")
+    test_engine = create_engine(f"sqlite:///{db_file}")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    return temp_dir, test_engine, testing_session_local
+
+
+class _ReferenceHostFakeSessionContextManager:
+    def __init__(self):
+        self.resolve_calls = []
+
+    def resolve(self, *, session_id, current_input, recent_events, config, current_tool_results=None):
+        self.resolve_calls.append(
+            {
+                "session_id": session_id,
+                "current_input": current_input,
+                "recent_events": list(recent_events),
+                "config": config,
+                "current_tool_results": current_tool_results,
+            }
+        )
+        return SimpleNamespace(
+            prompt_blocks=[
+                PromptContextBlock(
+                    name="recent_conversation",
+                    content="Earlier we chose option A for the Yue host validation seam.",
+                    priority=80,
+                    token_count=12,
+                    source_chunk_ids=[],
+                ),
+                PromptContextBlock(
+                    name="mid_term_tool_results",
+                    content="tool trace preserved for exec search",
+                    priority=70,
+                    token_count=6,
+                    source_chunk_ids=["chunk-tool-1"],
+                ),
+            ],
+            selected_candidates=[
+                ResolutionCandidate(
+                    candidate_id="cand-tool-1",
+                    session_id=session_id,
+                    source="mid_session_memory",
+                    content_type="tool_result",
+                    summary="exec search trace",
+                    content="tool trace preserved for exec search",
+                    score=0.91,
+                    metadata={"chunk_id": "chunk-tool-1"},
+                )
+            ],
+            telemetry={
+                "action": "use_recent_context",
+                "selected_candidate_ids": ["cand-tool-1"],
+                "retrieval_boundary_policy": config.boundary_policy.to_dict(),
+            },
+        )
+
+    def export_prompt_context(self, plan):
+        return export_prompt_context(
+            plan.prompt_blocks,
+            selected_candidates=plan.selected_candidates,
+            rendered_text="rendered",
+        )
 
 
 def test_create_stream_runtime_sets_expected_context_and_tracker():
@@ -432,6 +509,299 @@ def test_prepare_prompt_runtime_force_direct_agent_policy_beats_agent_role():
         assert isinstance(outputs[1], PromptPreparation)
         assert ctx.provider == "anthropic"
         assert ctx.model_name == "claude-3-7-sonnet"
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_injects_session_context_block_when_enabled():
+    async def run_test():
+        deps = _make_deps()
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=[],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.chat_service.get_chat.return_value = SimpleNamespace(
+            messages=[SimpleNamespace(role="user", content="Earlier we chose option A.", timestamp="2026-05-23T10:00:00")]
+        )
+        deps.chat_service.get_tool_calls.return_value = []
+        deps.config_service.get_feature_flags.return_value = {"session_context_enabled": True}
+        request = _make_request(agent_id=None)
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        fake_plan = SimpleNamespace(
+            telemetry={"action": "use_recent_context"},
+            selected_candidates=[
+                ResolutionCandidate(
+                    candidate_id="cand-1",
+                    session_id="chat-1",
+                    source="mid_session_memory",
+                    content_type="numbered_option",
+                    summary="方案B 是 Postgres + pgvector",
+                    content="方案B 是 Postgres + pgvector",
+                    score=0.98,
+                    metadata={"ordinal": 2},
+                )
+            ],
+        )
+        fake_result = SimpleNamespace(
+            plan=fake_plan,
+            prompt_context=YuePromptContextBridge(
+                exported_context=ExportedPromptContext(blocks=[], prompt_blocks=[]),
+                rendered_prompt_block="### Session Context\n[recent_context:recent_conversation]\nuser_message: hello",
+                selected_candidate_ids=["cand-1"],
+                source_chunk_ids=["chunk-1"],
+                block_names=["recent_conversation"],
+                sections=["recent_context"],
+            ),
+        )
+
+        with patch(
+            "app.api.chat_stream_runner.yue_session_context_service.build_prompt_context",
+            return_value=fake_result,
+        ) as mock_build_prompt_context:
+            outputs = []
+            async for item in _prepare_prompt_runtime(
+                ctx=ctx,
+                emitter=emitter,
+                request=request,
+                deps=deps,
+            ):
+                outputs.append(item)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert isinstance(outputs[1], PromptPreparation)
+        deps.chat_service.get_chat.assert_called_once_with("chat-1")
+        deps.chat_service.get_tool_calls.assert_called_once_with("chat-1")
+        mock_build_prompt_context.assert_called_once()
+        assert (
+            deps.prompt.assemble_runtime_prompt.call_args.kwargs["session_context_block"]
+            == "### Session Context\n[recent_context:recent_conversation]\nuser_message: hello"
+        )
+        assert "Authoritative earlier reference" in deps.prompt.assemble_runtime_prompt.call_args.kwargs["request_message"]
+        assert "方案B 是 Postgres + pgvector" in deps.prompt.assemble_runtime_prompt.call_args.kwargs["request_message"]
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_keeps_reference_host_session_context_off_path_unchanged():
+    async def run_test():
+        deps = _make_deps()
+        deps.prompt.resolve_skill_runtime_state.return_value = {
+            "selected_skill_spec": None,
+            "always_skill_specs": [],
+            "selection_reason_code": "none",
+            "selection_source": "none",
+            "selection_score": 0,
+            "visible_skill_count": 0,
+            "available_skill_count": 0,
+            "always_injected_count": 0,
+            "selected_group_ids": [],
+            "resolved_skill_count": 0,
+            "summary_block": None,
+        }
+        deps.prompt.assemble_runtime_prompt.return_value = SimpleNamespace(
+            selected_skill_spec=None,
+            provider="openai",
+            model_name="gpt-4o",
+            system_prompt="assembled prompt",
+            final_tools_list=[],
+            always_injected_count=0,
+            emitted_event=None,
+            summary_injected=False,
+            scope_summary_injected=False,
+            effective_scope_count=0,
+        )
+        deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+        deps.config_service.get_feature_flags.return_value = {"session_context_enabled": False}
+        request = _make_request(agent_id=None)
+        ctx, _, emitter, _ = _create_stream_runtime(
+            chat_id="chat-1",
+            request=request,
+            history=[],
+            validated_images=[],
+            deps=deps,
+        )
+
+        with patch("app.api.chat_stream_runner.yue_session_context_service.build_prompt_context") as mock_build:
+            outputs = []
+            async for item in _prepare_prompt_runtime(
+                ctx=ctx,
+                emitter=emitter,
+                request=request,
+                deps=deps,
+            ):
+                outputs.append(item)
+
+        assert outputs[0]["event"] == "skill_effectiveness"
+        assert isinstance(outputs[1], PromptPreparation)
+        mock_build.assert_not_called()
+        deps.chat_service.get_chat.assert_not_called()
+        deps.chat_service.get_tool_calls.assert_not_called()
+        assert deps.prompt.assemble_runtime_prompt.call_args.kwargs["session_context_block"] is None
+
+    asyncio.run(run_test())
+
+
+def test_prepare_prompt_runtime_reference_host_integration_uses_persisted_chat_history_and_flag_gating():
+    async def run_test():
+        temp_dir, test_engine, testing_session_local = _make_temp_chat_service()
+        try:
+            with patch("app.services.chat_service.engine", test_engine), patch(
+                "app.services.chat_service.SessionLocal", testing_session_local
+            ), patch("app.services.chat_service.DATA_DIR", temp_dir):
+                real_chat_service = ChatService()
+                chat_session = real_chat_service.create_chat(title="Reference host integration")
+                start = datetime(2026, 5, 23, 10, 0, 0)
+                real_chat_service.add_message(
+                    chat_session.id,
+                    "user",
+                    "We chose option A for the adapter validation.",
+                )
+                real_chat_service.add_message(
+                    chat_session.id,
+                    "assistant",
+                    "Option A keeps Yue thin and feature-flagged.",
+                    assistant_turn_id="turn-1",
+                    run_id="run-1",
+                )
+                real_chat_service.add_tool_call(
+                    chat_session.id,
+                    call_id="call-1",
+                    tool_name="exec",
+                    args={"cmd": "rg session_context"},
+                    assistant_turn_id="turn-1",
+                    run_id="run-1",
+                    started_ts=start + timedelta(seconds=2),
+                )
+                real_chat_service.update_tool_call(
+                    "call-1",
+                    status="success",
+                    result="backend/app/services/memory/session_context_host.py",
+                    finished_ts=start + timedelta(seconds=3),
+                )
+                real_chat_service.add_message(
+                    chat_session.id,
+                    "user",
+                    "What did we decide earlier?",
+                )
+                with testing_session_local() as db:
+                    session_row = db.query(SessionModel).filter(SessionModel.id == chat_session.id).first()
+                    message_rows = (
+                        db.query(MessageModel)
+                        .filter(MessageModel.session_id == chat_session.id)
+                        .order_by(MessageModel.id.asc())
+                        .all()
+                    )
+                    assert session_row is not None
+                    assert len(message_rows) == 3
+                    message_rows[0].timestamp = start
+                    message_rows[1].timestamp = start + timedelta(seconds=4)
+                    message_rows[2].timestamp = start + timedelta(seconds=8)
+                    session_row.updated_at = start + timedelta(seconds=8)
+                    db.commit()
+
+                for flag_enabled in (True, False):
+                    deps = _make_deps()
+                    deps.chat_service = real_chat_service
+                    deps.prompt.resolve_skill_runtime_state.return_value = {
+                        "selected_skill_spec": None,
+                        "always_skill_specs": [],
+                        "selection_reason_code": "none",
+                        "selection_source": "none",
+                        "selection_score": 0,
+                        "visible_skill_count": 0,
+                        "available_skill_count": 0,
+                        "always_injected_count": 0,
+                        "selected_group_ids": [],
+                        "resolved_skill_count": 0,
+                        "summary_block": None,
+                    }
+                    deps.prompt.assemble_runtime_prompt.side_effect = chat_prompting.assemble_runtime_prompt
+                    deps.prompt.build_scope_summary_block = MagicMock(return_value=(None, 0))
+                    deps.prompt.emit_skill_effectiveness_event.return_value = {"event": "skill_effectiveness"}
+                    deps.config_service.get_feature_flags.return_value = {
+                        "session_context_enabled": flag_enabled
+                    }
+                    request = _make_request(
+                        message="What did we decide earlier?",
+                        provider="openai",
+                        model="gpt-4o",
+                        agent_id=None,
+                        system_prompt="You are helpful.",
+                    )
+                    ctx, _, emitter, _ = _create_stream_runtime(
+                        chat_id=chat_session.id,
+                        request=request,
+                        history=[],
+                        validated_images=[],
+                        deps=deps,
+                    )
+                    fake_manager = _ReferenceHostFakeSessionContextManager()
+                    reference_host_service = YueSessionContextService(manager=fake_manager)
+
+                    with patch(
+                        "app.api.chat_stream_runner.yue_session_context_service",
+                        reference_host_service,
+                    ):
+                        outputs = []
+                        async for item in _prepare_prompt_runtime(
+                            ctx=ctx,
+                            emitter=emitter,
+                            request=request,
+                            deps=deps,
+                        ):
+                            outputs.append(item)
+
+                    assert outputs[0]["event"] == "skill_effectiveness"
+                    assert isinstance(outputs[1], PromptPreparation)
+                    if flag_enabled:
+                        assert len(fake_manager.resolve_calls) == 1
+                        recent_events = fake_manager.resolve_calls[0]["recent_events"]
+                        assert [event.event_type for event in recent_events] == [
+                            "user_message",
+                            "tool_call",
+                            "tool_result",
+                            "assistant_message",
+                            "user_message",
+                        ]
+                        assert "### Session Context" in ctx.system_prompt
+                        assert "recent_context:recent_conversation" in ctx.system_prompt
+                        assert "session_trace.selected_candidate_ids=cand-tool-1" in ctx.system_prompt
+                        assert "session_trace.source_chunk_ids=chunk-tool-1" in ctx.system_prompt
+                    else:
+                        assert fake_manager.resolve_calls == []
+                        assert "### Session Context" not in ctx.system_prompt
+        finally:
+            test_engine.dispose()
+            shutil.rmtree(temp_dir)
 
     asyncio.run(run_test())
 

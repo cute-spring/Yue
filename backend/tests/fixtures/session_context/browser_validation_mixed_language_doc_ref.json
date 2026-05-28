@@ -1,0 +1,36 @@
+{
+  "case_id": "browser_validation_mixed_language_doc_ref",
+  "source": "browser_validation_20260524",
+  "chat_id": "7f7990e3-c0ae-447a-af29-1679527b9c8f",
+  "current_input": "按那个 doc 里的 naming convention 来。",
+  "messages": [
+    {
+      "role": "user",
+      "content": "文档命名要怎么定？",
+      "timestamp": "2026-05-24T13:02:07.418257Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Spec 在 docs/specs/api_naming_convention.md，里面约定了 endpoint 和 field naming。",
+      "timestamp": "2026-05-24T13:02:07.419671Z",
+      "assistant_turn_id": "turn_doc_1",
+      "run_id": "run_doc_1"
+    },
+    {
+      "role": "user",
+      "content": "按那个 doc 里的 naming convention 来。",
+      "timestamp": "2026-05-24T13:02:07.420931Z"
+    }
+  ],
+  "tool_calls": [],
+  "expected": {
+    "action": "use_recent_artifact",
+    "reason": "document_reference",
+    "selected_source": "recent_artifact",
+    "selected_content_type": "document_reference",
+    "signal_strength": "explicit",
+    "prompt_blocks": [
+      "recent_structured_artifacts"
+    ]
+  }
+}

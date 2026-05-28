@@ -22,6 +22,7 @@ from app.services.skills.models import (
     RuntimeSkillActionExecutionRequest,
     RuntimeSkillActionInvocationRequest,
 )
+from app.services.memory.session_context_host import yue_session_context_service
 
 
 def _safe_text(value: Any) -> Optional[str]:
@@ -50,6 +51,33 @@ def _safe_role_lookup(config_service: Any, role_name: str) -> Optional[dict[str,
     if not provider or not model:
         return None
     return {"provider": provider, "model": model}
+
+
+def _build_authoritative_session_context_user_hint(plan: Any) -> Optional[str]:
+    selected_candidates = list(getattr(plan, "selected_candidates", []) or [])
+    numbered_option = next(
+        (
+            candidate
+            for candidate in selected_candidates
+            if _safe_text(getattr(candidate, "content_type", None)) == "numbered_option"
+            and _safe_text(getattr(candidate, "content", None))
+        ),
+        None,
+    )
+    if numbered_option is None:
+        return None
+
+    content = _safe_text(getattr(numbered_option, "content", None))
+    ordinal = getattr(numbered_option, "metadata", {}).get("ordinal") if hasattr(numbered_option, "metadata") else None
+    if not content:
+        return None
+
+    ordinal_label = f"第{ordinal}个方案" if isinstance(ordinal, int) and ordinal > 0 else "所指方案"
+    return (
+        "[Authoritative earlier reference]\n"
+        f"用户当前追问所指的{ordinal_label}是：{content}\n"
+        "先直接依据这条 earlier reference 回答，再继续展开。"
+    )
 
 
 @dataclass
@@ -586,11 +614,32 @@ async def _prepare_prompt_runtime(
     selected_group_ids = skill_runtime_state["selected_group_ids"]
     resolved_skill_count = skill_runtime_state["resolved_skill_count"]
     summary_block = skill_runtime_state["summary_block"]
+    session_context_block = None
+    effective_request_message = request.message
+    if bool(ctx.feature_flags.get("session_context_enabled", False)):
+        try:
+            chat_session = deps.chat_service.get_chat(ctx.chat_id)
+            if chat_session is not None:
+                session_context_result = yue_session_context_service.build_prompt_context(
+                    session_id=ctx.chat_id,
+                    current_input=request.message,
+                    chat_session=chat_session,
+                    tool_calls=deps.chat_service.get_tool_calls(ctx.chat_id),
+                )
+                if session_context_result is not None:
+                    session_context_block = session_context_result.prompt_context.rendered_prompt_block
+                    authoritative_hint = _build_authoritative_session_context_user_hint(
+                        session_context_result.plan
+                    )
+                    if authoritative_hint:
+                        effective_request_message = f"{authoritative_hint}\n\nUser request:\n{request.message}"
+        except Exception:
+            deps.logger.exception("Session context integration failed; continuing without injected context")
 
     prompt_result = deps.prompt.assemble_runtime_prompt(
         agent_config=ctx.agent_config,
         request_system_prompt=ctx.system_prompt,
-        request_message=request.message,
+        request_message=effective_request_message,
         provider=ctx.provider,
         model_name=ctx.model_name,
         selected_skill_spec=selected_skill_spec,
@@ -601,6 +650,7 @@ async def _prepare_prompt_runtime(
         markdown_skill_adapter=deps.prompt.markdown_skill_adapter,
         skill_policy_gate=deps.prompt.skill_policy_gate,
         build_scope_summary_block=deps.prompt.build_scope_summary_block,
+        session_context_block=session_context_block,
     )
     selected_skill_spec = prompt_result.selected_skill_spec
     agent_provider = _safe_text(getattr(ctx.agent_config, "provider", None))
@@ -667,6 +717,7 @@ async def _prepare_prompt_runtime(
             markdown_skill_adapter=deps.prompt.markdown_skill_adapter,
             skill_policy_gate=deps.prompt.skill_policy_gate,
             build_scope_summary_block=deps.prompt.build_scope_summary_block,
+            session_context_block=session_context_block,
         )
         selected_skill_spec = prompt_result.selected_skill_spec
     ctx.provider = resolved_model.provider

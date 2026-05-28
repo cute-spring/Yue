@@ -72,11 +72,44 @@ fi
 # Backend detection and installation
 echo "--- Backend ---"
 
+install_session_context_manager() {
+    local install_spec="${YUE_SESSION_CONTEXT_MANAGER_INSTALL_SPEC:-${YUE_MIDTERM_SESSION_MEMORY_INSTALL_SPEC:-}}"
+    if [ -n "$install_spec" ]; then
+        echo "Installing session-context-manager from install spec $install_spec ..."
+        if command -v uv &> /dev/null; then
+            uv pip install "$install_spec"
+        else
+            pip install "$install_spec"
+        fi
+        echo "session-context-manager installed successfully from install spec."
+        return 0
+    fi
+
+    local package_path="$PROJECT_ROOT/../session-context-manager"
+    if [ ! -d "$package_path" ] && [ -d "$PROJECT_ROOT/../midterm-session-memory" ]; then
+        package_path="$PROJECT_ROOT/../midterm-session-memory"
+    fi
+    if [ ! -d "$package_path" ]; then
+        echo "Warning: sibling session-context-manager repository not found at $PROJECT_ROOT/../session-context-manager."
+        echo "         Session-context features will require installing the package separately."
+        return 0
+    fi
+
+    echo "Installing session-context-manager as a Python package from $package_path ..."
+    if command -v uv &> /dev/null; then
+        uv pip install "$package_path"
+    else
+        pip install "$package_path"
+    fi
+    echo "session-context-manager installed successfully."
+}
+
 if command -v uv &> /dev/null; then
     echo "uv detected. Using uv for backend dependency management..."
     cd backend
     uv sync
     echo "Backend dependencies synced successfully with uv."
+    install_session_context_manager
     cd "$PROJECT_ROOT"
 else
     echo "uv not found. Falling back to pip..."
@@ -109,6 +142,7 @@ else
     if [ -f "requirements.txt" ]; then
         echo "Installing dependencies from requirements.txt..."
         pip install -r requirements.txt
+        install_session_context_manager
         echo "Backend dependencies installed successfully with pip."
     else
         echo "Warning: requirements.txt not found. Skipping dependency installation."
