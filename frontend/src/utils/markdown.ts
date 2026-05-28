@@ -130,8 +130,12 @@ export const copyCodeBlockText = async (
 ) => {
   try {
     const container = button.closest('.code-block-container') as HTMLElement | null;
+    const rawCodeNode = container?.querySelector('.code-block-raw') as HTMLTextAreaElement | HTMLElement | null;
     const code = container?.querySelector('pre code') as HTMLElement | null;
-    const text = code?.textContent ?? '';
+    const text =
+      ('value' in (rawCodeNode || {}) ? (rawCodeNode as HTMLTextAreaElement).value : rawCodeNode?.textContent) ||
+      code?.textContent ||
+      '';
     if (!text) return false;
     if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false;
     await navigator.clipboard.writeText(text);
@@ -165,6 +169,15 @@ export function promoteExportPathsToLinks(content: string): string {
   });
 }
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 /**
  * Configures and returns a custom marked renderer.
  */
@@ -191,6 +204,12 @@ export function createMarkdownRenderer(isTyping: boolean = false): any {
   renderer.code = function({ text, lang }): string {
     const displayLanguage = lang || 'plaintext';
     const highlightLanguage = hljs.getLanguage(displayLanguage) ? displayLanguage : 'plaintext';
+    const codeLines = text.split('\n');
+    const lineCount = codeLines.length;
+    const rawBytes = new TextEncoder().encode(text).length;
+    const isLongHtmlSource =
+      (displayLanguage === 'html' || displayLanguage === 'xml') &&
+      (lineCount > 30 || text.length > 3000);
     
     // Performance optimization: Skip highlighting for very large blocks while typing
     // to prevent main thread freezing during streaming
@@ -199,22 +218,19 @@ export function createMarkdownRenderer(isTyping: boolean = false): any {
     
     if (isTyping && isVeryLarge) {
       // Basic escape for security when not highlighting
-      highlighted = text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+      highlighted = escapeHtml(text);
     } else {
       try {
         highlighted = hljs.highlight(text, { language: highlightLanguage, ignoreIllegals: true }).value;
       } catch (e) {
-        highlighted = text; // Fallback to raw text
+        highlighted = escapeHtml(text);
       }
     }
-    
+
     const isPreviewable = ['html', 'svg', 'xml', 'mermaid'].includes(displayLanguage);
     const encodedContent = encodeURIComponent(text).replace(/'/g, '%27');
+    const sizeLabel =
+      rawBytes >= 1024 ? `${(rawBytes / 1024).toFixed(rawBytes >= 10 * 1024 ? 0 : 1)} KB` : `${rawBytes} B`;
 
     let html = `
       <div class="code-block-container relative group my-6 rounded-xl overflow-hidden border border-border/50 bg-[#0d1117] shadow-xl transition-all duration-300 hover:border-primary/30">
@@ -261,7 +277,30 @@ export function createMarkdownRenderer(isTyping: boolean = false): any {
             </button>
           </div>
         </div>
+        <textarea class="code-block-raw sr-only" aria-hidden="true">${escapeHtml(text)}</textarea>
+    `;
+
+    if (isLongHtmlSource) {
+      html += `
+        <div class="border-b border-slate-600/80 bg-[#202734] px-4 py-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-100">
+              <span class="rounded-full border border-slate-300/80 bg-slate-800 px-3 py-1.5 shadow-sm shadow-black/30">${lineCount} Lines</span>
+              <span class="rounded-full border border-slate-300/80 bg-slate-800 px-3 py-1.5 shadow-sm shadow-black/30">${sizeLabel}</span>
+              <span class="rounded-full border border-cyan-300/80 bg-cyan-950/80 px-3 py-1.5 text-cyan-100 shadow-sm shadow-black/30">Scrollable Source</span>
+            </div>
+            <span class="text-[11px] font-medium text-slate-200">Preview and copy stay available above.</span>
+          </div>
+        </div>
+        <pre class="max-h-[30rem] overflow-auto p-5 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent selection:bg-primary/20"><code class="hljs language-${highlightLanguage} text-[14px] leading-relaxed font-mono block">${highlighted}</code></pre>
+      `;
+    } else {
+      html += `
         <pre class="p-5 overflow-x-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent selection:bg-primary/20"><code class="hljs language-${highlightLanguage} text-[14px] leading-relaxed font-mono block">${highlighted}</code></pre>
+      `;
+    }
+
+    html += `
       </div>
     `;
 

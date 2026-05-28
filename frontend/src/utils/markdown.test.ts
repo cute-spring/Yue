@@ -49,6 +49,17 @@ describe('Markdown Utils', () => {
       expect(output).toContain('language-javascript');
     });
 
+    it('should render long html source blocks in a fixed scroll area', () => {
+      const htmlLines = Array.from({ length: 40 }, (_, index) => `<div>row ${index + 1}</div>`).join('\n');
+      const input = `\`\`\`html\n${htmlLines}\n\`\`\``;
+      const output = renderMarkdown(input);
+      expect(output).toContain('Scrollable Source');
+      expect(output).toContain('40 Lines');
+      expect(output).toContain('max-h-[30rem]');
+      expect(output).toContain('code-block-raw');
+      expect(output).not.toContain('Show full source');
+    });
+
     it('should normalize sandbox file image src', () => {
       const input = '![page 11](sandbox:/files/baaf.png)';
       const output = renderMarkdown(input);
@@ -100,6 +111,35 @@ describe('Markdown Utils', () => {
       try {
         await expect(copyCodeBlockText(button)).resolves.toBe(true);
         expect(writeText).toHaveBeenCalledWith('console.log("hello");\n');
+      } finally {
+        Object.defineProperty(globalThis, 'navigator', {
+          value: originalNavigator,
+          configurable: true,
+        });
+      }
+    });
+
+    it('prefers the hidden raw code source when present', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const originalNavigator = globalThis.navigator;
+      const button = {
+        closest: vi.fn().mockReturnValue({
+          querySelector: vi.fn((selector: string) => {
+            if (selector === '.code-block-raw') return { value: '<div>full html</div>\n' };
+            if (selector === 'pre code') return { textContent: '<div>truncated</div>\n' };
+            return null;
+          }),
+        }),
+      } as any;
+
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { clipboard: { writeText } },
+        configurable: true,
+      });
+
+      try {
+        await expect(copyCodeBlockText(button)).resolves.toBe(true);
+        expect(writeText).toHaveBeenCalledWith('<div>full html</div>\n');
       } finally {
         Object.defineProperty(globalThis, 'navigator', {
           value: originalNavigator,
