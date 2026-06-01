@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-from app.api import chat, agents, mcp, models, config, notebook, health, export, speech, files
+from app.api import chat, agents, mcp, models, config, notebook, health, export, speech, files, workspaces
 from app.mcp.manager import mcp_manager
 from app.services.agent_store import agent_store
 from app.services.skill_service import (
@@ -116,6 +116,7 @@ bootstrap_skill_runtime_app(app, bootstrap_spec=_skill_runtime_bootstrap_spec)
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
+app.include_router(workspaces.router, prefix="/api/workspaces", tags=["workspaces"])
 app.include_router(speech.router, prefix="/api/speech", tags=["speech"])
 app.include_router(notebook.router, prefix="/api/notebook", tags=["notebook"])
 app.include_router(health.router, prefix="/api/health", tags=["health"])

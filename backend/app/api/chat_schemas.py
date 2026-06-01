@@ -19,6 +19,10 @@ class Attachment(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    workspace_id: str | None = None
+    workspace_source_mode: str | None = None
+    selected_workspace_source_ids: list[str] | None = None
+    grounding_mode: str | None = None
     images: list[str] | None = None
     attachments: list[Attachment] | None = None
     agent_id: str | None = None
@@ -33,6 +37,10 @@ class ChatRequest(BaseModel):
     model: str | None = None
     model_role: str | None = None
     deep_thinking_enabled: bool = False
+    continuation_of: str | None = None
+    continuation_root_id: str | None = None
+    continuation_content_type: str | None = None
+    continuation_tail: str | None = None
 
 
 class TruncateRequest(BaseModel):

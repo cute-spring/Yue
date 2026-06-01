@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, Optional
 from app.services.config_service import config_service
 
 class PromptBuilder:
@@ -52,14 +52,23 @@ class PromptBuilder:
             self._viz_injected = True
         return self
 
-    def inject_continuation_guidelines(self, user_message: str) -> "PromptBuilder":
+    def inject_continuation_guidelines(
+        self,
+        user_message: str,
+        continuation_context: Optional[Dict[str, Any]] = None,
+    ) -> "PromptBuilder":
         """
         处理“继续”请求，注入续传指南
         """
         continuation_keywords = ["继续", "continue", "go on", "keep going"]
         is_continuation = user_message.strip().lower() in continuation_keywords
         
-        if is_continuation:
+        is_structured_continuation = bool(
+            continuation_context and continuation_context.get("continuation_of")
+        )
+        if is_continuation or is_structured_continuation:
+            content_type = str((continuation_context or {}).get("content_type") or "response")
+            tail = str((continuation_context or {}).get("tail") or "").strip()
             self._prompt += (
                 "\n\n### Continuation Protocol\n"
                 "The previous response was truncated due to length limits. "
@@ -69,6 +78,15 @@ class PromptBuilder:
                 "If you were in the middle of a code block, please continue the code logic. "
                 "Ensure your output seamlessly appends to the previous message."
             )
+            self._prompt += f"\nContent type being continued: {content_type}."
+            if tail:
+                self._prompt += (
+                    "\nThe end of the previous response is provided as continuation context. "
+                    "Use it only to resume cleanly, and do not repeat it:\n"
+                    "<previous_response_tail>\n"
+                    f"{tail[-3000:]}\n"
+                    "</previous_response_tail>"
+                )
         return self
 
     def build(self) -> str:
@@ -79,7 +97,8 @@ def build_system_prompt(
     provider: str,
     model_name: str,
     user_message: str,
-    deep_thinking_enabled: bool = False
+    deep_thinking_enabled: bool = False,
+    continuation_context: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     便捷函数：构建最终系统提示词
@@ -88,6 +107,6 @@ def build_system_prompt(
         PromptBuilder(base_prompt)
         .inject_reasoning_protocol(provider, model_name, deep_thinking_enabled)
         .inject_visualization_guidelines(user_message)
-        .inject_continuation_guidelines(user_message)
+        .inject_continuation_guidelines(user_message, continuation_context)
         .build()
     )

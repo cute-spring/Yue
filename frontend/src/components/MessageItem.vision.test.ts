@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { getRenderableUserAttachments, getVisionBadge, getVisionFeedbackText } from './MessageItem';
+import {
+  getRenderableUserAttachments,
+  getVisionBadge,
+  getVisionFeedbackText,
+  getWorkspaceGroundingModeLabel,
+  getWorkspaceGroundingSummary,
+  getWorkspaceSourceModeLabel,
+  getWorkspaceToolingWarning,
+} from './MessageItem';
 
 describe('MessageItem vision feedback helpers', () => {
   it('returns fallback badge when backend applies text-only fallback', () => {
@@ -101,5 +109,38 @@ describe('MessageItem vision feedback helpers', () => {
     expect(result).toHaveLength(1);
     expect(result[0].url).toBe('/files/chat/att_img_1.png');
     expect(result[0].source).not.toBe('legacy_images');
+  });
+});
+
+describe('MessageItem workspace grounding helpers', () => {
+  it('labels workspace source and grounding modes', () => {
+    expect(getWorkspaceSourceModeLabel('selected')).toBe('Selected sources');
+    expect(getWorkspaceGroundingModeLabel('require_sources')).toBe('Citations required');
+  });
+
+  it('summarizes answer evidence contract with citations', () => {
+    expect(
+      getWorkspaceGroundingSummary({
+        workspace_grounding: {
+          workspace_id: 'ws_1',
+          workspace_source_mode: 'selected',
+          grounding_mode: 'require_sources',
+          eligible_sources: [{ id: 'src_1', display_name: 'Report.pdf' }],
+          unavailable_sources: [{ id: 'src_2', display_name: 'Missing.pdf' }],
+        },
+        citations: [{ path: 'Report.pdf' }, { path: 'Report.pdf' }],
+      }),
+    ).toBe('Selected sources; Citations required; 1 eligible, 1 unavailable; 2 citations attached');
+  });
+
+  it('returns tooling warning when backend marks require-sources turn as tool-incomplete', () => {
+    expect(
+      getWorkspaceToolingWarning({
+        workspace_grounding: {
+          grounding_mode: 'require_sources',
+          tooling_warning: 'Citation-required mode is active, but no compatible retrieval tools were enabled for this turn.',
+        },
+      }),
+    ).toContain('no compatible retrieval tools');
   });
 });

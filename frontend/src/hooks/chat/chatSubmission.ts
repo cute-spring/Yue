@@ -17,6 +17,7 @@ export type SubmitChatTextOptions = {
   currentImages: File[];
   messages: Accessor<Message[]>;
   currentChatId: Accessor<string | null>;
+  currentWorkspaceId: Accessor<string | null>;
   selectedProvider: Accessor<string>;
   selectedModel: Accessor<string>;
   selectedAgent: Accessor<string | null>;
@@ -112,6 +113,7 @@ export const submitChatText = async ({
   currentImages,
   messages,
   currentChatId,
+  currentWorkspaceId,
   selectedProvider,
   selectedModel,
   selectedAgent,
@@ -199,6 +201,10 @@ export const submitChatText = async ({
     provider: selectedProvider(),
     model: selectedModel(),
     context_id: contextId,
+    continuation_of: typeof requestOverrides?.continuation_of === 'string' ? requestOverrides.continuation_of : undefined,
+    continuation_root_id: typeof requestOverrides?.continuation_root_id === 'string' ? requestOverrides.continuation_root_id : undefined,
+    continuation_status: typeof requestOverrides?.continuation_of === 'string' ? 'resuming' : undefined,
+    content_type: typeof requestOverrides?.continuation_content_type === 'string' ? requestOverrides.continuation_content_type : undefined,
     tools: [],
     tool_calls: [],
     citations: [],
@@ -216,6 +222,7 @@ export const submitChatText = async ({
         message: text,
         images: base64Images.length > 0 ? base64Images : undefined,
         attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+        workspace_id: currentWorkspaceId() || undefined,
         agent_id: agentId,
         requested_skill: requestedSkill() || undefined,
         chat_id: currentChatId(),
@@ -344,7 +351,11 @@ export const submitChatText = async ({
             const next = [...prev];
             const lastIndex = next.length - 1;
             if (lastIndex >= 0) {
-              next[lastIndex] = { ...next[lastIndex], ...data };
+              const current = next[lastIndex];
+              const nextContinuationStatus = current.continuation_of
+                ? (data.finish_reason === 'length' ? 'truncated' : 'continued')
+                : (data.finish_reason === 'length' ? 'truncated' : current.continuation_status);
+              next[lastIndex] = { ...current, ...data, continuation_status: nextContinuationStatus };
             }
             return next;
           });
@@ -354,6 +365,15 @@ export const submitChatText = async ({
             const lastIndex = next.length - 1;
             if (lastIndex >= 0) {
               next[lastIndex] = { ...next[lastIndex], citations: data.citations };
+            }
+            return next;
+          });
+        } else if (data.workspace_grounding) {
+          setMessages(prev => {
+            const next = [...prev];
+            const lastIndex = next.length - 1;
+            if (lastIndex >= 0) {
+              next[lastIndex] = { ...next[lastIndex], workspace_grounding: data.workspace_grounding };
             }
             return next;
           });

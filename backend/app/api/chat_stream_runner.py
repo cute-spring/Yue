@@ -17,6 +17,7 @@ from app.services.jira import (
     resolve_repo_jira_skill_runtime,
 )
 from app.services.llm.routing import RoutingContext, resolve_runtime_model
+from app.services.workspace_service import workspace_service
 from app.services.skills.models import (
     RuntimeSkillActionApprovalRequest,
     RuntimeSkillActionExecutionRequest,
@@ -37,6 +38,27 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _continuation_status_for_request(request: Any, finish_reason: Optional[str] = None) -> Optional[str]:
+    continuation_of = _safe_text(getattr(request, "continuation_of", None))
+    if not continuation_of:
+        return "truncated" if finish_reason == "length" else None
+    if finish_reason == "length":
+        return "truncated"
+    if finish_reason in {"GeneratorExit", "TimeoutError"}:
+        return "failed"
+    return "continued"
+
+
+def _continuation_root_for_request(request: Any) -> Optional[str]:
+    return _safe_text(getattr(request, "continuation_root_id", None)) or _safe_text(
+        getattr(request, "continuation_of", None)
+    )
+
+
+def _continuation_content_type_for_request(request: Any) -> Optional[str]:
+    return _safe_text(getattr(request, "continuation_content_type", None))
 
 
 def _safe_role_lookup(config_service: Any, role_name: str) -> Optional[dict[str, str]]:
@@ -507,10 +529,71 @@ def _build_request_snapshot_record(
             "reasoning_display_gated_enabled": bool(ctx.reasoning_display_gated_enabled),
             "summary_injected": bool(getattr(prompt_result, "summary_injected", False)),
             "scope_summary_injected": bool(getattr(prompt_result, "scope_summary_injected", False)),
+            "workspace_id": getattr(request, "workspace_id", None),
+            "workspace_source_mode": getattr(request, "workspace_source_mode", None) or "all_ready",
+            "selected_workspace_source_ids": list(getattr(request, "selected_workspace_source_ids", None) or []),
+            "grounding_mode": getattr(request, "grounding_mode", None) or "normal",
+            "workspace_source_context": getattr(ctx, "workspace_source_context", None),
         },
         redaction={},
         truncation={},
     )
+
+
+def _build_workspace_grounding_event(
+    ctx: StreamRunContext,
+    *,
+    final_tools_list: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    context = getattr(ctx, "workspace_source_context", None)
+    if not isinstance(context, dict):
+        return None
+
+    def summarize_source(source: Any) -> Dict[str, Any]:
+        if not isinstance(source, dict):
+            return {}
+        return {
+            "id": source.get("id"),
+            "display_name": source.get("display_name"),
+            "source_type": source.get("source_type"),
+            "status": source.get("status"),
+            "citation_capable": bool(source.get("citation_capable")),
+            "available_tools": source.get("available_tools") if isinstance(source.get("available_tools"), list) else [],
+        }
+
+    eligible_sources = [
+        item
+        for item in (summarize_source(source) for source in context.get("eligible_sources", []))
+        if item.get("id")
+    ]
+    unavailable_sources = [
+        item
+        for item in (summarize_source(source) for source in context.get("unavailable_sources", []))
+        if item.get("id")
+    ]
+    enabled_tool_count = len(list(final_tools_list or []))
+    tooling_warning = None
+    if (
+        (context.get("grounding_mode") or "normal") == "require_sources"
+        and eligible_sources
+        and enabled_tool_count == 0
+    ):
+        tooling_warning = (
+            "Citation-required mode is active, but no compatible retrieval tools were enabled for this turn."
+        )
+    return {
+        "workspace_grounding": {
+            "workspace_id": context.get("workspace_id"),
+            "workspace_name": context.get("workspace_name"),
+            "workspace_source_mode": context.get("workspace_source_mode") or "all_ready",
+            "grounding_mode": context.get("grounding_mode") or "normal",
+            "selected_source_ids": context.get("selected_source_ids") if isinstance(context.get("selected_source_ids"), list) else None,
+            "eligible_sources": eligible_sources,
+            "unavailable_sources": unavailable_sources,
+            "enabled_tool_count": enabled_tool_count,
+            "tooling_warning": tooling_warning,
+        }
+    }
 
 
 def _persist_request_snapshot(
@@ -615,6 +698,8 @@ async def _prepare_prompt_runtime(
     resolved_skill_count = skill_runtime_state["resolved_skill_count"]
     summary_block = skill_runtime_state["summary_block"]
     session_context_block = None
+    workspace_context_block = None
+    workspace_context = None
     effective_request_message = request.message
     if bool(ctx.feature_flags.get("session_context_enabled", False)):
         try:
@@ -636,6 +721,22 @@ async def _prepare_prompt_runtime(
         except Exception:
             deps.logger.exception("Session context integration failed; continuing without injected context")
 
+    try:
+        workspace_context = workspace_service.build_prompt_context(
+            getattr(request, "workspace_id", None),
+            workspace_source_mode=getattr(request, "workspace_source_mode", None),
+            selected_source_ids=getattr(request, "selected_workspace_source_ids", None),
+            grounding_mode=getattr(request, "grounding_mode", None),
+        )
+        if workspace_context is not None:
+            workspace_context_block = workspace_context.prompt_block
+            ctx.workspace_source_context = workspace_context.model_dump(mode="json")
+    except Exception:
+        deps.logger.exception("Workspace source context integration failed; continuing without injected workspace context")
+
+    combined_context_blocks = [block for block in [session_context_block, workspace_context_block] if block]
+    combined_context_block = "\n\n".join(combined_context_blocks) if combined_context_blocks else None
+
     prompt_result = deps.prompt.assemble_runtime_prompt(
         agent_config=ctx.agent_config,
         request_system_prompt=ctx.system_prompt,
@@ -650,7 +751,7 @@ async def _prepare_prompt_runtime(
         markdown_skill_adapter=deps.prompt.markdown_skill_adapter,
         skill_policy_gate=deps.prompt.skill_policy_gate,
         build_scope_summary_block=deps.prompt.build_scope_summary_block,
-        session_context_block=session_context_block,
+        session_context_block=combined_context_block,
     )
     selected_skill_spec = prompt_result.selected_skill_spec
     agent_provider = _safe_text(getattr(ctx.agent_config, "provider", None))
@@ -717,7 +818,7 @@ async def _prepare_prompt_runtime(
             markdown_skill_adapter=deps.prompt.markdown_skill_adapter,
             skill_policy_gate=deps.prompt.skill_policy_gate,
             build_scope_summary_block=deps.prompt.build_scope_summary_block,
-            session_context_block=session_context_block,
+            session_context_block=combined_context_block,
         )
         selected_skill_spec = prompt_result.selected_skill_spec
     ctx.provider = resolved_model.provider
@@ -738,6 +839,13 @@ async def _prepare_prompt_runtime(
     if prompt_result.emitted_event:
         deps.logger.info("Skill %s selected. Tool intersection: %s", selected_skill_spec.name, prompt_result.final_tools_list)
         yield emitter.emit(prompt_result.emitted_event)
+
+    workspace_grounding_event = _build_workspace_grounding_event(
+        ctx,
+        final_tools_list=list(prompt_result.final_tools_list or []),
+    )
+    if workspace_grounding_event:
+        yield emitter.emit(workspace_grounding_event)
 
     yield deps.prompt.emit_skill_effectiveness_event(
         chat_id=ctx.chat_id,
@@ -1172,6 +1280,12 @@ async def _prepare_runtime_dependencies(
             vision_enabled=vision_enabled,
             validated_images=validated_images,
             fallback_mode=fallback_mode,
+            continuation_of=_safe_text(getattr(request, "continuation_of", None)),
+            continuation_root_id=_continuation_root_for_request(request),
+            continuation_status="resuming"
+            if _safe_text(getattr(request, "continuation_of", None))
+            else None,
+            content_type=_continuation_content_type_for_request(request),
         )
     )
     if request.deep_thinking_enabled and not metrics.reasoning_enabled and reasoning_disabled_reason_code:
@@ -1186,6 +1300,11 @@ async def _prepare_runtime_dependencies(
         model_name=ctx.model_name,
         user_message=request.message,
         deep_thinking_enabled=metrics.reasoning_enabled,
+        continuation_context={
+            "continuation_of": _safe_text(getattr(request, "continuation_of", None)),
+            "content_type": _continuation_content_type_for_request(request),
+            "tail": _safe_text(getattr(request, "continuation_tail", None)),
+        },
     )
 
     try:
@@ -1423,6 +1542,10 @@ def _finalize_stream_run(
         supports_reasoning=metrics.supports_reasoning,
         deep_thinking_enabled=bool(ctx.request.deep_thinking_enabled),
         reasoning_enabled=metrics.reasoning_enabled,
+        continuation_of=_safe_text(getattr(ctx.request, "continuation_of", None)),
+        continuation_root_id=_continuation_root_for_request(ctx.request),
+        continuation_status=_continuation_status_for_request(ctx.request, metrics.finish_reason),
+        content_type=_continuation_content_type_for_request(ctx.request),
     )
     if saved:
         asyncio.create_task(

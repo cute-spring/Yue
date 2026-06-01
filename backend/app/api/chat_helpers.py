@@ -61,6 +61,10 @@ def build_runtime_meta_payload(
     vision_enabled: bool,
     validated_images: List[str],
     fallback_mode: str,
+    continuation_of: Optional[str] = None,
+    continuation_root_id: Optional[str] = None,
+    continuation_status: Optional[str] = None,
+    content_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
         "meta": {
@@ -80,6 +84,10 @@ def build_runtime_meta_payload(
             "vision_enabled": vision_enabled,
             "image_count": len(validated_images),
             "vision_fallback_mode": fallback_mode,
+            "continuation_of": continuation_of,
+            "continuation_root_id": continuation_root_id,
+            "continuation_status": continuation_status,
+            "content_type": content_type,
         }
     }
 

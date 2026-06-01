@@ -50,6 +50,7 @@ TAG_SYNONYMS = {
 }
 
 class Message(BaseModel):
+    id: Optional[int] = None
     role: str
     content: str
     images: Optional[List[str]] = None
@@ -65,6 +66,10 @@ class Message(BaseModel):
     tool_calls: Optional[List[Dict[str, Any]]] = None
     assistant_turn_id: Optional[str] = None
     run_id: Optional[str] = None
+    continuation_of: Optional[str] = None
+    continuation_root_id: Optional[str] = None
+    continuation_status: Optional[str] = None
+    content_type: Optional[str] = None
     supports_reasoning: Optional[bool] = None
     deep_thinking_enabled: Optional[bool] = None
     reasoning_enabled: Optional[bool] = None
@@ -156,6 +161,7 @@ class ActionState(BaseModel):
 
 class ChatSession(BaseModel):
     id: str
+    workspace_id: Optional[str] = None
     title: str
     summary: Optional[str] = None
     agent_id: Optional[str] = None
@@ -187,8 +193,10 @@ class ChatService:
         try:
             Base.metadata.create_all(bind=engine)
             self._ensure_action_state_schema()
+            self._ensure_session_workspace_schema()
             self._ensure_session_tags_schema()
             self._ensure_message_attachments_schema()
+            self._ensure_message_continuation_schema()
         except OperationalError as exc:
             logger.warning("ChatService create_all skipped due to database operational error: %s", exc)
 
@@ -238,6 +246,22 @@ class ChatService:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE sessions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"))
 
+    def _ensure_session_workspace_schema(self) -> None:
+        try:
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("sessions")}
+        except Exception:
+            return
+
+        statements: list[str] = []
+        if "workspace_id" not in columns:
+            statements.append("ALTER TABLE sessions ADD COLUMN workspace_id VARCHAR")
+        statements.append("CREATE INDEX IF NOT EXISTS idx_sessions_workspace_id ON sessions (workspace_id)")
+
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
+
     def _ensure_message_attachments_schema(self) -> None:
         try:
             inspector = inspect(engine)
@@ -250,6 +274,30 @@ class ChatService:
 
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE messages ADD COLUMN attachments TEXT"))
+
+    def _ensure_message_continuation_schema(self) -> None:
+        try:
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("messages")}
+        except Exception:
+            return
+
+        statements: list[str] = []
+        if "continuation_of" not in columns:
+            statements.append("ALTER TABLE messages ADD COLUMN continuation_of VARCHAR")
+        if "continuation_root_id" not in columns:
+            statements.append("ALTER TABLE messages ADD COLUMN continuation_root_id VARCHAR")
+        if "continuation_status" not in columns:
+            statements.append("ALTER TABLE messages ADD COLUMN continuation_status VARCHAR")
+        if "content_type" not in columns:
+            statements.append("ALTER TABLE messages ADD COLUMN content_type VARCHAR")
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS idx_messages_continuation_root ON messages (continuation_root_id)"
+        )
+
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
 
     @staticmethod
     def _normalize_tag(tag: str) -> str:
@@ -365,11 +413,16 @@ class ChatService:
                 messages = []
                 for m in messages_query:
                     msg_dict = {
+                        "id": m.id,
                         "role": m.role,
                         "content": m.content,
                         "timestamp": self._to_api_datetime(m.timestamp),
                         "assistant_turn_id": m.assistant_turn_id,
                         "run_id": m.run_id,
+                        "continuation_of": getattr(m, "continuation_of", None),
+                        "continuation_root_id": getattr(m, "continuation_root_id", None),
+                        "continuation_status": getattr(m, "continuation_status", None),
+                        "content_type": getattr(m, "content_type", None),
                         "thought_duration": m.thought_duration,
                         "ttft": m.ttft,
                         "total_duration": m.total_duration,
@@ -397,6 +450,7 @@ class ChatService:
                 
                 result.append(ChatSession(
                     id=s.id,
+                    workspace_id=getattr(s, "workspace_id", None),
                     title=s.title,
                     summary=s.summary,
                     agent_id=s.agent_id,
@@ -435,6 +489,10 @@ class ChatService:
                     "timestamp": self._to_api_datetime(m.timestamp),
                     "assistant_turn_id": m.assistant_turn_id,
                     "run_id": m.run_id,
+                    "continuation_of": getattr(m, "continuation_of", None),
+                    "continuation_root_id": getattr(m, "continuation_root_id", None),
+                    "continuation_status": getattr(m, "continuation_status", None),
+                    "content_type": getattr(m, "content_type", None),
                     "thought_duration": m.thought_duration,
                     "ttft": m.ttft,
                     "total_duration": m.total_duration,
@@ -470,6 +528,7 @@ class ChatService:
             
             return ChatSession(
                 id=s.id,
+                workspace_id=getattr(s, "workspace_id", None),
                 title=s.title,
                 summary=s.summary,
                 agent_id=s.agent_id,
@@ -481,12 +540,18 @@ class ChatService:
                 updated_at=self._to_api_datetime(s.updated_at)
             )
 
-    def create_chat(self, agent_id: Optional[str] = None, title: str = "New Chat") -> ChatSession:
+    def create_chat(
+        self,
+        agent_id: Optional[str] = None,
+        title: str = "New Chat",
+        workspace_id: Optional[str] = None,
+    ) -> ChatSession:
         chat_id = str(uuid.uuid4())
         now = datetime.utcnow()
         with SessionLocal() as db:
             new_session = SessionModel(
                 id=chat_id,
+                workspace_id=workspace_id,
                 title=title,
                 agent_id=agent_id,
                 created_at=now,
@@ -498,6 +563,7 @@ class ChatService:
         
         return ChatSession(
             id=chat_id,
+            workspace_id=workspace_id,
             title=title,
             summary=None,
             agent_id=agent_id,
@@ -587,15 +653,21 @@ class ChatService:
         finish_reason: Optional[str] = None,
         assistant_turn_id: Optional[str] = None,
         run_id: Optional[str] = None,
+        continuation_of: Optional[str] = None,
+        continuation_root_id: Optional[str] = None,
+        continuation_status: Optional[str] = None,
+        content_type: Optional[str] = None,
         supports_reasoning: Optional[bool] = None,
         deep_thinking_enabled: Optional[bool] = None,
         reasoning_enabled: Optional[bool] = None
     ) -> Optional[ChatSession]:
         now = datetime.utcnow()
+        session_workspace_id: Optional[str] = None
         with SessionLocal() as db:
             s = db.query(SessionModel).filter(SessionModel.id == chat_id).first()
             if not s:
                 return None
+            session_workspace_id = getattr(s, "workspace_id", None)
             
             images_json = json.dumps(images) if images else None
             attachments_json = json.dumps(attachments) if attachments else None
@@ -609,6 +681,10 @@ class ChatService:
                 timestamp=now,
                 assistant_turn_id=assistant_turn_id,
                 run_id=run_id,
+                continuation_of=continuation_of,
+                continuation_root_id=continuation_root_id,
+                continuation_status=continuation_status,
+                content_type=content_type,
                 supports_reasoning=None if supports_reasoning is None else (1 if supports_reasoning else 0),
                 deep_thinking_enabled=None if deep_thinking_enabled is None else (1 if deep_thinking_enabled else 0),
                 reasoning_enabled=None if reasoning_enabled is None else (1 if reasoning_enabled else 0),
@@ -635,6 +711,11 @@ class ChatService:
             
             s.updated_at = now
             db.commit()
+
+        if role == "user" and session_workspace_id and attachments:
+            from app.services.workspace_service import workspace_service
+
+            workspace_service.register_sources_from_attachments(session_workspace_id, attachments)
             
         return self.get_chat(chat_id)
 
@@ -1018,12 +1099,12 @@ class ChatService:
         event: Dict[str, Any],
         assistant_turn_id: Optional[str] = None,
         run_id: Optional[str] = None,
-    ) -> None:
+    ) -> Optional[ActionStateModel]:
         skill_name = event.get("skill_name")
         action_id = event.get("action_id")
         lifecycle_status = event.get("lifecycle_status")
         if not skill_name or not action_id or not lifecycle_status:
-            return
+            return None
 
         skill_version = event.get("skill_version")
         invocation_id = event.get("invocation_id")
@@ -1087,6 +1168,69 @@ class ChatService:
         if observability_payload.get("artifact_path") is not None:
             state.observability_artifact_path = str(observability_payload.get("artifact_path"))
         state.payload_json = json.dumps(event)
+        return state
+
+    def _register_workspace_artifact_for_action_state(
+        self,
+        db: Any,
+        *,
+        session_id: str,
+        state: Optional[ActionStateModel],
+        event: Dict[str, Any],
+    ) -> None:
+        if state is None or not state.observability_artifact_path:
+            return
+
+        session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+        workspace_id = getattr(session, "workspace_id", None) if session is not None else None
+        if not workspace_id:
+            return
+
+        from app.services.workspace_service import workspace_service
+
+        artifact_path = str(state.observability_artifact_path).strip()
+        if not artifact_path:
+            return
+
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        output_file_path = payload.get("output_file_path") if isinstance(payload.get("output_file_path"), str) else None
+        artifact_type = "tool_output"
+        if "/exports/" in artifact_path or artifact_path.startswith("/exports/") or artifact_path.startswith("sandbox:/exports/"):
+            artifact_type = "export"
+        elif output_file_path and output_file_path == artifact_path:
+            artifact_type = "generated_file"
+
+        title = (
+            payload.get("title")
+            or payload.get("filename")
+            or os.path.basename(output_file_path or artifact_path)
+            or f"{state.skill_name} artifact"
+        )
+        metadata = {
+            "skill_name": state.skill_name,
+            "skill_version": state.skill_version,
+            "action_id": state.action_id,
+            "invocation_id": state.invocation_id,
+            "run_id": state.run_id,
+            "assistant_turn_id": state.assistant_turn_id,
+            "request_id": state.request_id,
+            "status": state.status,
+            "lifecycle_status": state.lifecycle_status,
+            "artifact_path": artifact_path,
+            "output_file_path": output_file_path,
+            "event_name": event.get("event"),
+        }
+        workspace_service.upsert_artifact_record(
+            db,
+            workspace_id,
+            artifact_type=artifact_type,
+            title=str(title),
+            source_session_id=session_id,
+            action_state_id=state.id,
+            artifact_path=artifact_path,
+            content_ref=state.invocation_id or state.request_id,
+            artifact_metadata=metadata,
+        )
 
     def _build_action_state_model(self, state: ActionStateModel) -> ActionState:
         try:
@@ -1210,12 +1354,19 @@ class ChatService:
                 payload_json=json.dumps(event),
             )
             db.add(db_event)
-            self._upsert_action_state(
+            state = self._upsert_action_state(
                 db,
                 session_id=session_id,
                 event=event,
                 assistant_turn_id=assistant_turn_id,
                 run_id=run_id,
+            )
+            db.flush()
+            self._register_workspace_artifact_for_action_state(
+                db,
+                session_id=session_id,
+                state=state,
+                event=event,
             )
             db.commit()
 

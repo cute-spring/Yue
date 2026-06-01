@@ -490,7 +490,7 @@ async def chat_stream(request: ChatRequest):
     # Initialize Chat Session
     chat_id = request.chat_id
     if not chat_id:
-        chat = chat_service.create_chat(request.agent_id)
+        chat = chat_service.create_chat(request.agent_id, workspace_id=request.workspace_id)
         chat_id = chat.id
     
     existing_chat = chat_service.get_chat(chat_id)

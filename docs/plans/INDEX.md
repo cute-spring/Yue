@@ -77,6 +77,17 @@
 
 *建议按照以下顺序（从易到难、从底层到上层）逐步实施：*
 
+### Epic 12: AI Workbench 产品机会池与高 ROI 功能筛选
+> **状态**: Source Workspace Phase 1/2 MVP 已实现并完成本地验证；下一步进入硬化、产品化与后续能力拆分
+> **详情文档**: [2026-05-30-ai-workbench-opportunity-roadmap.md](./2026-05-30-ai-workbench-opportunity-roadmap.md)
+> **执行计划**: [2026-05-30-source-workspace-phase1-phase2-plan.md](./2026-05-30-source-workspace-phase1-phase2-plan.md)
+> **目标**: 将 Yue 从通用聊天平台推进为可信 AI 工作台，围绕 Source Workspace、附件理解与工具路由、Deep Research、审批中心、Runbook、模板市场和记忆治理筛选高价值项目。
+- [x] **Phase 0: 机会池沉淀** (结合当前代码能力与 2026 AI 工具市场趋势，形成候选功能、ROI 打分与推荐路径)
+- [x] **Phase 1: P0 项目选择** (选择 Source Workspace 作为首个推进方向，并将 Attachment Understanding / Deep Research 作为后续依赖能力)
+- [x] **Phase 2: 首个执行计划** (已创建 Source Workspace Phase 1/2 计划，覆盖薄版容器、source registry、artifact registry、资料就绪、证据回答与研究产物)
+- [x] **Phase 3: Source Workspace Phase 1/2 MVP 实施与验证** (workspace/source/artifact 持久化、source readiness、source picker、grounding mode、note/research artifact 保存、Chat 侧栏最薄闭环已落地；workspace memory 与 rich artifact detail deferred)
+- [ ] **Phase 4: Source Workspace 硬化与产品化** (已完成首批切片：evidence scope 可见化、research artifact 原生详情卡、source capability 标签、PDF/CSV/unsupported/missing mixed readiness 覆盖、message-level evidence contract/citation UX、attachment auto-registration readiness enrichment、require-sources tooling warning、临时后端真实 workspace 浏览器 smoke、前后端测试/build 通过；后续继续做 live grounded answer 演练、workspace memory 审核流按需拆分推进)
+
 ### Epic 3: 文件管理与存储抽象层重构 (业务逻辑层)
 > **状态**: 待启动
 > **详情文档**: [File_Management_Improvement_Review.md](./File_Management_Improvement_Review.md)

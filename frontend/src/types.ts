@@ -128,11 +128,72 @@ export type ChatSession = {
   summary?: string | null;
   tags?: string[];
   updated_at: string;
+  workspace_id?: string | null;
   active_skill_name?: string | null;
   active_skill_version?: string | null;
 };
 
+export type Workspace = {
+  id: string;
+  name: string;
+  description?: string | null;
+  default_agent_id?: string | null;
+  source_policy?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceSource = {
+  id: string;
+  workspace_id: string;
+  source_type: string;
+  source_ref: string;
+  display_name?: string | null;
+  mime_type?: string | null;
+  status?: string | null;
+  source_metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceArtifact = {
+  id: string;
+  workspace_id: string;
+  artifact_type: string;
+  title: string;
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+  action_state_id?: number | null;
+  artifact_path?: string | null;
+  content_ref?: string | null;
+  artifact_metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceGroundingSource = {
+  id: string;
+  display_name?: string | null;
+  source_type?: string | null;
+  status?: string | null;
+  citation_capable?: boolean;
+  available_tools?: string[];
+};
+
+export type WorkspaceGrounding = {
+  workspace_id?: string | null;
+  workspace_name?: string | null;
+  workspace_source_mode?: 'all_ready' | 'selected' | 'none' | string;
+  grounding_mode?: 'normal' | 'prefer_sources' | 'require_sources' | string;
+  selected_source_ids?: string[] | null;
+  eligible_sources?: WorkspaceGroundingSource[];
+  unavailable_sources?: WorkspaceGroundingSource[];
+  enabled_tool_count?: number;
+  tooling_warning?: string | null;
+};
+
 export type Message = {
+  id?: number | string;
   role: string;
   content: string;
   thought?: string;
@@ -151,9 +212,14 @@ export type Message = {
   tools?: string[];
   tool_calls?: ToolCall[];
   citations?: any[];
+  workspace_grounding?: WorkspaceGrounding;
   context_id?: string;
   run_id?: string;
   assistant_turn_id?: string;
+  continuation_of?: string | null;
+  continuation_root_id?: string | null;
+  continuation_status?: string | null;
+  content_type?: string | null;
   supports_reasoning?: boolean;
   deep_thinking_enabled?: boolean;
   reasoning_enabled?: boolean;

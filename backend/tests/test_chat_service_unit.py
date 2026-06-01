@@ -4,13 +4,14 @@ import sqlite3
 import json
 import tempfile
 import shutil
-from datetime import datetime, timedelta
 from unittest.mock import patch
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.services.chat_service import ChatService, Message, ChatSession
+from app.services.workspace_service import workspace_service
 
 @pytest.fixture
 def temp_db():
@@ -24,6 +25,8 @@ def temp_db():
     # Patch dependencies in chat_service
     with patch("app.services.chat_service.engine", test_engine), \
          patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
+         patch("app.services.workspace_service.engine", test_engine), \
+         patch("app.services.workspace_service.SessionLocal", TestingSessionLocal), \
          patch("app.services.chat_service.DATA_DIR", temp_dir):
         
         service = ChatService()
@@ -48,7 +51,18 @@ def test_create_chat(temp_db):
     chat = service.create_chat(agent_id="test-agent", title="My Chat")
     assert chat.title == "My Chat"
     assert chat.agent_id == "test-agent"
+    assert chat.workspace_id is None
     assert chat.messages == []
+
+
+def test_create_chat_with_workspace_id(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat(agent_id="test-agent", title="Scoped Chat", workspace_id="ws_123")
+    assert chat.workspace_id == "ws_123"
+
+    loaded = service.get_chat(chat.id)
+    assert loaded is not None
+    assert loaded.workspace_id == "ws_123"
 
 def test_add_message(temp_db):
     service, _ = temp_db
@@ -97,6 +111,60 @@ def test_add_message_with_attachments(temp_db):
     msg = updated.messages[0]
     assert msg.images == ["img1.png"]
     assert msg.attachments == attachments
+
+
+def test_add_message_registers_workspace_sources_for_scoped_chat(temp_db):
+    service, _ = temp_db
+    workspace = workspace_service.create_workspace(name="Scoped Workspace")
+    chat = service.create_chat(workspace_id=workspace.id)
+    attachments = [
+        {
+            "id": "att_demo_2",
+            "kind": "file",
+            "display_name": "report.pdf",
+            "storage_path": "uploads/chat/2026/05/30/att_demo_2.pdf",
+            "mime_type": "application/pdf",
+            "status": "ready",
+        }
+    ]
+
+    updated = service.add_message(
+        chat.id,
+        "user",
+        "Please check attachment",
+        attachments=attachments,
+    )
+
+    assert updated is not None
+    sources = workspace_service.list_sources(workspace.id)
+    assert sources is not None
+    assert len(sources) == 1
+    assert sources[0].source_ref == "uploads/chat/2026/05/30/att_demo_2.pdf"
+
+
+def test_add_message_with_continuation_metadata(temp_db):
+    service, _ = temp_db
+    chat = service.create_chat()
+
+    updated = service.add_message(
+        chat.id,
+        "assistant",
+        "continued answer",
+        assistant_turn_id="turn_child",
+        run_id="run_child",
+        continuation_of="turn_root",
+        continuation_root_id="turn_root",
+        continuation_status="continued",
+        content_type="markdown",
+    )
+
+    assert updated is not None
+    msg = updated.messages[0]
+    assert msg.assistant_turn_id == "turn_child"
+    assert msg.continuation_of == "turn_root"
+    assert msg.continuation_root_id == "turn_root"
+    assert msg.continuation_status == "continued"
+    assert msg.content_type == "markdown"
 
 def test_update_chat_title_and_summary(temp_db):
     service, _ = temp_db
@@ -726,6 +794,49 @@ def test_action_state_persists_observability_fields(temp_db):
     assert state.observability.error_kind == "config_error"
     assert state.observability.retryable is False
     assert state.observability.artifact_path == "/tmp/diagram.excalidraw"
+
+
+def test_action_state_registers_workspace_artifact_for_scoped_chat(temp_db):
+    service, _ = temp_db
+    workspace = workspace_service.create_workspace(name="Artifacts Workspace")
+    chat = service.create_chat(workspace_id=workspace.id)
+    service.add_action_event(
+        chat.id,
+        {
+            "version": "v2",
+            "event": "skill.action.result",
+            "event_id": "evt_action_artifact",
+            "run_id": "run_action",
+            "assistant_turn_id": "turn_action",
+            "sequence": 7,
+            "ts": "2026-03-28T00:00:03Z",
+            "lifecycle_phase": "execution",
+            "lifecycle_status": "succeeded",
+            "skill_name": "ppt-generator",
+            "skill_version": "1.0.0",
+            "action_id": "generate",
+            "invocation_id": "invoke:ppt-generator:1.0.0:generate:req-artifact",
+            "request_id": "req-artifact",
+            "status": "succeeded",
+            "payload": {
+                "output_file_path": "/exports/project_update.pptx",
+                "filename": "project_update.pptx",
+            },
+            "observability": {
+                "artifact_path": "/exports/project_update.pptx",
+            },
+        },
+        assistant_turn_id="turn_action",
+        run_id="run_action",
+    )
+
+    artifacts = workspace_service.list_artifacts(workspace.id)
+
+    assert artifacts is not None
+    assert len(artifacts) == 1
+    assert artifacts[0].artifact_type == "export"
+    assert artifacts[0].artifact_path == "/exports/project_update.pptx"
+    assert artifacts[0].source_session_id == chat.id
 
 def test_action_state_separates_multiple_invocations_for_same_action(temp_db):
     service, _ = temp_db
