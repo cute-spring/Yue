@@ -10,6 +10,7 @@ import { useMaybeSpeechController } from '../context/SpeechControllerContext';
 
 interface MessageItemProps {
   msg: Message;
+  displayContent?: string;
   index: number;
   isLatestAssistantMessage: boolean;
   activeAgentName: string;
@@ -92,6 +93,39 @@ export const getVisionFeedbackText = (
     return '已自动降级为纯文本模式，本次回复不会分析图片内容。';
   }
   return '';
+};
+
+export const getWorkspaceGroundingModeLabel = (mode?: string | null): string => {
+  if (mode === 'require_sources') return 'Citations required';
+  if (mode === 'prefer_sources') return 'Citations preferred';
+  return 'Sources optional';
+};
+
+export const getWorkspaceSourceModeLabel = (mode?: string | null): string => {
+  if (mode === 'selected') return 'Selected sources';
+  if (mode === 'none') return 'No workspace sources';
+  return 'All ready sources';
+};
+
+export const getWorkspaceGroundingSummary = (msg: Pick<Message, 'workspace_grounding' | 'citations'>): string => {
+  const grounding = msg.workspace_grounding;
+  if (!grounding) return '';
+  const eligibleCount = grounding.eligible_sources?.length ?? 0;
+  const unavailableCount = grounding.unavailable_sources?.length ?? 0;
+  const citationCount = msg.citations?.length ?? 0;
+  const sourceMode = getWorkspaceSourceModeLabel(grounding.workspace_source_mode);
+  const groundingMode = getWorkspaceGroundingModeLabel(grounding.grounding_mode);
+  if (grounding.workspace_source_mode === 'none') {
+    return `${sourceMode}; ${groundingMode}`;
+  }
+  const citationText = citationCount > 0 ? `${citationCount} citations attached` : 'no citations attached yet';
+  const unavailableText = unavailableCount > 0 ? `, ${unavailableCount} unavailable` : '';
+  return `${sourceMode}; ${groundingMode}; ${eligibleCount} eligible${unavailableText}; ${citationText}`;
+};
+
+export const getWorkspaceToolingWarning = (msg: Pick<Message, 'workspace_grounding'>): string => {
+  const warning = msg.workspace_grounding?.tooling_warning;
+  return typeof warning === 'string' ? warning : '';
 };
 
 const getAttachmentDisplayName = (attachment: Attachment): string => {
@@ -214,7 +248,11 @@ export default function MessageItem(props: MessageItemProps) {
   };
 
   // Memoize parsing to avoid redundant work and logic issues during non-typing states
-  const adapted = createMemo(() => getAdaptedThought(props.msg, props.isTyping));
+  const displayedMsg = createMemo(() => ({
+    ...props.msg,
+    content: props.displayContent ?? props.msg.content,
+  }));
+  const adapted = createMemo(() => getAdaptedThought(displayedMsg(), props.isTyping));
 
   createEffect(() => {
     const { content } = adapted();
@@ -332,7 +370,7 @@ export default function MessageItem(props: MessageItemProps) {
     const target = e.target as HTMLElement | null;
     if (target?.closest('button, input, textarea, select, [contenteditable="true"]')) return;
     e.preventDefault();
-    speechController.toggleMessage(speechMessageId(), props.msg.content);
+    speechController.toggleMessage(speechMessageId(), displayedMsg().content);
   };
 
   const renderThought = (thought: string | null) => {
@@ -547,6 +585,13 @@ export default function MessageItem(props: MessageItemProps) {
             <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-500/5 border border-indigo-500/20 text-[10px] font-bold text-indigo-500/80 uppercase tracking-tight">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1 0 2.5 0 5-2 7Z"/><path d="M14 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1 0 2.5 0 5-2 7Z"/></svg>
               {msg.citations?.length} Citations
+            </div>
+          </Show>
+
+          <Show when={msg.workspace_grounding}>
+            <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/5 border border-emerald-500/20 text-[10px] font-bold text-emerald-600/80 uppercase tracking-tight">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v6c0 5 3.4 7.7 8 8 4.6-.3 8-3 8-8V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+              {getWorkspaceGroundingModeLabel(msg.workspace_grounding?.grounding_mode)}
             </div>
           </Show>
 
@@ -967,6 +1012,45 @@ export default function MessageItem(props: MessageItemProps) {
                   </div>
                 </Show>
 
+                <Show when={props.msg.workspace_grounding}>
+                  <div class="mt-5 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] px-4 py-3">
+                    <div class="flex items-start justify-between gap-3">
+                      <div>
+                        <div class="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600/80">
+                          Evidence contract
+                        </div>
+                        <div class="mt-1 text-[12px] leading-relaxed text-text-secondary">
+                          {getWorkspaceGroundingSummary(props.msg)}
+                        </div>
+                      </div>
+                      <span class="shrink-0 rounded-full border border-emerald-500/15 bg-surface/70 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+                        {getWorkspaceSourceModeLabel(props.msg.workspace_grounding?.workspace_source_mode)}
+                      </span>
+                    </div>
+                    <Show when={(props.msg.workspace_grounding?.eligible_sources?.length ?? 0) > 0}>
+                      <div class="mt-3 flex flex-wrap gap-1.5">
+                        <For each={props.msg.workspace_grounding?.eligible_sources || []}>
+                          {(source) => (
+                            <span class="max-w-full truncate rounded-full border border-border/50 bg-surface/80 px-2 py-0.5 text-[10px] text-text-secondary">
+                              {source.display_name || source.id}
+                            </span>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                    <Show when={props.msg.workspace_grounding?.grounding_mode === 'require_sources' && (props.msg.citations?.length ?? 0) === 0}>
+                      <div class="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-700">
+                        Citation-required mode was active. If this answer makes source-specific claims without citations, treat it as needing follow-up verification.
+                      </div>
+                    </Show>
+                    <Show when={getWorkspaceToolingWarning(props.msg)}>
+                      <div class="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[12px] leading-relaxed text-rose-700">
+                        {getWorkspaceToolingWarning(props.msg)}
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+
                 <Show when={(props.msg.citations?.length ?? 0) > 0}>
                   <details class="mt-5 -mx-2 rounded-2xl border border-border/50 bg-black/5 dark:bg-white/5 px-4 py-3">
                     <summary class="cursor-pointer text-xs font-black uppercase tracking-[0.2em] text-text-secondary/70">
@@ -1023,13 +1107,13 @@ export default function MessageItem(props: MessageItemProps) {
               <button 
                 class="p-1.5 text-text-secondary/40 hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-all" 
                 title="Copy" 
-                onClick={() => navigator.clipboard.writeText(props.msg.content)}
+                onClick={() => navigator.clipboard.writeText(displayedMsg().content)}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                 </svg>
               </button>
-              <SpeechControl messageId={speechMessageId()} content={props.msg.content} />
+              <SpeechControl messageId={speechMessageId()} content={displayedMsg().content} />
               <Show when={speechState() === 'speaking' || speechState() === 'paused'}>
                 <div class="px-2 py-1 rounded-md border border-primary/20 bg-primary/5 text-[10px] font-semibold text-primary flex items-center gap-1.5">
                   <span class={`w-1.5 h-1.5 rounded-full ${speechState() === 'speaking' ? 'bg-primary animate-pulse' : 'bg-primary/60'}`}></span>
@@ -1073,7 +1157,7 @@ export default function MessageItem(props: MessageItemProps) {
       </div>
       <Show when={exportMenuPos()}>
         <MessageExportMenu 
-          content={props.msg.content}
+          content={displayedMsg().content}
           messageId={`message-container-${props.index}`}
           position={exportMenuPos()!}
           onClose={() => setExportMenuPos(null)}

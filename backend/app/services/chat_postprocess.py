@@ -152,6 +152,10 @@ def persist_assistant_message(
     supports_reasoning: bool,
     deep_thinking_enabled: bool,
     reasoning_enabled: bool,
+    continuation_of: Optional[str] = None,
+    continuation_root_id: Optional[str] = None,
+    continuation_status: Optional[str] = None,
+    content_type: Optional[str] = None,
 ) -> bool:
     if not stream_state.full_response:
         return False
@@ -173,6 +177,10 @@ def persist_assistant_message(
         finish_reason=resolved_finish_reason,
         assistant_turn_id=assistant_turn_id if turn_binding_enabled else None,
         run_id=run_id if turn_binding_enabled else None,
+        continuation_of=continuation_of,
+        continuation_root_id=continuation_root_id,
+        continuation_status=continuation_status,
+        content_type=content_type,
         supports_reasoning=supports_reasoning,
         deep_thinking_enabled=bool(deep_thinking_enabled),
         reasoning_enabled=reasoning_enabled,

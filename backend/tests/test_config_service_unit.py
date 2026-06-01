@@ -329,7 +329,8 @@ def test_get_doc_access_roots_returns_tuple(temp_config_file, monkeypatch):
 
     expected = service.get_doc_access()
     allow_roots, deny_roots = service.get_doc_access_roots()
-    assert allow_roots == expected.get("allow_roots", [])
+    assert allow_roots[:-1] == expected.get("allow_roots", [])
+    assert allow_roots[-1].endswith("/uploads")
     assert deny_roots == expected.get("deny_roots", [])
 
 
@@ -343,7 +344,8 @@ def test_doc_access_persists_after_restart(temp_config_file):
     )
     second = ConfigService(str(temp_config_file))
     allow_roots, deny_roots = second.get_doc_access_roots()
-    assert allow_roots == ["/tmp/a", "/tmp/b"]
+    assert allow_roots[:2] == ["/tmp/a", "/tmp/b"]
+    assert allow_roots[-1].endswith("/uploads")
     assert deny_roots == ["/tmp/a/private"]
 
 

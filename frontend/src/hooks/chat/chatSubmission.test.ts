@@ -5,6 +5,20 @@ import { Attachment, Message } from '../../types';
 const makeFile = (name: string, type: string, content = 'x'): File => new File([content], name, { type });
 
 describe('chatSubmission attachments', () => {
+  const makeStreamResponse = (events: Record<string, unknown>[]) => {
+    const encoder = new TextEncoder();
+    const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(body));
+          controller.close();
+        },
+      }),
+      { status: 200 },
+    );
+  };
+
   it('uploads files via /api/files and returns attachments', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       new Response(
@@ -107,6 +121,7 @@ describe('chatSubmission attachments', () => {
       ],
       messages: () => messagesState,
       currentChatId: () => null,
+      currentWorkspaceId: () => 'ws_123',
       selectedProvider: () => 'openai',
       selectedModel: () => 'gpt-4o',
       selectedAgent: () => null,
@@ -139,5 +154,134 @@ describe('chatSubmission attachments', () => {
     const streamPayload = JSON.parse(String(calls[1].body));
     expect(streamPayload.attachments).toHaveLength(2);
     expect(streamPayload.images).toEqual(['data:image/png;base64,AAA']);
+    expect(streamPayload.workspace_id).toBe('ws_123');
+  });
+
+  it('passes continuation metadata and marks the optimistic assistant message', async () => {
+    const calls: Array<{ url: string; body?: any }> = [];
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: init?.body });
+      return new Response('', { status: 200 });
+    });
+    const messagesState: Message[] = [];
+    const setMessages = (value: Message[] | ((prev: Message[]) => Message[])) => {
+      if (typeof value === 'function') {
+        messagesState.splice(0, messagesState.length, ...(value(messagesState) as Message[]));
+      } else {
+        messagesState.splice(0, messagesState.length, ...value);
+      }
+      return undefined;
+    };
+
+    await submitChatText({
+      rawText: '继续',
+      requestOverrides: {
+        continuation_of: 'turn_root',
+        continuation_root_id: 'turn_root',
+        continuation_content_type: 'markdown',
+        continuation_tail: 'previous tail',
+      },
+      currentImages: [],
+      messages: () => messagesState,
+      currentChatId: () => 'chat_1',
+      currentWorkspaceId: () => null,
+      selectedProvider: () => 'openai',
+      selectedModel: () => 'gpt-4o',
+      selectedAgent: () => null,
+      requestedSkill: () => null,
+      isDeepThinking: () => false,
+      setMessages,
+      setInput: () => undefined,
+      setImageAttachments: () => undefined,
+      setIsTyping: () => undefined,
+      setLastGenerationOutcome: () => undefined,
+      setActiveSkill: () => undefined,
+      setElapsedTime: () => undefined,
+      setCurrentChatId: () => undefined,
+      setActionStates: () => undefined,
+      setShowLLMSelector: () => undefined,
+      refreshChatMeta: async () => false,
+      scheduleMetaRefreshForTitle: () => undefined,
+      toast: {
+        error: () => undefined,
+        warning: () => undefined,
+      },
+      fileToBase64: async () => 'data:image/png;base64,AAA',
+      setAbortController: () => undefined,
+      setTimerInterval: () => undefined,
+      getTimerInterval: () => null,
+      fetchImpl: fetchMock,
+    });
+
+    const streamPayload = JSON.parse(String(calls[0].body));
+    expect(streamPayload.continuation_of).toBe('turn_root');
+    expect(streamPayload.continuation_root_id).toBe('turn_root');
+    expect(streamPayload.continuation_content_type).toBe('markdown');
+    expect(messagesState[1].continuation_of).toBe('turn_root');
+    expect(messagesState[1].continuation_status).toBe('resuming');
+  });
+
+  it('attaches workspace grounding stream metadata to the assistant message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeStreamResponse([
+        {
+          workspace_grounding: {
+            workspace_id: 'ws_1',
+            workspace_source_mode: 'selected',
+            grounding_mode: 'require_sources',
+            eligible_sources: [{ id: 'src_1', display_name: 'Report.pdf' }],
+            unavailable_sources: [],
+          },
+        },
+        { content: 'Grounded answer' },
+      ]),
+    );
+    const messagesState: Message[] = [];
+    const setMessages = (value: Message[] | ((prev: Message[]) => Message[])) => {
+      if (typeof value === 'function') {
+        messagesState.splice(0, messagesState.length, ...(value(messagesState) as Message[]));
+      } else {
+        messagesState.splice(0, messagesState.length, ...value);
+      }
+      return undefined;
+    };
+
+    await submitChatText({
+      rawText: 'summarize workspace source',
+      currentImages: [],
+      messages: () => messagesState,
+      currentChatId: () => 'chat_1',
+      currentWorkspaceId: () => 'ws_1',
+      selectedProvider: () => 'openai',
+      selectedModel: () => 'gpt-4o',
+      selectedAgent: () => null,
+      requestedSkill: () => null,
+      isDeepThinking: () => false,
+      setMessages,
+      setInput: () => undefined,
+      setImageAttachments: () => undefined,
+      setIsTyping: () => undefined,
+      setLastGenerationOutcome: () => undefined,
+      setActiveSkill: () => undefined,
+      setElapsedTime: () => undefined,
+      setCurrentChatId: () => undefined,
+      setActionStates: () => undefined,
+      setShowLLMSelector: () => undefined,
+      refreshChatMeta: async () => false,
+      scheduleMetaRefreshForTitle: () => undefined,
+      toast: {
+        error: () => undefined,
+        warning: () => undefined,
+      },
+      fileToBase64: async () => 'data:image/png;base64,AAA',
+      setAbortController: () => undefined,
+      setTimerInterval: () => undefined,
+      getTimerInterval: () => null,
+      fetchImpl: fetchMock,
+    });
+
+    expect(messagesState[1].workspace_grounding?.workspace_id).toBe('ws_1');
+    expect(messagesState[1].workspace_grounding?.eligible_sources?.[0]?.display_name).toBe('Report.pdf');
+    expect(messagesState[1].content).toBe('Grounded answer');
   });
 });

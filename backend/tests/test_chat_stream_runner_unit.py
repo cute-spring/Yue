@@ -14,6 +14,7 @@ from app.api.chat_stream_runner import (
     StreamRunnerDeps,
     _create_stream_runtime,
     _finalize_stream_run,
+    _build_workspace_grounding_event,
     _handle_tool_call_mismatch_retry,
     _prepare_prompt_runtime,
 )
@@ -112,6 +113,50 @@ def _make_temp_chat_service():
     test_engine = create_engine(f"sqlite:///{db_file}")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
     return temp_dir, test_engine, testing_session_local
+
+
+def test_build_workspace_grounding_event_summarizes_prompt_context_without_prompt_block():
+    ctx = SimpleNamespace(
+        workspace_source_context={
+            "workspace_id": "ws_1",
+            "workspace_name": "Research",
+            "workspace_source_mode": "selected",
+            "grounding_mode": "require_sources",
+            "selected_source_ids": ["src_1"],
+            "eligible_sources": [
+                {
+                    "id": "src_1",
+                    "display_name": "Report.pdf",
+                    "source_type": "upload",
+                    "status": "ready",
+                    "citation_capable": True,
+                    "available_tools": ["docs_read_pdf"],
+                }
+            ],
+            "unavailable_sources": [
+                {
+                    "id": "src_2",
+                    "display_name": "Missing.pdf",
+                    "source_type": "upload",
+                    "status": "missing",
+                    "citation_capable": False,
+                    "available_tools": [],
+                }
+            ],
+            "prompt_block": "large prompt text should not stream to frontend",
+        }
+    )
+
+    event = _build_workspace_grounding_event(ctx, final_tools_list=[])
+
+    assert event is not None
+    payload = event["workspace_grounding"]
+    assert payload["workspace_id"] == "ws_1"
+    assert payload["grounding_mode"] == "require_sources"
+    assert payload["eligible_sources"][0]["display_name"] == "Report.pdf"
+    assert payload["enabled_tool_count"] == 0
+    assert "Citation-required mode is active" in payload["tooling_warning"]
+    assert "prompt_block" not in payload
 
 
 class _ReferenceHostFakeSessionContextManager:

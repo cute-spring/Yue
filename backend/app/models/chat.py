@@ -3,10 +3,77 @@ from sqlalchemy import Column, String, Integer, Float, Boolean, Text, DateTime, 
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    default_agent_id = Column(String, nullable=True)
+    source_policy_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    sessions = relationship("Session", back_populates="workspace")
+    sources = relationship("WorkspaceSource", back_populates="workspace", cascade="all, delete-orphan")
+    artifacts = relationship("WorkspaceArtifact", back_populates="workspace", cascade="all, delete-orphan")
+
+
+class WorkspaceSource(Base):
+    __tablename__ = "workspace_sources"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    source_type = Column(String, nullable=False)
+    source_ref = Column(String, nullable=False)
+    display_name = Column(String, nullable=True)
+    mime_type = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="ready")
+    source_metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspace = relationship("Workspace", back_populates="sources")
+
+    __table_args__ = (
+        Index("idx_workspace_sources_workspace_id", "workspace_id"),
+        Index("idx_workspace_sources_workspace_type", "workspace_id", "source_type"),
+        Index("idx_workspace_sources_workspace_ref", "workspace_id", "source_ref", unique=True),
+    )
+
+
+class WorkspaceArtifact(Base):
+    __tablename__ = "workspace_artifacts"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    artifact_type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    source_session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
+    source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    action_state_id = Column(Integer, ForeignKey("action_states.id", ondelete="SET NULL"), nullable=True)
+    artifact_path = Column(String, nullable=True)
+    content_ref = Column(String, nullable=True)
+    artifact_metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspace = relationship("Workspace", back_populates="artifacts")
+
+    __table_args__ = (
+        Index("idx_workspace_artifacts_workspace_id", "workspace_id"),
+        Index("idx_workspace_artifacts_workspace_type", "workspace_id", "artifact_type"),
+        Index("idx_workspace_artifacts_workspace_path", "workspace_id", "artifact_path"),
+        Index("idx_workspace_artifacts_workspace_action_state", "workspace_id", "action_state_id"),
+    )
+
+
 class Session(Base):
     __tablename__ = "sessions"
 
     id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True)
     title = Column(String, nullable=False)
     summary = Column(Text, nullable=True)
     agent_id = Column(String, nullable=True)
@@ -21,6 +88,7 @@ class Session(Base):
     skill_events = relationship("SkillEffectivenessEvent", back_populates="session", cascade="all, delete-orphan")
     action_events = relationship("ActionEvent", back_populates="session", cascade="all, delete-orphan")
     action_states = relationship("ActionState", back_populates="session", cascade="all, delete-orphan")
+    workspace = relationship("Workspace", back_populates="sessions")
 
 class Message(Base):
     __tablename__ = "messages"
@@ -44,6 +112,10 @@ class Message(Base):
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
     finish_reason = Column(String, nullable=True)
+    continuation_of = Column(String, nullable=True)
+    continuation_root_id = Column(String, nullable=True)
+    continuation_status = Column(String, nullable=True)
+    content_type = Column(String, nullable=True)
     embedding = Column(Text, nullable=True)
 
     session = relationship("Session", back_populates="messages")
@@ -52,6 +124,7 @@ class Message(Base):
     __table_args__ = (
         Index("idx_messages_session_id", "session_id"),
         Index("idx_messages_turn_id", "assistant_turn_id"),
+        Index("idx_messages_continuation_root", "continuation_root_id"),
     )
 
 class ToolCall(Base):

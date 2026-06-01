@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup, Show, createEffect, createMemo } from 'solid-js';
-import { FeatureFlags, Message, SkillSpec, VisibleSkillChip } from '../types';
+import { FeatureFlags, Message, SkillSpec, VisibleSkillChip, Workspace, WorkspaceArtifact, WorkspaceSource } from '../types';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
@@ -31,6 +31,7 @@ import { DEFAULT_PREFERENCES, Preferences, normalizeFeatureFlags, normalizePrefe
 import { getSpeechMessageId } from '../utils/speech';
 import { composeVoiceInputText, useVoiceInput } from '../hooks/useVoiceInput';
 import { copyCodeBlockText } from '../utils/markdown';
+import { buildContinuationRequestOverrides } from '../utils/continuation';
 import {
   readCachedFeatureFlags,
   readCachedPreferences,
@@ -65,6 +66,16 @@ function ChatContent(props: {
   const [isArtifactFullscreen, setIsArtifactFullscreen] = createSignal(false);
   const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
   const [showTraceShell, setShowTraceShell] = createSignal(false);
+  const [workspaces, setWorkspaces] = createSignal<Workspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = createSignal<string | null>(null);
+  const [workspaceSources, setWorkspaceSources] = createSignal<WorkspaceSource[]>([]);
+  const [workspaceArtifacts, setWorkspaceArtifacts] = createSignal<WorkspaceArtifact[]>([]);
+  const [workspaceSourceMode, setWorkspaceSourceMode] = createSignal<'all_ready' | 'selected' | 'none'>('all_ready');
+  const [selectedWorkspaceSourceIds, setSelectedWorkspaceSourceIds] = createSignal<string[]>([]);
+  const [groundingMode, setGroundingMode] = createSignal<'normal' | 'prefer_sources' | 'require_sources'>('normal');
+  const [workspaceLoading, setWorkspaceLoading] = createSignal(false);
+  const [sourcesLoading, setSourcesLoading] = createSignal(false);
+  const [artifactsLoading, setArtifactsLoading] = createSignal(false);
   
   // Refs
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -110,7 +121,8 @@ function ChatContent(props: {
     selectedModel,
     selectedAgent,
     requestedSkill,
-    setShowLLMSelector
+    setShowLLMSelector,
+    selectedWorkspaceId,
   );
 
   const {
@@ -146,6 +158,9 @@ function ChatContent(props: {
     submitActionDecision,
     handleSubmit: originalHandleSubmit,
   } = chatState;
+  const selectedWorkspace = createMemo(() =>
+    workspaces().find((workspace) => workspace.id === selectedWorkspaceId()) || null
+  );
   const voiceInput = useVoiceInput(() => ({
     language: props.speechPrefs().voice_input_language,
     appLanguage: props.speechPrefs().language,
@@ -230,6 +245,212 @@ function ChatContent(props: {
     setActiveSkill(null);
   });
 
+  const loadWorkspaces = async (preferredWorkspaceId?: string | null) => {
+    setWorkspaceLoading(true);
+    try {
+      const res = await fetch('/api/workspaces/');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const next = Array.isArray(data) ? (data as Workspace[]) : [];
+      setWorkspaces(next);
+      const preferred = preferredWorkspaceId === undefined ? selectedWorkspaceId() : preferredWorkspaceId;
+      if (preferred && next.some((workspace) => workspace.id === preferred)) {
+        setSelectedWorkspaceId(preferred);
+      } else if (preferred === null) {
+        setSelectedWorkspaceId(null);
+      } else if (selectedWorkspaceId() && !next.some((workspace) => workspace.id === selectedWorkspaceId())) {
+        setSelectedWorkspaceId(null);
+      }
+    } catch (e) {
+      console.error('Failed to load workspaces', e);
+      toast.error('Failed to load workspaces');
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const loadWorkspaceSources = async (workspaceId: string | null) => {
+    if (!workspaceId) {
+      setWorkspaceSources([]);
+      return;
+    }
+    setSourcesLoading(true);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/sources`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const next = Array.isArray(data) ? (data as WorkspaceSource[]) : [];
+      setWorkspaceSources(next);
+      setSelectedWorkspaceSourceIds(prev => prev.filter((id) => next.some((source) => source.id === id)));
+    } catch (e) {
+      console.error('Failed to load workspace sources', e);
+      toast.error('Failed to load workspace sources');
+      setWorkspaceSources([]);
+    } finally {
+      setSourcesLoading(false);
+    }
+  };
+
+  const checkWorkspaceSources = async () => {
+    const workspaceId = selectedWorkspaceId();
+    if (!workspaceId) return;
+    setSourcesLoading(true);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/sources/check`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadWorkspaceSources(workspaceId);
+      toast.success('Workspace sources checked');
+    } catch (e) {
+      console.error('Failed to check workspace sources', e);
+      toast.error('Failed to check workspace sources');
+    } finally {
+      setSourcesLoading(false);
+    }
+  };
+
+  const checkWorkspaceSource = async (sourceId: string) => {
+    const workspaceId = selectedWorkspaceId();
+    if (!workspaceId) return;
+    setSourcesLoading(true);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/sources/${sourceId}/check`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadWorkspaceSources(workspaceId);
+    } catch (e) {
+      console.error('Failed to check workspace source', e);
+      toast.error('Failed to check workspace source');
+    } finally {
+      setSourcesLoading(false);
+    }
+  };
+
+  const loadWorkspaceArtifacts = async (workspaceId: string | null) => {
+    if (!workspaceId) {
+      setWorkspaceArtifacts([]);
+      return;
+    }
+    setArtifactsLoading(true);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/artifacts`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setWorkspaceArtifacts(Array.isArray(data) ? (data as WorkspaceArtifact[]) : []);
+    } catch (e) {
+      console.error('Failed to load workspace artifacts', e);
+      toast.error('Failed to load workspace artifacts');
+      setWorkspaceArtifacts([]);
+    } finally {
+      setArtifactsLoading(false);
+    }
+  };
+
+  const handleSelectWorkspace = (workspaceId: string | null) => {
+    if (selectedWorkspaceId() === workspaceId) return;
+    setSelectedWorkspaceId(workspaceId);
+    setWorkspaceSourceMode('all_ready');
+    setSelectedWorkspaceSourceIds([]);
+    setGroundingMode('normal');
+    startNewChat(isMobile(), setShowHistory);
+  };
+
+  const toggleWorkspaceSource = (sourceId: string) => {
+    setSelectedWorkspaceSourceIds(prev =>
+      prev.includes(sourceId)
+        ? prev.filter((id) => id !== sourceId)
+        : [...prev, sourceId]
+    );
+  };
+
+  const buildWorkspaceRequestOverrides = () => {
+    if (!selectedWorkspaceId()) return {};
+    return {
+      workspace_source_mode: workspaceSourceMode(),
+      selected_workspace_source_ids: workspaceSourceMode() === 'selected' ? selectedWorkspaceSourceIds() : undefined,
+      grounding_mode: groundingMode(),
+    };
+  };
+
+  const effectiveWorkspaceSourceIds = () => {
+    if (workspaceSourceMode() === 'none') return [];
+    if (workspaceSourceMode() === 'selected') return selectedWorkspaceSourceIds();
+    return workspaceSources().filter((source) => source.status === 'ready').map((source) => source.id);
+  };
+
+  const saveLastAssistantAsWorkspaceNote = async () => {
+    const workspaceId = selectedWorkspaceId();
+    const chatId = currentChatId();
+    const lastAssistantMsg = [...messages()].reverse().find(m => m.role === 'assistant');
+    if (!workspaceId || !chatId || !lastAssistantMsg) {
+      toast.error('No workspace assistant message to save.', 3000);
+      return;
+    }
+    const res = await fetch(`/api/workspaces/${workspaceId}/notes/from-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: typeof lastAssistantMsg.id === 'number' ? lastAssistantMsg.id : undefined,
+        title: lastAssistantMsg.content.slice(0, 60) || 'Workspace note',
+        source_ids: effectiveWorkspaceSourceIds(),
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  };
+
+  const saveLastAssistantAsResearchArtifact = async () => {
+    const workspaceId = selectedWorkspaceId();
+    const chatId = currentChatId();
+    const lastAssistantMsg = [...messages()].reverse().find(m => m.role === 'assistant');
+    if (!workspaceId || !chatId || !lastAssistantMsg) {
+      toast.error('No workspace assistant message to save.', 3000);
+      return;
+    }
+    const question = [...messages()].reverse().find(m => m.role === 'user')?.content || 'Workspace research artifact';
+    const res = await fetch(`/api/workspaces/${workspaceId}/research-artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        summary: lastAssistantMsg.content,
+        source_ids: effectiveWorkspaceSourceIds(),
+        mode: groundingMode(),
+        source_session_id: chatId,
+        source_message_id: typeof lastAssistantMsg.id === 'number' ? lastAssistantMsg.id : undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadWorkspaceArtifacts(workspaceId);
+  };
+
+  const handleCreateWorkspace = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      const res = await fetch('/api/workspaces/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const workspace = (await res.json()) as Workspace;
+      await loadWorkspaces(workspace.id);
+      setSelectedWorkspaceId(workspace.id);
+      startNewChat(isMobile(), setShowHistory);
+      toast.success('Workspace created');
+    } catch (e) {
+      console.error('Failed to create workspace', e);
+      toast.error('Failed to create workspace');
+    }
+  };
+
+  createEffect(() => {
+    void loadWorkspaceSources(selectedWorkspaceId());
+  });
+
+  createEffect(() => {
+    void loadWorkspaceArtifacts(selectedWorkspaceId());
+  });
+
   // Sync textarea height with input content
   createEffect(() => {
     const _value = input(); // Track input
@@ -267,7 +488,7 @@ function ChatContent(props: {
     if (trimmedInput === '/help') {
       const helpMsg: Message = {
         role: 'assistant',
-        content: 'Commands: /help /note /clear',
+        content: 'Commands: /help /note /research /clear',
         timestamp: new Date().toISOString()
       };
       setMessages(prev => [...prev, helpMsg]);
@@ -282,12 +503,23 @@ function ChatContent(props: {
     }
 
     if (trimmedInput === '/note') {
-      const lastAssistantMsg = [...messages()].reverse().find(m => m.role === 'assistant');
-      if (lastAssistantMsg) {
-        toast.success('Saved to notes.', 3000);
-      } else {
-        toast.error('No assistant message to save.', 3000);
-      }
+      saveLastAssistantAsWorkspaceNote()
+        .then(() => toast.success('Saved to workspace notes.', 3000))
+        .catch((err) => {
+          console.error('Failed to save workspace note', err);
+          toast.error('Failed to save workspace note.', 3000);
+        });
+      setInput('');
+      return;
+    }
+
+    if (trimmedInput === '/research') {
+      saveLastAssistantAsResearchArtifact()
+        .then(() => toast.success('Saved as research artifact.', 3000))
+        .catch((err) => {
+          console.error('Failed to save research artifact', err);
+          toast.error('Failed to save research artifact.', 3000);
+        });
       setInput('');
       return;
     }
@@ -298,16 +530,12 @@ function ChatContent(props: {
       return;
     }
 
-    originalHandleSubmit(e);
+    void submitText(input(), buildWorkspaceRequestOverrides());
   };
 
   const handleContinue = (msg: Message) => {
-    void msg;
     speech.stopCurrent();
-    setInput("继续");
-    setTimeout(() => {
-      handleSubmit(new Event('submit'));
-    }, 0);
+    void submitText("继续", buildContinuationRequestOverrides(messages(), msg));
   };
 
   const handleGenerateSummary = async (chatId: string) => {
@@ -319,7 +547,7 @@ function ChatContent(props: {
       toast.info('No summary generated');
     }
     if (currentChatId() === chatId) {
-      await loadChat(chatId, false, setShowHistory, setSelectedAgent);
+      await loadChat(chatId, false, setShowHistory, setSelectedAgent, setSelectedWorkspaceId);
     }
   };
 
@@ -404,6 +632,7 @@ function ChatContent(props: {
 
     loadProviders();
     loadSkills();
+    void loadWorkspaces();
 
     (window as any).openArtifact = (lang: string, encodedContent: string) => {
       try {
@@ -716,14 +945,31 @@ function ChatContent(props: {
         showHistory={showHistory()} 
         setShowHistory={setShowHistory}
         chats={chats()} 
-        currentChatId={currentChatId()} 
+        workspaces={workspaces()}
+        selectedWorkspaceId={selectedWorkspaceId()}
+        workspaceSources={workspaceSources()}
+        workspaceArtifacts={workspaceArtifacts()}
+        workspaceSourceMode={workspaceSourceMode()}
+        selectedWorkspaceSourceIds={selectedWorkspaceSourceIds()}
+        groundingMode={groundingMode()}
+        workspaceLoading={workspaceLoading()}
+        sourcesLoading={sourcesLoading()}
+        artifactsLoading={artifactsLoading()}
+        currentChatId={currentChatId()}
         onNewChat={() => {
           speech.stopCurrent();
           startNewChat(isMobile(), setShowHistory);
-        }} 
+        }}
+        onSelectWorkspace={handleSelectWorkspace}
+        onCreateWorkspace={handleCreateWorkspace}
+        onWorkspaceSourceModeChange={setWorkspaceSourceMode}
+        onToggleWorkspaceSource={toggleWorkspaceSource}
+        onGroundingModeChange={setGroundingMode}
+        onCheckWorkspaceSources={checkWorkspaceSources}
+        onCheckWorkspaceSource={checkWorkspaceSource}
         onLoadChat={(id) => {
           speech.stopCurrent();
-          loadChat(id, isMobile(), setShowHistory, setSelectedAgent);
+          loadChat(id, isMobile(), setShowHistory, setSelectedAgent, setSelectedWorkspaceId);
         }} 
         onDeleteChat={(id) => setConfirmDeleteId(id)} 
         onGenerateSummary={handleGenerateSummary}
@@ -760,6 +1006,13 @@ function ChatContent(props: {
                 </p>
               </div>
             </div>
+            <Show when={selectedWorkspace()}>
+              <div class="hidden md:flex items-center">
+                <span class="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 uppercase tracking-wider">
+                  {selectedWorkspace()!.name}
+                </span>
+              </div>
+            </Show>
             <Show when={currentAgent()?.skill_mode && currentAgent()?.skill_mode !== 'off'}>
               <div class="hidden md:flex items-center gap-2 ml-4">
                 <span class="text-[10px] uppercase tracking-wider font-bold text-violet-700 bg-violet-100 border border-violet-200 rounded-full px-2 py-1">

@@ -1,12 +1,31 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
-import { ChatSession } from '../types';
+import { ChatSession, Workspace, WorkspaceArtifact, WorkspaceSource } from '../types';
+import { filterChatsByWorkspace } from './ChatSidebar.helpers';
+import ChatSidebarResources from './ChatSidebarResources';
 
 interface ChatSidebarProps {
   showHistory: boolean;
   setShowHistory: (show: boolean) => void;
   chats: ChatSession[];
+  workspaces: Workspace[];
+  selectedWorkspaceId: string | null;
+  workspaceSources: WorkspaceSource[];
+  workspaceArtifacts: WorkspaceArtifact[];
+  workspaceSourceMode: 'all_ready' | 'selected' | 'none';
+  selectedWorkspaceSourceIds: string[];
+  groundingMode: 'normal' | 'prefer_sources' | 'require_sources';
+  workspaceLoading?: boolean;
+  sourcesLoading?: boolean;
+  artifactsLoading?: boolean;
   currentChatId: string | null;
   onNewChat: () => void;
+  onSelectWorkspace: (id: string | null) => void;
+  onCreateWorkspace: (name: string) => Promise<void> | void;
+  onWorkspaceSourceModeChange: (mode: 'all_ready' | 'selected' | 'none') => void;
+  onToggleWorkspaceSource: (sourceId: string) => void;
+  onGroundingModeChange: (mode: 'normal' | 'prefer_sources' | 'require_sources') => void;
+  onCheckWorkspaceSources: () => Promise<void> | void;
+  onCheckWorkspaceSource: (sourceId: string) => Promise<void> | void;
   onLoadChat: (id: string) => void;
   onDeleteChat: (id: string) => void;
   onGenerateSummary: (id: string) => void;
@@ -53,6 +72,11 @@ export default function ChatSidebar(props: ChatSidebarProps) {
   const [collapsedGroups, setCollapsedGroups] = createSignal<Record<string, boolean>>({});
   const [savedPresets, setSavedPresets] = createSignal<SavedPreset[]>([]);
   const [prefsReady, setPrefsReady] = createSignal(false);
+  const [newWorkspaceName, setNewWorkspaceName] = createSignal('');
+  const [showCreateWorkspace, setShowCreateWorkspace] = createSignal(false);
+  const [isResourcesExpanded, setIsResourcesExpanded] = createSignal(false);
+  const [isSourcesExpanded, setIsSourcesExpanded] = createSignal(false);
+  const [isArtifactsExpanded, setIsArtifactsExpanded] = createSignal(false);
 
   const matchesDatePreset = (iso: string) => {
     const preset = datePreset();
@@ -74,7 +98,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
     const tags = selectedTags();
     const mode = tagMode();
 
-    return props.chats.filter((chat) => {
+    return filterChatsByWorkspace(props.chats, props.selectedWorkspaceId).filter((chat) => {
       if (!matchesDatePreset(chat.updated_at)) return false;
 
       if (query) {
@@ -239,12 +263,32 @@ export default function ChatSidebar(props: ChatSidebarProps) {
       void persistFilterPreferences(state, presets);
     }, 350);
   });
+
+  createEffect(() => {
+    if (!props.selectedWorkspaceId) {
+      setIsResourcesExpanded(false);
+      setIsSourcesExpanded(false);
+      setIsArtifactsExpanded(false);
+      return;
+    }
+
+    const shouldExpandSources = props.workspaceSources.length > 0
+      && (props.workspaceSourceMode === 'selected'
+        || props.workspaceSources.some((source) => source.status !== 'ready'));
+    const shouldExpandArtifacts = props.workspaceArtifacts.length > 0 && props.workspaceArtifacts.length <= 2;
+
+    setIsResourcesExpanded((prev) => prev || shouldExpandSources);
+    setIsSourcesExpanded((prev) => prev || shouldExpandSources);
+    setIsArtifactsExpanded((prev) => prev || shouldExpandArtifacts);
+  });
+
   onCleanup(() => {
     if (persistTimer) window.clearTimeout(persistTimer);
   });
 
   const activeFilterCount = createMemo(() => {
     let count = 0;
+    if (props.selectedWorkspaceId) count += 1;
     if (searchQuery().trim()) count += 1;
     if (selectedTags().length > 0) count += 1;
     if (datePreset() !== 'all') count += 1;
@@ -262,6 +306,22 @@ export default function ChatSidebar(props: ChatSidebarProps) {
     }
     return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
+
+  const selectedWorkspace = createMemo(() =>
+    props.workspaces.find((workspace) => workspace.id === props.selectedWorkspaceId) || null
+  );
+
+  const handleCreateWorkspace = async () => {
+    const name = newWorkspaceName().trim();
+    if (!name) return;
+    await props.onCreateWorkspace(name);
+    setNewWorkspaceName('');
+    setShowCreateWorkspace(false);
+  };
+
+  const toggleResources = () => setIsResourcesExpanded((prev) => !prev);
+  const toggleSources = () => setIsSourcesExpanded((prev) => !prev);
+  const toggleArtifacts = () => setIsArtifactsExpanded((prev) => !prev);
 
   return (
     <div 
@@ -282,39 +342,130 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           "pointer-events": props.showHistory ? 'auto' : 'none'
         }}
       >
-        <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-          <div class="flex-1 relative">
-            <input 
-              type="text" 
-              value={searchQuery()}
-              onInput={(e) => setSearchQuery(e.currentTarget.value)}
-              placeholder="Search chats..." 
-              class="w-full bg-white border border-slate-200 rounded-lg px-8 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none transition-all shadow-sm" 
-            />
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <Show when={searchQuery()}>
-              <button 
-                onClick={() => setSearchQuery('')}
-                class="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
-                title="Clear search"
+        <div class="border-b border-slate-200 bg-slate-50">
+          <div class="px-4 py-3 border-b border-slate-200 bg-white/90">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Workspace</div>
+                <div class="mt-1 truncate text-sm font-semibold text-slate-800" title={selectedWorkspace()?.name || 'All Workspaces'}>
+                  {selectedWorkspace()?.name || 'All Workspaces'}
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Show when={props.workspaceLoading}>
+                  <span class="text-[10px] text-slate-400">Loading</span>
+                </Show>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateWorkspace((prev) => !prev)}
+                  aria-expanded={showCreateWorkspace()}
+                  class="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 hover:border-slate-300 hover:text-slate-800"
+                  title="Create workspace"
+                >
+                  + New
+                </button>
+              </div>
+            </div>
+            <div class="mt-2">
+              <select
+                value={props.selectedWorkspaceId || ''}
+                onChange={(e) => props.onSelectWorkspace(e.currentTarget.value || null)}
+                class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none transition-all"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+                <option value="">All Workspaces</option>
+                <For each={props.workspaces}>
+                  {(workspace) => <option value={workspace.id}>{workspace.name}</option>}
+                </For>
+              </select>
+            </div>
+            <Show when={showCreateWorkspace()}>
+              <div class="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={newWorkspaceName()}
+                  onInput={(e) => setNewWorkspaceName(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleCreateWorkspace();
+                    }
+                    if (e.key === 'Escape') {
+                      setShowCreateWorkspace(false);
+                    }
+                  }}
+                  placeholder="Create workspace"
+                  class="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                />
+                <button
+                  onClick={() => void handleCreateWorkspace()}
+                  class="px-3 py-2 bg-primary text-white rounded-lg text-[11px] font-bold shadow-sm hover:bg-primary-hover transition-colors active:scale-95"
+                  title="Create workspace"
+                >
+                  Add
+                </button>
+              </div>
             </Show>
           </div>
-          <button 
-            onClick={props.onNewChat} 
-            class="bg-primary hover:bg-primary-hover text-white p-2 rounded-lg transition-colors active:scale-95 shadow-sm"
-            title="New Chat"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
+
+          <div class="px-4 py-3 border-b border-slate-200 bg-white">
+            <div class="flex items-center gap-2">
+              <div class="flex-1 relative">
+                <input 
+                  type="text" 
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  placeholder="Search chats..." 
+                  class="w-full bg-white border border-slate-200 rounded-lg px-8 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none transition-all shadow-sm" 
+                />
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <Show when={searchQuery()}>
+                  <button 
+                    onClick={() => setSearchQuery('')}
+                    class="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
+                    title="Clear search"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </Show>
+              </div>
+              <button 
+                onClick={props.onNewChat} 
+                class="bg-primary hover:bg-primary-hover text-white p-2 rounded-lg transition-colors active:scale-95 shadow-sm"
+                title="New Chat"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
+
+            <ChatSidebarResources
+              selectedWorkspaceId={props.selectedWorkspaceId}
+              workspaceSources={props.workspaceSources}
+              workspaceArtifacts={props.workspaceArtifacts}
+              workspaceSourceMode={props.workspaceSourceMode}
+              selectedWorkspaceSourceIds={props.selectedWorkspaceSourceIds}
+              groundingMode={props.groundingMode}
+              sourcesLoading={props.sourcesLoading}
+              artifactsLoading={props.artifactsLoading}
+              isResourcesExpanded={isResourcesExpanded()}
+              isSourcesExpanded={isSourcesExpanded()}
+              isArtifactsExpanded={isArtifactsExpanded()}
+              onToggleResources={toggleResources}
+              onToggleSources={toggleSources}
+              onToggleArtifacts={toggleArtifacts}
+              onWorkspaceSourceModeChange={props.onWorkspaceSourceModeChange}
+              onToggleWorkspaceSource={props.onToggleWorkspaceSource}
+              onGroundingModeChange={props.onGroundingModeChange}
+              onCheckWorkspaceSources={props.onCheckWorkspaceSources}
+              onCheckWorkspaceSource={props.onCheckWorkspaceSource}
+              onLoadChat={props.onLoadChat}
+            />
+          </div>
         </div>
 
         <div class="px-4 py-3 border-b border-slate-100 bg-white flex gap-2 overflow-x-auto no-scrollbar">
@@ -422,6 +573,11 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                             </Show>
                             
                             <div class="flex flex-wrap gap-1 items-center">
+                              <Show when={chat.workspace_id && !props.selectedWorkspaceId}>
+                                <span class="px-1.5 py-0.5 text-[9px] font-semibold rounded uppercase tracking-tighter bg-amber-50 text-amber-700 border border-amber-200/70">
+                                  workspace
+                                </span>
+                              </Show>
                               <Show when={chat.tags && chat.tags.length > 0}>
                                 <For each={(chat.tags || []).slice(0, 3)}>
                                   {(tag) => (

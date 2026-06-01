@@ -1,6 +1,7 @@
 import { For, Show } from 'solid-js';
 import { Message } from '../types';
 import MessageItem from './MessageItem';
+import { getMergedContinuationContent, hasContinuationSiblings } from '../utils/continuation';
 
 interface MessageListProps {
   messages: Message[];
@@ -95,24 +96,31 @@ export default function MessageList(props: MessageListProps) {
 
       <For each={props.messages}>
         {(msg, index) => (
-          <MessageItem 
-            msg={msg}
-            index={index()}
-            isLatestAssistantMessage={index() === lastAssistantIndex()}
-            activeAgentName={props.activeAgentName}
-            isTyping={props.isTyping && index() === props.messages.length - 1}
-            expandedThoughts={props.expandedThoughts}
-            toggleThought={props.toggleThought}
-            elapsedTime={props.elapsedTime}
-            copiedMessageIndex={props.copiedMessageIndex}
-            copyUserMessage={props.copyUserMessage}
-            quoteUserMessage={props.quoteUserMessage}
-            handleRegenerate={props.handleRegenerate}
-            handleEditQuestion={props.handleEditQuestion}
-            onContinue={props.onContinue}
-            selectedProvider={props.selectedProvider}
-            selectedModel={props.selectedModel}
-          />
+          (() => {
+            const mergedContinuation =
+              msg.role === 'assistant' && (!!msg.continuation_of || hasContinuationSiblings(props.messages, msg));
+            return (
+              <MessageItem
+                msg={msg}
+                displayContent={mergedContinuation ? getMergedContinuationContent(props.messages, msg) : undefined}
+                index={index()}
+                isLatestAssistantMessage={index() === lastAssistantIndex()}
+                activeAgentName={props.activeAgentName}
+                isTyping={props.isTyping && index() === props.messages.length - 1}
+                expandedThoughts={props.expandedThoughts}
+                toggleThought={props.toggleThought}
+                elapsedTime={props.elapsedTime}
+                copiedMessageIndex={props.copiedMessageIndex}
+                copyUserMessage={props.copyUserMessage}
+                quoteUserMessage={props.quoteUserMessage}
+                handleRegenerate={props.handleRegenerate}
+                handleEditQuestion={props.handleEditQuestion}
+                onContinue={props.onContinue}
+                selectedProvider={props.selectedProvider}
+                selectedModel={props.selectedModel}
+              />
+            );
+          })()
         )}
       </For>
       

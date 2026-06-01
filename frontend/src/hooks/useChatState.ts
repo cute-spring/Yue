@@ -95,7 +95,8 @@ export function useChatState(
   selectedModel: () => string,
   selectedAgent: () => string | null,
   requestedSkill: () => string | null,
-  setShowLLMSelector: (v: boolean) => void
+  setShowLLMSelector: (v: boolean) => void,
+  currentWorkspaceId: () => string | null = () => null,
 ) {
   type HistoryFilters = {
     tags?: string[];
@@ -221,7 +222,13 @@ export function useChatState(
     }
   };
 
-  const loadChat = async (id: string, isMobile: boolean, setShowHistory: (v: boolean) => void, setSelectedAgent: (v: string | null) => void) => {
+  const loadChat = async (
+    id: string,
+    isMobile: boolean,
+    setShowHistory: (v: boolean) => void,
+    setSelectedAgent: (v: string | null) => void,
+    setSelectedWorkspaceId?: (v: string | null) => void,
+  ) => {
     if (isTyping()) stopGeneration();
     try {
       const res = await fetch(`/api/chat/${id}`);
@@ -275,6 +282,7 @@ export function useChatState(
       setCurrentChatId(data.id);
       setMessages(mergedMessages);
       setSelectedAgent(data.agent_id);
+      setSelectedWorkspaceId?.(data.workspace_id || null);
       if (data.active_skill_name && data.active_skill_version) {
         setActiveSkill({ name: data.active_skill_name, version: data.active_skill_version });
       } else {
@@ -361,13 +369,14 @@ export function useChatState(
     });
   };
 
-  const submitText = async (rawText: string) => {
+  const submitText = async (rawText: string, requestOverrides?: Record<string, any>) => {
     await submitChatText({
       rawText,
-      requestOverrides: undefined,
+      requestOverrides,
       currentImages: imageAttachments(),
       messages,
       currentChatId,
+      currentWorkspaceId,
       selectedProvider,
       selectedModel,
       selectedAgent,
@@ -422,6 +431,7 @@ export function useChatState(
       currentImages: [],
       messages,
       currentChatId,
+      currentWorkspaceId,
       selectedProvider,
       selectedModel,
       selectedAgent,

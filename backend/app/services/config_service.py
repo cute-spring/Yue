@@ -4,6 +4,8 @@ from pathlib import Path
 from copy import deepcopy
 from typing import Dict, Any, Optional, List
 
+from app.utils.upload_storage import get_uploads_root
+
 class ConfigService:
     """
     配置服务类
@@ -755,7 +757,11 @@ class ConfigService:
         doc_access = self.get_doc_access()
         allow_roots = doc_access.get("allow_roots") if isinstance(doc_access, dict) else None
         deny_roots = doc_access.get("deny_roots") if isinstance(doc_access, dict) else None
-        return (allow_roots or [], deny_roots or [])
+        normalized_allow = [root for root in (allow_roots or []) if isinstance(root, str) and root.strip()]
+        uploads_root = str(get_uploads_root().resolve())
+        if uploads_root not in normalized_allow:
+            normalized_allow.append(uploads_root)
+        return (normalized_allow, deny_roots or [])
 
     def get_exec_tool_config(self) -> Dict[str, Any]:
         exec_cfg = self._config.get("exec_tool", {})
