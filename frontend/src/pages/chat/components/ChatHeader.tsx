@@ -9,7 +9,6 @@ type ChatHeaderProps = {
   currentAgent: Agent | null | undefined;
   activeAgentName: string;
   isTyping: boolean;
-  selectedWorkspaceName: string | null;
   activeSkill: ActiveSkill;
   traceUiEnabled: boolean;
   onOpenTrace: () => void;
@@ -51,14 +50,6 @@ export default function ChatHeader(props: ChatHeaderProps) {
             </p>
           </div>
         </div>
-
-        <Show when={props.selectedWorkspaceName}>
-          <div class="hidden md:flex items-center">
-            <span class="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 uppercase tracking-wider">
-              {props.selectedWorkspaceName}
-            </span>
-          </div>
-        </Show>
 
         <Show when={props.currentAgent?.skill_mode && props.currentAgent?.skill_mode !== 'off'}>
           <div class="hidden md:flex items-center gap-2 ml-4">

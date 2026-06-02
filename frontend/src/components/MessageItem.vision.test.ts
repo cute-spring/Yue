@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatCitationSourceLabel,
   getRenderableUserAttachments,
   getWorkspaceCitationWarning,
   getVisionBadge,
@@ -158,6 +159,26 @@ describe('MessageItem workspace grounding helpers', () => {
         },
       }),
     ).toContain('no compatible retrieval tools');
+  });
+
+  it('formats citation labels for line and page ranges', () => {
+    expect(
+      formatCitationSourceLabel({
+        path: 'docs/plan.md',
+        start_line: 12,
+        end_line: 18,
+      }),
+    ).toBe('docs/plan.md#L12-L18');
+
+    expect(
+      formatCitationSourceLabel({
+        path: 'deck.pdf',
+        start_page: 3,
+        end_page: 4,
+      }),
+    ).toBe('deck.pdf#P3-P4');
+
+    expect(formatCitationSourceLabel({})).toBe('Unknown source');
   });
 
   it('distinguishes no-eligible-source warning from missing-citation follow-up warning', () => {

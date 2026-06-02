@@ -50,7 +50,6 @@ type UseChatContentActionsArgs = {
   ) => Promise<void>;
   setShowHistory: (value: boolean) => void;
   setSelectedAgent: (value: string | null) => void;
-  setSelectedWorkspaceId: (value: string | null) => void;
   selectedProvider: Accessor<string>;
   setSelectedProvider: Setter<string>;
   providers: Accessor<any[]>;
@@ -135,7 +134,6 @@ export function useChatContentActions(args: UseChatContentActionsArgs) {
         args.isMobile(),
         args.setShowHistory,
         args.setSelectedAgent,
-        args.setSelectedWorkspaceId,
       );
     }
   };

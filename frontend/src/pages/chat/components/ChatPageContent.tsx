@@ -2,6 +2,7 @@ import { createSignal, Show, createEffect } from 'solid-js';
 import { SkillSpec } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 import ChatSidebar from '../../../components/ChatSidebar';
+import { ChatWorkspaceDock } from '../../../components/chat-sidebar/ChatWorkspaceDock';
 import ChatInput from '../../../components/ChatInput';
 import MessageList from '../../../components/MessageList';
 import IntelligencePanel from '../../../components/IntelligencePanel';
@@ -45,6 +46,7 @@ export default function ChatPageContent(props: {
   const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
   const [showTraceShell, setShowTraceShell] = createSignal(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = createSignal<string | null>(null);
+  const [historyWorkspaceFilterId, setHistoryWorkspaceFilterId] = createSignal<string | null>(null);
 
   let textareaRef: HTMLTextAreaElement | undefined;
   let chatContainerRef: HTMLDivElement | undefined;
@@ -138,7 +140,6 @@ export default function ChatPageContent(props: {
     workspaceLoading,
     sourcesLoading,
     artifactsLoading,
-    selectedWorkspace,
     loadWorkspaces,
     checkWorkspaceSources,
     checkWorkspaceSource,
@@ -158,6 +159,15 @@ export default function ChatPageContent(props: {
     currentChatId,
     messages,
   });
+
+  createEffect(() => {
+    setHistoryWorkspaceFilterId(selectedWorkspaceId());
+  });
+
+  const handleManualSelectWorkspace = (workspaceId: string | null) => {
+    setHistoryWorkspaceFilterId(workspaceId);
+    handleSelectWorkspace(workspaceId);
+  };
 
   const voiceInput = useVoiceInput(() => ({
     language: props.speechPrefs().voice_input_language,
@@ -290,7 +300,6 @@ export default function ChatPageContent(props: {
     loadChat,
     setShowHistory,
     setSelectedAgent,
-    setSelectedWorkspaceId,
     selectedProvider,
     setSelectedProvider,
     providers,
@@ -313,7 +322,7 @@ export default function ChatPageContent(props: {
         setShowHistory={setShowHistory}
         chats={chats()}
         workspaces={workspaces()}
-        selectedWorkspaceId={selectedWorkspaceId()}
+        selectedWorkspaceId={historyWorkspaceFilterId()}
         workspaceSources={workspaceSources()}
         workspaceArtifacts={workspaceArtifacts()}
         workspaceSourceMode={workspaceSourceMode()}
@@ -327,7 +336,7 @@ export default function ChatPageContent(props: {
           speech.stopCurrent();
           startNewChat(isMobile(), setShowHistory);
         }}
-        onSelectWorkspace={handleSelectWorkspace}
+        onSelectWorkspace={handleManualSelectWorkspace}
         onCreateWorkspace={handleCreateWorkspace}
         onWorkspaceSourceModeChange={setWorkspaceSourceMode}
         onToggleWorkspaceSource={toggleWorkspaceSource}
@@ -336,10 +345,38 @@ export default function ChatPageContent(props: {
         onCheckWorkspaceSource={checkWorkspaceSource}
         onLoadChat={(id) => {
           speech.stopCurrent();
-          loadChat(id, isMobile(), setShowHistory, setSelectedAgent, setSelectedWorkspaceId);
+          loadChat(id, isMobile(), setShowHistory, setSelectedAgent);
         }}
         onDeleteChat={(id) => setConfirmDeleteId(id)}
         onGenerateSummary={handleGenerateSummary}
+      />
+
+      <ChatWorkspaceDock
+        workspaces={workspaces()}
+        selectedWorkspaceId={selectedWorkspaceId()}
+        workspaceSources={workspaceSources()}
+        workspaceArtifacts={workspaceArtifacts()}
+        workspaceSourceMode={workspaceSourceMode()}
+        selectedWorkspaceSourceIds={selectedWorkspaceSourceIds()}
+        groundingMode={groundingMode()}
+        workspaceLoading={workspaceLoading()}
+        sourcesLoading={sourcesLoading()}
+        artifactsLoading={artifactsLoading()}
+        onNewChat={() => {
+          speech.stopCurrent();
+          startNewChat(isMobile(), setShowHistory);
+        }}
+        onSelectWorkspace={handleManualSelectWorkspace}
+        onCreateWorkspace={handleCreateWorkspace}
+        onWorkspaceSourceModeChange={setWorkspaceSourceMode}
+        onToggleWorkspaceSource={toggleWorkspaceSource}
+        onGroundingModeChange={setGroundingMode}
+        onCheckWorkspaceSources={checkWorkspaceSources}
+        onCheckWorkspaceSource={checkWorkspaceSource}
+        onLoadChat={(id) => {
+          speech.stopCurrent();
+          loadChat(id, isMobile(), setShowHistory, setSelectedAgent);
+        }}
       />
 
       <div class="flex-1 flex flex-col h-full min-w-0 bg-background relative">
@@ -349,7 +386,6 @@ export default function ChatPageContent(props: {
           currentAgent={currentAgent() || null}
           activeAgentName={activeAgentName()}
           isTyping={isTyping()}
-          selectedWorkspaceName={selectedWorkspace()?.name || null}
           activeSkill={activeSkill()}
           traceUiEnabled={props.traceUiEnabled}
           onOpenTrace={() => setShowTraceShell(true)}
