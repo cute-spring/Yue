@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getRenderableUserAttachments,
+  getWorkspaceCitationWarning,
   getVisionBadge,
   getVisionFeedbackText,
   getWorkspaceGroundingModeLabel,
@@ -130,7 +131,22 @@ describe('MessageItem workspace grounding helpers', () => {
         },
         citations: [{ path: 'Report.pdf' }, { path: 'Report.pdf' }],
       }),
-    ).toBe('Selected sources; Citations required; 1 eligible, 1 unavailable; 2 citations attached');
+    ).toBe('Selected sources; Citations required; 1 eligible source, 1 unavailable; 2 citations attached');
+  });
+
+  it('summarizes missing citations with explicit source counts', () => {
+    expect(
+      getWorkspaceGroundingSummary({
+        workspace_grounding: {
+          workspace_id: 'ws_1',
+          workspace_source_mode: 'all_ready',
+          grounding_mode: 'require_sources',
+          eligible_sources: [{ id: 'src_1', display_name: 'Report.pdf' }],
+          unavailable_sources: [],
+        },
+        citations: [],
+      }),
+    ).toBe('All ready sources; Citations required; 1 eligible source; No citations attached');
   });
 
   it('returns tooling warning when backend marks require-sources turn as tool-incomplete', () => {
@@ -142,5 +158,31 @@ describe('MessageItem workspace grounding helpers', () => {
         },
       }),
     ).toContain('no compatible retrieval tools');
+  });
+
+  it('distinguishes no-eligible-source warning from missing-citation follow-up warning', () => {
+    expect(
+      getWorkspaceCitationWarning({
+        workspace_grounding: {
+          workspace_source_mode: 'selected',
+          grounding_mode: 'require_sources',
+          eligible_sources: [],
+          unavailable_sources: [{ id: 'src_2', display_name: 'Missing.pdf' }],
+        },
+        citations: [],
+      }),
+    ).toContain('no eligible workspace sources were available');
+
+    expect(
+      getWorkspaceCitationWarning({
+        workspace_grounding: {
+          workspace_source_mode: 'selected',
+          grounding_mode: 'require_sources',
+          eligible_sources: [{ id: 'src_1', display_name: 'Report.pdf' }],
+          unavailable_sources: [],
+        },
+        citations: [],
+      }),
+    ).toContain('treat it as needing follow-up verification');
   });
 });

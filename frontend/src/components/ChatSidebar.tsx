@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { ChatSession, Workspace, WorkspaceArtifact, WorkspaceSource } from '../types';
-import { filterChatsByWorkspace } from './ChatSidebar.helpers';
+import { filterChatsByWorkspace, formatWorkspaceCountLabel, getWorkspaceSourceReadinessCounts } from './ChatSidebar.helpers';
 import ChatSidebarResources from './ChatSidebarResources';
 
 interface ChatSidebarProps {
@@ -77,6 +77,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
   const [isResourcesExpanded, setIsResourcesExpanded] = createSignal(false);
   const [isSourcesExpanded, setIsSourcesExpanded] = createSignal(false);
   const [isArtifactsExpanded, setIsArtifactsExpanded] = createSignal(false);
+  const [panelDefaultsWorkspaceId, setPanelDefaultsWorkspaceId] = createSignal<string | null>(null);
 
   const matchesDatePreset = (iso: string) => {
     const preset = datePreset();
@@ -266,20 +267,27 @@ export default function ChatSidebar(props: ChatSidebarProps) {
 
   createEffect(() => {
     if (!props.selectedWorkspaceId) {
+      setPanelDefaultsWorkspaceId(null);
       setIsResourcesExpanded(false);
       setIsSourcesExpanded(false);
       setIsArtifactsExpanded(false);
       return;
     }
 
-    const shouldExpandSources = props.workspaceSources.length > 0
-      && (props.workspaceSourceMode === 'selected'
-        || props.workspaceSources.some((source) => source.status !== 'ready'));
+    if (props.sourcesLoading || props.artifactsLoading) return;
+    if (panelDefaultsWorkspaceId() === props.selectedWorkspaceId) return;
+
+    const noSourcesYet = props.workspaceSources.length === 0;
+    const hasSourceAttention = props.workspaceSources.some((source) => source.status !== 'ready');
+    const shouldExpandSources = noSourcesYet
+      || props.workspaceSourceMode === 'selected'
+      || hasSourceAttention;
     const shouldExpandArtifacts = props.workspaceArtifacts.length > 0 && props.workspaceArtifacts.length <= 2;
 
-    setIsResourcesExpanded((prev) => prev || shouldExpandSources);
-    setIsSourcesExpanded((prev) => prev || shouldExpandSources);
-    setIsArtifactsExpanded((prev) => prev || shouldExpandArtifacts);
+    setIsResourcesExpanded(true);
+    setIsSourcesExpanded(shouldExpandSources);
+    setIsArtifactsExpanded(shouldExpandArtifacts);
+    setPanelDefaultsWorkspaceId(props.selectedWorkspaceId);
   });
 
   onCleanup(() => {
@@ -310,6 +318,34 @@ export default function ChatSidebar(props: ChatSidebarProps) {
   const selectedWorkspace = createMemo(() =>
     props.workspaces.find((workspace) => workspace.id === props.selectedWorkspaceId) || null
   );
+  const workspaceReadiness = createMemo(() => getWorkspaceSourceReadinessCounts(props.workspaceSources));
+  const workspaceHeaderSummary = createMemo(() => {
+    if (!props.selectedWorkspaceId) {
+      return 'Pick a workspace to keep sources, saved work, and related chats together.';
+    }
+    if (props.workspaceLoading || props.sourcesLoading || props.artifactsLoading) {
+      return 'Loading workspace context so you can continue where you left off.';
+    }
+
+    const readiness = workspaceReadiness();
+    const parts: string[] = [];
+    if (readiness.total > 0) {
+      parts.push(`${formatWorkspaceCountLabel(readiness.ready, 'ready source')}`);
+      if (readiness.attention > 0) {
+        parts.push(`${formatWorkspaceCountLabel(readiness.attention, 'source needing attention', 'sources needing attention')}`);
+      }
+    } else {
+      parts.push('No sources yet');
+    }
+
+    if (props.workspaceArtifacts.length > 0) {
+      parts.push(formatWorkspaceCountLabel(props.workspaceArtifacts.length, 'saved artifact'));
+    } else {
+      parts.push('No saved artifacts yet');
+    }
+
+    return parts.join(' · ');
+  });
 
   const handleCreateWorkspace = async () => {
     const name = newWorkspaceName().trim();
@@ -349,6 +385,9 @@ export default function ChatSidebar(props: ChatSidebarProps) {
                 <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Workspace</div>
                 <div class="mt-1 truncate text-sm font-semibold text-slate-800" title={selectedWorkspace()?.name || 'All Workspaces'}>
                   {selectedWorkspace()?.name || 'All Workspaces'}
+                </div>
+                <div class="mt-1 text-[11px] leading-snug text-slate-500">
+                  {workspaceHeaderSummary()}
                 </div>
               </div>
               <div class="flex items-center gap-2">

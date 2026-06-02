@@ -118,14 +118,27 @@ export const getWorkspaceGroundingSummary = (msg: Pick<Message, 'workspace_groun
   if (grounding.workspace_source_mode === 'none') {
     return `${sourceMode}; ${groundingMode}`;
   }
-  const citationText = citationCount > 0 ? `${citationCount} citations attached` : 'no citations attached yet';
+  const eligibleText = `${eligibleCount} eligible source${eligibleCount === 1 ? '' : 's'}`;
   const unavailableText = unavailableCount > 0 ? `, ${unavailableCount} unavailable` : '';
-  return `${sourceMode}; ${groundingMode}; ${eligibleCount} eligible${unavailableText}; ${citationText}`;
+  const citationText = citationCount > 0 ? `${citationCount} citations attached` : 'No citations attached';
+  return `${sourceMode}; ${groundingMode}; ${eligibleText}${unavailableText}; ${citationText}`;
 };
 
 export const getWorkspaceToolingWarning = (msg: Pick<Message, 'workspace_grounding'>): string => {
   const warning = msg.workspace_grounding?.tooling_warning;
   return typeof warning === 'string' ? warning : '';
+};
+
+export const getWorkspaceCitationWarning = (msg: Pick<Message, 'workspace_grounding' | 'citations'>): string => {
+  const grounding = msg.workspace_grounding;
+  if (!grounding || grounding.grounding_mode !== 'require_sources') return '';
+  const citationCount = msg.citations?.length ?? 0;
+  if (citationCount > 0) return '';
+  const eligibleCount = grounding.eligible_sources?.length ?? 0;
+  if (eligibleCount === 0) {
+    return 'Citation-required mode was active, but no eligible workspace sources were available for this turn.';
+  }
+  return 'Citation-required mode was active. If this answer makes source-specific claims without citations, treat it as needing follow-up verification.';
 };
 
 const getAttachmentDisplayName = (attachment: Attachment): string => {
@@ -1038,9 +1051,25 @@ export default function MessageItem(props: MessageItemProps) {
                         </For>
                       </div>
                     </Show>
-                    <Show when={props.msg.workspace_grounding?.grounding_mode === 'require_sources' && (props.msg.citations?.length ?? 0) === 0}>
+                    <Show when={(props.msg.workspace_grounding?.unavailable_sources?.length ?? 0) > 0}>
+                      <div class="mt-3">
+                        <div class="text-[10px] font-black uppercase tracking-[0.2em] text-text-secondary/60">
+                          Unavailable in this turn
+                        </div>
+                        <div class="mt-2 flex flex-wrap gap-1.5">
+                          <For each={props.msg.workspace_grounding?.unavailable_sources || []}>
+                            {(source) => (
+                              <span class="max-w-full truncate rounded-full border border-amber-500/15 bg-amber-500/5 px-2 py-0.5 text-[10px] text-amber-700">
+                                {source.display_name || source.id}
+                              </span>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={getWorkspaceCitationWarning(props.msg)}>
                       <div class="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-700">
-                        Citation-required mode was active. If this answer makes source-specific claims without citations, treat it as needing follow-up verification.
+                        {getWorkspaceCitationWarning(props.msg)}
                       </div>
                     </Show>
                     <Show when={getWorkspaceToolingWarning(props.msg)}>
