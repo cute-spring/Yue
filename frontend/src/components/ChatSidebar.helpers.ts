@@ -68,6 +68,30 @@ export const getWorkspaceSourceToolLabels = (source: WorkspaceSource, limit = 2)
   return tools.slice(0, limit).map(formatWorkspaceSourceTool);
 };
 
+export type WorkspaceSourceReadinessCounts = {
+  total: number;
+  ready: number;
+  attention: number;
+  citationReady: number;
+};
+
+export const getWorkspaceSourceReadinessCounts = (sources: WorkspaceSource[]): WorkspaceSourceReadinessCounts => {
+  const ready = sources.filter((source) => source.status === 'ready').length;
+  const citationReady = sources.filter((source) => source.source_metadata?.citation_capable).length;
+  return {
+    total: sources.length,
+    ready,
+    attention: Math.max(sources.length - ready, 0),
+    citationReady,
+  };
+};
+
+export const formatWorkspaceCountLabel = (
+  count: number,
+  singular: string,
+  plural = `${singular}s`,
+): string => `${count} ${count === 1 ? singular : plural}`;
+
 export const getArtifactSourceLabels = (
   artifact: WorkspaceArtifact,
   sources: WorkspaceSource[],

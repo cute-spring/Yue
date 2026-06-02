@@ -405,6 +405,65 @@ def test_workspace_prompt_context_includes_upload_tool_location(temp_db, tmp_pat
     assert "tool_path=chat/2026/05/31/report.pdf" in context.prompt_block
 
 
+def test_workspace_prompt_context_mixed_readiness_matrix(temp_db, tmp_path):
+    workspace_service, _, _ = temp_db
+    ready_file = tmp_path / "ready.pdf"
+    pending_file = tmp_path / "pending.pdf"
+    ready_file.write_text("ready")
+    pending_file.write_text("pending")
+    workspace = workspace_service.create_workspace(name="Grounded Matrix")
+    ready = workspace_service.create_source(
+        workspace.id,
+        source_type="local_file",
+        source_ref=str(ready_file),
+        display_name="ready.pdf",
+        status="ready",
+        source_metadata={"citation_capable": True, "available_tools": ["docs_read_pdf"]},
+    )
+    pending = workspace_service.create_source(
+        workspace.id,
+        source_type="local_file",
+        source_ref=str(pending_file),
+        display_name="pending.pdf",
+        status="pending",
+    )
+
+    all_ready_context = workspace_service.build_prompt_context(
+        workspace.id,
+        workspace_source_mode="all_ready",
+        grounding_mode="require_sources",
+    )
+    assert all_ready_context is not None
+    assert [source.id for source in all_ready_context.eligible_sources] == [ready.id]
+    assert [source.id for source in all_ready_context.unavailable_sources] == [pending.id]
+    assert "Eligible sources:" in all_ready_context.prompt_block
+    assert "cite eligible workspace source ids" in all_ready_context.prompt_block
+
+    selected_pending_context = workspace_service.build_prompt_context(
+        workspace.id,
+        workspace_source_mode="selected",
+        selected_source_ids=[pending.id],
+        grounding_mode="require_sources",
+    )
+    assert selected_pending_context is not None
+    assert selected_pending_context.selected_source_ids == [pending.id]
+    assert selected_pending_context.eligible_sources == []
+    assert [source.id for source in selected_pending_context.unavailable_sources] == [pending.id]
+    assert "Eligible sources: none" in selected_pending_context.prompt_block
+    assert "pending.pdf" in selected_pending_context.prompt_block
+
+    no_sources_context = workspace_service.build_prompt_context(
+        workspace.id,
+        workspace_source_mode="none",
+        grounding_mode="prefer_sources",
+    )
+    assert no_sources_context is not None
+    assert no_sources_context.eligible_sources == []
+    assert {source.id for source in no_sources_context.unavailable_sources} == {ready.id, pending.id}
+    assert no_sources_context.selected_source_ids is None
+    assert "Eligible sources: none" in no_sources_context.prompt_block
+
+
 def test_workspace_artifact_crud_roundtrip(temp_db):
     workspace_service, chat_service, _ = temp_db
 

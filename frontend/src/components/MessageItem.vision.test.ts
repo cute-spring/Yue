@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatCitationSourceLabel,
   getRenderableUserAttachments,
+  getWorkspaceCitationWarning,
   getVisionBadge,
   getVisionFeedbackText,
   getWorkspaceGroundingModeLabel,
@@ -130,7 +132,22 @@ describe('MessageItem workspace grounding helpers', () => {
         },
         citations: [{ path: 'Report.pdf' }, { path: 'Report.pdf' }],
       }),
-    ).toBe('Selected sources; Citations required; 1 eligible, 1 unavailable; 2 citations attached');
+    ).toBe('Selected sources; Citations required; 1 eligible source, 1 unavailable; 2 citations attached');
+  });
+
+  it('summarizes missing citations with explicit source counts', () => {
+    expect(
+      getWorkspaceGroundingSummary({
+        workspace_grounding: {
+          workspace_id: 'ws_1',
+          workspace_source_mode: 'all_ready',
+          grounding_mode: 'require_sources',
+          eligible_sources: [{ id: 'src_1', display_name: 'Report.pdf' }],
+          unavailable_sources: [],
+        },
+        citations: [],
+      }),
+    ).toBe('All ready sources; Citations required; 1 eligible source; No citations attached');
   });
 
   it('returns tooling warning when backend marks require-sources turn as tool-incomplete', () => {
@@ -142,5 +159,51 @@ describe('MessageItem workspace grounding helpers', () => {
         },
       }),
     ).toContain('no compatible retrieval tools');
+  });
+
+  it('formats citation labels for line and page ranges', () => {
+    expect(
+      formatCitationSourceLabel({
+        path: 'docs/plan.md',
+        start_line: 12,
+        end_line: 18,
+      }),
+    ).toBe('docs/plan.md#L12-L18');
+
+    expect(
+      formatCitationSourceLabel({
+        path: 'deck.pdf',
+        start_page: 3,
+        end_page: 4,
+      }),
+    ).toBe('deck.pdf#P3-P4');
+
+    expect(formatCitationSourceLabel({})).toBe('Unknown source');
+  });
+
+  it('distinguishes no-eligible-source warning from missing-citation follow-up warning', () => {
+    expect(
+      getWorkspaceCitationWarning({
+        workspace_grounding: {
+          workspace_source_mode: 'selected',
+          grounding_mode: 'require_sources',
+          eligible_sources: [],
+          unavailable_sources: [{ id: 'src_2', display_name: 'Missing.pdf' }],
+        },
+        citations: [],
+      }),
+    ).toContain('no eligible workspace sources were available');
+
+    expect(
+      getWorkspaceCitationWarning({
+        workspace_grounding: {
+          workspace_source_mode: 'selected',
+          grounding_mode: 'require_sources',
+          eligible_sources: [{ id: 'src_1', display_name: 'Report.pdf' }],
+          unavailable_sources: [],
+        },
+        citations: [],
+      }),
+    ).toContain('treat it as needing follow-up verification');
   });
 });

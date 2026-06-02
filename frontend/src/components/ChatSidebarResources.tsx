@@ -1,10 +1,12 @@
 import { For, Show, createMemo } from 'solid-js';
 import { WorkspaceArtifact, WorkspaceSource } from '../types';
 import {
+  formatWorkspaceCountLabel,
   formatWorkspaceArtifactType,
   getArtifactSourceLabels,
   getResearchArtifactMetadata,
   getWorkspaceEvidenceSummary,
+  getWorkspaceSourceReadinessCounts,
   getWorkspaceSourceToolLabels,
 } from './ChatSidebar.helpers';
 
@@ -57,31 +59,50 @@ const formatGroundingModeLabel = (mode: GroundingMode) => {
 };
 
 export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
-  const sourcesReadyCount = createMemo(() =>
-    props.workspaceSources.filter((source) => source.source_metadata?.citation_capable || source.status === 'ready').length
-  );
+  const sourceReadiness = createMemo(() => getWorkspaceSourceReadinessCounts(props.workspaceSources));
+  const sourcesReadyCount = createMemo(() => sourceReadiness().citationReady || sourceReadiness().ready);
+  const sourcesAttentionCount = createMemo(() => sourceReadiness().attention);
 
   const latestArtifactTitle = createMemo(() => props.workspaceArtifacts[0]?.title || null);
 
   const resourcesSummary = createMemo(() => {
-    if (!props.selectedWorkspaceId) return 'Select a workspace to manage sources and artifacts.';
-    const parts = [
-      `${props.workspaceSources.length} sources`,
-      `${props.workspaceArtifacts.length} artifacts`,
-    ];
-    if (props.workspaceSources.length > 0) parts.push(`${sourcesReadyCount()} ready`);
+    if (!props.selectedWorkspaceId) return 'Choose a workspace to see the materials and saved work that support this chat.';
+    if (props.sourcesLoading || props.artifactsLoading) return 'Loading workspace context...';
+    const parts: string[] = [];
+    if (props.workspaceSources.length > 0) {
+      parts.push(`${formatWorkspaceCountLabel(sourcesReadyCount(), 'source')} ready for grounding`);
+      if (sourcesAttentionCount() > 0) {
+        parts.push(`${formatWorkspaceCountLabel(sourcesAttentionCount(), 'source')} needs attention`);
+      }
+    } else {
+      parts.push('Add sources to ground answers');
+    }
+    if (props.workspaceArtifacts.length > 0) {
+      parts.push(`${formatWorkspaceCountLabel(props.workspaceArtifacts.length, 'saved artifact')}`);
+    } else {
+      parts.push('No saved artifacts yet');
+    }
     return parts.join(' · ');
   });
 
   const sourcesSummary = createMemo(() => {
     if (!props.selectedWorkspaceId) return 'No workspace selected';
-    return `${props.workspaceSources.length} total · ${sourcesReadyCount()} ready`;
+    if (props.sourcesLoading) return 'Loading workspace materials...';
+    if (props.workspaceSources.length === 0) return 'No sources yet';
+    const parts = [`${formatWorkspaceCountLabel(sourcesReadyCount(), 'source')} ready`];
+    if (sourcesAttentionCount() > 0) {
+      parts.push(`${formatWorkspaceCountLabel(sourcesAttentionCount(), 'source')} needs attention`);
+    }
+    return parts.join(' · ');
   });
 
   const artifactsSummary = createMemo(() => {
     if (!props.selectedWorkspaceId) return 'No workspace selected';
+    if (props.artifactsLoading) return 'Loading saved work...';
     if (latestArtifactTitle()) return `Latest: ${latestArtifactTitle()}`;
-    return props.workspaceArtifacts.length > 0 ? `${props.workspaceArtifacts.length} artifacts` : 'No artifacts yet';
+    return props.workspaceArtifacts.length > 0
+      ? formatWorkspaceCountLabel(props.workspaceArtifacts.length, 'saved artifact')
+      : 'No saved artifacts yet';
   });
 
   const evidenceSummary = createMemo(() =>
@@ -92,6 +113,50 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
       props.selectedWorkspaceSourceIds,
     )
   );
+  const selectedReadyCount = createMemo(
+    () => props.workspaceSources.filter((source) => source.status === 'ready' && props.selectedWorkspaceSourceIds.includes(source.id)).length,
+  );
+  const sourceSelectionSummary = createMemo(() => {
+    if (props.workspaceSourceMode === 'none') return 'Workspace sources are off for this chat.';
+    if (props.workspaceSourceMode === 'selected') {
+      return `${selectedReadyCount()} ready of ${props.selectedWorkspaceSourceIds.length} selected`;
+    }
+    return `${sourcesReadyCount()} ready sources currently available`;
+  });
+  const resourcesEmptyHint = createMemo(() => {
+    if (!props.selectedWorkspaceId) {
+      return 'Select a workspace first, then add a file or continue a saved chat inside it.';
+    }
+    if (props.sourcesLoading || props.artifactsLoading) {
+      return 'Checking the workspace so the source and artifact lists stay current.';
+    }
+    if (props.workspaceSources.length === 0 && props.workspaceArtifacts.length === 0) {
+      return 'Start by asking a question in this workspace or upload a file in chat to give it context.';
+    }
+    if (props.workspaceSources.length === 0) {
+      return 'This workspace has saved work, but no source materials yet.';
+    }
+    if (props.workspaceArtifacts.length === 0) {
+      return 'Saved notes, reports, and research outputs will appear here after a workspace run.';
+    }
+    return '';
+  });
+  const formatSourceStatus = (status?: string | null) => {
+    switch (status) {
+      case 'ready':
+        return 'Ready';
+      case 'missing':
+        return 'Missing';
+      case 'unsupported_type':
+        return 'Unsupported';
+      case 'needs_permission':
+        return 'Needs permission';
+      case 'processing':
+        return 'Processing';
+      default:
+        return status ? status.replace(/[_-]+/g, ' ') : 'Unknown';
+    }
+  };
 
   return (
     <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
@@ -106,6 +171,11 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
           <div class="mt-1 line-clamp-2 text-[11px] leading-snug text-slate-600">
             {resourcesSummary()}
           </div>
+          <Show when={resourcesEmptyHint()}>
+            <div class="mt-1 line-clamp-2 text-[10px] leading-snug text-slate-400">
+              {resourcesEmptyHint()}
+            </div>
+          </Show>
           <Show when={props.selectedWorkspaceId}>
             <div class="mt-2 flex flex-wrap gap-1">
               <span class="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-600">
@@ -142,8 +212,8 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                 <div class="mt-1 text-[11px] text-slate-600">
                   {sourcesSummary()}
                 </div>
-                <div class="mt-1 text-[10px] text-slate-400">
-                  {formatSourceModeLabel(props.workspaceSourceMode)} · {formatGroundingModeLabel(props.groundingMode)}
+                <div class="mt-1 text-[10px] leading-snug text-slate-400">
+                  {formatSourceModeLabel(props.workspaceSourceMode)} · {formatGroundingModeLabel(props.groundingMode)} · {sourceSelectionSummary()}
                 </div>
               </div>
               <svg
@@ -190,11 +260,15 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                 </div>
                 <Show
                   when={!props.sourcesLoading}
-                  fallback={<div class="text-[11px] text-slate-400 italic">Loading sources...</div>}
+                  fallback={<div class="text-[11px] text-slate-400 italic">Loading workspace materials...</div>}
                 >
                   <Show
                     when={props.workspaceSources.length > 0}
-                    fallback={<div class="text-[11px] text-slate-400 italic">No sources registered yet.</div>}
+                    fallback={
+                      <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-[11px] leading-relaxed text-slate-500">
+                        No sources yet. Upload a file in chat or attach a local document to give this workspace evidence.
+                      </div>
+                    }
                   >
                     <div class="space-y-2 max-h-36 overflow-y-auto no-scrollbar pr-1">
                       <For each={props.workspaceSources}>
@@ -219,7 +293,7 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                 <div class="mt-1 flex items-center gap-1.5 text-[9px] uppercase tracking-wide text-slate-500">
                                   <span class="rounded bg-white px-1.5 py-0.5 border border-slate-200">{source.source_type}</span>
                                   <Show when={source.status}>
-                                    <span class="rounded bg-white px-1.5 py-0.5 border border-slate-200">{source.status}</span>
+                                    <span class="rounded bg-white px-1.5 py-0.5 border border-slate-200">{formatSourceStatus(source.status)}</span>
                                   </Show>
                                   <Show when={source.source_metadata?.readiness_error_message}>
                                     <span class="truncate text-[9px] normal-case tracking-normal text-rose-500">
@@ -292,11 +366,15 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
               <div class="border-t border-slate-100 px-3 pb-3">
                 <Show
                   when={!props.artifactsLoading}
-                  fallback={<div class="mt-3 text-[11px] text-slate-400 italic">Loading artifacts...</div>}
+                  fallback={<div class="mt-3 text-[11px] text-slate-400 italic">Loading saved work...</div>}
                 >
                   <Show
                     when={props.workspaceArtifacts.length > 0}
-                    fallback={<div class="mt-3 text-[11px] text-slate-400 italic">No artifacts registered yet.</div>}
+                    fallback={
+                      <div class="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-[11px] leading-relaxed text-slate-500">
+                        No saved artifacts yet. Research notes, reports, and linked outputs will appear here after a workspace run.
+                      </div>
+                    }
                   >
                     <div class="mt-3 space-y-2 max-h-72 overflow-y-auto no-scrollbar pr-1">
                       <For each={props.workspaceArtifacts}>

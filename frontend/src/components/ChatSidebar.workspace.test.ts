@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   filterChatsByWorkspace,
+  formatWorkspaceCountLabel,
   getArtifactSourceLabels,
   getResearchArtifactMetadata,
   getWorkspaceEvidenceSummary,
+  getWorkspaceSourceReadinessCounts,
   getWorkspaceSourceToolLabels,
 } from './ChatSidebar.helpers';
 import type { ChatSession, WorkspaceArtifact, WorkspaceSource } from '../types';
@@ -90,6 +92,35 @@ describe('ChatSidebar research artifact helpers', () => {
     expect(getWorkspaceEvidenceSummary('selected', 'require_sources', sources, ['src_pdf', 'src_missing'])).toBe(
       '1/2 selected sources ready; citations required',
     );
+  });
+
+  it('counts ready and attention-needed sources for workspace summaries', () => {
+    expect(
+      getWorkspaceSourceReadinessCounts([
+        sources[0],
+        {
+          id: 'src_csv',
+          workspace_id: 'ws_1',
+          source_type: 'upload',
+          source_ref: 'uploads/chat/data.csv',
+          display_name: 'Data.csv',
+          status: 'unsupported_type',
+          source_metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+          updated_at: '2026-05-30T00:00:00Z',
+        },
+      ]),
+    ).toEqual({
+      total: 2,
+      ready: 1,
+      attention: 1,
+      citationReady: 0,
+    });
+  });
+
+  it('formats singular and plural workspace count labels', () => {
+    expect(formatWorkspaceCountLabel(1, 'saved artifact')).toBe('1 saved artifact');
+    expect(formatWorkspaceCountLabel(2, 'saved artifact')).toBe('2 saved artifacts');
   });
 
   it('formats readiness tool labels for source cards', () => {
