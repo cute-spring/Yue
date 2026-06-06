@@ -19,13 +19,13 @@ test('Chat slash commands and @mention dropdown', async ({ page }) => {
   // /help command shows list
   await input.fill('/help');
   await input.press('Enter');
-  await expect(page.locator('text=Commands: /help /note /clear')).toBeVisible();
+  await expect(page.locator('text=Commands: /help /note /research /clear')).toBeVisible();
 
   // /note without assistant message shows fallback
   await input.fill('/note');
   await input.press('Enter');
-  const fallback = page.locator('text=No assistant message to save.');
-  const saved = page.locator('text=Saved to notes.');
+  const fallback = page.locator('text=No workspace assistant message to save.');
+  const saved = page.getByText(/Saved note:|Saved to workspace notes\./);
   await expect(fallback.or(saved)).toBeVisible({ timeout: 10000 });
 });
 

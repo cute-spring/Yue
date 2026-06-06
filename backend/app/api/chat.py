@@ -11,6 +11,7 @@ from app.api.chat_endpoint_helpers import (
 from app.api.chat_schemas import (
     ActionStateResponse,
     ChatRequest,
+    CaptureTelemetryRequest,
     SummaryGenerateRequest,
     TruncateRequest,
 )
@@ -57,6 +58,29 @@ async def get_chat(chat_id: str):
 async def get_chat_events(chat_id: str, assistant_turn_id: Optional[str] = None, after_sequence: Optional[int] = None):
     require_chat(chat_id, chat_service=chat_service)
     return chat_service.get_chat_events(chat_id, assistant_turn_id=assistant_turn_id, after_sequence=after_sequence)
+
+
+@router.post("/{chat_id}/capture-events")
+async def add_capture_event(chat_id: str, request: CaptureTelemetryRequest):
+    require_chat(chat_id, chat_service=chat_service)
+    payload = {
+        "event": "workspace.capture.telemetry",
+        "workspace_id": request.workspace_id,
+        "event_type": request.event_type,
+        "source": request.source,
+        "assistant_message_id": request.assistant_message_id,
+        "accepted": request.accepted,
+        "note_id": request.note_id,
+        "candidate_id": request.candidate_id,
+        "metadata": request.metadata or {},
+    }
+    chat_service.add_action_event(
+        chat_id,
+        payload,
+        assistant_turn_id=request.assistant_turn_id,
+        run_id=request.run_id,
+    )
+    return {"status": "success"}
 
 @router.get("/{chat_id}/trace/bundle")
 async def get_chat_trace_bundle(chat_id: str, assistant_turn_id: Optional[str] = None, mode: str = Query(default="summary")):

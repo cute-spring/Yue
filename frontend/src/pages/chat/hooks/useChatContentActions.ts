@@ -1,5 +1,5 @@
 import { Accessor, Setter, createMemo } from 'solid-js';
-import { Message, SkillSpec } from '../../../types';
+import { Message, SkillSpec, WorkspaceNote } from '../../../types';
 import { canSubmitChatRequest } from '../../../hooks/useChatState';
 import { buildContinuationRequestOverrides } from '../../../utils/continuation';
 import { buildVisibleSkillOptions } from '../utils/skillResolution';
@@ -36,7 +36,7 @@ type UseChatContentActionsArgs = {
   setShowLLMSelector: Setter<boolean>;
   submitText: (value: string, overrides?: Record<string, unknown>) => Promise<void> | void;
   originalHandleSubmit: (event: Event) => void;
-  saveLastAssistantAsWorkspaceNote: () => Promise<void>;
+  saveLastAssistantAsWorkspaceNote: () => Promise<WorkspaceNote | null>;
   saveLastAssistantAsResearchArtifact: () => Promise<void>;
   buildWorkspaceRequestOverrides: () => Record<string, unknown>;
   generateSummary: (chatId: string, force?: boolean) => Promise<string | null | undefined>;

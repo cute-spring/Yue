@@ -104,6 +104,9 @@ export type Preferences = {
   language: string;
   default_agent: string;
   advanced_mode: boolean;
+  capture_suggestions_enabled: boolean;
+  memory_suggestions_enabled: boolean;
+  note_recall_enabled: boolean;
   voice_input_enabled: boolean;
   voice_input_provider: VoiceInputProvider;
   voice_input_language: string;
@@ -122,6 +125,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   language: 'en',
   default_agent: 'default',
   advanced_mode: false,
+  capture_suggestions_enabled: true,
+  memory_suggestions_enabled: true,
+  note_recall_enabled: true,
   voice_input_enabled: true,
   voice_input_provider: 'browser',
   voice_input_language: 'auto',
@@ -155,6 +161,18 @@ export const normalizePreferences = (value: any): Preferences => {
     language: typeof value?.language === 'string' ? value.language : DEFAULT_PREFERENCES.language,
     default_agent: typeof value?.default_agent === 'string' ? value.default_agent : DEFAULT_PREFERENCES.default_agent,
     advanced_mode: toBoolean(value?.advanced_mode, DEFAULT_PREFERENCES.advanced_mode),
+    capture_suggestions_enabled: toBoolean(
+      value?.capture_suggestions_enabled,
+      DEFAULT_PREFERENCES.capture_suggestions_enabled,
+    ),
+    memory_suggestions_enabled: toBoolean(
+      value?.memory_suggestions_enabled,
+      DEFAULT_PREFERENCES.memory_suggestions_enabled,
+    ),
+    note_recall_enabled: toBoolean(
+      value?.note_recall_enabled,
+      DEFAULT_PREFERENCES.note_recall_enabled,
+    ),
     voice_input_enabled: toBoolean(value?.voice_input_enabled, DEFAULT_PREFERENCES.voice_input_enabled),
     voice_input_provider: value?.voice_input_provider === 'azure' ? 'azure' : 'browser',
     voice_input_language: typeof value?.voice_input_language === 'string' && value.voice_input_language.trim()

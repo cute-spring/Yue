@@ -29,6 +29,7 @@ export default function ChatSidebar(props: ChatSidebarProps) {
           chats={props.chats}
           selectedWorkspaceId={props.selectedWorkspaceId}
           currentChatId={props.currentChatId}
+          onNewChat={props.onNewChat}
           searchQuery={state.searchQuery()}
           setSearchQuery={state.setSearchQuery}
           groupedChats={state.groupedChats()}

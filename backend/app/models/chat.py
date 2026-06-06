@@ -18,6 +18,13 @@ class Workspace(Base):
     sessions = relationship("Session", back_populates="workspace")
     sources = relationship("WorkspaceSource", back_populates="workspace", cascade="all, delete-orphan")
     artifacts = relationship("WorkspaceArtifact", back_populates="workspace", cascade="all, delete-orphan")
+    notes = relationship("WorkspaceNote", back_populates="workspace", cascade="all, delete-orphan")
+    memories = relationship("WorkspaceMemoryCard", back_populates="workspace", cascade="all, delete-orphan")
+    memory_candidates = relationship(
+        "WorkspaceMemoryCandidate",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+    )
 
 
 class WorkspaceSource(Base):
@@ -66,6 +73,98 @@ class WorkspaceArtifact(Base):
         Index("idx_workspace_artifacts_workspace_type", "workspace_id", "artifact_type"),
         Index("idx_workspace_artifacts_workspace_path", "workspace_id", "artifact_path"),
         Index("idx_workspace_artifacts_workspace_action_state", "workspace_id", "action_state_id"),
+    )
+
+
+class WorkspaceNote(Base):
+    __tablename__ = "workspace_notes"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String, nullable=False)
+    summary = Column(Text, nullable=False, default="")
+    content = Column(Text, nullable=False)
+    tags_json = Column(Text, nullable=False, default="[]")
+    note_type = Column(String, nullable=False, default="summary")
+    capture_type = Column(String, nullable=False, default="manual")
+    status = Column(String, nullable=False, default="saved")
+    source_session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
+    source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    source_message_ids_json = Column(Text, nullable=False, default="[]")
+    citation_refs_json = Column(Text, nullable=False, default="[]")
+    source_metadata_json = Column(Text, nullable=False, default="{}")
+    promoted_memory_id = Column(String, ForeignKey("workspace_memory_cards.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspace = relationship("Workspace", back_populates="notes")
+    promoted_memory = relationship("WorkspaceMemoryCard", foreign_keys=[promoted_memory_id], uselist=False)
+
+    __table_args__ = (
+        Index("idx_workspace_notes_workspace_id", "workspace_id"),
+        Index("idx_workspace_notes_workspace_status", "workspace_id", "status"),
+        Index("idx_workspace_notes_source_session", "source_session_id"),
+        Index("idx_workspace_notes_note_type", "note_type"),
+        Index("idx_workspace_notes_capture_type", "capture_type"),
+    )
+
+
+class WorkspaceMemoryCard(Base):
+    __tablename__ = "workspace_memory_cards"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    memory_type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="active")
+    confidence = Column(Float, nullable=True)
+    created_by = Column(String, nullable=True)
+    source_session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
+    source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    supersedes_memory_id = Column(String, ForeignKey("workspace_memory_cards.id", ondelete="SET NULL"), nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    memory_metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspace = relationship("Workspace", back_populates="memories")
+    supersedes_memory = relationship("WorkspaceMemoryCard", remote_side=[id], uselist=False)
+
+    __table_args__ = (
+        Index("idx_workspace_memory_cards_workspace_id", "workspace_id"),
+        Index("idx_workspace_memory_cards_workspace_type_status", "workspace_id", "memory_type", "status"),
+        Index("idx_workspace_memory_cards_workspace_last_used", "workspace_id", "last_used_at"),
+        Index("idx_workspace_memory_cards_workspace_supersedes", "workspace_id", "supersedes_memory_id"),
+    )
+
+
+class WorkspaceMemoryCandidate(Base):
+    __tablename__ = "workspace_memory_candidates"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    memory_type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    score = Column(Float, nullable=True)
+    suggested_action = Column(String, nullable=True)
+    conflict_memory_id = Column(String, ForeignKey("workspace_memory_cards.id", ondelete="SET NULL"), nullable=True)
+    source_session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
+    source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    candidate_metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspace = relationship("Workspace", back_populates="memory_candidates")
+    conflict_memory = relationship("WorkspaceMemoryCard", foreign_keys=[conflict_memory_id], uselist=False)
+
+    __table_args__ = (
+        Index("idx_workspace_memory_candidates_workspace_id", "workspace_id"),
+        Index("idx_workspace_memory_candidates_workspace_status", "workspace_id", "status"),
+        Index("idx_workspace_memory_candidates_workspace_conflict", "workspace_id", "conflict_memory_id"),
     )
 
 

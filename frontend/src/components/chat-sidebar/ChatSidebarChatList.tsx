@@ -7,6 +7,7 @@ type ChatSidebarChatListProps = {
   chats: ChatSession[];
   selectedWorkspaceId: string | null;
   currentChatId: string | null;
+  onNewChat: () => void;
   searchQuery: string;
   setSearchQuery: (value: string) => void;
   groupedChats: ChatSidebarGroup[];
@@ -27,6 +28,19 @@ export function ChatSidebarChatList(props: ChatSidebarChatListProps) {
     <>
       <div class="border-b border-slate-200 bg-white">
         <div class="px-4 py-3 border-b border-slate-100">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Chats</div>
+            <button
+              onClick={props.onNewChat}
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-primary active:scale-95"
+              title="New Chat"
+              aria-label="New Chat"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 5v14m-7-7h14" />
+              </svg>
+            </button>
+          </div>
           <div class="relative">
             <input
               type="text"

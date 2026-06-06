@@ -87,6 +87,45 @@ export function UserPreferencesForm(props: UserPreferencesFormProps) {
         </label>
       </div>
       <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
+        <h4 class="text-sm font-semibold text-gray-800">Memory Capture</h4>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <div class="flex-1">
+            <span class="text-sm font-medium text-gray-700 block">Show capture suggestions in chat</span>
+            <span class="text-xs text-gray-500">Offer lightweight “Save as note” prompts on strong assistant replies.</span>
+          </div>
+          <input
+            type="checkbox"
+            name="capture_suggestions_enabled"
+            class="h-4 w-4 accent-emerald-600"
+            checked={props.prefs().capture_suggestions_enabled}
+          />
+        </label>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <div class="flex-1">
+            <span class="text-sm font-medium text-gray-700 block">Show memory review suggestions</span>
+            <span class="text-xs text-gray-500">Surface “Review as memory” nudges when a reply looks durable.</span>
+          </div>
+          <input
+            type="checkbox"
+            name="memory_suggestions_enabled"
+            class="h-4 w-4 accent-emerald-600"
+            checked={props.prefs().memory_suggestions_enabled}
+          />
+        </label>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <div class="flex-1">
+            <span class="text-sm font-medium text-gray-700 block">Allow workspace note recall</span>
+            <span class="text-xs text-gray-500">Inject saved notes into later workspace chats as lower-authority recall context.</span>
+          </div>
+          <input
+            type="checkbox"
+            name="note_recall_enabled"
+            class="h-4 w-4 accent-emerald-600"
+            checked={props.prefs().note_recall_enabled}
+          />
+        </label>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
         <h4 class="text-sm font-semibold text-gray-800">Voice Input</h4>
         <div class="text-xs text-gray-500">
           Voice input now works in two steps: listen first, then review a voice draft and insert it into the composer when it looks right.

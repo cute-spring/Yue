@@ -1,8 +1,7 @@
-import { Attachment, Message } from '../../types';
+import { Attachment, Message, WorkspaceCaptureSuggestion } from '../../types';
 import { renderMarkdown } from '../../utils/markdown';
 
 export type EditShortcutAction = 'none' | 'cancel' | 'submit';
-
 export const getNormalizedEditedQuestion = (value: string): string => value.trim();
 
 export const getEditShortcutAction = (event: {
@@ -24,6 +23,63 @@ export const shouldCollapseAssistantMessage = (args: {
   if (args.role === 'user') return false;
   if (args.isTyping) return false;
   return !args.isLatestAssistantMessage;
+};
+
+export const getWorkspaceCaptureSuggestion = (
+  msg: Pick<Message, 'role' | 'content' | 'error' | 'citations' | 'workspace_notes' | 'workspace_memory' | 'finish_reason'>,
+  args: {
+    hasSelectedWorkspace: boolean;
+    isLatestAssistantMessage: boolean;
+    isTyping: boolean;
+    alreadySavedAsNote: boolean;
+    hasPendingMemoryCandidate: boolean;
+  },
+): WorkspaceCaptureSuggestion | null => {
+  if (!args.hasSelectedWorkspace || !args.isLatestAssistantMessage || args.isTyping) return null;
+  if (msg.role !== 'assistant') return null;
+  if (msg.error || msg.finish_reason === 'length') return null;
+
+  const content = (msg.content || '').trim();
+  if (!content) return null;
+
+  const compact = content.replace(/\s+/g, ' ').trim();
+  const lower = compact.toLowerCase();
+  const citationCount = msg.citations?.length ?? 0;
+  const recalledNoteCount = msg.workspace_notes?.loaded_note_count ?? 0;
+  const recalledMemoryCount = msg.workspace_memory?.loaded_memory_count ?? 0;
+  const bulletCount = (content.match(/^[\-\*\d]+\./gm) || []).length + (content.match(/^[\-\*]\s+/gm) || []).length;
+  const hasEvidence = citationCount > 0 || recalledNoteCount > 0 || recalledMemoryCount > 0;
+  const looksStructured = bulletCount >= 2 || /(?:总结|结论|建议|下一步|方案|要点|decision|summary|recommend|next step|plan)/i.test(compact);
+  const looksDurable = /(?:偏好|默认|习惯|约束|规则|决定|结论|采用|记住|preference|default|constraint|rule|decision|remember)/i.test(compact);
+  const substantial = compact.length >= 120 || hasEvidence || looksStructured;
+
+  if (!substantial) return null;
+
+  const showNoteAction = !args.alreadySavedAsNote;
+  const showMemoryAction = !args.hasPendingMemoryCandidate && (looksDurable || citationCount > 0 || compact.length >= 220);
+  if (!showNoteAction && !showMemoryAction) return null;
+
+  if (looksDurable) {
+    return {
+      show_note_action: showNoteAction,
+      show_memory_action: showMemoryAction,
+      reason: 'This reply looks like a reusable preference, rule, or decision worth keeping.',
+    };
+  }
+  if (citationCount > 0) {
+    return {
+      show_note_action: showNoteAction,
+      show_memory_action: showMemoryAction,
+      reason: 'This grounded answer has source support and may be useful to reuse later.',
+    };
+  }
+  return {
+    show_note_action: showNoteAction,
+    show_memory_action: showMemoryAction,
+    reason: lower.includes('summary') || /总结|结论|要点/.test(compact)
+      ? 'This summary looks worth saving as reusable workspace context.'
+      : 'This substantial answer may be worth capturing for future workspace recall.',
+  };
 };
 
 export const getVisionBadge = (msg: Pick<Message, 'supports_vision' | 'vision_enabled' | 'vision_fallback_mode' | 'image_count'>) => {

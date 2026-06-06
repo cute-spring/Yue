@@ -9,12 +9,18 @@ type ChatWorkspaceDockProps = Pick<
   | 'selectedWorkspaceId'
   | 'workspaceSources'
   | 'workspaceArtifacts'
+  | 'workspaceNotes'
+  | 'workspaceMemories'
+  | 'workspaceMemoryCandidates'
   | 'workspaceSourceMode'
   | 'selectedWorkspaceSourceIds'
   | 'groundingMode'
   | 'workspaceLoading'
   | 'sourcesLoading'
   | 'artifactsLoading'
+  | 'notesLoading'
+  | 'memoriesLoading'
+  | 'memorySuggestionsEnabled'
   | 'onNewChat'
   | 'onSelectWorkspace'
   | 'onCreateWorkspace'
@@ -24,6 +30,15 @@ type ChatWorkspaceDockProps = Pick<
   | 'onCheckWorkspaceSources'
   | 'onCheckWorkspaceSource'
   | 'onLoadChat'
+  | 'onSaveLastAssistantAsWorkspaceNote'
+  | 'onSuggestWorkspaceMemoryFromLastAssistantMessage'
+  | 'onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage'
+  | 'onSuggestWorkspaceMemoryCandidateFromNote'
+  | 'onCreateWorkspaceMemory'
+  | 'onUpdateWorkspaceMemory'
+  | 'onDeleteWorkspaceMemory'
+  | 'onApproveWorkspaceMemoryCandidate'
+  | 'onRejectWorkspaceMemoryCandidate'
 >;
 
 export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
@@ -33,7 +48,10 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
   const [isResourcesExpanded, setIsResourcesExpanded] = createSignal(false);
   const [isSourcesExpanded, setIsSourcesExpanded] = createSignal(false);
   const [isArtifactsExpanded, setIsArtifactsExpanded] = createSignal(false);
+  const [isNotesExpanded, setIsNotesExpanded] = createSignal(false);
+  const [isMemoriesExpanded, setIsMemoriesExpanded] = createSignal(false);
   const [panelDefaultsWorkspaceId, setPanelDefaultsWorkspaceId] = createSignal<string | null>(null);
+  const [lastWorkspaceNoteCount, setLastWorkspaceNoteCount] = createSignal(0);
 
   const selectedWorkspace = createMemo(() =>
     props.workspaces.find((workspace) => workspace.id === props.selectedWorkspaceId) || null,
@@ -45,7 +63,12 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
   const hasWorkspaceSignal = createMemo(
-    () => !!props.selectedWorkspaceId || props.workspaceSources.length > 0 || props.workspaceArtifacts.length > 0,
+    () =>
+      !!props.selectedWorkspaceId ||
+      props.workspaceSources.length > 0 ||
+      props.workspaceArtifacts.length > 0 ||
+      props.workspaceNotes.length > 0 ||
+      props.workspaceMemoryCandidates.length > 0,
   );
   const workspaceHeaderSummary = createMemo(() => {
     if (!props.selectedWorkspaceId) return 'Pick a workspace to group sources, saved work, and related chats.';
@@ -68,6 +91,11 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
         ? formatWorkspaceCountLabel(props.workspaceArtifacts.length, 'saved artifact')
         : 'No saved artifacts yet',
     );
+    parts.push(
+      props.workspaceNotes.length > 0
+        ? formatWorkspaceCountLabel(props.workspaceNotes.length, 'saved note')
+        : 'No saved notes yet',
+    );
     return parts.join(' · ');
   });
 
@@ -77,9 +105,11 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
       setIsResourcesExpanded(false);
       setIsSourcesExpanded(false);
       setIsArtifactsExpanded(false);
+      setIsNotesExpanded(false);
+      setIsMemoriesExpanded(false);
       return;
     }
-    if (props.sourcesLoading || props.artifactsLoading) return;
+    if (props.sourcesLoading || props.artifactsLoading || props.notesLoading) return;
     if (panelDefaultsWorkspaceId() === props.selectedWorkspaceId) return;
 
     const noSourcesYet = props.workspaceSources.length === 0;
@@ -87,7 +117,21 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
     setIsResourcesExpanded(true);
     setIsSourcesExpanded(noSourcesYet || props.workspaceSourceMode === 'selected' || hasSourceAttention);
     setIsArtifactsExpanded(props.workspaceArtifacts.length > 0 && props.workspaceArtifacts.length <= 2);
+    setIsNotesExpanded(props.workspaceNotes.length > 0);
+    setIsMemoriesExpanded(props.workspaceMemories.length > 0 || props.workspaceMemoryCandidates.length > 0);
+    setLastWorkspaceNoteCount(props.workspaceNotes.length);
     setPanelDefaultsWorkspaceId(props.selectedWorkspaceId);
+  });
+
+  createEffect(() => {
+    if (!props.selectedWorkspaceId || props.notesLoading) return;
+    const previousCount = lastWorkspaceNoteCount();
+    const nextCount = props.workspaceNotes.length;
+    if (nextCount > previousCount) {
+      setIsResourcesExpanded(true);
+      setIsNotesExpanded(true);
+    }
+    setLastWorkspaceNoteCount(nextCount);
   });
 
   const handleCreateWorkspace = async () => {
@@ -261,23 +305,42 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
               selectedWorkspaceId={props.selectedWorkspaceId}
               workspaceSources={props.workspaceSources}
               workspaceArtifacts={props.workspaceArtifacts}
+              workspaceNotes={props.workspaceNotes}
+              workspaceMemories={props.workspaceMemories}
+              workspaceMemoryCandidates={props.workspaceMemoryCandidates}
               workspaceSourceMode={props.workspaceSourceMode}
               selectedWorkspaceSourceIds={props.selectedWorkspaceSourceIds}
               groundingMode={props.groundingMode}
               sourcesLoading={props.sourcesLoading}
               artifactsLoading={props.artifactsLoading}
-              isResourcesExpanded={isResourcesExpanded()}
+              notesLoading={props.notesLoading}
+        memoriesLoading={props.memoriesLoading}
+        memorySuggestionsEnabled={props.memorySuggestionsEnabled}
+        isResourcesExpanded={isResourcesExpanded()}
               isSourcesExpanded={isSourcesExpanded()}
               isArtifactsExpanded={isArtifactsExpanded()}
+              isNotesExpanded={isNotesExpanded()}
+              isMemoriesExpanded={isMemoriesExpanded()}
               onToggleResources={() => setIsResourcesExpanded((prev) => !prev)}
               onToggleSources={() => setIsSourcesExpanded((prev) => !prev)}
               onToggleArtifacts={() => setIsArtifactsExpanded((prev) => !prev)}
+              onToggleNotes={() => setIsNotesExpanded((prev) => !prev)}
+              onToggleMemories={() => setIsMemoriesExpanded((prev) => !prev)}
               onWorkspaceSourceModeChange={props.onWorkspaceSourceModeChange}
               onToggleWorkspaceSource={props.onToggleWorkspaceSource}
               onGroundingModeChange={props.onGroundingModeChange}
               onCheckWorkspaceSources={props.onCheckWorkspaceSources}
               onCheckWorkspaceSource={props.onCheckWorkspaceSource}
               onLoadChat={props.onLoadChat}
+              onSaveLastAssistantAsWorkspaceNote={props.onSaveLastAssistantAsWorkspaceNote}
+              onSuggestWorkspaceMemoryFromLastAssistantMessage={props.onSuggestWorkspaceMemoryFromLastAssistantMessage}
+              onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage={props.onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage}
+              onSuggestWorkspaceMemoryCandidateFromNote={props.onSuggestWorkspaceMemoryCandidateFromNote}
+              onCreateWorkspaceMemory={props.onCreateWorkspaceMemory}
+              onUpdateWorkspaceMemory={props.onUpdateWorkspaceMemory}
+              onDeleteWorkspaceMemory={props.onDeleteWorkspaceMemory}
+              onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
+              onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
             />
           </div>
         </aside>

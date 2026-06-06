@@ -13,6 +13,8 @@ from app.api.chat_stream_runner_helpers import (
 )
 from app.api.chat_stream_runner_snapshot import (
     build_request_snapshot_record as _build_request_snapshot_record,
+    build_workspace_note_event as _build_workspace_note_event,
+    build_workspace_memory_event as _build_workspace_memory_event,
     build_workspace_grounding_event as _build_workspace_grounding_event,
     persist_request_snapshot as _persist_request_snapshot,
 )
@@ -24,6 +26,7 @@ from app.api.chat_stream_runner_types import (
 from app.services.chat_streaming import StreamEventEmitter
 from app.services.llm.routing import RoutingContext, resolve_runtime_model
 from app.services.memory.session_context_host import yue_session_context_service
+from app.services.notebook_service import notebook_service
 from app.services.workspace_service import workspace_service
 
 
@@ -106,6 +109,7 @@ async def prepare_prompt_runtime(
     resolved_skill_count = skill_runtime_state["resolved_skill_count"]
     summary_block = skill_runtime_state["summary_block"]
     session_context_block = None
+    workspace_note_context_block = None
     workspace_context_block = None
     effective_request_message = request.message
     if bool(ctx.feature_flags.get("session_context_enabled", False)):
@@ -128,20 +132,45 @@ async def prepare_prompt_runtime(
         except Exception:
             deps.logger.exception("Session context integration failed; continuing without injected context")
 
+    note_recall_enabled = getattr(request, "note_recall_enabled", None)
+    if note_recall_enabled is not False:
+        try:
+            workspace_note_context = notebook_service.build_prompt_context(
+                getattr(request, "workspace_id", None),
+                current_query=request.message,
+            )
+            if workspace_note_context is not None:
+                workspace_note_context_block = workspace_note_context.prompt_block
+                ctx.workspace_note_context = {
+                    "workspace_id": workspace_note_context.workspace_id,
+                    "loaded_note_ids": list(workspace_note_context.loaded_note_ids or []),
+                    "loaded_notes": [item.model_dump(mode="json") for item in workspace_note_context.loaded_notes],
+                }
+        except Exception:
+            deps.logger.exception("Workspace note context integration failed; continuing without injected workspace notes")
+
     try:
         workspace_context = workspace_service.build_prompt_context(
             getattr(request, "workspace_id", None),
             workspace_source_mode=getattr(request, "workspace_source_mode", None),
             selected_source_ids=getattr(request, "selected_workspace_source_ids", None),
             grounding_mode=getattr(request, "grounding_mode", None),
+            current_query=request.message,
         )
         if workspace_context is not None:
             workspace_context_block = workspace_context.prompt_block
             ctx.workspace_source_context = workspace_context.model_dump(mode="json")
+            ctx.workspace_memory_context = {
+                "workspace_id": workspace_context.workspace_id,
+                "loaded_memory_ids": list(workspace_context.loaded_memory_ids or []),
+                "loaded_memories": [item.model_dump(mode="json") for item in workspace_context.loaded_memories],
+            }
     except Exception:
         deps.logger.exception("Workspace source context integration failed; continuing without injected workspace context")
 
-    combined_context_blocks = [block for block in [session_context_block, workspace_context_block] if block]
+    combined_context_blocks = [
+        block for block in [session_context_block, workspace_note_context_block, workspace_context_block] if block
+    ]
     combined_context_block = "\n\n".join(combined_context_blocks) if combined_context_blocks else None
 
     prompt_result = deps.prompt.assemble_runtime_prompt(
@@ -253,6 +282,12 @@ async def prepare_prompt_runtime(
     )
     if workspace_grounding_event:
         yield emitter.emit(workspace_grounding_event)
+    workspace_memory_event = _build_workspace_memory_event(ctx)
+    if workspace_memory_event:
+        yield emitter.emit(workspace_memory_event)
+    workspace_note_event = _build_workspace_note_event(ctx)
+    if workspace_note_event:
+        yield emitter.emit(workspace_note_event)
 
     yield deps.prompt.emit_skill_effectiveness_event(
         chat_id=ctx.chat_id,

@@ -107,6 +107,8 @@ def build_request_snapshot_record(
             "selected_workspace_source_ids": list(getattr(request, "selected_workspace_source_ids", None) or []),
             "grounding_mode": getattr(request, "grounding_mode", None) or "normal",
             "workspace_source_context": getattr(ctx, "workspace_source_context", None),
+            "workspace_note_context": getattr(ctx, "workspace_note_context", None),
+            "workspace_memory_context": getattr(ctx, "workspace_memory_context", None),
         },
         redaction={},
         truncation={},
@@ -151,6 +153,146 @@ def build_workspace_grounding_event(
             "unavailable_sources": unavailable_sources,
             "enabled_tool_count": enabled_tool_count,
             "tooling_warning": tooling_warning,
+        }
+    }
+
+
+def build_workspace_memory_event(ctx: Any) -> Optional[Dict[str, Any]]:
+    context = getattr(ctx, "workspace_memory_context", None)
+    if not isinstance(context, dict):
+        return None
+
+    loaded_memories = context.get("loaded_memories")
+    if not isinstance(loaded_memories, list):
+        loaded_memories = []
+
+    summarized = []
+    for item in loaded_memories[:8]:
+        if not isinstance(item, dict):
+            continue
+        summarized.append(
+            {
+                "id": item.get("id"),
+                "memory_type": item.get("memory_type"),
+                "title": item.get("title"),
+                "content": item.get("content"),
+                "source_session_id": item.get("source_session_id"),
+                "source_message_id": item.get("source_message_id"),
+            }
+        )
+
+    return {
+        "workspace_memory": {
+            "workspace_id": context.get("workspace_id"),
+            "loaded_memory_ids": context.get("loaded_memory_ids") if isinstance(context.get("loaded_memory_ids"), list) else [],
+            "loaded_memories": summarized,
+            "loaded_memory_count": len(summarized),
+        }
+    }
+
+
+def build_workspace_note_event(ctx: Any) -> Optional[Dict[str, Any]]:
+    context = getattr(ctx, "workspace_note_context", None)
+    if not isinstance(context, dict):
+        return None
+
+    loaded_notes = context.get("loaded_notes")
+    if not isinstance(loaded_notes, list):
+        loaded_notes = []
+
+    summarized = []
+    for item in loaded_notes[:5]:
+        if not isinstance(item, dict):
+            continue
+        summarized.append(
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "summary": item.get("summary"),
+                "content": item.get("content"),
+                "note_type": item.get("note_type"),
+                "tags": item.get("tags") if isinstance(item.get("tags"), list) else [],
+                "source_session_id": item.get("source_session_id"),
+                "source_message_id": item.get("source_message_id"),
+            }
+        )
+
+    return {
+        "workspace_notes": {
+            "workspace_id": context.get("workspace_id"),
+            "loaded_note_ids": context.get("loaded_note_ids") if isinstance(context.get("loaded_note_ids"), list) else [],
+            "loaded_notes": summarized,
+            "loaded_note_count": len(summarized),
+        }
+    }
+
+
+def build_workspace_capture_suggestion_event(
+    ctx: Any,
+    *,
+    response_content: Optional[str],
+    citations: Optional[List[Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    workspace_id = None
+    workspace_note_context = getattr(ctx, "workspace_note_context", None)
+    workspace_memory_context = getattr(ctx, "workspace_memory_context", None)
+    if isinstance(workspace_note_context, dict):
+        workspace_id = workspace_note_context.get("workspace_id") or workspace_id
+    if isinstance(workspace_memory_context, dict):
+        workspace_id = workspace_memory_context.get("workspace_id") or workspace_id
+    if not workspace_id:
+        return None
+
+    compact = " ".join(str(response_content or "").split()).strip()
+    if not compact:
+        return None
+
+    recalled_note_count = 0
+    recalled_memory_count = 0
+    if isinstance(workspace_note_context, dict):
+        recalled_note_count = len(workspace_note_context.get("loaded_note_ids") or [])
+    if isinstance(workspace_memory_context, dict):
+        recalled_memory_count = len(workspace_memory_context.get("loaded_memory_ids") or [])
+    citation_count = len(citations or [])
+    bullet_count = compact.count("- ") + compact.count("* ")
+    lower = compact.lower()
+    looks_structured = bullet_count >= 2 or any(
+        token in compact for token in ["总结", "结论", "建议", "下一步", "方案", "要点"]
+    ) or any(
+        token in lower for token in ["summary", "decision", "recommend", "next step", "plan"]
+    )
+    looks_durable = any(
+        token in compact for token in ["偏好", "默认", "习惯", "约束", "规则", "决定", "采用", "记住", "结论"]
+    ) or any(
+        token in lower for token in ["preference", "default", "constraint", "rule", "decision", "remember"]
+    )
+    substantial = len(compact) >= 120 or citation_count > 0 or recalled_note_count > 0 or recalled_memory_count > 0 or looks_structured
+    if not substantial:
+        return None
+
+    show_note_action = True
+    show_memory_action = bool(looks_durable or citation_count > 0 or len(compact) >= 220)
+    if looks_durable:
+        reason = "This reply looks like a reusable preference, rule, or decision worth keeping."
+    elif citation_count > 0:
+        reason = "This grounded answer has source support and may be useful to reuse later."
+    else:
+        reason = (
+            "This summary looks worth saving as reusable workspace context."
+            if ("summary" in lower or any(token in compact for token in ["总结", "结论", "要点"]))
+            else "This substantial answer may be worth capturing for future workspace recall."
+        )
+
+    return {
+        "workspace_capture_suggestion": {
+            "workspace_id": workspace_id,
+            "show_note_action": show_note_action,
+            "show_memory_action": show_memory_action,
+            "reason": reason,
+            "source": "backend",
+            "citation_count": citation_count,
+            "recalled_note_count": recalled_note_count,
+            "recalled_memory_count": recalled_memory_count,
         }
     }
 

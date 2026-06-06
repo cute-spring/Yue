@@ -1,5 +1,5 @@
 import { createSignal, Show, onCleanup, createEffect, createMemo } from 'solid-js';
-import { Message } from '../types';
+import { Message, WorkspaceMemoryCandidate, WorkspaceNote } from '../types';
 import { getAdaptedThought } from "../utils/thoughtParser";
 import MessageExportMenu from './MessageExportMenu';
 import SpeechControl from './SpeechControl';
@@ -33,6 +33,7 @@ import {
   getRenderableUserAttachments,
   getVisionBadge,
   getVisionFeedbackText,
+  getWorkspaceCaptureSuggestion,
   isAssistantMessageTruncated,
   shouldCollapseAssistantMessage,
 } from './message-item/helpers';
@@ -55,6 +56,25 @@ interface MessageItemProps {
   onContinue: (msg: Message) => void;
   selectedProvider: string;
   selectedModel: string;
+  hasSelectedWorkspace?: boolean;
+  alreadySavedAsWorkspaceNote?: boolean;
+  hasPendingWorkspaceMemoryCandidate?: boolean;
+  captureSuggestionsEnabled?: boolean;
+  memorySuggestionsEnabled?: boolean;
+  onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
+  onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onTrackWorkspaceCaptureTelemetry?: (payload: {
+    event_type: string;
+    source?: string;
+    workspace_id?: string | null;
+    assistant_message_id?: number | string | null;
+    assistant_turn_id?: string | null;
+    run_id?: string | null;
+    note_id?: string | null;
+    candidate_id?: string | null;
+    accepted?: boolean | null;
+    metadata?: Record<string, any>;
+  }) => Promise<void> | void;
 }
 
 export default function MessageItem(props: MessageItemProps) {
@@ -148,6 +168,34 @@ export default function MessageItem(props: MessageItemProps) {
   const isTruncated = () => isAssistantMessageTruncated(props.msg, props.isTyping);
   const speechMessageId = () => getSpeechMessageId(props.msg, props.index);
   const speechState = () => speechController?.getMessageState(speechMessageId()) || 'idle';
+  const workspaceCaptureSuggestion = createMemo(() => {
+    const streamed = props.msg.workspace_capture_suggestion;
+    const baseSuggestion =
+      streamed ||
+      getWorkspaceCaptureSuggestion(props.msg, {
+        hasSelectedWorkspace: props.hasSelectedWorkspace === true,
+        isLatestAssistantMessage: props.isLatestAssistantMessage,
+        isTyping: props.isTyping,
+        alreadySavedAsNote: props.alreadySavedAsWorkspaceNote === true,
+        hasPendingMemoryCandidate: props.hasPendingWorkspaceMemoryCandidate === true,
+      });
+    if (!baseSuggestion) return null;
+    const adjusted = {
+      ...baseSuggestion,
+      show_note_action:
+        baseSuggestion.show_note_action &&
+        props.captureSuggestionsEnabled !== false &&
+        props.hasSelectedWorkspace === true &&
+        props.alreadySavedAsWorkspaceNote !== true,
+      show_memory_action:
+        baseSuggestion.show_memory_action &&
+        props.memorySuggestionsEnabled !== false &&
+        props.hasSelectedWorkspace === true &&
+        props.hasPendingWorkspaceMemoryCandidate !== true,
+    };
+    if (!adjusted.show_note_action && !adjusted.show_memory_action) return null;
+    return adjusted;
+  });
   const userMessageContainerClass = () =>
     [
       'bg-surface text-text-primary px-6 py-4 shadow-sm border border-border/40 rounded-[26px] rounded-br-none',
@@ -310,6 +358,10 @@ export default function MessageItem(props: MessageItemProps) {
             onExport={handleExportClick}
             onCollapse={toggleCollapse}
             onRegenerate={() => props.handleRegenerate(props.index)}
+            workspaceCaptureSuggestion={workspaceCaptureSuggestion()}
+            onSaveWorkspaceNote={props.onSaveWorkspaceNote}
+            onSuggestWorkspaceMemoryCandidate={props.onSuggestWorkspaceMemoryCandidate}
+            onTrackWorkspaceCaptureTelemetry={props.onTrackWorkspaceCaptureTelemetry}
           />
         </Show>
       </div>

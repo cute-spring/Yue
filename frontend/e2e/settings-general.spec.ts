@@ -6,6 +6,9 @@ test('General settings save path commits updated preferences', async ({ page }) 
     theme: 'light',
     language: 'en',
     default_agent: 'agent-1',
+    capture_suggestions_enabled: true,
+    memory_suggestions_enabled: true,
+    note_recall_enabled: true,
   };
   const agents = [
     { id: 'agent-1', name: 'Agent One', system_prompt: 'sys', provider: 'openai', model: 'gpt-4o', enabled_tools: [] },
@@ -33,6 +36,9 @@ test('General settings save path commits updated preferences', async ({ page }) 
   await setSelectValue('settings-language-select', 'zh');
   await setSelectValue('settings-default-agent-select', 'agent-1');
   await page.locator('input[name="advanced_mode"]').check();
+  await page.locator('input[name="capture_suggestions_enabled"]').uncheck();
+  await page.locator('input[name="memory_suggestions_enabled"]').uncheck();
+  await page.locator('input[name="note_recall_enabled"]').uncheck();
 
   const requestPromise = page.waitForRequest(
     (req) => req.url().includes('/api/config/preferences') && req.method() === 'POST',
@@ -45,4 +51,7 @@ test('General settings save path commits updated preferences', async ({ page }) 
   expect(body.language).toBe('zh');
   expect(body.default_agent).toBe('agent-1');
   expect(body.advanced_mode).toBe(true);
+  expect(body.capture_suggestions_enabled).toBe(false);
+  expect(body.memory_suggestions_enabled).toBe(false);
+  expect(body.note_recall_enabled).toBe(false);
 });

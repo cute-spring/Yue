@@ -3,11 +3,21 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.api.note_enrichment import generate_note_enrichment
 from app.services.chat_service import chat_service
 from app.services.notebook_service import notebook_service
 from app.services.workspace_service import workspace_service
 
 router = APIRouter()
+
+
+def _with_note_promotion_hint(note: Any) -> Dict[str, Any]:
+    hint = {}
+    workspace_id = getattr(note, "workspace_id", None)
+    note_id = getattr(note, "id", None)
+    if workspace_id and note_id:
+        hint = workspace_service.build_note_promotion_hint(workspace_id, note_id=note_id)
+    return note.model_copy(update={"promotion_hint": hint or {}}).model_dump(mode="json")
 
 
 class WorkspaceCreate(BaseModel):
@@ -55,6 +65,45 @@ class WorkspaceArtifactUpdate(BaseModel):
     artifact_metadata: Optional[Dict[str, Any]] = None
 
 
+class WorkspaceMemoryCreate(BaseModel):
+    memory_type: str
+    title: str
+    content: str
+    status: str = "active"
+    confidence: Optional[float] = None
+    created_by: Optional[str] = None
+    source_session_id: Optional[str] = None
+    source_message_id: Optional[int] = None
+    supersedes_memory_id: Optional[str] = None
+    memory_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkspaceMemoryUpdate(BaseModel):
+    memory_type: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    status: Optional[str] = None
+    confidence: Optional[float] = None
+    created_by: Optional[str] = None
+    source_session_id: Optional[str] = None
+    source_message_id: Optional[int] = None
+    supersedes_memory_id: Optional[str] = None
+    memory_metadata: Optional[Dict[str, Any]] = None
+
+
+class WorkspaceMemoryCandidateApprove(BaseModel):
+    approval_mode: str = "create_new"
+    target_memory_id: Optional[str] = None
+    memory_type: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+class WorkspaceMemoryCandidateReject(BaseModel):
+    reason: Optional[str] = None
+
+
 class ResearchArtifactCreate(BaseModel):
     question: str
     summary: str = ""
@@ -71,7 +120,10 @@ class NoteFromMessageCreate(BaseModel):
     chat_id: str
     message_id: Optional[int] = None
     title: Optional[str] = None
+    summary: Optional[str] = None
     content: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    note_type: Optional[str] = None
     source_ids: list[str] = Field(default_factory=list)
     citation_refs: list[Dict[str, Any]] = Field(default_factory=list)
 
@@ -79,7 +131,17 @@ class NoteFromMessageCreate(BaseModel):
 class NoteFromSourceCreate(BaseModel):
     source_id: str
     title: Optional[str] = None
+    summary: Optional[str] = None
     content: str
+    tags: list[str] = Field(default_factory=list)
+    note_type: Optional[str] = None
+    citation_refs: list[Dict[str, Any]] = Field(default_factory=list)
+
+
+class MemorySuggestFromMessageCreate(BaseModel):
+    chat_id: str
+    message_id: Optional[int] = None
+    source_ids: list[str] = Field(default_factory=list)
     citation_refs: list[Dict[str, Any]] = Field(default_factory=list)
 
 
@@ -110,6 +172,22 @@ async def list_workspace_artifacts(workspace_id: str):
     if artifacts is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
     return [artifact.model_dump(mode="json") for artifact in artifacts]
+
+
+@router.get("/{workspace_id}/memory")
+async def list_workspace_memory(workspace_id: str, include_disabled: bool = Query(default=True)):
+    memories = workspace_service.list_memories(workspace_id, include_disabled=include_disabled)
+    if memories is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return [memory.model_dump(mode="json") for memory in memories]
+
+
+@router.get("/{workspace_id}/memory-candidates")
+async def list_workspace_memory_candidates(workspace_id: str, include_reviewed: bool = Query(default=False)):
+    candidates = workspace_service.list_memory_candidates(workspace_id, include_reviewed=include_reviewed)
+    if candidates is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return [candidate.model_dump(mode="json") for candidate in candidates]
 
 
 @router.get("/{workspace_id}/research-artifacts")
@@ -154,6 +232,14 @@ async def get_workspace_artifact(workspace_id: str, artifact_id: str):
     if artifact is None:
         raise HTTPException(status_code=404, detail="Workspace artifact not found")
     return artifact.model_dump(mode="json")
+
+
+@router.get("/{workspace_id}/memory/{memory_id}")
+async def get_workspace_memory(workspace_id: str, memory_id: str):
+    memory = workspace_service.get_memory(workspace_id, memory_id)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Workspace memory not found")
+    return memory.model_dump(mode="json")
 
 
 @router.get("/{workspace_id}/research-artifacts/{artifact_id}")
@@ -212,6 +298,36 @@ async def create_workspace_artifact(workspace_id: str, payload: WorkspaceArtifac
     return artifact.model_dump(mode="json")
 
 
+@router.post("/{workspace_id}/memory")
+async def create_workspace_memory(workspace_id: str, payload: WorkspaceMemoryCreate):
+    memory_type = payload.memory_type.strip()
+    title = payload.title.strip()
+    content = payload.content.strip()
+    if not memory_type:
+        raise HTTPException(status_code=400, detail="memory_type is required")
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required")
+
+    memory = workspace_service.create_memory(
+        workspace_id,
+        memory_type=memory_type,
+        title=title,
+        content=content,
+        status=payload.status,
+        confidence=payload.confidence,
+        created_by=payload.created_by,
+        source_session_id=payload.source_session_id,
+        source_message_id=payload.source_message_id,
+        supersedes_memory_id=payload.supersedes_memory_id,
+        memory_metadata=payload.memory_metadata,
+    )
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return memory.model_dump(mode="json")
+
+
 @router.post("/{workspace_id}/research-artifacts")
 async def create_research_artifact(workspace_id: str, payload: ResearchArtifactCreate):
     question = payload.question.strip()
@@ -261,16 +377,36 @@ async def create_note_from_message(workspace_id: str, payload: NoteFromMessageCr
         raise HTTPException(status_code=404, detail="Message not found")
 
     content = payload.content if payload.content is not None else message.content
-    title = (payload.title or content[:60] or "Workspace note").strip()
-    note_body = "\n\n".join(
-        [
-            content,
-            f"Source chat: {chat.id}",
-            f"Source message: {message.id}",
-            f"Workspace sources: {', '.join(payload.source_ids) if payload.source_ids else 'none'}",
-        ]
+    source_metadata = {
+        "captured_from": "assistant_message" if message.role == "assistant" else "message",
+        "source_chat_id": chat.id,
+        "source_message_id": message.id,
+        "source_message_role": message.role,
+        "source_ids": payload.source_ids,
+        "workspace_source_count": len(payload.source_ids),
+    }
+    generated = await generate_note_enrichment(
+        content=content,
+        title=payload.title,
+        summary=payload.summary,
+        tags=payload.tags,
+        note_type=payload.note_type,
+        source_metadata=source_metadata,
     )
-    note = notebook_service.create_note(title=title, content=note_body)
+    note = notebook_service.create_note(
+        payload.title or generated.get("title"),
+        content,
+        workspace_id=workspace_id,
+        summary=payload.summary or generated.get("summary"),
+        tags=payload.tags or generated.get("tags") or [],
+        note_type=payload.note_type or generated.get("note_type"),
+        capture_type="chat_capture",
+        source_session_id=chat.id,
+        source_message_id=message.id,
+        source_message_ids=[message.id] if getattr(message, "id", None) is not None else [],
+        citation_refs=payload.citation_refs,
+        source_metadata=source_metadata,
+    )
     workspace_service.create_source(
         workspace_id,
         source_type="note",
@@ -279,13 +415,16 @@ async def create_note_from_message(workspace_id: str, payload: NoteFromMessageCr
         status="ready",
         source_metadata={
             "note_id": note.id,
+            "note_summary": note.summary,
+            "note_tags": note.tags,
+            "note_type": note.note_type,
             "source_chat_id": chat.id,
             "source_message_id": message.id,
             "source_ids": payload.source_ids,
             "citation_refs": payload.citation_refs,
         },
     )
-    return note.model_dump(mode="json")
+    return _with_note_promotion_hint(note)
 
 
 @router.post("/{workspace_id}/notes/from-source")
@@ -293,8 +432,32 @@ async def create_note_from_source(workspace_id: str, payload: NoteFromSourceCrea
     source = workspace_service.get_source(workspace_id, payload.source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Workspace source not found")
-    title = (payload.title or source.display_name or "Workspace source note").strip()
-    note = notebook_service.create_note(title=title, content=payload.content)
+    source_metadata = {
+        "captured_from": "workspace_source",
+        "source_id": payload.source_id,
+        "source_type": source.source_type,
+        "source_ref": source.source_ref,
+        "source_display_name": source.display_name,
+    }
+    generated = await generate_note_enrichment(
+        content=payload.content,
+        title=payload.title or source.display_name or "Workspace source note",
+        summary=payload.summary,
+        tags=payload.tags,
+        note_type=payload.note_type,
+        source_metadata=source_metadata,
+    )
+    note = notebook_service.create_note(
+        payload.title or generated.get("title") or source.display_name or "Workspace source note",
+        payload.content,
+        workspace_id=workspace_id,
+        summary=payload.summary or generated.get("summary"),
+        tags=payload.tags or generated.get("tags") or [],
+        note_type=payload.note_type or generated.get("note_type"),
+        capture_type="source_capture",
+        citation_refs=payload.citation_refs,
+        source_metadata=source_metadata,
+    )
     workspace_service.create_source(
         workspace_id,
         source_type="note",
@@ -303,11 +466,104 @@ async def create_note_from_source(workspace_id: str, payload: NoteFromSourceCrea
         status="ready",
         source_metadata={
             "note_id": note.id,
+            "note_summary": note.summary,
+            "note_tags": note.tags,
+            "note_type": note.note_type,
             "source_id": payload.source_id,
             "citation_refs": payload.citation_refs,
         },
     )
-    return note.model_dump(mode="json")
+    return _with_note_promotion_hint(note)
+
+
+@router.post("/{workspace_id}/memory/suggest-from-message")
+async def suggest_workspace_memory_from_message(workspace_id: str, payload: MemorySuggestFromMessageCreate):
+    draft = workspace_service.suggest_memory_from_message(
+        workspace_id,
+        chat_id=payload.chat_id,
+        message_id=payload.message_id,
+        source_ids=payload.source_ids,
+        citation_refs=payload.citation_refs,
+    )
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Workspace message not found")
+    return draft.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/notes/{note_id}/memory/suggest")
+async def suggest_workspace_memory_from_note(workspace_id: str, note_id: str):
+    draft = workspace_service.suggest_memory_from_note(
+        workspace_id,
+        note_id=note_id,
+    )
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Workspace note not found")
+    return draft.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/memory-candidates/suggest-from-message")
+async def suggest_workspace_memory_candidate_from_message(
+    workspace_id: str,
+    payload: MemorySuggestFromMessageCreate,
+):
+    candidate = workspace_service.suggest_memory_candidate_from_message(
+        workspace_id,
+        chat_id=payload.chat_id,
+        message_id=payload.message_id,
+        source_ids=payload.source_ids,
+        citation_refs=payload.citation_refs,
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Workspace message not found")
+    return candidate.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/notes/{note_id}/memory-candidates")
+async def suggest_workspace_memory_candidate_from_note(workspace_id: str, note_id: str):
+    candidate = workspace_service.suggest_memory_candidate_from_note(
+        workspace_id,
+        note_id=note_id,
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Workspace note not found")
+    return candidate.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/memory-candidates/{candidate_id}/approve")
+async def approve_workspace_memory_candidate(
+    workspace_id: str,
+    candidate_id: str,
+    payload: WorkspaceMemoryCandidateApprove,
+):
+    memory = workspace_service.approve_memory_candidate(
+        workspace_id,
+        candidate_id,
+        approval_mode=payload.approval_mode,
+        target_memory_id=payload.target_memory_id,
+        memory_type=payload.memory_type,
+        title=payload.title,
+        content=payload.content,
+        confidence=payload.confidence,
+    )
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Workspace memory candidate not found")
+    return memory.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/memory-candidates/{candidate_id}/reject")
+async def reject_workspace_memory_candidate(
+    workspace_id: str,
+    candidate_id: str,
+    payload: WorkspaceMemoryCandidateReject,
+):
+    rejected = workspace_service.reject_memory_candidate(
+        workspace_id,
+        candidate_id,
+        reason=payload.reason,
+    )
+    if not rejected:
+        raise HTTPException(status_code=404, detail="Workspace memory candidate not found")
+    return {"status": "success"}
 
 
 @router.post("/")
@@ -373,6 +629,37 @@ async def update_workspace_artifact(workspace_id: str, artifact_id: str, payload
     return artifact.model_dump(mode="json")
 
 
+@router.put("/{workspace_id}/memory/{memory_id}")
+async def update_workspace_memory(workspace_id: str, memory_id: str, payload: WorkspaceMemoryUpdate):
+    if "memory_type" in payload.model_fields_set and (payload.memory_type is None or not payload.memory_type.strip()):
+        raise HTTPException(status_code=400, detail="memory_type is required")
+    if "title" in payload.model_fields_set and (payload.title is None or not payload.title.strip()):
+        raise HTTPException(status_code=400, detail="title is required")
+    if "content" in payload.model_fields_set and (payload.content is None or not payload.content.strip()):
+        raise HTTPException(status_code=400, detail="content is required")
+
+    updates: Dict[str, Any] = {}
+    for field in (
+        "memory_type",
+        "title",
+        "content",
+        "status",
+        "confidence",
+        "created_by",
+        "source_session_id",
+        "source_message_id",
+        "supersedes_memory_id",
+        "memory_metadata",
+    ):
+        if field in payload.model_fields_set:
+            updates[field] = getattr(payload, field)
+
+    memory = workspace_service.update_memory(workspace_id, memory_id, **updates)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Workspace memory not found")
+    return memory.model_dump(mode="json")
+
+
 @router.delete("/{workspace_id}")
 async def delete_workspace(workspace_id: str, force: bool = Query(False)):
     try:
@@ -399,4 +686,12 @@ async def delete_workspace_artifact(workspace_id: str, artifact_id: str):
     deleted = workspace_service.delete_artifact(workspace_id, artifact_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Workspace artifact not found")
+    return {"status": "success"}
+
+
+@router.delete("/{workspace_id}/memory/{memory_id}")
+async def delete_workspace_memory(workspace_id: str, memory_id: str):
+    deleted = workspace_service.delete_memory(workspace_id, memory_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Workspace memory not found")
     return {"status": "success"}
