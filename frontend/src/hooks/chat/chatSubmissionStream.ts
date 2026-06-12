@@ -236,6 +236,15 @@ export async function streamAssistantResponse({
             }
             return next;
           });
+        } else if (data.session_used_context) {
+          setMessages(prev => {
+            const next = [...prev];
+            const lastIndex = next.length - 1;
+            if (lastIndex >= 0) {
+              next[lastIndex] = { ...next[lastIndex], session_used_context: data.session_used_context };
+            }
+            return next;
+          });
         } else if (data.workspace_notes) {
           setMessages(prev => {
             const next = [...prev];

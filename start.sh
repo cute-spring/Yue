@@ -4,9 +4,13 @@ set -e
 set -o pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_HEALTH_URL="http://127.0.0.1:8003/api/health"
+YUE_BACKEND_HOST="${YUE_BACKEND_HOST:-0.0.0.0}"
+YUE_BACKEND_PORT="${YUE_BACKEND_PORT:-8003}"
+YUE_FRONTEND_HOST="${YUE_FRONTEND_HOST:-0.0.0.0}"
+YUE_FRONTEND_PORT="${YUE_FRONTEND_PORT:-3000}"
+BACKEND_HEALTH_URL="http://127.0.0.1:${YUE_BACKEND_PORT}/api/health"
 BACKEND_MAX_WAIT_SECONDS=60
-FRONTEND_URL="http://localhost:3000"
+FRONTEND_URL="http://localhost:${YUE_FRONTEND_PORT}"
 FRONTEND_MAX_WAIT_SECONDS=60
 YUE_SKILL_RUNTIME_MODE="${YUE_SKILL_RUNTIME_MODE:-legacy}"
 BACKEND_PYTHON=""
@@ -26,6 +30,19 @@ ensure_runtime_tooling() {
     add_path_if_dir "/Applications/Codex.app/Contents/Resources"
     add_path_if_dir "/opt/homebrew/bin"
     add_path_if_dir "/usr/local/bin"
+}
+
+detect_lan_ip() {
+    local ip=""
+    for iface in en0 en1; do
+        ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+        if [ -n "$ip" ]; then
+            echo "$ip"
+            return 0
+        fi
+    done
+
+    echo "127.0.0.1"
 }
 
 resolve_backend_python() {
@@ -163,8 +180,9 @@ ensure_runtime_tooling
 
 echo "🚀 Starting Yue Agent Platform..."
 echo "🧠 Skill runtime mode: ${YUE_SKILL_RUNTIME_MODE}"
+LAN_IP="$(detect_lan_ip)"
 
-echo "📡 Starting backend service on http://127.0.0.1:8003..."
+echo "📡 Starting backend service bound to ${YUE_BACKEND_HOST}:${YUE_BACKEND_PORT}..."
 cd "$ROOT_DIR/backend"
 
 if ! resolve_backend_python; then
@@ -193,7 +211,7 @@ then
     fi
 fi
 
-YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" "$BACKEND_PYTHON" -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
+YUE_BACKEND_HOST="$YUE_BACKEND_HOST" YUE_BACKEND_PORT="$YUE_BACKEND_PORT" YUE_SKILL_RUNTIME_MODE="$YUE_SKILL_RUNTIME_MODE" "$BACKEND_PYTHON" -m app.main > "$ROOT_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 cd "$ROOT_DIR"
 
@@ -216,11 +234,11 @@ until curl -sSf "$BACKEND_HEALTH_URL" > /dev/null 2>&1; do
 done
 echo " ready"
 
-echo "💻 Starting frontend service on http://localhost:3000..."
+echo "💻 Starting frontend service bound to ${YUE_FRONTEND_HOST}:${YUE_FRONTEND_PORT}..."
 require_frontend_runtime
 ensure_frontend_runtime_ready
 cd "$ROOT_DIR/frontend"
-npm run dev > "$ROOT_DIR/frontend.log" 2>&1 &
+YUE_FRONTEND_HOST="$YUE_FRONTEND_HOST" YUE_FRONTEND_PORT="$YUE_FRONTEND_PORT" npm run dev > "$ROOT_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 cd "$ROOT_DIR"
 
@@ -247,6 +265,9 @@ echo " ready"
 
 echo "✅ Both services are running."
 echo "📝 Logs are being written to backend.log and frontend.log"
+echo "🌐 Local access:  http://localhost:${YUE_FRONTEND_PORT}"
+echo "🌐 LAN access:    http://${LAN_IP}:${YUE_FRONTEND_PORT}"
+echo "🔧 Backend API:   http://${LAN_IP}:${YUE_BACKEND_PORT}"
 echo "🛑 Press Ctrl+C to stop both services."
 
 wait $BACKEND_PID $FRONTEND_PID

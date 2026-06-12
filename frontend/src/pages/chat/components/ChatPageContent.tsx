@@ -158,6 +158,7 @@ export default function ChatPageContent(props: {
     suggestWorkspaceMemoryCandidateFromNote,
     createWorkspaceMemory,
     updateWorkspaceMemory,
+    bulkUpdateWorkspaceMemoryStatusByType,
     deleteWorkspaceMemory,
     approveWorkspaceMemoryCandidate,
     rejectWorkspaceMemoryCandidate,
@@ -377,6 +378,7 @@ export default function ChatPageContent(props: {
         onSuggestWorkspaceMemoryCandidateFromNote={suggestWorkspaceMemoryCandidateFromNote}
         onCreateWorkspaceMemory={createWorkspaceMemory}
         onUpdateWorkspaceMemory={updateWorkspaceMemory}
+        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByType}
         onDeleteWorkspaceMemory={deleteWorkspaceMemory}
         onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidate}
         onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidate}
@@ -421,6 +423,7 @@ export default function ChatPageContent(props: {
         onSuggestWorkspaceMemoryCandidateFromNote={suggestWorkspaceMemoryCandidateFromNote}
         onCreateWorkspaceMemory={createWorkspaceMemory}
         onUpdateWorkspaceMemory={updateWorkspaceMemory}
+        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByType}
         onDeleteWorkspaceMemory={deleteWorkspaceMemory}
         onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidate}
         onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidate}

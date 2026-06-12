@@ -57,29 +57,44 @@ interface ChatSidebarResourcesProps {
   onSuggestWorkspaceMemoryCandidateFromNote: (noteId: string) => Promise<WorkspaceMemoryCandidate | null>;
   onCreateWorkspaceMemory: (payload: {
     memory_type: string;
+    scope_type?: string;
+    scope_ref?: string | null;
     title: string;
     content: string;
     status?: string;
     confidence?: number | null;
     created_by?: string | null;
+    why_saved?: string | null;
+    pinned?: boolean;
+    editable?: boolean;
+    revocable?: boolean;
     source_session_id?: string | null;
     source_message_id?: number | null;
+    expires_at?: string | null;
     memory_metadata?: Record<string, any>;
   }) => Promise<void> | void;
   onUpdateWorkspaceMemory: (
     memoryId: string,
     payload: {
       memory_type?: string;
+      scope_type?: string;
+      scope_ref?: string | null;
       title?: string;
       content?: string;
       status?: string;
       confidence?: number | null;
       created_by?: string | null;
+      why_saved?: string | null;
+      pinned?: boolean;
+      editable?: boolean;
+      revocable?: boolean;
       source_session_id?: string | null;
       source_message_id?: number | null;
+      expires_at?: string | null;
       memory_metadata?: Record<string, any>;
     },
   ) => Promise<void> | void;
+  onBulkUpdateWorkspaceMemoryStatusByType: (memoryType: string, status: string) => Promise<void> | void;
   onDeleteWorkspaceMemory: (memoryId: string) => Promise<void> | void;
   onApproveWorkspaceMemoryCandidate: (
     candidateId: string,
@@ -87,9 +102,14 @@ interface ChatSidebarResourcesProps {
       approval_mode: string;
       target_memory_id?: string | null;
       memory_type?: string | null;
+      scope_type?: string | null;
+      scope_ref?: string | null;
       title?: string | null;
       content?: string | null;
       confidence?: number | null;
+      why_saved?: string | null;
+      expires_at?: string | null;
+      pinned?: boolean | null;
     },
   ) => Promise<void> | void;
   onRejectWorkspaceMemoryCandidate: (candidateId: string, reason?: string | null) => Promise<void> | void;
@@ -122,9 +142,11 @@ const formatMemoryTypeLabel = (memoryType: string) => {
     case 'project_fact':
       return 'Project Fact';
     case 'decision':
-      return 'Decision';
+      return 'Long-term Decision';
     case 'preference':
-      return 'Preference';
+      return 'User Preference';
+    case 'historical_conclusion':
+      return 'Historical Conclusion';
     case 'term':
       return 'Term';
     case 'open_question':
@@ -144,9 +166,33 @@ const formatMemoryStatusLabel = (status?: string | null) => {
       return 'Disabled';
     case 'archived':
       return 'Archived';
+    case 'superseded':
+      return 'Superseded';
     default:
       return status ? status.replace(/[_-]+/g, ' ') : 'Unknown';
   }
+};
+
+const formatMemoryScopeLabel = (scopeType?: string | null) => {
+  switch (scopeType) {
+    case 'user':
+      return 'User scope';
+    case 'workspace':
+      return 'Workspace scope';
+    case 'project':
+      return 'Project scope';
+    case 'chat':
+      return 'Chat scope';
+    default:
+      return scopeType ? scopeType.replace(/[_-]+/g, ' ') : 'Workspace scope';
+  }
+};
+
+const formatDateTimeLabel = (value?: string | null) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
 const formatCandidateActionLabel = (action?: string | null) => {
@@ -224,10 +270,17 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
   const [isMemoryEditorOpen, setIsMemoryEditorOpen] = createSignal(false);
   const [editingMemoryId, setEditingMemoryId] = createSignal<string | null>(null);
   const [memoryTypeInput, setMemoryTypeInput] = createSignal('project_fact');
+  const [memoryScopeTypeInput, setMemoryScopeTypeInput] = createSignal('workspace');
+  const [memoryScopeRefInput, setMemoryScopeRefInput] = createSignal('');
   const [memoryTitleInput, setMemoryTitleInput] = createSignal('');
   const [memoryContentInput, setMemoryContentInput] = createSignal('');
   const [memoryStatusInput, setMemoryStatusInput] = createSignal('active');
   const [memoryConfidenceInput, setMemoryConfidenceInput] = createSignal('0.7');
+  const [memoryWhySavedInput, setMemoryWhySavedInput] = createSignal('');
+  const [memoryPinnedInput, setMemoryPinnedInput] = createSignal(false);
+  const [memoryEditableInput, setMemoryEditableInput] = createSignal(true);
+  const [memoryRevocableInput, setMemoryRevocableInput] = createSignal(true);
+  const [memoryExpiresAtInput, setMemoryExpiresAtInput] = createSignal('');
   const [memorySourceSessionIdInput, setMemorySourceSessionIdInput] = createSignal('');
   const [memorySourceMessageIdInput, setMemorySourceMessageIdInput] = createSignal('');
   const [memoryMetadataInput, setMemoryMetadataInput] = createSignal('{}');
@@ -264,7 +317,7 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
     () => props.workspaceNotes.filter((note) => Boolean(note.promoted_memory_id)).length,
   );
   const memoryGroups = createMemo(() => {
-    const order = ['preference', 'decision', 'project_fact', 'recurring_instruction', 'term', 'open_question'];
+    const order = ['project_fact', 'preference', 'decision', 'historical_conclusion', 'recurring_instruction', 'term', 'open_question'];
     return order
       .map((memoryType) => ({
         memoryType,
@@ -277,10 +330,17 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
   const resetMemoryEditor = () => {
     setEditingMemoryId(null);
     setMemoryTypeInput('project_fact');
+    setMemoryScopeTypeInput('workspace');
+    setMemoryScopeRefInput('');
     setMemoryTitleInput('');
     setMemoryContentInput('');
     setMemoryStatusInput('active');
     setMemoryConfidenceInput('0.7');
+    setMemoryWhySavedInput('');
+    setMemoryPinnedInput(false);
+    setMemoryEditableInput(true);
+    setMemoryRevocableInput(true);
+    setMemoryExpiresAtInput('');
     setMemorySourceSessionIdInput('');
     setMemorySourceMessageIdInput('');
     setMemoryMetadataInput('{}');
@@ -295,12 +355,19 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
   const openEditMemoryEditor = (memory: WorkspaceMemoryCard) => {
     setEditingMemoryId(memory.id);
     setMemoryTypeInput(memory.memory_type || 'project_fact');
+    setMemoryScopeTypeInput(memory.scope_type || 'workspace');
+    setMemoryScopeRefInput(memory.scope_ref || '');
     setMemoryTitleInput(memory.title || '');
     setMemoryContentInput(memory.content || '');
     setMemoryStatusInput(memory.status || 'active');
     setMemoryConfidenceInput(
       memory.confidence == null || Number.isNaN(Number(memory.confidence)) ? '' : String(memory.confidence),
     );
+    setMemoryWhySavedInput(memory.why_saved || '');
+    setMemoryPinnedInput(Boolean(memory.pinned));
+    setMemoryEditableInput(memory.editable !== false);
+    setMemoryRevocableInput(memory.revocable !== false);
+    setMemoryExpiresAtInput(memory.expires_at ? String(memory.expires_at).slice(0, 16) : '');
     setMemorySourceSessionIdInput(memory.source_session_id || '');
     setMemorySourceMessageIdInput(
       memory.source_message_id == null ? '' : String(memory.source_message_id),
@@ -467,12 +534,19 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
       if (!draft) return;
       setEditingMemoryId(null);
       setMemoryTypeInput(draft.memory_type || 'project_fact');
+      setMemoryScopeTypeInput(draft.scope_type || 'workspace');
+      setMemoryScopeRefInput(draft.scope_ref || '');
       setMemoryTitleInput(draft.title || '');
       setMemoryContentInput(draft.content || '');
       setMemoryStatusInput('active');
       setMemoryConfidenceInput(
         draft.confidence == null || Number.isNaN(Number(draft.confidence)) ? '' : String(draft.confidence),
       );
+      setMemoryWhySavedInput(draft.why_saved || '');
+      setMemoryPinnedInput(false);
+      setMemoryEditableInput(true);
+      setMemoryRevocableInput(true);
+      setMemoryExpiresAtInput(draft.expires_at ? String(draft.expires_at).slice(0, 16) : '');
       setMemorySourceSessionIdInput(draft.source_session_id || '');
       setMemorySourceMessageIdInput(draft.source_message_id == null ? '' : String(draft.source_message_id));
       setMemoryMetadataInput(JSON.stringify(draft.memory_metadata || {}, null, 2));
@@ -547,19 +621,27 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
       confidenceRaw === '' ? null : Number.isNaN(Number(confidenceRaw)) ? null : Number(confidenceRaw);
     const sourceMessageValue =
       memorySourceMessageIdInput().trim() === '' ? null : Number(memorySourceMessageIdInput().trim());
+    const expiresAtValue = memoryExpiresAtInput().trim() || null;
 
     setIsMemorySubmitting(true);
     setMemoryError(null);
     try {
       const payload = {
         memory_type: memoryTypeInput(),
+        scope_type: memoryScopeTypeInput(),
+        scope_ref: memoryScopeRefInput().trim() || null,
         title,
         content,
         status: memoryStatusInput(),
         confidence: confidenceValue,
         created_by: 'user',
+        why_saved: memoryWhySavedInput().trim() || null,
+        pinned: memoryPinnedInput(),
+        editable: memoryEditableInput(),
+        revocable: memoryRevocableInput(),
         source_session_id: memorySourceSessionIdInput().trim() || null,
         source_message_id: Number.isNaN(sourceMessageValue as number) ? null : sourceMessageValue,
+        expires_at: expiresAtValue,
         memory_metadata: metadata,
       };
       if (editingMemoryId()) {
@@ -581,6 +663,10 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
     await props.onUpdateWorkspaceMemory(memory.id, { status: nextStatus });
   };
 
+  const handleDisableMemoryType = async (memoryType: string) => {
+    await props.onBulkUpdateWorkspaceMemoryStatusByType(memoryType, 'disabled');
+  };
+
   const handleApproveCandidate = async (
     candidate: WorkspaceMemoryCandidate,
     approvalMode?: string | null,
@@ -595,6 +681,14 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
       await props.onApproveWorkspaceMemoryCandidate(candidate.id, {
         approval_mode: resolvedMode,
         target_memory_id: candidate.conflict_memory_id || null,
+        memory_type: candidate.memory_type || null,
+        scope_type: candidate.scope_type || null,
+        scope_ref: candidate.scope_ref || null,
+        title: candidate.title || null,
+        content: candidate.content || null,
+        confidence: candidate.score ?? null,
+        why_saved: candidate.why_saved || null,
+        expires_at: candidate.expires_at || null,
       });
     } catch (error) {
       setMemoryError(error instanceof Error ? error.message : 'Failed to approve memory candidate');
@@ -1250,9 +1344,10 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                         class="rounded-lg border border-emerald-100 bg-white px-2 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-primary/20"
                       >
                         <option value="project_fact">Project Fact</option>
-                        <option value="decision">Decision</option>
-                        <option value="preference">Preference</option>
-                        <option value="recurring_instruction">Instruction</option>
+                        <option value="preference">User Preference</option>
+                        <option value="decision">Long-term Decision</option>
+                        <option value="historical_conclusion">Historical Conclusion</option>
+                        <option value="recurring_instruction">Recurring Instruction</option>
                         <option value="term">Term</option>
                         <option value="open_question">Open Question</option>
                       </select>
@@ -1264,7 +1359,25 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                         <option value="active">Active</option>
                         <option value="disabled">Disabled</option>
                         <option value="archived">Archived</option>
+                        <option value="superseded">Superseded</option>
                       </select>
+                      <select
+                        value={memoryScopeTypeInput()}
+                        onChange={(e) => setMemoryScopeTypeInput(e.currentTarget.value)}
+                        class="rounded-lg border border-emerald-100 bg-white px-2 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="workspace">Workspace scope</option>
+                        <option value="user">User scope</option>
+                        <option value="project">Project scope</option>
+                        <option value="chat">Chat scope</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={memoryScopeRefInput()}
+                        onInput={(e) => setMemoryScopeRefInput(e.currentTarget.value)}
+                        placeholder="Scope ref (optional)"
+                        class="rounded-lg border border-emerald-100 bg-white px-2 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-primary/20"
+                      />
                     </div>
                     <input
                       type="text"
@@ -1279,6 +1392,13 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                       placeholder="What should this workspace remember?"
                       rows={4}
                       class="mt-2 w-full rounded-lg border border-emerald-100 bg-white px-3 py-2 text-[12px] leading-relaxed outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                    <textarea
+                      value={memoryWhySavedInput()}
+                      onInput={(e) => setMemoryWhySavedInput(e.currentTarget.value)}
+                      placeholder="Why should Yue keep this card?"
+                      rows={2}
+                      class="mt-2 w-full rounded-lg border border-emerald-100 bg-white px-3 py-2 text-[11px] leading-relaxed outline-none focus:ring-2 focus:ring-primary/20"
                     />
                     <div class="mt-2 grid grid-cols-3 gap-2">
                       <input
@@ -1302,6 +1422,40 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                         placeholder="Source message id"
                         class="rounded-lg border border-emerald-100 bg-white px-2 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-primary/20"
                       />
+                    </div>
+                    <div class="mt-2 grid grid-cols-2 gap-2">
+                      <input
+                        type="datetime-local"
+                        value={memoryExpiresAtInput()}
+                        onInput={(e) => setMemoryExpiresAtInput(e.currentTarget.value)}
+                        class="rounded-lg border border-emerald-100 bg-white px-2 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                      <div class="grid grid-cols-2 gap-2 rounded-lg border border-emerald-100 bg-white px-3 py-2 text-[10px] text-slate-600">
+                        <label class="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={memoryPinnedInput()}
+                            onChange={(e) => setMemoryPinnedInput(e.currentTarget.checked)}
+                          />
+                          Pinned
+                        </label>
+                        <label class="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={memoryEditableInput()}
+                            onChange={(e) => setMemoryEditableInput(e.currentTarget.checked)}
+                          />
+                          Editable
+                        </label>
+                        <label class="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={memoryRevocableInput()}
+                            onChange={(e) => setMemoryRevocableInput(e.currentTarget.checked)}
+                          />
+                          Revocable
+                        </label>
+                      </div>
                     </div>
                     <textarea
                       value={memoryMetadataInput()}
@@ -1380,6 +1534,9 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                     <span class="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5">
                                       {formatMemoryTypeLabel(candidate.memory_type)}
                                     </span>
+                                    <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">
+                                      {formatMemoryScopeLabel(candidate.scope_type)}
+                                    </span>
                                     <span class="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700">
                                       {formatCandidateActionLabel(candidate.suggested_action)}
                                     </span>
@@ -1393,6 +1550,12 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                               <p class="mt-3 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-700">
                                 {candidate.content}
                               </p>
+
+                              <Show when={candidate.why_saved}>
+                                <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-2 text-[10px] leading-relaxed text-slate-600">
+                                  {candidate.why_saved}
+                                </div>
+                              </Show>
 
                               <Show when={candidateReasons().length > 0}>
                                 <div class="mt-3 flex flex-wrap gap-1">
@@ -1424,6 +1587,20 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                         )}
                                       </For>
                                     </div>
+                                  </Show>
+                                </div>
+                              </Show>
+
+                              <Show when={candidate.expires_at || candidate.source_session_id || candidate.source_message_id != null}>
+                                <div class="mt-3 flex flex-wrap gap-2 text-[10px] text-slate-500">
+                                  <Show when={candidate.expires_at}>
+                                    <span>Expires {formatDateTimeLabel(candidate.expires_at)}</span>
+                                  </Show>
+                                  <Show when={candidate.source_session_id}>
+                                    <span>Chat {candidate.source_session_id}</span>
+                                  </Show>
+                                  <Show when={candidate.source_message_id != null}>
+                                    <span>Message {candidate.source_message_id}</span>
                                   </Show>
                                 </div>
                               </Show>
@@ -1486,8 +1663,19 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                       <For each={memoryGroups()}>
                         {(group) => (
                           <div>
-                            <div class="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                              {group.label}
+                            <div class="mb-2 flex items-center justify-between gap-2">
+                              <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                                {group.label}
+                              </div>
+                              <button
+                                type="button"
+                                disabled={!group.items.some((memory) => memory.editable !== false)}
+                                onClick={() => void handleDisableMemoryType(group.memoryType)}
+                                title={!group.items.some((memory) => memory.editable !== false) ? 'All cards in this group are locked for editing.' : undefined}
+                                class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500 hover:border-slate-300 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Disable all
+                              </button>
                             </div>
                             <div class="space-y-2">
                               <For each={group.items}>
@@ -1504,11 +1692,19 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                               {formatMemoryTypeLabel(memory.memory_type)}
                                             </span>
                                             <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">
+                                              {formatMemoryScopeLabel(memory.scope_type)}
+                                            </span>
+                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">
                                               {formatMemoryStatusLabel(memory.status)}
                                             </span>
                                           <Show when={memory.confidence != null}>
                                             <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5 normal-case tracking-normal">
                                               conf {Number(memory.confidence).toFixed(2)}
+                                            </span>
+                                          </Show>
+                                          <Show when={memory.pinned}>
+                                            <span class="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 normal-case tracking-normal text-amber-700">
+                                              pinned
                                             </span>
                                           </Show>
                                           <Show when={memory.supersedes_memory_id}>
@@ -1528,6 +1724,12 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                       <p class="whitespace-pre-wrap text-[11px] leading-relaxed text-slate-700">
                                         {memory.content}
                                       </p>
+
+                                      <Show when={memory.why_saved}>
+                                        <div class="rounded-lg border border-emerald-100 bg-white px-2.5 py-2 text-[10px] leading-relaxed text-slate-600">
+                                          {memory.why_saved}
+                                        </div>
+                                      </Show>
 
                                       <Show when={memory.memory_metadata && Object.keys(memory.memory_metadata || {}).length > 0}>
                                         <pre class="max-h-28 overflow-auto rounded-lg border border-emerald-100 bg-white px-2 py-2 font-mono text-[10px] leading-relaxed text-slate-500">
@@ -1551,31 +1753,46 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                           <span>Message: {memory.source_message_id}</span>
                                         </Show>
                                         <Show when={memory.last_used_at}>
-                                          <span>Last loaded: {memory.last_used_at}</span>
+                                          <span>Last loaded: {formatDateTimeLabel(memory.last_used_at)}</span>
+                                        </Show>
+                                        <Show when={memory.expires_at}>
+                                          <span>Expires: {formatDateTimeLabel(memory.expires_at)}</span>
+                                        </Show>
+                                        <Show when={memory.editable === false}>
+                                          <span>Locked editing</span>
+                                        </Show>
+                                        <Show when={memory.revocable === false}>
+                                          <span>Not revocable</span>
                                         </Show>
                                       </div>
 
                                       <div class="flex flex-wrap gap-2">
                                         <button
                                           type="button"
+                                          disabled={memory.editable === false}
                                           onClick={() => openEditMemoryEditor(memory)}
-                                          class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 hover:border-slate-300 hover:text-slate-800"
+                                          title={memory.editable === false ? 'This memory card is locked for editing.' : undefined}
+                                          class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
-                                          Edit
+                                          {memory.editable === false ? 'Locked' : 'Edit'}
                                         </button>
                                         <button
                                           type="button"
+                                          disabled={memory.editable === false}
                                           onClick={() => void handleToggleMemoryStatus(memory)}
-                                          class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-700 hover:border-amber-300 hover:bg-amber-100"
+                                          title={memory.editable === false ? 'This memory card is locked for editing.' : undefined}
+                                          class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-700 hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
                                           {memory.status === 'disabled' ? 'Enable' : 'Disable'}
                                         </button>
                                         <button
                                           type="button"
+                                          disabled={memory.revocable === false}
                                           onClick={() => void props.onDeleteWorkspaceMemory(memory.id)}
-                                          class="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-700 hover:border-rose-300 hover:bg-rose-100"
+                                          title={memory.revocable === false ? 'This memory card cannot be deleted or replaced.' : undefined}
+                                          class="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-700 hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
-                                          Delete
+                                          {memory.revocable === false ? 'Protected' : 'Delete'}
                                         </button>
                                       </div>
                                     </div>

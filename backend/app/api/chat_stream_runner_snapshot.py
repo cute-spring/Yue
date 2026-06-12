@@ -102,6 +102,7 @@ def build_request_snapshot_record(
             "reasoning_display_gated_enabled": bool(ctx.reasoning_display_gated_enabled),
             "summary_injected": bool(getattr(prompt_result, "summary_injected", False)),
             "scope_summary_injected": bool(getattr(prompt_result, "scope_summary_injected", False)),
+            "session_context_used": getattr(ctx, "session_context_used", None),
             "workspace_id": getattr(request, "workspace_id", None),
             "workspace_source_mode": getattr(request, "workspace_source_mode", None) or "all_ready",
             "selected_workspace_source_ids": list(getattr(request, "selected_workspace_source_ids", None) or []),
@@ -113,6 +114,46 @@ def build_request_snapshot_record(
         redaction={},
         truncation={},
     )
+
+
+def build_session_context_event(ctx: Any) -> Optional[Dict[str, Any]]:
+    inspection = getattr(ctx, "session_context_used", None)
+    if not isinstance(inspection, dict):
+        return None
+
+    selected_candidate_ids = inspection.get("selected_candidate_ids")
+    if not isinstance(selected_candidate_ids, list):
+        selected_candidate_ids = []
+    block_names = inspection.get("block_names")
+    if not isinstance(block_names, list):
+        block_names = []
+    sections = inspection.get("sections")
+    if not isinstance(sections, list):
+        sections = []
+
+    summarized_sections = []
+    for section in sections[:6]:
+        if not isinstance(section, dict):
+            continue
+        summarized_sections.append(
+            {
+                "kind": section.get("kind"),
+                "label": section.get("label"),
+                "summary": section.get("summary"),
+                "item_count": section.get("item_count"),
+            }
+        )
+
+    return {
+        "session_used_context": {
+            "action": inspection.get("action"),
+            "reason": inspection.get("reason"),
+            "recent_event_count": inspection.get("recent_event_count"),
+            "selected_candidate_ids": selected_candidate_ids[:10],
+            "block_names": block_names[:10],
+            "sections": summarized_sections,
+        }
+    }
 
 
 def build_workspace_grounding_event(
@@ -174,6 +215,7 @@ def build_workspace_memory_event(ctx: Any) -> Optional[Dict[str, Any]]:
             {
                 "id": item.get("id"),
                 "memory_type": item.get("memory_type"),
+                "scope_type": item.get("scope_type"),
                 "title": item.get("title"),
                 "content": item.get("content"),
                 "source_session_id": item.get("source_session_id"),

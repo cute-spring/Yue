@@ -58,6 +58,18 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     () => workspaces().find((workspace) => workspace.id === args.selectedWorkspaceId()) || null,
   );
 
+  const readErrorDetail = async (res: Response) => {
+    try {
+      const payload = await res.json();
+      if (typeof payload?.detail === 'string' && payload.detail.trim()) {
+        return payload.detail.trim();
+      }
+    } catch {
+      // Ignore non-JSON error bodies and fall back to status text.
+    }
+    return `HTTP ${res.status}`;
+  };
+
   const loadWorkspaces = async (preferredWorkspaceId?: string | null) => {
     setWorkspaceLoading(true);
     try {
@@ -441,13 +453,20 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
 
   const createWorkspaceMemory = async (payload: {
     memory_type: string;
+    scope_type?: string;
+    scope_ref?: string | null;
     title: string;
     content: string;
     status?: string;
     confidence?: number | null;
     created_by?: string | null;
+    why_saved?: string | null;
+    pinned?: boolean;
+    editable?: boolean;
+    revocable?: boolean;
     source_session_id?: string | null;
     source_message_id?: number | null;
+    expires_at?: string | null;
     memory_metadata?: Record<string, any>;
   }) => {
     const workspaceId = args.selectedWorkspaceId();
@@ -457,7 +476,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(await readErrorDetail(res));
     await loadWorkspaceMemories(workspaceId);
   };
 
@@ -465,13 +484,20 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     memoryId: string,
     payload: {
       memory_type?: string;
+      scope_type?: string;
+      scope_ref?: string | null;
       title?: string;
       content?: string;
       status?: string;
       confidence?: number | null;
       created_by?: string | null;
+      why_saved?: string | null;
+      pinned?: boolean;
+      editable?: boolean;
+      revocable?: boolean;
       source_session_id?: string | null;
       source_message_id?: number | null;
+      expires_at?: string | null;
       memory_metadata?: Record<string, any>;
     },
   ) => {
@@ -482,7 +508,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(await readErrorDetail(res));
     await loadWorkspaceMemories(workspaceId);
   };
 
@@ -492,9 +518,14 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
       approval_mode: string;
       target_memory_id?: string | null;
       memory_type?: string | null;
+      scope_type?: string | null;
+      scope_ref?: string | null;
       title?: string | null;
       content?: string | null;
       confidence?: number | null;
+      why_saved?: string | null;
+      expires_at?: string | null;
+      pinned?: boolean | null;
     },
   ) => {
     const workspaceId = args.selectedWorkspaceId();
@@ -506,7 +537,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(await readErrorDetail(res));
     await loadWorkspaceMemories(workspaceId);
     await trackWorkspaceCaptureTelemetry({
       event_type: 'memory_candidate_promoted',
@@ -530,7 +561,19 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: reason || undefined }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(await readErrorDetail(res));
+    await loadWorkspaceMemories(workspaceId);
+  };
+
+  const bulkUpdateWorkspaceMemoryStatusByType = async (memoryType: string, status: string) => {
+    const workspaceId = args.selectedWorkspaceId();
+    if (!workspaceId) throw new Error('No workspace selected');
+    const res = await fetch(`/api/workspaces/${workspaceId}/memory/bulk-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memory_type: memoryType, status }),
+    });
+    if (!res.ok) throw new Error(await readErrorDetail(res));
     await loadWorkspaceMemories(workspaceId);
   };
 
@@ -540,7 +583,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     const res = await fetch(`/api/workspaces/${workspaceId}/memory/${memoryId}`, {
       method: 'DELETE',
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(await readErrorDetail(res));
     await loadWorkspaceMemories(workspaceId);
   };
 
@@ -615,6 +658,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     suggestWorkspaceMemoryCandidateFromNote,
     createWorkspaceMemory,
     updateWorkspaceMemory,
+    bulkUpdateWorkspaceMemoryStatusByType,
     deleteWorkspaceMemory,
     approveWorkspaceMemoryCandidate,
     rejectWorkspaceMemoryCandidate,

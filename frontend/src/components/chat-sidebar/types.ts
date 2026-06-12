@@ -45,29 +45,44 @@ export interface ChatSidebarProps {
   onSuggestWorkspaceMemoryCandidateFromNote: (noteId: string) => Promise<WorkspaceMemoryCandidate | null>;
   onCreateWorkspaceMemory: (payload: {
     memory_type: string;
+    scope_type?: string;
+    scope_ref?: string | null;
     title: string;
     content: string;
     status?: string;
     confidence?: number | null;
     created_by?: string | null;
+    why_saved?: string | null;
+    pinned?: boolean;
+    editable?: boolean;
+    revocable?: boolean;
     source_session_id?: string | null;
     source_message_id?: number | null;
+    expires_at?: string | null;
     memory_metadata?: Record<string, any>;
   }) => Promise<void> | void;
   onUpdateWorkspaceMemory: (
     memoryId: string,
     payload: {
       memory_type?: string;
+      scope_type?: string;
+      scope_ref?: string | null;
       title?: string;
       content?: string;
       status?: string;
       confidence?: number | null;
       created_by?: string | null;
+      why_saved?: string | null;
+      pinned?: boolean;
+      editable?: boolean;
+      revocable?: boolean;
       source_session_id?: string | null;
       source_message_id?: number | null;
+      expires_at?: string | null;
       memory_metadata?: Record<string, any>;
     },
   ) => Promise<void> | void;
+  onBulkUpdateWorkspaceMemoryStatusByType: (memoryType: string, status: string) => Promise<void> | void;
   onDeleteWorkspaceMemory: (memoryId: string) => Promise<void> | void;
   onApproveWorkspaceMemoryCandidate: (
     candidateId: string,
@@ -75,9 +90,14 @@ export interface ChatSidebarProps {
       approval_mode: string;
       target_memory_id?: string | null;
       memory_type?: string | null;
+      scope_type?: string | null;
+      scope_ref?: string | null;
       title?: string | null;
       content?: string | null;
       confidence?: number | null;
+      why_saved?: string | null;
+      expires_at?: string | null;
+      pinned?: boolean | null;
     },
   ) => Promise<void> | void;
   onRejectWorkspaceMemoryCandidate: (candidateId: string, reason?: string | null) => Promise<void> | void;

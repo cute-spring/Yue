@@ -33,17 +33,28 @@ SOURCE_STATUS_NEEDS_PERMISSION = "needs_permission"
 SOURCE_STATUS_UNSUPPORTED_TYPE = "unsupported_type"
 SOURCE_STATUS_MISSING = "missing"
 ACTIVE_MEMORY_STATUSES = {"active"}
-EDITABLE_MEMORY_STATUSES = {"active", "disabled", "archived"}
+EDITABLE_MEMORY_STATUSES = {"active", "disabled", "archived", "superseded"}
 MEMORY_CANDIDATE_STATUSES = {"pending", "approved", "rejected"}
 MEMORY_APPROVAL_MODES = {"create_new", "replace_existing", "update_existing"}
+WORKSPACE_MEMORY_SCOPES = {"user", "workspace", "project", "chat"}
 WORKSPACE_MEMORY_TYPES = {
     "project_fact",
     "decision",
     "preference",
+    "historical_conclusion",
     "term",
     "open_question",
     "recurring_instruction",
 }
+
+
+class WorkspaceMemorySource(BaseModel):
+    source_session_id: Optional[str] = None
+    source_message_id: Optional[int] = None
+    source_ids: List[str] = Field(default_factory=list)
+    citation_refs: List[Dict[str, Any]] = Field(default_factory=list)
+    note_id: Optional[str] = None
+    suggested_from: Optional[str] = None
 
 
 class Workspace(BaseModel):
@@ -88,15 +99,23 @@ class WorkspaceMemoryCard(BaseModel):
     id: str
     workspace_id: str
     memory_type: str
+    scope_type: str = "workspace"
+    scope_ref: Optional[str] = None
     title: str
     content: str
     status: str = "active"
     confidence: Optional[float] = None
     created_by: Optional[str] = None
+    why_saved: Optional[str] = None
+    pinned: bool = False
+    editable: bool = True
+    revocable: bool = True
     source_session_id: Optional[str] = None
     source_message_id: Optional[int] = None
     supersedes_memory_id: Optional[str] = None
+    expires_at: Optional[datetime] = None
     last_used_at: Optional[datetime] = None
+    source: Optional[WorkspaceMemorySource] = None
     memory_metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
@@ -105,9 +124,13 @@ class WorkspaceMemoryCard(BaseModel):
 class WorkspaceMemoryDraft(BaseModel):
     workspace_id: str
     memory_type: str = "project_fact"
+    scope_type: str = "workspace"
+    scope_ref: Optional[str] = None
     title: str
     content: str
     confidence: Optional[float] = None
+    why_saved: Optional[str] = None
+    expires_at: Optional[datetime] = None
     source_session_id: Optional[str] = None
     source_message_id: Optional[int] = None
     memory_metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -117,15 +140,20 @@ class WorkspaceMemoryCandidate(BaseModel):
     id: str
     workspace_id: str
     memory_type: str
+    scope_type: str = "workspace"
+    scope_ref: Optional[str] = None
     title: str
     content: str
     status: str = "pending"
     score: Optional[float] = None
     suggested_action: Optional[str] = None
+    why_saved: Optional[str] = None
+    expires_at: Optional[datetime] = None
     conflict_memory_id: Optional[str] = None
     source_session_id: Optional[str] = None
     source_message_id: Optional[int] = None
     reviewed_at: Optional[datetime] = None
+    source: Optional[WorkspaceMemorySource] = None
     candidate_metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
@@ -134,6 +162,7 @@ class WorkspaceMemoryCandidate(BaseModel):
 class WorkspacePromptMemory(BaseModel):
     id: str
     memory_type: str
+    scope_type: str = "workspace"
     title: str
     content: str
     source_session_id: Optional[str] = None
@@ -209,15 +238,62 @@ class WorkspaceService:
         try:
             inspector = inspect(engine)
             columns = {column["name"] for column in inspector.get_columns("workspace_memory_cards")}
+            candidate_columns = {column["name"] for column in inspector.get_columns("workspace_memory_candidates")}
         except Exception:
             return
 
         statements: List[str] = []
         if "supersedes_memory_id" not in columns:
             statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN supersedes_memory_id VARCHAR")
+        if "scope_type" not in columns:
+            statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN scope_type VARCHAR DEFAULT 'workspace'")
+        if "scope_ref" not in columns:
+            statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN scope_ref VARCHAR")
+        if "why_saved" not in columns:
+            statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN why_saved TEXT")
+        if "pinned" not in columns:
+            statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN pinned BOOLEAN DEFAULT 0")
+        if "editable" not in columns:
+            statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN editable BOOLEAN DEFAULT 1")
+        if "revocable" not in columns:
+            statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN revocable BOOLEAN DEFAULT 1")
+        if "expires_at" not in columns:
+            statements.append("ALTER TABLE workspace_memory_cards ADD COLUMN expires_at DATETIME")
         statements.append(
             "CREATE INDEX IF NOT EXISTS idx_workspace_memory_cards_workspace_supersedes "
             "ON workspace_memory_cards (workspace_id, supersedes_memory_id)"
+        )
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS idx_workspace_memory_cards_scope "
+            "ON workspace_memory_cards (scope_type, scope_ref, status)"
+        )
+        if "scope_type" not in candidate_columns:
+            statements.append("ALTER TABLE workspace_memory_candidates ADD COLUMN scope_type VARCHAR DEFAULT 'workspace'")
+        if "scope_ref" not in candidate_columns:
+            statements.append("ALTER TABLE workspace_memory_candidates ADD COLUMN scope_ref VARCHAR")
+        if "why_saved" not in candidate_columns:
+            statements.append("ALTER TABLE workspace_memory_candidates ADD COLUMN why_saved TEXT")
+        if "expires_at" not in candidate_columns:
+            statements.append("ALTER TABLE workspace_memory_candidates ADD COLUMN expires_at DATETIME")
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS idx_workspace_memory_candidates_scope "
+            "ON workspace_memory_candidates (scope_type, scope_ref, status)"
+        )
+        statements.extend(
+            [
+                "UPDATE workspace_memory_cards "
+                "SET scope_type = 'workspace' "
+                "WHERE scope_type IS NULL OR TRIM(scope_type) = ''",
+                "UPDATE workspace_memory_cards "
+                "SET scope_ref = workspace_id "
+                "WHERE scope_type IN ('workspace', 'project') AND (scope_ref IS NULL OR TRIM(scope_ref) = '')",
+                "UPDATE workspace_memory_candidates "
+                "SET scope_type = 'workspace' "
+                "WHERE scope_type IS NULL OR TRIM(scope_type) = ''",
+                "UPDATE workspace_memory_candidates "
+                "SET scope_ref = workspace_id "
+                "WHERE scope_type IN ('workspace', 'project') AND (scope_ref IS NULL OR TRIM(scope_ref) = '')",
+            ]
         )
 
         with engine.begin() as connection:
@@ -276,41 +352,83 @@ class WorkspaceService:
         )
 
     def _to_workspace_memory(self, record: WorkspaceMemoryCardModel) -> WorkspaceMemoryCard:
+        metadata = self._parse_source_policy(record.memory_metadata_json)
         return WorkspaceMemoryCard(
             id=record.id,
             workspace_id=record.workspace_id,
             memory_type=record.memory_type,
+            scope_type=str(getattr(record, "scope_type", None) or "workspace"),
+            scope_ref=getattr(record, "scope_ref", None),
             title=record.title,
             content=record.content,
             status=record.status,
             confidence=record.confidence,
             created_by=record.created_by,
+            why_saved=getattr(record, "why_saved", None),
+            pinned=bool(getattr(record, "pinned", False)),
+            editable=bool(getattr(record, "editable", True)),
+            revocable=bool(getattr(record, "revocable", True)),
             source_session_id=record.source_session_id,
             source_message_id=record.source_message_id,
             supersedes_memory_id=record.supersedes_memory_id,
+            expires_at=self._to_api_datetime(getattr(record, "expires_at", None)),
             last_used_at=self._to_api_datetime(record.last_used_at),
-            memory_metadata=self._parse_source_policy(record.memory_metadata_json),
+            source=self._build_workspace_memory_source(
+                source_session_id=record.source_session_id,
+                source_message_id=record.source_message_id,
+                metadata=metadata,
+            ),
+            memory_metadata=metadata,
             created_at=self._to_api_datetime(record.created_at) or datetime.now(timezone.utc),
             updated_at=self._to_api_datetime(record.updated_at) or datetime.now(timezone.utc),
         )
 
     def _to_workspace_memory_candidate(self, record: WorkspaceMemoryCandidateModel) -> WorkspaceMemoryCandidate:
+        metadata = self._parse_source_policy(record.candidate_metadata_json)
         return WorkspaceMemoryCandidate(
             id=record.id,
             workspace_id=record.workspace_id,
             memory_type=record.memory_type,
+            scope_type=str(getattr(record, "scope_type", None) or "workspace"),
+            scope_ref=getattr(record, "scope_ref", None),
             title=record.title,
             content=record.content,
             status=record.status,
             score=record.score,
             suggested_action=record.suggested_action,
+            why_saved=getattr(record, "why_saved", None),
+            expires_at=self._to_api_datetime(getattr(record, "expires_at", None)),
             conflict_memory_id=record.conflict_memory_id,
             source_session_id=record.source_session_id,
             source_message_id=record.source_message_id,
             reviewed_at=self._to_api_datetime(record.reviewed_at),
-            candidate_metadata=self._parse_source_policy(record.candidate_metadata_json),
+            source=self._build_workspace_memory_source(
+                source_session_id=record.source_session_id,
+                source_message_id=record.source_message_id,
+                metadata=metadata,
+            ),
+            candidate_metadata=metadata,
             created_at=self._to_api_datetime(record.created_at) or datetime.now(timezone.utc),
             updated_at=self._to_api_datetime(record.updated_at) or datetime.now(timezone.utc),
+        )
+
+    @staticmethod
+    def _build_workspace_memory_source(
+        *,
+        source_session_id: Optional[str],
+        source_message_id: Optional[int],
+        metadata: Optional[Dict[str, Any]],
+    ) -> WorkspaceMemorySource:
+        payload = metadata or {}
+        source_ids = payload.get("source_ids")
+        citation_refs = payload.get("citation_refs")
+        return WorkspaceMemorySource(
+            source_session_id=source_session_id,
+            source_message_id=source_message_id,
+            source_ids=[str(item) for item in source_ids] if isinstance(source_ids, list) else [],
+            citation_refs=[item for item in citation_refs if isinstance(item, dict)] if isinstance(citation_refs, list) else [],
+            note_id=str(payload.get("note_id")) if payload.get("note_id") else None,
+            suggested_from=str(payload.get("suggested_from")) if payload.get("suggested_from") else None,
         )
 
     @staticmethod
@@ -474,6 +592,7 @@ class WorkspaceService:
             if not include_disabled:
                 query = query.filter(WorkspaceMemoryCardModel.status == "active")
             rows = query.order_by(
+                WorkspaceMemoryCardModel.pinned.desc(),
                 WorkspaceMemoryCardModel.updated_at.desc(),
                 WorkspaceMemoryCardModel.created_at.desc(),
             ).all()
@@ -639,6 +758,13 @@ class WorkspaceService:
     @staticmethod
     def _normalize_memory_type(memory_type: Optional[str]) -> str:
         normalized = str(memory_type or "").strip().lower().replace("-", "_").replace(" ", "_")
+        legacy_aliases = {
+            "user_preference": "preference",
+            "long_term_decision": "decision",
+            "historical_conclusion": "historical_conclusion",
+            "project_fact": "project_fact",
+        }
+        normalized = legacy_aliases.get(normalized, normalized)
         if normalized in WORKSPACE_MEMORY_TYPES:
             return normalized
         return "project_fact"
@@ -649,6 +775,13 @@ class WorkspaceService:
         if normalized in EDITABLE_MEMORY_STATUSES:
             return normalized
         return "active"
+
+    @staticmethod
+    def _normalize_memory_scope_type(scope_type: Optional[str]) -> str:
+        normalized = str(scope_type or "").strip().lower()
+        if normalized in WORKSPACE_MEMORY_SCOPES:
+            return normalized
+        return "workspace"
 
     @staticmethod
     def _normalize_candidate_status(status: Optional[str]) -> str:
@@ -668,6 +801,43 @@ class WorkspaceService:
     def _normalize_created_by(created_by: Optional[str]) -> str:
         normalized = str(created_by or "").strip().lower()
         return normalized or "user"
+
+    @staticmethod
+    def _coerce_datetime(value: Any) -> Optional[datetime]:
+        if value in (None, "", 0):
+            return None
+        if isinstance(value, datetime):
+            return value if value.tzinfo is None else value.astimezone(timezone.utc).replace(tzinfo=None)
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return None
+        return parsed if parsed.tzinfo is None else parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def _resolve_memory_scope_ref(
+        self,
+        *,
+        scope_type: str,
+        scope_ref: Optional[str],
+        workspace_id: Optional[str],
+        current_chat_id: Optional[str] = None,
+    ) -> Optional[str]:
+        cleaned = str(scope_ref or "").strip() or None
+        if scope_type == "user":
+            return cleaned
+        if scope_type in {"workspace", "project"}:
+            return cleaned or workspace_id
+        if scope_type == "chat":
+            return cleaned or current_chat_id
+        return cleaned or workspace_id
+
+    @staticmethod
+    def _memory_is_expired(record: Any, *, now: Optional[datetime] = None) -> bool:
+        expires_at = getattr(record, "expires_at", None)
+        if expires_at is None:
+            return False
+        current = now or datetime.utcnow()
+        return expires_at <= current
 
     @staticmethod
     def _tokenize_memory_query(text: Optional[str]) -> List[str]:
@@ -712,6 +882,8 @@ class WorkspaceService:
             base_score += 8
         if query_tokens:
             base_score += sum(2 for token in query_tokens if token in haystack)
+        if bool(getattr(record, "pinned", False)):
+            base_score += 4
         if record.last_used_at is not None:
             base_score += 2
         return base_score
@@ -726,6 +898,9 @@ class WorkspaceService:
         elif any(token in lowered for token in ["决定", "采用", "选择", "方案", "must", "should use", "we chose"]):
             memory_type = "decision"
             reasons.append("Contains explicit decision or standardization cues.")
+        elif any(token in lowered for token in ["结论", "已否决", "否掉", "排除", "ruled out", "rejected", "historical conclusion"]):
+            memory_type = "historical_conclusion"
+            reasons.append("Contains a durable historical conclusion.")
         elif any(token in lowered for token in ["术语", "简称", "定义", "means", "refers to"]):
             memory_type = "term"
             reasons.append("Looks like a reusable term or definition.")
@@ -761,7 +936,7 @@ class WorkspaceService:
         lowered = content.lower()
         token_count = len(self._tokenize_memory_query(f"{title} {content}"))
 
-        if memory_type in {"preference", "decision", "project_fact", "recurring_instruction"}:
+        if memory_type in {"preference", "decision", "project_fact", "historical_conclusion", "recurring_instruction"}:
             score += 0.18
             reasons.append("High-value durable memory type.")
         if any(token in lowered for token in ["默认", "以后", "always", "prefer", "统一", "标准", "约定"]):
@@ -885,12 +1060,16 @@ class WorkspaceService:
             "score_reasons": score_reasons,
             "type_inference_reasons": inference_reasons,
         }
+        why_saved = " ".join(score_reasons[:2]).strip() or "Suggested from assistant message."
         return WorkspaceMemoryDraft(
             workspace_id=workspace_id,
             memory_type=memory_type,
+            scope_type="workspace",
+            scope_ref=workspace_id,
             title=title,
             content=content[:500],
             confidence=score,
+            why_saved=why_saved,
             source_session_id=chat_id,
             source_message_id=getattr(message, "id", None),
             memory_metadata=draft_metadata,
@@ -935,12 +1114,16 @@ class WorkspaceService:
             "score_reasons": score_reasons,
             "type_inference_reasons": [*type_reasons, *inference_reasons],
         }
+        why_saved = " ".join(score_reasons[:2]).strip() or "Suggested from workspace note."
         return WorkspaceMemoryDraft(
             workspace_id=workspace_id,
             memory_type=memory_type,
+            scope_type="workspace",
+            scope_ref=workspace_id,
             title=note.title[:80] or "Workspace memory",
             content=candidate_text[:500],
             confidence=score,
+            why_saved=why_saved,
             source_session_id=note.source_session_id,
             source_message_id=note.source_message_id,
             memory_metadata=draft_metadata,
@@ -957,6 +1140,7 @@ class WorkspaceService:
                 WorkspacePromptMemory(
                     id=record.id,
                     memory_type=record.memory_type,
+                    scope_type=str(getattr(record, "scope_type", None) or "workspace"),
                     title=record.title,
                     content=record.content,
                     source_session_id=record.source_session_id,
@@ -964,6 +1148,8 @@ class WorkspaceService:
                 )
             )
             source_bits: List[str] = []
+            scope_type = str(getattr(record, "scope_type", None) or "workspace")
+            source_bits.append(f"scope={scope_type}")
             if record.source_session_id:
                 source_bits.append(f"chat={record.source_session_id}")
             if record.source_message_id is not None:
@@ -982,33 +1168,57 @@ class WorkspaceService:
         selected_source_ids: Optional[List[str]] = None,
         grounding_mode: Optional[str] = "normal",
         current_query: Optional[str] = None,
+        current_chat_id: Optional[str] = None,
     ) -> Optional[WorkspacePromptContext]:
-        if not workspace_id:
-            return None
-
         source_mode = self._normalize_workspace_source_mode(workspace_source_mode)
         grounding = self._normalize_grounding_mode(grounding_mode)
         selected_ids = [str(item) for item in (selected_source_ids or []) if str(item).strip()]
         selected_set = set(selected_ids)
+        now = datetime.utcnow()
 
         with SessionLocal() as db:
-            workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
-            if workspace is None:
-                return None
-            rows = (
-                db.query(WorkspaceSourceModel)
-                .filter(WorkspaceSourceModel.workspace_id == workspace_id)
-                .order_by(WorkspaceSourceModel.updated_at.desc(), WorkspaceSourceModel.created_at.desc())
-                .all()
-            )
-            memory_query = (
-                db.query(WorkspaceMemoryCardModel)
-                .filter(
-                    WorkspaceMemoryCardModel.workspace_id == workspace_id,
-                    WorkspaceMemoryCardModel.status.in_(tuple(ACTIVE_MEMORY_STATUSES)),
+            workspace = None
+            rows: List[WorkspaceSourceModel] = []
+            if workspace_id:
+                workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
+                if workspace is None:
+                    return None
+                rows = (
+                    db.query(WorkspaceSourceModel)
+                    .filter(WorkspaceSourceModel.workspace_id == workspace_id)
+                    .order_by(WorkspaceSourceModel.updated_at.desc(), WorkspaceSourceModel.created_at.desc())
+                    .all()
                 )
-                .all()
+            memory_query = db.query(WorkspaceMemoryCardModel).filter(
+                WorkspaceMemoryCardModel.status.in_(tuple(ACTIVE_MEMORY_STATUSES))
             )
+            if workspace_id:
+                memory_query = memory_query.filter(
+                    (WorkspaceMemoryCardModel.scope_type == "user")
+                    | (
+                        (WorkspaceMemoryCardModel.scope_type == "workspace")
+                        & (
+                            (WorkspaceMemoryCardModel.scope_ref == workspace_id)
+                            | (WorkspaceMemoryCardModel.scope_ref.is_(None))
+                            | (WorkspaceMemoryCardModel.scope_ref == "")
+                        )
+                    )
+                    | (
+                        (WorkspaceMemoryCardModel.scope_type == "project")
+                        & (
+                            (WorkspaceMemoryCardModel.scope_ref == workspace_id)
+                            | (WorkspaceMemoryCardModel.scope_ref.is_(None))
+                            | (WorkspaceMemoryCardModel.scope_ref == "")
+                        )
+                    )
+                    | (
+                        (WorkspaceMemoryCardModel.scope_type == "chat")
+                        & (WorkspaceMemoryCardModel.scope_ref == (current_chat_id or ""))
+                    )
+                )
+            else:
+                memory_query = memory_query.filter(WorkspaceMemoryCardModel.scope_type == "user")
+            memory_rows = [row for row in memory_query.all() if not self._memory_is_expired(row, now=now)]
 
         eligible_rows: List[WorkspaceSourceModel] = []
         unavailable_rows: List[WorkspaceSourceModel] = []
@@ -1040,19 +1250,29 @@ class WorkspaceService:
         unavailable = [to_prompt_source(row) for row in unavailable_rows]
         query_tokens = self._tokenize_memory_query(current_query)
         ranked_memory_rows = sorted(
-            memory_query,
+            memory_rows,
             key=lambda row: (
                 self._memory_relevance_score(row, current_query=current_query, query_tokens=query_tokens),
                 -self._memory_type_priority(row.memory_type),
+                1 if bool(getattr(row, "pinned", False)) else 0,
                 row.updated_at or row.created_at or datetime.min,
             ),
             reverse=True,
         )
         selected_memory_rows = ranked_memory_rows[:8]
+        if selected_memory_rows:
+            with SessionLocal() as db:
+                for row in (
+                    db.query(WorkspaceMemoryCardModel)
+                    .filter(WorkspaceMemoryCardModel.id.in_([item.id for item in selected_memory_rows]))
+                    .all()
+                ):
+                    row.last_used_at = now
+                db.commit()
         loaded_memories, memory_lines = self._build_workspace_memory_prompt_lines(selected_memory_rows)
         lines = [
             "### Workspace Source Context",
-            f"Workspace: {workspace.name} ({workspace.id})",
+            f"Workspace: {(workspace.name if workspace is not None else 'Global memory')} ({workspace.id if workspace is not None else 'global'})",
             f"Source mode: {source_mode}",
             f"Grounding mode: {grounding}",
             "Workspace is a source-selection container, not a permission boundary. Respect global doc_access for all local file reads.",
@@ -1098,8 +1318,8 @@ class WorkspaceService:
             )
 
         return WorkspacePromptContext(
-            workspace_id=workspace.id,
-            workspace_name=workspace.name,
+            workspace_id=workspace.id if workspace is not None else "global",
+            workspace_name=workspace.name if workspace is not None else "Global memory",
             workspace_source_mode=source_mode,
             grounding_mode=grounding,
             selected_source_ids=selected_ids if source_mode == "selected" else None,
@@ -1377,14 +1597,21 @@ class WorkspaceService:
         workspace_id: str,
         *,
         memory_type: str,
+        scope_type: str = "workspace",
+        scope_ref: Optional[str] = None,
         title: str,
         content: str,
         status: str = "active",
         confidence: Optional[float] = None,
         created_by: Optional[str] = None,
+        why_saved: Optional[str] = None,
+        pinned: bool = False,
+        editable: bool = True,
+        revocable: bool = True,
         source_session_id: Optional[str] = None,
         source_message_id: Optional[int] = None,
         supersedes_memory_id: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
         memory_metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[WorkspaceMemoryCard]:
         now = datetime.utcnow()
@@ -1392,18 +1619,31 @@ class WorkspaceService:
             workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
             if workspace is None:
                 return None
+            normalized_scope_type = self._normalize_memory_scope_type(scope_type)
             row = WorkspaceMemoryCardModel(
                 id=str(uuid.uuid4()),
                 workspace_id=workspace_id,
                 memory_type=self._normalize_memory_type(memory_type),
+                scope_type=normalized_scope_type,
+                scope_ref=self._resolve_memory_scope_ref(
+                    scope_type=normalized_scope_type,
+                    scope_ref=scope_ref,
+                    workspace_id=workspace_id,
+                    current_chat_id=source_session_id if normalized_scope_type == "chat" else None,
+                ),
                 title=title.strip(),
                 content=content.strip(),
                 status=self._normalize_memory_status(status),
                 confidence=confidence,
                 created_by=self._normalize_created_by(created_by),
+                why_saved=str(why_saved or "").strip() or None,
+                pinned=bool(pinned),
+                editable=bool(editable),
+                revocable=bool(revocable),
                 source_session_id=source_session_id,
                 source_message_id=source_message_id,
                 supersedes_memory_id=supersedes_memory_id,
+                expires_at=self._coerce_datetime(expires_at),
                 memory_metadata_json=json.dumps(memory_metadata or {}),
                 created_at=now,
                 updated_at=now,
@@ -1420,14 +1660,21 @@ class WorkspaceService:
         memory_id: str,
         *,
         memory_type: Any = _UNSET,
+        scope_type: Any = _UNSET,
+        scope_ref: Any = _UNSET,
         title: Any = _UNSET,
         content: Any = _UNSET,
         status: Any = _UNSET,
         confidence: Any = _UNSET,
         created_by: Any = _UNSET,
+        why_saved: Any = _UNSET,
+        pinned: Any = _UNSET,
+        editable: Any = _UNSET,
+        revocable: Any = _UNSET,
         source_session_id: Any = _UNSET,
         source_message_id: Any = _UNSET,
         supersedes_memory_id: Any = _UNSET,
+        expires_at: Any = _UNSET,
         memory_metadata: Any = _UNSET,
     ) -> Optional[WorkspaceMemoryCard]:
         with SessionLocal() as db:
@@ -1442,8 +1689,49 @@ class WorkspaceService:
             if row is None:
                 return None
 
+            requested_updates = {
+                field
+                for field, value in (
+                    ("memory_type", memory_type),
+                    ("scope_type", scope_type),
+                    ("scope_ref", scope_ref),
+                    ("title", title),
+                    ("content", content),
+                    ("status", status),
+                    ("confidence", confidence),
+                    ("created_by", created_by),
+                    ("why_saved", why_saved),
+                    ("pinned", pinned),
+                    ("editable", editable),
+                    ("revocable", revocable),
+                    ("source_session_id", source_session_id),
+                    ("source_message_id", source_message_id),
+                    ("supersedes_memory_id", supersedes_memory_id),
+                    ("expires_at", expires_at),
+                    ("memory_metadata", memory_metadata),
+                )
+                if value is not _UNSET
+            }
+            if bool(getattr(row, "editable", True)) is False:
+                unlock_only = requested_updates <= {"editable"} and editable is True
+                if not unlock_only:
+                    raise ValueError("memory_not_editable")
+
             if memory_type is not _UNSET:
                 row.memory_type = self._normalize_memory_type(memory_type)
+            if scope_type is not _UNSET:
+                row.scope_type = self._normalize_memory_scope_type(scope_type)
+            if source_session_id is not _UNSET:
+                row.source_session_id = source_session_id
+            if source_message_id is not _UNSET:
+                row.source_message_id = source_message_id
+            if scope_type is not _UNSET or scope_ref is not _UNSET or source_session_id is not _UNSET:
+                row.scope_ref = self._resolve_memory_scope_ref(
+                    scope_type=str(getattr(row, "scope_type", None) or "workspace"),
+                    scope_ref=row.scope_ref if scope_ref is _UNSET else scope_ref,
+                    workspace_id=workspace_id,
+                    current_chat_id=row.source_session_id,
+                )
             if title is not _UNSET:
                 row.title = str(title or "").strip() or row.title
             if content is not _UNSET:
@@ -1454,12 +1742,18 @@ class WorkspaceService:
                 row.confidence = confidence
             if created_by is not _UNSET:
                 row.created_by = self._normalize_created_by(created_by)
-            if source_session_id is not _UNSET:
-                row.source_session_id = source_session_id
-            if source_message_id is not _UNSET:
-                row.source_message_id = source_message_id
+            if why_saved is not _UNSET:
+                row.why_saved = str(why_saved or "").strip() or None
+            if pinned is not _UNSET:
+                row.pinned = bool(pinned)
+            if editable is not _UNSET:
+                row.editable = bool(editable)
+            if revocable is not _UNSET:
+                row.revocable = bool(revocable)
             if supersedes_memory_id is not _UNSET:
                 row.supersedes_memory_id = supersedes_memory_id
+            if expires_at is not _UNSET:
+                row.expires_at = self._coerce_datetime(expires_at)
             if memory_metadata is not _UNSET:
                 row.memory_metadata_json = json.dumps(memory_metadata or {})
             row.updated_at = datetime.utcnow()
@@ -1469,6 +1763,36 @@ class WorkspaceService:
             db.commit()
             db.refresh(row)
             return self._to_workspace_memory(row)
+
+    def bulk_update_memory_status_by_type(
+        self,
+        workspace_id: str,
+        *,
+        memory_type: str,
+        status: str,
+    ) -> int:
+        normalized_type = self._normalize_memory_type(memory_type)
+        normalized_status = self._normalize_memory_status(status)
+        now = datetime.utcnow()
+        with SessionLocal() as db:
+            rows = (
+                db.query(WorkspaceMemoryCardModel)
+                .filter(
+                    WorkspaceMemoryCardModel.workspace_id == workspace_id,
+                    WorkspaceMemoryCardModel.memory_type == normalized_type,
+                )
+                .all()
+            )
+            for row in rows:
+                if bool(getattr(row, "editable", True)) is False:
+                    continue
+                row.status = normalized_status
+                row.updated_at = now
+            workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
+            if workspace is not None:
+                workspace.updated_at = now
+            db.commit()
+            return sum(1 for row in rows if bool(getattr(row, "editable", True)) is not False)
 
     def delete_memory(self, workspace_id: str, memory_id: str) -> bool:
         with SessionLocal() as db:
@@ -1482,6 +1806,8 @@ class WorkspaceService:
             )
             if row is None:
                 return False
+            if bool(getattr(row, "revocable", True)) is False:
+                raise ValueError("memory_not_revocable")
 
             workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
             if workspace is not None:
@@ -1681,11 +2007,20 @@ class WorkspaceService:
                 id=str(uuid.uuid4()),
                 workspace_id=workspace_id,
                 memory_type=self._normalize_memory_type(draft.memory_type),
+                scope_type=self._normalize_memory_scope_type(draft.scope_type),
+                scope_ref=self._resolve_memory_scope_ref(
+                    scope_type=self._normalize_memory_scope_type(draft.scope_type),
+                    scope_ref=draft.scope_ref,
+                    workspace_id=workspace_id,
+                    current_chat_id=draft.source_session_id if draft.scope_type == "chat" else None,
+                ),
                 title=draft.title.strip(),
                 content=draft.content.strip(),
                 status="pending",
                 score=draft.confidence,
                 suggested_action=suggested_action or "create_new",
+                why_saved=str(draft.why_saved or "").strip() or None,
+                expires_at=self._coerce_datetime(draft.expires_at),
                 conflict_memory_id=conflict_record.id if conflict_record is not None else None,
                 source_session_id=draft.source_session_id,
                 source_message_id=draft.source_message_id,
@@ -1744,11 +2079,20 @@ class WorkspaceService:
                 id=str(uuid.uuid4()),
                 workspace_id=workspace_id,
                 memory_type=self._normalize_memory_type(draft.memory_type),
+                scope_type=self._normalize_memory_scope_type(draft.scope_type),
+                scope_ref=self._resolve_memory_scope_ref(
+                    scope_type=self._normalize_memory_scope_type(draft.scope_type),
+                    scope_ref=draft.scope_ref,
+                    workspace_id=workspace_id,
+                    current_chat_id=draft.source_session_id if draft.scope_type == "chat" else None,
+                ),
                 title=draft.title.strip(),
                 content=draft.content.strip(),
                 status="pending",
                 score=draft.confidence,
                 suggested_action=suggested_action or "create_new",
+                why_saved=str(draft.why_saved or "").strip() or None,
+                expires_at=self._coerce_datetime(draft.expires_at),
                 conflict_memory_id=conflict_record.id if conflict_record is not None else None,
                 source_session_id=draft.source_session_id,
                 source_message_id=draft.source_message_id,
@@ -1780,9 +2124,14 @@ class WorkspaceService:
         approval_mode: str = "create_new",
         target_memory_id: Optional[str] = None,
         memory_type: Optional[str] = None,
+        scope_type: Optional[str] = None,
+        scope_ref: Optional[str] = None,
         title: Optional[str] = None,
         content: Optional[str] = None,
         confidence: Optional[float] = None,
+        why_saved: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
+        pinned: Optional[bool] = None,
         reviewer: Optional[str] = None,
     ) -> Optional[WorkspaceMemoryCard]:
         normalized_mode = self._normalize_memory_approval_mode(approval_mode)
@@ -1819,12 +2168,30 @@ class WorkspaceService:
                 )
 
             next_type = self._normalize_memory_type(memory_type or candidate.memory_type)
+            next_scope_type = self._normalize_memory_scope_type(scope_type or getattr(candidate, "scope_type", None))
+            next_scope_ref = self._resolve_memory_scope_ref(
+                scope_type=next_scope_type,
+                scope_ref=scope_ref if scope_ref is not None else getattr(candidate, "scope_ref", None),
+                workspace_id=workspace_id,
+                current_chat_id=candidate.source_session_id if next_scope_type == "chat" else None,
+            )
             next_title = str(title or candidate.title).strip() or candidate.title
             next_content = str(content or candidate.content).strip() or candidate.content
             next_confidence = confidence if confidence is not None else candidate.score
+            next_why_saved = str(why_saved or getattr(candidate, "why_saved", None) or "").strip() or None
+            next_expires_at = self._coerce_datetime(expires_at if expires_at is not None else getattr(candidate, "expires_at", None))
+            next_pinned = (
+                bool(pinned)
+                if pinned is not None
+                else bool(getattr(target_memory, "pinned", False)) if target_memory is not None else False
+            )
 
             if normalized_mode in {"replace_existing", "update_existing"} and target_memory is None:
                 return None
+            if normalized_mode == "update_existing" and bool(getattr(target_memory, "editable", True)) is False:
+                raise ValueError("memory_not_editable")
+            if normalized_mode == "replace_existing" and bool(getattr(target_memory, "revocable", True)) is False:
+                raise ValueError("memory_not_revocable")
 
             approved_memory: Optional[WorkspaceMemoryCardModel] = None
             if normalized_mode == "update_existing":
@@ -1844,10 +2211,15 @@ class WorkspaceService:
                 )
                 target_metadata["candidate_update_history"] = history[-10:]
                 target_memory.memory_type = next_type
+                target_memory.scope_type = next_scope_type
+                target_memory.scope_ref = next_scope_ref
                 target_memory.title = next_title
                 target_memory.content = next_content
                 target_memory.confidence = next_confidence
                 target_memory.created_by = self._normalize_created_by(reviewer or "user")
+                target_memory.why_saved = next_why_saved
+                target_memory.expires_at = next_expires_at
+                target_memory.pinned = next_pinned
                 target_memory.source_session_id = candidate.source_session_id
                 target_memory.source_message_id = candidate.source_message_id
                 target_memory.memory_metadata_json = json.dumps(target_metadata)
@@ -1858,14 +2230,21 @@ class WorkspaceService:
                     id=str(uuid.uuid4()),
                     workspace_id=workspace_id,
                     memory_type=next_type,
+                    scope_type=next_scope_type,
+                    scope_ref=next_scope_ref,
                     title=next_title,
                     content=next_content,
                     status="active",
                     confidence=next_confidence,
                     created_by=self._normalize_created_by(reviewer or "user"),
+                    why_saved=next_why_saved,
+                    pinned=next_pinned,
+                    editable=True,
+                    revocable=True,
                     source_session_id=candidate.source_session_id,
                     source_message_id=candidate.source_message_id,
                     supersedes_memory_id=target_memory.id if normalized_mode == "replace_existing" and target_memory is not None else None,
+                    expires_at=next_expires_at,
                     memory_metadata_json=json.dumps(
                         {
                             **candidate_metadata,
@@ -1882,7 +2261,7 @@ class WorkspaceService:
                 prior_metadata = self._parse_source_policy(target_memory.memory_metadata_json)
                 prior_metadata["replaced_by_candidate_id"] = candidate.id
                 prior_metadata["replaced_at"] = now.isoformat()
-                target_memory.status = "archived"
+                target_memory.status = "superseded"
                 target_memory.memory_metadata_json = json.dumps(prior_metadata)
                 target_memory.updated_at = now
 

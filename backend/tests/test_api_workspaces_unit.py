@@ -393,14 +393,21 @@ def test_create_workspace_memory(client, mock_workspace_service):
         "id": "mem_1",
         "workspace_id": "ws_1",
         "memory_type": "decision",
+        "scope_type": "project",
+        "scope_ref": "ws_1",
         "title": "Use Postgres",
         "content": "The workspace default DB is Postgres + pgvector.",
         "status": "active",
         "confidence": 0.8,
         "created_by": "user",
+        "why_saved": "这是当前项目的长期架构决策。",
+        "pinned": True,
+        "editable": True,
+        "revocable": True,
         "source_session_id": "chat_1",
         "source_message_id": 4,
         "last_used_at": None,
+        "expires_at": "2026-12-31T00:00:00Z",
         "memory_metadata": {"source_ids": ["src_1"]},
         "created_at": "2026-06-03T00:00:00Z",
         "updated_at": "2026-06-03T00:00:00Z",
@@ -412,13 +419,20 @@ def test_create_workspace_memory(client, mock_workspace_service):
         "/api/workspaces/ws_1/memory",
         json={
             "memory_type": "decision",
+            "scope_type": "project",
+            "scope_ref": "ws_1",
             "title": "Use Postgres",
             "content": "The workspace default DB is Postgres + pgvector.",
             "status": "active",
             "confidence": 0.8,
             "created_by": "user",
+            "why_saved": "这是当前项目的长期架构决策。",
+            "pinned": True,
+            "editable": True,
+            "revocable": True,
             "source_session_id": "chat_1",
             "source_message_id": 4,
+            "expires_at": "2026-12-31T00:00:00Z",
             "memory_metadata": {"source_ids": ["src_1"]},
         },
     )
@@ -428,14 +442,21 @@ def test_create_workspace_memory(client, mock_workspace_service):
     mock_workspace_service.create_memory.assert_called_once_with(
         "ws_1",
         memory_type="decision",
+        scope_type="project",
+        scope_ref="ws_1",
         title="Use Postgres",
         content="The workspace default DB is Postgres + pgvector.",
         status="active",
         confidence=0.8,
         created_by="user",
+        why_saved="这是当前项目的长期架构决策。",
+        pinned=True,
+        editable=True,
+        revocable=True,
         source_session_id="chat_1",
         source_message_id=4,
         supersedes_memory_id=None,
+        expires_at="2026-12-31T00:00:00Z",
         memory_metadata={"source_ids": ["src_1"]},
     )
 
@@ -540,15 +561,22 @@ def test_approve_workspace_memory_candidate(client, mock_workspace_service):
         "id": "mem_2",
         "workspace_id": "ws_1",
         "memory_type": "preference",
+        "scope_type": "user",
+        "scope_ref": None,
         "title": "默认中文输出",
         "content": "默认用中文输出，先给结论。",
         "status": "active",
         "confidence": 0.82,
         "created_by": "user",
+        "why_saved": "这是用户稳定表达偏好。",
+        "pinned": True,
+        "editable": True,
+        "revocable": True,
         "source_session_id": "chat_1",
         "source_message_id": 4,
         "supersedes_memory_id": "mem_1",
         "last_used_at": None,
+        "expires_at": None,
         "memory_metadata": {"approved_from_candidate_id": "cand_1"},
         "created_at": "2026-06-03T00:00:00Z",
         "updated_at": "2026-06-03T00:00:00Z",
@@ -558,7 +586,14 @@ def test_approve_workspace_memory_candidate(client, mock_workspace_service):
 
     response = client.post(
         "/api/workspaces/ws_1/memory-candidates/cand_1/approve",
-        json={"approval_mode": "replace_existing", "target_memory_id": "mem_1"},
+        json={
+            "approval_mode": "replace_existing",
+            "target_memory_id": "mem_1",
+            "memory_type": "preference",
+            "scope_type": "user",
+            "why_saved": "这是用户稳定表达偏好。",
+            "pinned": True,
+        },
     )
 
     assert response.status_code == 200
@@ -568,10 +603,15 @@ def test_approve_workspace_memory_candidate(client, mock_workspace_service):
         "cand_1",
         approval_mode="replace_existing",
         target_memory_id="mem_1",
-        memory_type=None,
+        memory_type="preference",
+        scope_type="user",
+        scope_ref=None,
         title=None,
         content=None,
         confidence=None,
+        why_saved="这是用户稳定表达偏好。",
+        expires_at=None,
+        pinned=True,
     )
 
 
@@ -589,6 +629,23 @@ def test_reject_workspace_memory_candidate(client, mock_workspace_service):
         "ws_1",
         "cand_1",
         reason="Not durable enough",
+    )
+
+
+def test_bulk_update_workspace_memory_status(client, mock_workspace_service):
+    mock_workspace_service.bulk_update_memory_status_by_type.return_value = 3
+
+    response = client.post(
+        "/api/workspaces/ws_1/memory/bulk-status",
+        json={"memory_type": "historical_conclusion", "status": "disabled"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "success", "updated_count": 3}
+    mock_workspace_service.bulk_update_memory_status_by_type.assert_called_once_with(
+        "ws_1",
+        memory_type="historical_conclusion",
+        status="disabled",
     )
 
 
@@ -693,6 +750,30 @@ def test_update_workspace_artifact(client, mock_workspace_service):
     assert response.json()["title"] == "brief-v2.docx"
 
 
+def test_update_workspace_memory_conflict_when_locked(client, mock_workspace_service):
+    mock_workspace_service.update_memory.side_effect = ValueError("memory_not_editable")
+
+    response = client.put(
+        "/api/workspaces/ws_1/memory/mem_1",
+        json={"content": "Attempted update"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Workspace memory is locked for editing"
+
+
+def test_approve_workspace_memory_candidate_conflict_when_target_protected(client, mock_workspace_service):
+    mock_workspace_service.approve_memory_candidate.side_effect = ValueError("memory_not_revocable")
+
+    response = client.post(
+        "/api/workspaces/ws_1/memory-candidates/cand_1/approve",
+        json={"approval_mode": "replace_existing", "target_memory_id": "mem_1"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Workspace memory cannot be deleted or replaced"
+
+
 def test_delete_workspace_conflict(client, mock_workspace_service):
     mock_workspace_service.delete_workspace.side_effect = ValueError("workspace_not_empty")
 
@@ -715,3 +796,12 @@ def test_delete_workspace_artifact_not_found(client, mock_workspace_service):
     response = client.delete("/api/workspaces/ws_1/artifacts/art_missing")
 
     assert response.status_code == 404
+
+
+def test_delete_workspace_memory_conflict_when_protected(client, mock_workspace_service):
+    mock_workspace_service.delete_memory.side_effect = ValueError("memory_not_revocable")
+
+    response = client.delete("/api/workspaces/ws_1/memory/mem_1")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Workspace memory cannot be deleted or replaced"

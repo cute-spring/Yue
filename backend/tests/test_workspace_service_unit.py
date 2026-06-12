@@ -647,10 +647,14 @@ def test_workspace_memory_crud_and_prompt_context(temp_db):
     prompt_context = workspace_service.build_prompt_context(
         workspace.id,
         current_query="继续数据库方案",
+        current_chat_id=session.id,
     )
     assert prompt_context is not None
     assert created.id in prompt_context.loaded_memory_ids
     assert "Workspace Memory Cards" in prompt_context.prompt_block
+    loaded_memory = workspace_service.get_memory(workspace.id, created.id)
+    assert loaded_memory is not None
+    assert loaded_memory.last_used_at is not None
 
     suggested = workspace_service.suggest_memory_from_message(
         workspace.id,
@@ -713,7 +717,7 @@ def test_workspace_memory_candidate_conflict_and_approval_flow(temp_db):
 
     existing_after = workspace_service.get_memory(workspace.id, existing.id)
     assert existing_after is not None
-    assert existing_after.status == "archived"
+    assert existing_after.status == "superseded"
 
     candidates_after = workspace_service.list_memory_candidates(workspace.id, include_reviewed=True)
     assert candidates_after is not None
@@ -816,3 +820,164 @@ def test_build_note_promotion_hint_marks_ready_and_pending_candidate(temp_db):
     assert pending_hint["state"] == "candidate_pending"
     assert pending_hint["candidate_id"] == candidate.id
     assert pending_hint["candidate_status"] == "pending"
+
+
+def test_workspace_memory_supports_scope_expiry_and_bulk_status_updates(temp_db):
+    workspace_service, chat_service, db_file = temp_db
+
+    workspace = workspace_service.create_workspace(name="Scoped Memory Workspace")
+    session = chat_service.create_chat(title="Scoped memory chat", workspace_id=workspace.id)
+    chat_service.add_message(session.id, "assistant", "当前项目先不引入独立向量库。")
+    assistant = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "assistant")
+
+    user_memory = workspace_service.create_memory(
+        workspace.id,
+        memory_type="preference",
+        scope_type="user",
+        title="默认中文输出",
+        content="默认中文，先给结论后展开。",
+        why_saved="这是用户长期协作偏好。",
+        pinned=True,
+        editable=True,
+        revocable=True,
+        source_session_id=session.id,
+        source_message_id=assistant.id,
+    )
+    project_memory = workspace_service.create_memory(
+        workspace.id,
+        memory_type="historical_conclusion",
+        scope_type="project",
+        title="否决 Redis-only 方案",
+        content="历史评审已经否决 Redis-only 方案。",
+        expires_at="2099-01-01T00:00:00",
+        source_session_id=session.id,
+        source_message_id=assistant.id,
+    )
+    expired_chat_memory = workspace_service.create_memory(
+        workspace.id,
+        memory_type="decision",
+        scope_type="chat",
+        scope_ref=session.id,
+        title="临时聊天约束",
+        content="只对这个会话生效。",
+        expires_at="2000-01-01T00:00:00",
+        source_session_id=session.id,
+        source_message_id=assistant.id,
+    )
+
+    assert user_memory is not None
+    assert project_memory is not None
+    assert expired_chat_memory is not None
+
+    scoped_context = workspace_service.build_prompt_context(
+        workspace.id,
+        current_query="继续评估项目技术方案",
+        current_chat_id=session.id,
+    )
+    assert scoped_context is not None
+    assert user_memory.id in scoped_context.loaded_memory_ids
+    assert project_memory.id in scoped_context.loaded_memory_ids
+    assert expired_chat_memory.id not in scoped_context.loaded_memory_ids
+
+    with sqlite3.connect(db_file) as conn:
+        conn.execute(
+            "UPDATE workspace_memory_cards SET scope_ref = NULL WHERE id = ?",
+            (project_memory.id,),
+        )
+        conn.commit()
+
+    compatibility_context = workspace_service.build_prompt_context(
+        workspace.id,
+        current_query="继续评估项目技术方案",
+        current_chat_id=session.id,
+    )
+    assert compatibility_context is not None
+    assert project_memory.id in compatibility_context.loaded_memory_ids
+
+    global_context = workspace_service.build_prompt_context(
+        None,
+        current_query="继续沿用我的写作偏好",
+        current_chat_id=session.id,
+    )
+    assert global_context is not None
+    assert global_context.workspace_id == "global"
+    assert user_memory.id in global_context.loaded_memory_ids
+    assert project_memory.id not in global_context.loaded_memory_ids
+
+    updated_count = workspace_service.bulk_update_memory_status_by_type(
+        workspace.id,
+        memory_type="historical_conclusion",
+        status="disabled",
+    )
+    assert updated_count == 1
+    updated_project_memory = workspace_service.get_memory(workspace.id, project_memory.id)
+    assert updated_project_memory is not None
+    assert updated_project_memory.status == "disabled"
+
+
+def test_workspace_memory_preserves_recurring_instruction_type(temp_db):
+    workspace_service, _, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Instruction Workspace")
+    preference = workspace_service.create_memory(
+        workspace.id,
+        memory_type="preference",
+        title="默认中文输出",
+        content="默认中文回复。",
+    )
+    instruction = workspace_service.create_memory(
+        workspace.id,
+        memory_type="recurring_instruction",
+        title="总结时给出下一步",
+        content="在总结里总是明确下一步。",
+    )
+
+    assert preference is not None
+    assert instruction is not None
+    assert instruction.memory_type == "recurring_instruction"
+
+    updated_count = workspace_service.bulk_update_memory_status_by_type(
+        workspace.id,
+        memory_type="recurring_instruction",
+        status="disabled",
+    )
+    assert updated_count == 1
+
+    updated_preference = workspace_service.get_memory(workspace.id, preference.id)
+    updated_instruction = workspace_service.get_memory(workspace.id, instruction.id)
+    assert updated_preference is not None
+    assert updated_instruction is not None
+    assert updated_preference.status == "active"
+    assert updated_instruction.status == "disabled"
+
+
+def test_workspace_memory_enforces_editable_and_revocable_flags(temp_db):
+    workspace_service, _, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Protected Memory Workspace")
+    locked = workspace_service.create_memory(
+        workspace.id,
+        memory_type="decision",
+        title="Do not edit directly",
+        content="This memory is protected.",
+        editable=False,
+        revocable=False,
+    )
+
+    assert locked is not None
+
+    with pytest.raises(ValueError, match="memory_not_editable"):
+        workspace_service.update_memory(workspace.id, locked.id, content="Changed")
+
+    updated_count = workspace_service.bulk_update_memory_status_by_type(
+        workspace.id,
+        memory_type="decision",
+        status="disabled",
+    )
+    assert updated_count == 0
+    locked_after_bulk = workspace_service.get_memory(workspace.id, locked.id)
+    assert locked_after_bulk is not None
+    assert locked_after_bulk.status == "active"
+
+    with pytest.raises(ValueError, match="memory_not_revocable"):
+        workspace_service.delete_memory(workspace.id, locked.id)

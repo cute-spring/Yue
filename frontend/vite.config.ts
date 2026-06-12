@@ -2,11 +2,14 @@ import { defineConfig } from 'vite';
 import solidPlugin from 'vite-plugin-solid';
 
 const backendTarget = process.env.YUE_BACKEND_URL || 'http://127.0.0.1:8003';
+const frontendHost = process.env.YUE_FRONTEND_HOST || '0.0.0.0';
+const frontendPort = Number(process.env.YUE_FRONTEND_PORT || '3000');
 
 export default defineConfig({
   plugins: [solidPlugin()],
   server: {
-    port: 3000,
+    host: frontendHost,
+    port: frontendPort,
     proxy: {
       '/api': {
         target: backendTarget,

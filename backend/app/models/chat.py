@@ -115,14 +115,21 @@ class WorkspaceMemoryCard(Base):
     id = Column(String, primary_key=True)
     workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     memory_type = Column(String, nullable=False)
+    scope_type = Column(String, nullable=False, default="workspace")
+    scope_ref = Column(String, nullable=True)
     title = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="active")
     confidence = Column(Float, nullable=True)
     created_by = Column(String, nullable=True)
+    why_saved = Column(Text, nullable=True)
+    pinned = Column(Boolean, nullable=False, default=False)
+    editable = Column(Boolean, nullable=False, default=True)
+    revocable = Column(Boolean, nullable=False, default=True)
     source_session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
     source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     supersedes_memory_id = Column(String, ForeignKey("workspace_memory_cards.id", ondelete="SET NULL"), nullable=True)
+    expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)
     memory_metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -134,6 +141,7 @@ class WorkspaceMemoryCard(Base):
     __table_args__ = (
         Index("idx_workspace_memory_cards_workspace_id", "workspace_id"),
         Index("idx_workspace_memory_cards_workspace_type_status", "workspace_id", "memory_type", "status"),
+        Index("idx_workspace_memory_cards_scope", "scope_type", "scope_ref", "status"),
         Index("idx_workspace_memory_cards_workspace_last_used", "workspace_id", "last_used_at"),
         Index("idx_workspace_memory_cards_workspace_supersedes", "workspace_id", "supersedes_memory_id"),
     )
@@ -145,11 +153,15 @@ class WorkspaceMemoryCandidate(Base):
     id = Column(String, primary_key=True)
     workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     memory_type = Column(String, nullable=False)
+    scope_type = Column(String, nullable=False, default="workspace")
+    scope_ref = Column(String, nullable=True)
     title = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="pending")
     score = Column(Float, nullable=True)
     suggested_action = Column(String, nullable=True)
+    why_saved = Column(Text, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
     conflict_memory_id = Column(String, ForeignKey("workspace_memory_cards.id", ondelete="SET NULL"), nullable=True)
     source_session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
     source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
@@ -164,6 +176,7 @@ class WorkspaceMemoryCandidate(Base):
     __table_args__ = (
         Index("idx_workspace_memory_candidates_workspace_id", "workspace_id"),
         Index("idx_workspace_memory_candidates_workspace_status", "workspace_id", "status"),
+        Index("idx_workspace_memory_candidates_scope", "scope_type", "scope_ref", "status"),
         Index("idx_workspace_memory_candidates_workspace_conflict", "workspace_id", "conflict_memory_id"),
     )
 

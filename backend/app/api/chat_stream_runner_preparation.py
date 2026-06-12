@@ -13,6 +13,7 @@ from app.api.chat_stream_runner_helpers import (
 )
 from app.api.chat_stream_runner_snapshot import (
     build_request_snapshot_record as _build_request_snapshot_record,
+    build_session_context_event as _build_session_context_event,
     build_workspace_note_event as _build_workspace_note_event,
     build_workspace_memory_event as _build_workspace_memory_event,
     build_workspace_grounding_event as _build_workspace_grounding_event,
@@ -124,6 +125,7 @@ async def prepare_prompt_runtime(
                 )
                 if session_context_result is not None:
                     session_context_block = session_context_result.prompt_context.rendered_prompt_block
+                    ctx.session_context_used = session_context_result.inspection
                     authoritative_hint = _build_authoritative_session_context_user_hint(
                         session_context_result.plan
                     )
@@ -156,6 +158,7 @@ async def prepare_prompt_runtime(
             selected_source_ids=getattr(request, "selected_workspace_source_ids", None),
             grounding_mode=getattr(request, "grounding_mode", None),
             current_query=request.message,
+            current_chat_id=ctx.chat_id,
         )
         if workspace_context is not None:
             workspace_context_block = workspace_context.prompt_block
@@ -282,6 +285,9 @@ async def prepare_prompt_runtime(
     )
     if workspace_grounding_event:
         yield emitter.emit(workspace_grounding_event)
+    session_context_event = _build_session_context_event(ctx)
+    if session_context_event:
+        yield emitter.emit(session_context_event)
     workspace_memory_event = _build_workspace_memory_event(ctx)
     if workspace_memory_event:
         yield emitter.emit(workspace_memory_event)

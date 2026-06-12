@@ -36,6 +36,7 @@ type ChatWorkspaceDockProps = Pick<
   | 'onSuggestWorkspaceMemoryCandidateFromNote'
   | 'onCreateWorkspaceMemory'
   | 'onUpdateWorkspaceMemory'
+  | 'onBulkUpdateWorkspaceMemoryStatusByType'
   | 'onDeleteWorkspaceMemory'
   | 'onApproveWorkspaceMemoryCandidate'
   | 'onRejectWorkspaceMemoryCandidate'
@@ -338,6 +339,7 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
               onSuggestWorkspaceMemoryCandidateFromNote={props.onSuggestWorkspaceMemoryCandidateFromNote}
               onCreateWorkspaceMemory={props.onCreateWorkspaceMemory}
               onUpdateWorkspaceMemory={props.onUpdateWorkspaceMemory}
+              onBulkUpdateWorkspaceMemoryStatusByType={props.onBulkUpdateWorkspaceMemoryStatusByType}
               onDeleteWorkspaceMemory={props.onDeleteWorkspaceMemory}
               onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
               onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}

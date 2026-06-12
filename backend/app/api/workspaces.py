@@ -20,6 +20,15 @@ def _with_note_promotion_hint(note: Any) -> Dict[str, Any]:
     return note.model_copy(update={"promotion_hint": hint or {}}).model_dump(mode="json")
 
 
+def _raise_memory_state_conflict(exc: ValueError) -> None:
+    reason = str(exc)
+    if reason == "memory_not_editable":
+        raise HTTPException(status_code=409, detail="Workspace memory is locked for editing")
+    if reason == "memory_not_revocable":
+        raise HTTPException(status_code=409, detail="Workspace memory cannot be deleted or replaced")
+    raise exc
+
+
 class WorkspaceCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -67,27 +76,41 @@ class WorkspaceArtifactUpdate(BaseModel):
 
 class WorkspaceMemoryCreate(BaseModel):
     memory_type: str
+    scope_type: str = "workspace"
+    scope_ref: Optional[str] = None
     title: str
     content: str
     status: str = "active"
     confidence: Optional[float] = None
     created_by: Optional[str] = None
+    why_saved: Optional[str] = None
+    pinned: bool = False
+    editable: bool = True
+    revocable: bool = True
     source_session_id: Optional[str] = None
     source_message_id: Optional[int] = None
     supersedes_memory_id: Optional[str] = None
+    expires_at: Optional[str] = None
     memory_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkspaceMemoryUpdate(BaseModel):
     memory_type: Optional[str] = None
+    scope_type: Optional[str] = None
+    scope_ref: Optional[str] = None
     title: Optional[str] = None
     content: Optional[str] = None
     status: Optional[str] = None
     confidence: Optional[float] = None
     created_by: Optional[str] = None
+    why_saved: Optional[str] = None
+    pinned: Optional[bool] = None
+    editable: Optional[bool] = None
+    revocable: Optional[bool] = None
     source_session_id: Optional[str] = None
     source_message_id: Optional[int] = None
     supersedes_memory_id: Optional[str] = None
+    expires_at: Optional[str] = None
     memory_metadata: Optional[Dict[str, Any]] = None
 
 
@@ -95,13 +118,23 @@ class WorkspaceMemoryCandidateApprove(BaseModel):
     approval_mode: str = "create_new"
     target_memory_id: Optional[str] = None
     memory_type: Optional[str] = None
+    scope_type: Optional[str] = None
+    scope_ref: Optional[str] = None
     title: Optional[str] = None
     content: Optional[str] = None
     confidence: Optional[float] = None
+    why_saved: Optional[str] = None
+    expires_at: Optional[str] = None
+    pinned: Optional[bool] = None
 
 
 class WorkspaceMemoryCandidateReject(BaseModel):
     reason: Optional[str] = None
+
+
+class WorkspaceMemoryBulkStatusUpdate(BaseModel):
+    memory_type: str
+    status: str
 
 
 class ResearchArtifactCreate(BaseModel):
@@ -313,14 +346,21 @@ async def create_workspace_memory(workspace_id: str, payload: WorkspaceMemoryCre
     memory = workspace_service.create_memory(
         workspace_id,
         memory_type=memory_type,
+        scope_type=payload.scope_type,
+        scope_ref=payload.scope_ref,
         title=title,
         content=content,
         status=payload.status,
         confidence=payload.confidence,
         created_by=payload.created_by,
+        why_saved=payload.why_saved,
+        pinned=payload.pinned,
+        editable=payload.editable,
+        revocable=payload.revocable,
         source_session_id=payload.source_session_id,
         source_message_id=payload.source_message_id,
         supersedes_memory_id=payload.supersedes_memory_id,
+        expires_at=payload.expires_at,
         memory_metadata=payload.memory_metadata,
     )
     if memory is None:
@@ -535,16 +575,24 @@ async def approve_workspace_memory_candidate(
     candidate_id: str,
     payload: WorkspaceMemoryCandidateApprove,
 ):
-    memory = workspace_service.approve_memory_candidate(
-        workspace_id,
-        candidate_id,
-        approval_mode=payload.approval_mode,
-        target_memory_id=payload.target_memory_id,
-        memory_type=payload.memory_type,
-        title=payload.title,
-        content=payload.content,
-        confidence=payload.confidence,
-    )
+    try:
+        memory = workspace_service.approve_memory_candidate(
+            workspace_id,
+            candidate_id,
+            approval_mode=payload.approval_mode,
+            target_memory_id=payload.target_memory_id,
+            memory_type=payload.memory_type,
+            scope_type=payload.scope_type,
+            scope_ref=payload.scope_ref,
+            title=payload.title,
+            content=payload.content,
+            confidence=payload.confidence,
+            why_saved=payload.why_saved,
+            expires_at=payload.expires_at,
+            pinned=payload.pinned,
+        )
+    except ValueError as exc:
+        _raise_memory_state_conflict(exc)
     if memory is None:
         raise HTTPException(status_code=404, detail="Workspace memory candidate not found")
     return memory.model_dump(mode="json")
@@ -641,23 +689,50 @@ async def update_workspace_memory(workspace_id: str, memory_id: str, payload: Wo
     updates: Dict[str, Any] = {}
     for field in (
         "memory_type",
+        "scope_type",
+        "scope_ref",
         "title",
         "content",
         "status",
         "confidence",
         "created_by",
+        "why_saved",
+        "pinned",
+        "editable",
+        "revocable",
         "source_session_id",
         "source_message_id",
         "supersedes_memory_id",
+        "expires_at",
         "memory_metadata",
     ):
         if field in payload.model_fields_set:
             updates[field] = getattr(payload, field)
 
-    memory = workspace_service.update_memory(workspace_id, memory_id, **updates)
+    try:
+        memory = workspace_service.update_memory(workspace_id, memory_id, **updates)
+    except ValueError as exc:
+        _raise_memory_state_conflict(exc)
     if memory is None:
         raise HTTPException(status_code=404, detail="Workspace memory not found")
     return memory.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/memory/bulk-status")
+async def bulk_update_workspace_memory_status(workspace_id: str, payload: WorkspaceMemoryBulkStatusUpdate):
+    memory_type = payload.memory_type.strip()
+    status = payload.status.strip()
+    if not memory_type:
+        raise HTTPException(status_code=400, detail="memory_type is required")
+    if not status:
+        raise HTTPException(status_code=400, detail="status is required")
+
+    updated_count = workspace_service.bulk_update_memory_status_by_type(
+        workspace_id,
+        memory_type=memory_type,
+        status=status,
+    )
+    return {"status": "success", "updated_count": updated_count}
 
 
 @router.delete("/{workspace_id}")
@@ -691,7 +766,10 @@ async def delete_workspace_artifact(workspace_id: str, artifact_id: str):
 
 @router.delete("/{workspace_id}/memory/{memory_id}")
 async def delete_workspace_memory(workspace_id: str, memory_id: str):
-    deleted = workspace_service.delete_memory(workspace_id, memory_id)
+    try:
+        deleted = workspace_service.delete_memory(workspace_id, memory_id)
+    except ValueError as exc:
+        _raise_memory_state_conflict(exc)
     if not deleted:
         raise HTTPException(status_code=404, detail="Workspace memory not found")
     return {"status": "success"}
