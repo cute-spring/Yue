@@ -17,7 +17,11 @@ interface MessageEvidencePanelProps {
 export default function MessageEvidencePanel(props: MessageEvidencePanelProps) {
   return (
     <>
-      <Show when={props.msg.session_used_context}>
+      <Show when={
+        props.msg.session_used_context && 
+        props.msg.session_used_context.reason !== 'no_context_needed' &&
+        props.msg.session_used_context.reason !== 'no_reference_signal'
+      }>
         <div class="mt-5 rounded-2xl border border-violet-500/15 bg-violet-500/[0.04] px-4 py-3">
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -58,7 +62,15 @@ export default function MessageEvidencePanel(props: MessageEvidencePanelProps) {
         </div>
       </Show>
 
-      <Show when={props.msg.workspace_grounding}>
+      <Show when={
+        props.msg.workspace_grounding && 
+        (
+          (props.msg.workspace_grounding.eligible_sources?.length ?? 0) > 0 ||
+          (props.msg.workspace_grounding.unavailable_sources?.length ?? 0) > 0 ||
+          getWorkspaceCitationWarning(props.msg) !== undefined ||
+          getWorkspaceToolingWarning(props.msg) !== undefined
+        )
+      }>
         <div class="mt-5 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] px-4 py-3">
           <div class="flex items-start justify-between gap-3">
             <div>
