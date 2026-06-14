@@ -11,6 +11,7 @@ type LlmModelManagerModalProps = {
   adminModelCapabilities: Accessor<Record<string, string[]>>;
   isLoadingModels: Accessor<boolean>;
   isSavingModels: Accessor<boolean>;
+  modelManagerError: Accessor<string>;
   onClose: () => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
@@ -55,13 +56,21 @@ export function LlmModelManagerModal(props: LlmModelManagerModalProps) {
               </div>
             }
           >
-            <div class="grid grid-cols-1 gap-1">
-              <For each={props.managedModels()}>
-                {(model) => {
-                  const inferredCaps = () => props.adminModelCapabilities()[model] || [];
-                  const explicitCaps = () => props.capabilityOverrides()[model];
-                  const hasOverride = () => explicitCaps() !== undefined;
-                  const activeCaps = () => explicitCaps() ?? inferredCaps();
+            <Show
+              when={!props.modelManagerError()}
+              fallback={
+                <div class="m-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {props.modelManagerError()}
+                </div>
+              }
+            >
+              <div class="grid grid-cols-1 gap-1">
+                <For each={props.managedModels()}>
+                  {(model) => {
+                    const inferredCaps = () => props.adminModelCapabilities()[model] || [];
+                    const explicitCaps = () => props.capabilityOverrides()[model];
+                    const hasOverride = () => explicitCaps() !== undefined;
+                    const activeCaps = () => explicitCaps() ?? inferredCaps();
 
                   const toggleCap = (cap: string, e: Event) => {
                     e.preventDefault();
@@ -83,8 +92,8 @@ export function LlmModelManagerModal(props: LlmModelManagerModalProps) {
                     props.setCapabilityOverrides(newOverrides);
                   };
 
-                  return (
-                    <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors group">
+                    return (
+                      <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors group">
                       <label class="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
                         <input
                           type="checkbox"
@@ -136,14 +145,15 @@ export function LlmModelManagerModal(props: LlmModelManagerModalProps) {
                           </button>
                         </Show>
                       </div>
-                    </div>
-                  );
-                }}
-              </For>
-              <Show when={props.managedModels().length === 0}>
-                <div class="p-8 text-center text-gray-500">No models found for this provider.</div>
-              </Show>
-            </div>
+                      </div>
+                    );
+                  }}
+                </For>
+                <Show when={props.managedModels().length === 0}>
+                  <div class="p-8 text-center text-gray-500">No models found for this provider.</div>
+                </Show>
+              </div>
+            </Show>
           </Show>
         </div>
 

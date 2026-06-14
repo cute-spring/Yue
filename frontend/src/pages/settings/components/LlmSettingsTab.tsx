@@ -11,6 +11,7 @@ import { LlmTierSettingsSection } from './llm/LlmTierSettingsSection';
 
 type LlmSettingsTabProps = {
   providers: Accessor<LLMProvider[]>;
+  setProviders: Setter<LLMProvider[]>;
   llmForm: Accessor<LlmForm>;
   setLlmForm: Setter<LlmForm>;
   customModels: Accessor<CustomModel[]>;
@@ -38,6 +39,7 @@ type LlmSettingsTabProps = {
   adminModelCapabilities: Accessor<Record<string, string[]>>;
   isLoadingModels: Accessor<boolean>;
   isSavingModels: Accessor<boolean>;
+  modelManagerError: Accessor<string>;
   refreshProviders: () => Promise<void>;
   saveLlmConfig: () => void;
   testProvider: (name: string) => void;
@@ -47,11 +49,12 @@ type LlmSettingsTabProps = {
   saveManagedModels: () => void;
   deleteCustomModel: (name: string) => void;
   testCustomModel: (m: CustomModel) => void;
+  openCustomModelManager: (model: CustomModel) => void;
 };
 
 export function LlmSettingsTab(props: LlmSettingsTabProps) {
   return (
-    <div class="space-y-8 max-w-4xl">
+    <div class="space-y-8 w-full max-w-none">
       <LlmProviderConfigsSection
         providers={props.providers}
         llmForm={props.llmForm}
@@ -65,12 +68,6 @@ export function LlmSettingsTab(props: LlmSettingsTabProps) {
         openModelManager={props.openModelManager}
       />
 
-      <LlmCustomModelsSection
-        customModels={props.customModels}
-        deleteCustomModel={props.deleteCustomModel}
-        testCustomModel={props.testCustomModel}
-      />
-
       <Show when={props.showAddCustom()}>
         <LlmCustomModelModal
           newCM={props.newCM}
@@ -79,6 +76,7 @@ export function LlmSettingsTab(props: LlmSettingsTabProps) {
           setNewCMStatus={props.setNewCMStatus}
           setShowAddCustom={props.setShowAddCustom}
           setCustomModels={props.setCustomModels}
+          setProviders={props.setProviders}
         />
       </Show>
 
@@ -93,6 +91,7 @@ export function LlmSettingsTab(props: LlmSettingsTabProps) {
           adminModelCapabilities={props.adminModelCapabilities}
           isLoadingModels={props.isLoadingModels}
           isSavingModels={props.isSavingModels}
+          modelManagerError={props.modelManagerError}
           onClose={() => props.setShowModelManager(false)}
           onSelectAll={() => props.setEnabledModels(new Set(props.managedModels()))}
           onDeselectAll={() => props.setEnabledModels(new Set())}
@@ -100,17 +99,33 @@ export function LlmSettingsTab(props: LlmSettingsTabProps) {
         />
       </Show>
 
-      <LlmTierSettingsSection
-        providers={props.providers}
-        llmForm={props.llmForm}
-        setLlmForm={props.setLlmForm}
-      />
+      <div class="grid gap-6 2xl:grid-cols-[minmax(0,1.3fr)_minmax(420px,0.9fr)] items-start">
+        <div class="space-y-6 min-w-0">
+          <LlmTierSettingsSection
+            providers={props.providers}
+            llmForm={props.llmForm}
+            setLlmForm={props.setLlmForm}
+          />
 
-      <LlmRuntimeSettingsSection
-        llmForm={props.llmForm}
-        setLlmForm={props.setLlmForm}
-        onSave={props.saveLlmConfig}
-      />
+          <LlmRuntimeSettingsSection
+            llmForm={props.llmForm}
+            setLlmForm={props.setLlmForm}
+            onSave={props.saveLlmConfig}
+          />
+        </div>
+
+        <div class="min-w-0 2xl:sticky 2xl:top-6">
+          <LlmCustomModelsSection
+            customModels={props.customModels}
+            deleteCustomModel={props.deleteCustomModel}
+            testCustomModel={props.testCustomModel}
+            openCustomModelManager={props.openCustomModelManager}
+            setNewCM={props.setNewCM}
+            setNewCMStatus={props.setNewCMStatus}
+            setShowAddCustom={props.setShowAddCustom}
+          />
+        </div>
+      </div>
 
       <Show when={props.showEditProvider()}>
         <LlmProviderEditModal

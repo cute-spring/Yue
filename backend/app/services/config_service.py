@@ -345,6 +345,10 @@ class ConfigService:
         if "meta_timeout_ms" in settings: json_kwargs["meta_timeout_ms"] = settings["meta_timeout_ms"]
         if "meta_max_tokens" in settings: json_kwargs["meta_max_tokens"] = settings["meta_max_tokens"]
         if "meta_use_runtime_model_for_title" in settings: json_kwargs["meta_use_runtime_model_for_title"] = settings["meta_use_runtime_model_for_title"]
+        if isinstance(settings, dict):
+            for k, v in settings.items():
+                if isinstance(k, str) and k.endswith("_enabled_models_mode"):
+                    json_kwargs[k] = v
 
         # 3. 各 Provider 策略化加载 (providers 子树)
         for provider_name, strategy in STRATEGIES.items():
@@ -620,6 +624,8 @@ class ConfigService:
                         if tier_name in v
                     },
                 }
+            elif k.endswith("_enabled_models"):
+                llm[k] = v
             elif k.endswith("_enabled_models_mode"):
                 llm["settings"][k] = v
             elif k == "custom_models":
@@ -686,6 +692,14 @@ class ConfigService:
         if not found:
             models.append(model)
         llm["custom_models"] = models
+
+        enabled_providers = llm.get("enabled_providers")
+        if isinstance(enabled_providers, str) and enabled_providers.strip():
+            normalized = [item.strip() for item in enabled_providers.split(",") if item.strip()]
+            if "custom" not in normalized:
+                normalized.append("custom")
+                llm["enabled_providers"] = ",".join(normalized)
+
         self._config["llm"] = llm
         self.update_config(self._config)
         return models
@@ -695,6 +709,12 @@ class ConfigService:
         models = llm.get("custom_models", [])
         models = [m for m in models if m.get("name") != name]
         llm["custom_models"] = models
+
+        enabled_providers = llm.get("enabled_providers")
+        if not models and isinstance(enabled_providers, str) and enabled_providers.strip():
+            normalized = [item.strip() for item in enabled_providers.split(",") if item.strip() and item.strip() != "custom"]
+            llm["enabled_providers"] = ",".join(normalized)
+
         self._config["llm"] = llm
         self.update_config(self._config)
         return models

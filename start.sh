@@ -46,18 +46,30 @@ detect_lan_ip() {
 }
 
 resolve_backend_python() {
+    local candidates=()
     if [ -x "$ROOT_DIR/backend/.venv/bin/python" ]; then
-        BACKEND_PYTHON="$ROOT_DIR/backend/.venv/bin/python"
-        return 0
-    fi
-    if command -v python >/dev/null 2>&1; then
-        BACKEND_PYTHON="$(command -v python)"
-        return 0
+        candidates+=("$ROOT_DIR/backend/.venv/bin/python")
     fi
     if command -v python3 >/dev/null 2>&1; then
-        BACKEND_PYTHON="$(command -v python3)"
-        return 0
+        candidates+=("$(command -v python3)")
     fi
+    if command -v python >/dev/null 2>&1; then
+        candidates+=("$(command -v python)")
+    fi
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if "$candidate" - <<'PY' >/dev/null 2>&1
+import asyncio  # noqa: F401
+import socket  # noqa: F401
+PY
+        then
+            BACKEND_PYTHON="$candidate"
+            return 0
+        fi
+        log "⚠️  Skipping unusable Python interpreter: $candidate"
+    done
+
     return 1
 }
 

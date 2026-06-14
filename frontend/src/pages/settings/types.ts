@@ -84,6 +84,7 @@ export type McpTemplateValidationResult = {
 
 export type CustomModel = {
   name: string;
+  provider?: string;
   base_url?: string;
   api_key?: string;
   model?: string;
@@ -93,7 +94,7 @@ export type CustomModel = {
 export type NewCustomModelDraft = {
   name: string;
   provider: string;
-  model: string;
+  model?: string;
   base_url?: string;
   api_key?: string;
   capabilities?: string[];

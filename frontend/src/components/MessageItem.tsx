@@ -199,7 +199,7 @@ export default function MessageItem(props: MessageItemProps) {
   const userMessageContainerClass = () =>
     [
       'bg-surface text-text-primary px-6 py-4 shadow-sm border border-border/40 rounded-[26px] rounded-br-none',
-      isEditing() ? 'w-full max-w-[92%] lg:max-w-[56rem]' : 'max-w-[85%] lg:max-w-[75%]',
+      isEditing() ? 'w-full max-w-[92%] lg:max-w-[64rem]' : 'max-w-[90%] lg:max-w-[85%]',
     ].join(' ');
 
   const [isManuallyExpanded, setIsManuallyExpanded] = createSignal(false);
@@ -283,7 +283,7 @@ export default function MessageItem(props: MessageItemProps) {
         class={`group relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
         props.msg.role === 'user' 
           ? userMessageContainerClass()
-          : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none max-w-[85%] lg:max-w-[75%]'
+          : 'bg-surface text-text-primary border border-border/50 px-6 py-5 shadow-sm rounded-[24px] rounded-bl-none max-w-[90%] lg:max-w-[85%]'
       }`}
       >
         {props.msg.role === 'user' ? (

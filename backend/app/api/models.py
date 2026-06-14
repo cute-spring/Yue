@@ -6,6 +6,7 @@ from app.services.llm import (
     list_providers,
     list_supported_providers,
 )
+from app.services.llm.providers.custom import build_custom_model_from_payload, fetch_custom_endpoint_models
 from app.services.llm.utils import handle_llm_exception
 from app.services.config_service import config_service
 
@@ -45,6 +46,9 @@ async def test_provider(provider: str, payload: dict = Body(None)):
     Attempts to construct a model for the given provider to validate configuration.
     Optionally accepts {"model": "<model_name>"} in payload.
     """
+    if provider.lower() == "custom":
+        return await test_custom_model(payload or {})
+
     model_name = None
     if payload and isinstance(payload, dict):
         model_name = payload.get("model")
@@ -71,6 +75,50 @@ async def list_custom_models():
             m2["api_key"] = ""
         redacted.append(m2)
     return redacted
+
+@router.get("/custom/{name}/models")
+async def get_custom_model_endpoint_models(name: str, refresh: bool = Query(default=False)):
+    models = config_service.list_custom_models()
+    entry = next((model for model in models if model.get("name") == name), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Custom model not found")
+
+    llm_config = config_service.get_llm_config()
+    discovered = await fetch_custom_endpoint_models(entry, refresh=refresh, llm_config=llm_config)
+    aliases = [
+        model_id if model_id == name or model_id.startswith(f"{name}/") else f"{name}/{model_id}"
+        for model_id in discovered
+    ]
+    if not aliases and entry.get("model"):
+        aliases = [f"{name}/{entry['model']}"]
+    elif not aliases:
+        aliases = [name]
+
+    config_enabled = llm_config.get("custom_enabled_models")
+    enabled_mode = llm_config.get("custom_enabled_models_mode")
+    if isinstance(config_enabled, list) and (enabled_mode == "allowlist" or config_enabled):
+        available_models = [model for model in aliases if model in config_enabled]
+    else:
+        available_models = aliases
+
+    model_capabilities = {
+        model_name: config_service.get_model_capabilities("custom", model_name)
+        for model_name in aliases
+    }
+    explicit_model_capabilities = {}
+    for model_name in aliases:
+        model_info = config_service.get_model_info(f"custom/{model_name}")
+        if model_info and "capabilities" in model_info:
+            explicit_model_capabilities[model_name] = model_info["capabilities"]
+
+    return {
+        "name": "custom",
+        "custom_model_name": name,
+        "models": aliases,
+        "available_models": available_models,
+        "model_capabilities": model_capabilities,
+        "explicit_model_capabilities": explicit_model_capabilities,
+    }
 
 @router.post("/custom")
 async def create_or_update_custom_model(model: dict = Body(...)):
@@ -104,11 +152,13 @@ async def test_custom_model(payload: dict = Body(...)):
         base_url = payload.get("base_url")
         api_key = payload.get("api_key")
         model_name = payload.get("model")
-        provider_name = "custom"
-        # Temporarily inject into env-config reading path via direct get_model fallback
-        # get_model will default to OPENAI if unknown; for custom, treat like OpenAIProvider with base_url/api_key
-        # For this app, we reuse OpenAIChatModel semantics; test succeeds if model can be constructed.
-        get_model(provider_name, model_name)
+        provider_name = payload.get("provider") or "custom"
+        build_custom_model_from_payload(
+            provider_name=provider_name,
+            base_url=base_url,
+            api_key=api_key,
+            model_name=model_name,
+        )
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}

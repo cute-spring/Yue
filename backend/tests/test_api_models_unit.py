@@ -95,6 +95,31 @@ def test_list_custom_models(client, mock_config_service):
     assert data[0]["name"] == "custom1"
     assert data[0]["api_key"] == ""
 
+def test_get_custom_model_endpoint_models(client, mock_config_service):
+    mock_config_service.list_custom_models.return_value = [
+        {"name": "MLX-Openai", "base_url": "http://localhost:8081/v1"}
+    ]
+    mock_config_service.get_llm_config.return_value = {
+        "custom_enabled_models": ["MLX-Openai/model-a"],
+        "custom_enabled_models_mode": "allowlist",
+    }
+    mock_config_service.get_model_capabilities.return_value = []
+    mock_config_service.get_model_info.return_value = None
+
+    with patch("app.api.models.fetch_custom_endpoint_models") as mock_fetch:
+        mock_fetch.return_value = ["model-a", "model-b"]
+        response = client.get("/api/models/custom/MLX-Openai/models?refresh=true")
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "custom"
+    assert response.json()["models"] == ["MLX-Openai/model-a", "MLX-Openai/model-b"]
+    assert response.json()["available_models"] == ["MLX-Openai/model-a"]
+    mock_fetch.assert_called_once_with(
+        {"name": "MLX-Openai", "base_url": "http://localhost:8081/v1"},
+        refresh=True,
+        llm_config=mock_config_service.get_llm_config.return_value,
+    )
+
 def test_create_custom_model(client, mock_config_service):
     mock_config_service.upsert_custom_model.return_value = [{"name": "new_model"}]
     response = client.post("/api/models/custom", json={"name": "new_model"})
@@ -114,7 +139,19 @@ def test_delete_custom_model(client, mock_config_service):
     mock_config_service.delete_custom_model.assert_called_once_with("target")
 
 def test_test_custom_model(client, mock_model_factory):
-    mock_model_factory["get_model"].return_value = MagicMock()
-    response = client.post("/api/models/test/custom", json={"model": "m1"})
+    with patch("app.api.models.build_custom_model_from_payload") as mock_builder:
+        mock_builder.return_value = MagicMock()
+        response = client.post("/api/models/test/custom", json={
+            "provider": "deepseek",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-demo",
+            "model": "deepseek-chat",
+        })
     assert response.status_code == 200
     assert response.json()["ok"] is True
+    mock_builder.assert_called_once_with(
+        provider_name="deepseek",
+        base_url="https://api.example.com/v1",
+        api_key="sk-demo",
+        model_name="deepseek-chat",
+    )

@@ -210,22 +210,29 @@ test.describe('workspace grounded answer smoke', () => {
       {
         mode: 'normal',
         summary: 'All ready sources; Sources optional; 1 eligible source; No citations attached',
+        expectPanel: true,
       },
       {
         mode: 'prefer_sources',
         summary: 'All ready sources; Citations preferred; 1 eligible source; 1 citations attached',
+        expectPanel: true,
       },
       {
         mode: 'require_sources',
         summary: 'All ready sources; Citations required; 1 eligible source; 1 citations attached',
+        expectPanel: true,
       },
     ] as const;
 
-    for (const { mode, summary } of modeCases) {
+    for (const { mode, summary, expectPanel } of modeCases) {
       await page.locator('select').nth(2).selectOption(mode);
       await sendPrompt(page, `Scenario A prompt for ${mode}`);
       await expect(page.getByText(`Scenario A ${mode} response.`)).toBeVisible();
-      await expect(page.getByText(summary).last()).toBeVisible();
+      if (expectPanel) {
+        await expect(page.getByText(summary).last()).toBeVisible();
+      } else {
+        await expect(page.getByText(summary).last()).not.toBeVisible();
+      }
     }
 
     expect(requestPayloads).toHaveLength(3);

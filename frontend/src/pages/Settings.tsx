@@ -78,6 +78,7 @@ export default function Settings() {
   const [isSavingModels, setIsSavingModels] = createSignal(false);
   const [isRefreshingProviders, setIsRefreshingProviders] = createSignal(false);
   const [isLoadingModels, setIsLoadingModels] = createSignal(false);
+  const [modelManagerError, setModelManagerError] = createSignal('');
   const [adminModelsCache, setAdminModelsCache] = createSignal<Record<string, any>>({});
   const [adminModelCapabilities, setAdminModelCapabilities] = createSignal<Record<string, string[]>>({});
 
@@ -173,6 +174,7 @@ export default function Settings() {
     setCapabilityOverrides,
     setIsSavingModels,
     setIsLoadingModels,
+    setModelManagerError,
     adminModelsCache,
     setAdminModelsCache,
     setAdminModelCapabilities,
@@ -280,6 +282,7 @@ export default function Settings() {
         <Show when={activeTab() === 'llm'}>
           <LlmSettingsTab
             providers={providers}
+            setProviders={setProviders}
             llmForm={llmForm}
             setLlmForm={setLlmForm}
             customModels={customModels}
@@ -307,6 +310,7 @@ export default function Settings() {
             adminModelCapabilities={adminModelCapabilities}
             isLoadingModels={isLoadingModels}
             isSavingModels={isSavingModels}
+            modelManagerError={modelManagerError}
             refreshProviders={llm.refreshProviders}
             saveLlmConfig={llm.saveLlmConfig}
             testProvider={llm.testProvider}
@@ -316,6 +320,7 @@ export default function Settings() {
             saveManagedModels={llm.saveManagedModels}
             deleteCustomModel={requestDeleteCustomModel}
             testCustomModel={llm.testCustomModel}
+            openCustomModelManager={llm.openCustomModelManager}
           />
         </Show>
       </div>
