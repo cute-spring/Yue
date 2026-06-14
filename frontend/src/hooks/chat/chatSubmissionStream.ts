@@ -236,6 +236,42 @@ export async function streamAssistantResponse({
             }
             return next;
           });
+        } else if (data.session_used_context) {
+          setMessages(prev => {
+            const next = [...prev];
+            const lastIndex = next.length - 1;
+            if (lastIndex >= 0) {
+              next[lastIndex] = { ...next[lastIndex], session_used_context: data.session_used_context };
+            }
+            return next;
+          });
+        } else if (data.workspace_notes) {
+          setMessages(prev => {
+            const next = [...prev];
+            const lastIndex = next.length - 1;
+            if (lastIndex >= 0) {
+              next[lastIndex] = { ...next[lastIndex], workspace_notes: data.workspace_notes };
+            }
+            return next;
+          });
+        } else if (data.workspace_memory) {
+          setMessages(prev => {
+            const next = [...prev];
+            const lastIndex = next.length - 1;
+            if (lastIndex >= 0) {
+              next[lastIndex] = { ...next[lastIndex], workspace_memory: data.workspace_memory };
+            }
+            return next;
+          });
+        } else if (data.workspace_capture_suggestion) {
+          setMessages(prev => {
+            const next = [...prev];
+            const lastIndex = next.length - 1;
+            if (lastIndex >= 0) {
+              next[lastIndex] = { ...next[lastIndex], workspace_capture_suggestion: data.workspace_capture_suggestion };
+            }
+            return next;
+          });
         } else if (data.event === 'tool.call.started' || data.event === 'tool.call.finished') {
           const turnId = (data.assistant_turn_id as string) || '__current__';
           const bucket = toolEventsByTurn.get(turnId) || [];

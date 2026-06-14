@@ -125,6 +125,37 @@ async def test_list_providers_error_handling(mock_registry, mock_config):
     assert providers[0]["available_models"] == ["model1"]
 
 @pytest.mark.asyncio
+async def test_list_providers_keeps_custom_when_custom_models_exist():
+    class CustomMockProvider(SimpleProvider):
+        name = LLMProvider.CUSTOM.value
+
+        def build(self, model_name=None):
+            return model_name or "custom-default"
+
+        async def list_models(self, refresh=bool):
+            return ["MLX"]
+
+        def requirements(self):
+            return []
+
+        def configured(self):
+            return True
+
+    with patch("app.services.llm.factory.get_registered_providers") as mock_get, \
+         patch("app.services.llm.factory.config_service") as mock_cfg:
+        mock_get.return_value = {LLMProvider.CUSTOM.value: CustomMockProvider()}
+        mock_cfg.get_llm_config.return_value = {
+            "enabled_providers": "openai,deepseek",
+            "custom_models": [{"name": "MLX", "provider": "openai", "base_url": "http://localhost:8080/v1"}],
+        }
+
+        providers = await list_providers()
+
+    assert len(providers) == 1
+    assert providers[0]["name"] == LLMProvider.CUSTOM.value
+    assert providers[0]["available_models"] == ["MLX"]
+
+@pytest.mark.asyncio
 async def test_list_providers_structured(mock_registry, mock_config):
     providers = await list_providers_structured()
     assert len(providers) == 1

@@ -12,6 +12,7 @@ _MODEL_REFRESH_SUPPORTED_PROVIDERS = {
     LLMProvider.GEMINI.value,
     LLMProvider.OLLAMA.value,
     LLMProvider.LITELLM.value,
+    LLMProvider.CUSTOM.value,
 }
 
 def _supports_model_refresh(provider_name: str) -> bool:
@@ -31,6 +32,7 @@ async def list_providers(refresh: bool = False, check_connectivity: bool = False
     providers_info = []
     llm_config = config_service.get_llm_config()
     registered_providers = get_registered_providers()
+    custom_models = llm_config.get("custom_models") or []
     
     # Simple turn on/off provider logic
     enabled_providers_str = llm_config.get("enabled_providers")
@@ -40,7 +42,9 @@ async def list_providers(refresh: bool = False, check_connectivity: bool = False
     
     for name, handler in registered_providers.items():
         # Filter by enabled_providers if configured
-        if enabled_providers is not None and name.lower() not in enabled_providers:
+        is_custom_provider = name.lower() == LLMProvider.CUSTOM.value
+        force_enable_custom = is_custom_provider and len(custom_models) > 0
+        if enabled_providers is not None and name.lower() not in enabled_providers and not force_enable_custom:
             continue
             
         # Optimization: Skip processing other providers if target_provider is specified

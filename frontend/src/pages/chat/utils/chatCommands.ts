@@ -1,5 +1,5 @@
 import { Setter } from 'solid-js';
-import { Message } from '../../../types';
+import { Message, WorkspaceNote } from '../../../types';
 
 type ToastLike = {
   error: (message: string, duration?: number) => void;
@@ -10,7 +10,7 @@ type HandleChatCommandArgs = {
   trimmedInput: string;
   setMessages: Setter<Message[]>;
   setInput: (value: string) => void;
-  saveLastAssistantAsWorkspaceNote: () => Promise<void>;
+  saveLastAssistantAsWorkspaceNote: () => Promise<WorkspaceNote | null>;
   saveLastAssistantAsResearchArtifact: () => Promise<void>;
   toast: ToastLike;
 };
@@ -42,7 +42,9 @@ export const handleChatCommand = ({
 
   if (trimmedInput === '/note') {
     saveLastAssistantAsWorkspaceNote()
-      .then(() => toast.success('Saved to workspace notes.', 3000))
+      .then((note) =>
+        toast.success(note?.title ? `Saved note: ${note.title}` : 'Saved to workspace notes.', 3000),
+      )
       .catch((err) => {
         console.error('Failed to save workspace note', err);
         toast.error('Failed to save workspace note.', 3000);

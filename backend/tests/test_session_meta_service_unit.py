@@ -99,3 +99,43 @@ async def test_generate_session_meta_uses_runtime_provider_override():
         )
         assert title == "运行时标题"
         mock_get_model.assert_called_once_with("openai", "gpt-4o")
+
+
+@pytest.mark.asyncio
+async def test_generate_note_enrichment_parses_json_payload():
+    service = SessionMetaService()
+    with patch("app.services.session_meta_service.config_service") as mock_config, \
+         patch("app.services.session_meta_service.get_model") as mock_get_model, \
+         patch("app.services.session_meta_service.Agent") as mock_agent_cls:
+        mock_config.get_llm_config.return_value = {
+            "meta_enabled": True,
+            "meta_provider": "openai",
+            "meta_model": "gpt-4o-mini",
+            "meta_timeout_ms": 1000,
+            "meta_max_tokens": 96,
+        }
+        mock_get_model.return_value = MagicMock()
+        mock_agent = MagicMock()
+        mock_agent_cls.return_value = mock_agent
+        mock_result = MagicMock()
+
+        async def stream():
+            yield """```json
+{"title":"记忆捕获方案","summary":"沉淀聊天中的可复用结论，并支持后续召回。","tags":["记忆捕获","工作区","召回"],"note_type":"decision"}
+```"""
+
+        mock_result.stream_text.return_value = stream()
+        mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
+        mock_agent.run_stream.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        enrichment = await service.generate_note_enrichment(
+            content="把 Chat-to-Note 做成真正的记忆捕获链路。",
+            source_metadata={"captured_from": "assistant_message"},
+        )
+
+        assert enrichment == {
+            "title": "记忆捕获方案",
+            "summary": "沉淀聊天中的可复用结论，并支持后续召回。",
+            "tags": ["记忆捕获", "工作区", "召回"],
+            "note_type": "decision",
+        }

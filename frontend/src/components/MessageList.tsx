@@ -1,5 +1,5 @@
 import { For, Show } from 'solid-js';
-import { Message } from '../types';
+import { Message, WorkspaceMemoryCandidate, WorkspaceNote } from '../types';
 import MessageItem from './MessageItem';
 import { getMergedContinuationContent, hasContinuationSiblings } from '../utils/continuation';
 
@@ -22,6 +22,26 @@ interface MessageListProps {
   setInput: (val: string) => void;
   selectedProvider: string;
   selectedModel: string;
+  selectedWorkspaceId?: string | null;
+  currentChatId?: string | null;
+  workspaceNotes?: WorkspaceNote[];
+  workspaceMemoryCandidates?: WorkspaceMemoryCandidate[];
+  captureSuggestionsEnabled?: boolean;
+  memorySuggestionsEnabled?: boolean;
+  onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
+  onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onTrackWorkspaceCaptureTelemetry?: (payload: {
+    event_type: string;
+    source?: string;
+    workspace_id?: string | null;
+    assistant_message_id?: number | string | null;
+    assistant_turn_id?: string | null;
+    run_id?: string | null;
+    note_id?: string | null;
+    candidate_id?: string | null;
+    accepted?: boolean | null;
+    metadata?: Record<string, any>;
+  }) => Promise<void> | void;
 }
 
 export default function MessageList(props: MessageListProps) {
@@ -30,6 +50,30 @@ export default function MessageList(props: MessageListProps) {
       if (props.messages[i]?.role === 'assistant') return i;
     }
     return -1;
+  };
+
+  const isMessageSavedAsWorkspaceNote = (msg: Message) => {
+    if (msg.role !== 'assistant') return false;
+    const messageId = msg.id;
+    if (messageId == null) return false;
+    return (props.workspaceNotes || []).some((note) => {
+      if (note.source_message_id == null) return false;
+      if (String(note.source_message_id) !== String(messageId)) return false;
+      if (!props.currentChatId || !note.source_session_id) return true;
+      return note.source_session_id === props.currentChatId;
+    });
+  };
+
+  const hasPendingCandidateForMessage = (msg: Message) => {
+    if (msg.role !== 'assistant') return false;
+    const messageId = msg.id;
+    if (messageId == null) return false;
+    return (props.workspaceMemoryCandidates || []).some((candidate) => {
+      if (candidate.status !== 'pending' || candidate.source_message_id == null) return false;
+      if (String(candidate.source_message_id) !== String(messageId)) return false;
+      if (!props.currentChatId || !candidate.source_session_id) return true;
+      return candidate.source_session_id === props.currentChatId;
+    });
   };
 
   return (
@@ -118,6 +162,18 @@ export default function MessageList(props: MessageListProps) {
                 onContinue={props.onContinue}
                 selectedProvider={props.selectedProvider}
                 selectedModel={props.selectedModel}
+                hasSelectedWorkspace={!!props.selectedWorkspaceId}
+                alreadySavedAsWorkspaceNote={isMessageSavedAsWorkspaceNote(msg)}
+                hasPendingWorkspaceMemoryCandidate={hasPendingCandidateForMessage(msg)}
+                captureSuggestionsEnabled={props.captureSuggestionsEnabled !== false}
+                memorySuggestionsEnabled={props.memorySuggestionsEnabled !== false}
+                onSaveWorkspaceNote={index() === lastAssistantIndex() ? props.onSaveWorkspaceNote : undefined}
+                onSuggestWorkspaceMemoryCandidate={
+                  index() === lastAssistantIndex() ? props.onSuggestWorkspaceMemoryCandidate : undefined
+                }
+                onTrackWorkspaceCaptureTelemetry={
+                  index() === lastAssistantIndex() ? props.onTrackWorkspaceCaptureTelemetry : undefined
+                }
               />
             );
           })()

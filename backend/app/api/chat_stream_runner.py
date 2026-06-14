@@ -37,6 +37,9 @@ from app.api.chat_stream_runner_helpers import (
     safe_role_lookup as _safe_role_lookup,
     safe_text as _safe_text,
 )
+from app.api.chat_stream_runner_snapshot import (
+    build_workspace_capture_suggestion_event as _build_workspace_capture_suggestion_event,
+)
 from app.services.chat_streaming import StreamEventEmitter, StreamState
 async def _handle_tool_call_mismatch_retry(
     *,
@@ -285,6 +288,18 @@ async def _postprocess_stream_run(
     citations = ctx.deps.get("citations") if isinstance(ctx.deps, dict) else None
     if isinstance(citations, list) and citations:
         yield prepared.emitter.emit({"citations": citations})
+    if getattr(ctx.request, "capture_suggestions_enabled", None) is not False:
+        capture_suggestion_payload = _build_workspace_capture_suggestion_event(
+            ctx,
+            response_content=ctx.stream_state.full_response,
+            citations=citations if isinstance(citations, list) else None,
+        )
+        if capture_suggestion_payload:
+            if getattr(ctx.request, "memory_suggestions_enabled", None) is False:
+                suggestion = capture_suggestion_payload.get("workspace_capture_suggestion")
+                if isinstance(suggestion, dict):
+                    suggestion["show_memory_action"] = False
+            yield prepared.emitter.emit(capture_suggestion_payload)
     require_citations = bool(getattr(ctx.agent_config, "require_citations", False)) if ctx.agent_config else False
     citation_payload = deps.append_citation_suffix_if_needed(
         citations=citations,

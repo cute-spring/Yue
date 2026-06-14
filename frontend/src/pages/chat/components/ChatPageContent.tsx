@@ -132,6 +132,9 @@ export default function ChatPageContent(props: {
     workspaces,
     workspaceSources,
     workspaceArtifacts,
+    workspaceNotes,
+    workspaceMemories,
+    workspaceMemoryCandidates,
     workspaceSourceMode,
     setWorkspaceSourceMode,
     selectedWorkspaceSourceIds,
@@ -140,6 +143,8 @@ export default function ChatPageContent(props: {
     workspaceLoading,
     sourcesLoading,
     artifactsLoading,
+    notesLoading,
+    memoriesLoading,
     loadWorkspaces,
     checkWorkspaceSources,
     checkWorkspaceSource,
@@ -148,7 +153,17 @@ export default function ChatPageContent(props: {
     buildWorkspaceRequestOverrides,
     saveLastAssistantAsWorkspaceNote,
     saveLastAssistantAsResearchArtifact,
+    suggestWorkspaceMemoryFromLastAssistantMessage,
+    suggestWorkspaceMemoryCandidateFromLastAssistantMessage,
+    suggestWorkspaceMemoryCandidateFromNote,
+    createWorkspaceMemory,
+    updateWorkspaceMemory,
+    bulkUpdateWorkspaceMemoryStatusByType,
+    deleteWorkspaceMemory,
+    approveWorkspaceMemoryCandidate,
+    rejectWorkspaceMemoryCandidate,
     handleCreateWorkspace,
+    trackWorkspaceCaptureTelemetry,
   } = useChatWorkspace({
     toast,
     selectedWorkspaceId,
@@ -294,7 +309,12 @@ export default function ChatPageContent(props: {
     originalHandleSubmit,
     saveLastAssistantAsWorkspaceNote,
     saveLastAssistantAsResearchArtifact,
-    buildWorkspaceRequestOverrides,
+    buildWorkspaceRequestOverrides: () => ({
+      ...buildWorkspaceRequestOverrides(),
+      note_recall_enabled: props.speechPrefs().note_recall_enabled,
+      capture_suggestions_enabled: props.speechPrefs().capture_suggestions_enabled,
+      memory_suggestions_enabled: props.speechPrefs().memory_suggestions_enabled,
+    }),
     generateSummary,
     currentChatId,
     loadChat,
@@ -325,12 +345,17 @@ export default function ChatPageContent(props: {
         selectedWorkspaceId={historyWorkspaceFilterId()}
         workspaceSources={workspaceSources()}
         workspaceArtifacts={workspaceArtifacts()}
+        workspaceNotes={workspaceNotes()}
+        workspaceMemories={workspaceMemories()}
+        workspaceMemoryCandidates={workspaceMemoryCandidates()}
         workspaceSourceMode={workspaceSourceMode()}
         selectedWorkspaceSourceIds={selectedWorkspaceSourceIds()}
         groundingMode={groundingMode()}
         workspaceLoading={workspaceLoading()}
         sourcesLoading={sourcesLoading()}
         artifactsLoading={artifactsLoading()}
+        notesLoading={notesLoading()}
+        memoriesLoading={memoriesLoading()}
         currentChatId={currentChatId()}
         onNewChat={() => {
           speech.stopCurrent();
@@ -347,6 +372,16 @@ export default function ChatPageContent(props: {
           speech.stopCurrent();
           loadChat(id, isMobile(), setShowHistory, setSelectedAgent);
         }}
+        onSaveLastAssistantAsWorkspaceNote={saveLastAssistantAsWorkspaceNote}
+        onSuggestWorkspaceMemoryFromLastAssistantMessage={suggestWorkspaceMemoryFromLastAssistantMessage}
+        onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage={suggestWorkspaceMemoryCandidateFromLastAssistantMessage}
+        onSuggestWorkspaceMemoryCandidateFromNote={suggestWorkspaceMemoryCandidateFromNote}
+        onCreateWorkspaceMemory={createWorkspaceMemory}
+        onUpdateWorkspaceMemory={updateWorkspaceMemory}
+        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByType}
+        onDeleteWorkspaceMemory={deleteWorkspaceMemory}
+        onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidate}
+        onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidate}
         onDeleteChat={(id) => setConfirmDeleteId(id)}
         onGenerateSummary={handleGenerateSummary}
       />
@@ -356,12 +391,17 @@ export default function ChatPageContent(props: {
         selectedWorkspaceId={selectedWorkspaceId()}
         workspaceSources={workspaceSources()}
         workspaceArtifacts={workspaceArtifacts()}
+        workspaceNotes={workspaceNotes()}
+        workspaceMemories={workspaceMemories()}
+        workspaceMemoryCandidates={workspaceMemoryCandidates()}
         workspaceSourceMode={workspaceSourceMode()}
         selectedWorkspaceSourceIds={selectedWorkspaceSourceIds()}
         groundingMode={groundingMode()}
         workspaceLoading={workspaceLoading()}
         sourcesLoading={sourcesLoading()}
         artifactsLoading={artifactsLoading()}
+        notesLoading={notesLoading()}
+        memoriesLoading={memoriesLoading()}
         onNewChat={() => {
           speech.stopCurrent();
           startNewChat(isMobile(), setShowHistory);
@@ -377,6 +417,17 @@ export default function ChatPageContent(props: {
           speech.stopCurrent();
           loadChat(id, isMobile(), setShowHistory, setSelectedAgent);
         }}
+        onSaveLastAssistantAsWorkspaceNote={saveLastAssistantAsWorkspaceNote}
+        onSuggestWorkspaceMemoryFromLastAssistantMessage={suggestWorkspaceMemoryFromLastAssistantMessage}
+        onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage={suggestWorkspaceMemoryCandidateFromLastAssistantMessage}
+        onSuggestWorkspaceMemoryCandidateFromNote={suggestWorkspaceMemoryCandidateFromNote}
+        onCreateWorkspaceMemory={createWorkspaceMemory}
+        onUpdateWorkspaceMemory={updateWorkspaceMemory}
+        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByType}
+        onDeleteWorkspaceMemory={deleteWorkspaceMemory}
+        onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidate}
+        onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidate}
+        memorySuggestionsEnabled={props.speechPrefs().memory_suggestions_enabled}
       />
 
       <div class="flex-1 flex flex-col h-full min-w-0 bg-background relative">
@@ -412,6 +463,15 @@ export default function ChatPageContent(props: {
           setInput={setInput}
           selectedProvider={selectedProvider()}
           selectedModel={selectedModel()}
+          selectedWorkspaceId={selectedWorkspaceId()}
+          currentChatId={currentChatId()}
+          workspaceNotes={workspaceNotes()}
+          workspaceMemoryCandidates={workspaceMemoryCandidates()}
+          captureSuggestionsEnabled={props.speechPrefs().capture_suggestions_enabled}
+          memorySuggestionsEnabled={props.speechPrefs().memory_suggestions_enabled}
+          onSaveWorkspaceNote={saveLastAssistantAsWorkspaceNote}
+          onSuggestWorkspaceMemoryCandidate={suggestWorkspaceMemoryCandidateFromLastAssistantMessage}
+          onTrackWorkspaceCaptureTelemetry={trackWorkspaceCaptureTelemetry}
         />
 
         <ChatInput

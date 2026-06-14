@@ -1,0 +1,193 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - button "Y" [ref=e6] [cursor=pointer]:
+      - generic [ref=e7]: "Y"
+    - navigation [ref=e8]:
+      - link "Chat" [ref=e9] [cursor=pointer]:
+        - /url: /
+        - img [ref=e10]
+      - link "Notebook" [ref=e12] [cursor=pointer]:
+        - /url: /notebook
+        - img [ref=e13]
+      - link "Agents" [ref=e15] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e16]
+      - link "Skill Groups" [ref=e18] [cursor=pointer]:
+        - /url: /skill-groups
+        - img [ref=e19]
+      - link "Skill Health" [ref=e21] [cursor=pointer]:
+        - /url: /skill-health
+        - img [ref=e22]
+      - link "Memory Animation" [ref=e24] [cursor=pointer]:
+        - /url: /memory-animation
+        - img [ref=e25]
+    - generic [ref=e27]:
+      - button "Dark Mode" [ref=e28] [cursor=pointer]:
+        - img [ref=e29]
+      - link "Settings" [ref=e31] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e32]
+  - main [ref=e35]:
+    - generic [ref=e37]:
+      - status [ref=e38]: Read aloud stopped.
+      - generic [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - generic [ref=e42]:
+              - generic [ref=e43]:
+                - generic [ref=e44]: Chats
+                - button "New Chat" [ref=e45] [cursor=pointer]:
+                  - img [ref=e46]
+              - generic [ref=e48]:
+                - textbox "Search chats..." [ref=e49]
+                - img [ref=e50]
+            - generic [ref=e52]:
+              - button "ALL" [ref=e53] [cursor=pointer]
+              - button "TODAY" [ref=e54] [cursor=pointer]
+              - button "7D" [ref=e55] [cursor=pointer]
+              - button "30D" [ref=e56] [cursor=pointer]
+          - generic [ref=e57]:
+            - generic [ref=e58]:
+              - button "Toggle date group Today" [expanded] [ref=e59] [cursor=pointer]:
+                - generic [ref=e60]:
+                  - img [ref=e61]
+                  - text: Today
+                - generic [ref=e63]: 2 chats
+              - generic [ref=e64]:
+                - generic [ref=e65] [cursor=pointer]:
+                  - generic [ref=e66]:
+                    - generic [ref=e67]:
+                      - heading "新人入职模板" [level=3] [ref=e68]
+                      - generic [ref=e69]: 07:46 AM
+                    - generic [ref=e70]:
+                      - generic [ref=e71]: workspace
+                      - generic [ref=e72]: slack
+                  - generic [ref=e73]:
+                    - button "Generate summary" [ref=e74]:
+                      - img [ref=e75]
+                    - button "Delete session" [ref=e77]:
+                      - img [ref=e78]
+                - generic [ref=e80] [cursor=pointer]:
+                  - generic [ref=e81]:
+                    - generic [ref=e82]:
+                      - heading "请给我一个可复用的新人入职答复模板，要求：1）结构化 2）简..." [level=3] [ref=e83]
+                      - generic [ref=e84]: 07:40 AM
+                    - generic [ref=e86]: workspace
+                  - generic [ref=e87]:
+                    - button "Generate summary" [ref=e88]:
+                      - img [ref=e89]
+                    - button "Delete session" [ref=e91]:
+                      - img [ref=e92]
+            - button "Toggle date group Last 7 Days" [ref=e95] [cursor=pointer]:
+              - generic [ref=e96]:
+                - img [ref=e97]
+                - text: Last 7 Days
+              - generic [ref=e99]: 8 chats
+            - button "Toggle date group Earlier" [ref=e101] [cursor=pointer]:
+              - generic [ref=e102]:
+                - img [ref=e103]
+                - text: Earlier
+              - generic [ref=e105]: 364 chats
+          - generic [ref=e107]: Showing 374 sessions
+        - generic "Collapse" [ref=e110] [cursor=pointer]:
+          - img [ref=e112]
+      - button "W" [ref=e114] [cursor=pointer]
+      - generic [ref=e115]:
+        - generic [ref=e116]:
+          - generic [ref=e117]:
+            - button "Hide History" [ref=e118] [cursor=pointer]:
+              - img [ref=e119]
+            - generic [ref=e121]:
+              - generic [ref=e123]: A
+              - generic [ref=e125]:
+                - heading "AI Assistant" [level=3] [ref=e126]
+                - paragraph [ref=e127]: System Ready
+          - generic [ref=e128]:
+            - button "Open trace inspector" [ref=e129] [cursor=pointer]:
+              - img [ref=e130]
+            - button "Toggle Knowledge Intelligence" [ref=e132] [cursor=pointer]:
+              - img [ref=e133]
+        - generic [ref=e136]:
+          - img [ref=e138]
+          - heading "Empowering your workflow with Yue" [level=2] [ref=e140]
+          - paragraph [ref=e141]: Select an expert agent or start a new conversation to explore documents, research topics, or generate insights.
+          - generic [ref=e142]:
+            - button "HTML Preview Generate a responsive landing page for a coffee shop" [ref=e143] [cursor=pointer]:
+              - generic [ref=e144]:
+                - img [ref=e146]
+                - generic [ref=e148]: HTML Preview
+              - paragraph [ref=e149]: Generate a responsive landing page for a coffee shop
+            - button "SVG Artifact Create a complex SVG illustration of a city skyline" [ref=e150] [cursor=pointer]:
+              - generic [ref=e151]:
+                - img [ref=e153]
+                - generic [ref=e155]: SVG Artifact
+              - paragraph [ref=e156]: Create a complex SVG illustration of a city skyline
+            - button "Code & Logic Solve Tower of Hanoi with recursive Python code" [ref=e157] [cursor=pointer]:
+              - generic [ref=e158]:
+                - img [ref=e160]
+                - generic [ref=e162]: Code & Logic
+              - paragraph [ref=e163]: Solve Tower of Hanoi with recursive Python code
+            - button "Math & Latex Explain Schrödinger equation with math formulas" [ref=e164] [cursor=pointer]:
+              - generic [ref=e165]:
+                - img [ref=e167]
+                - generic [ref=e169]: Math & Latex
+              - paragraph [ref=e170]: Explain Schrödinger equation with math formulas
+        - generic [ref=e172]:
+          - generic [ref=e174]:
+            - textbox "You are chatting with AI Assistant now" [ref=e175]
+            - generic [ref=e176]:
+              - generic [ref=e177]:
+                - button "Select Model" [ref=e179] [cursor=pointer]:
+                  - generic [ref=e181]: Select Model
+                  - img [ref=e182]
+                - button "Deep Thinking" [ref=e184] [cursor=pointer]:
+                  - img [ref=e185]
+                  - generic [ref=e187]: Deep Thinking
+              - generic [ref=e188]:
+                - generic [ref=e189]:
+                  - generic [ref=e190]:
+                    - button "Attach or paste files" [ref=e191] [cursor=pointer]:
+                      - img [ref=e192]
+                    - generic:
+                      - text: 上传附件或直接粘贴
+                      - generic: "支持图片、PDF、Excel、CSV，`Ctrl+V` 即可"
+                  - generic [ref=e194]:
+                    - button "Upload files" [ref=e195] [cursor=pointer]:
+                      - img [ref=e196]
+                    - generic:
+                      - text: 上传附件
+                      - generic: "图片、PDF、Excel、CSV，支持 `Ctrl+V` 粘贴"
+                  - generic [ref=e200]:
+                    - button "Start voice input (Browser dictation)" [ref=e201] [cursor=pointer]:
+                      - img [ref=e202]
+                    - generic: Voice input via Browser dictation
+                - button "Send Message" [disabled] [ref=e204]:
+                  - img [ref=e205]
+          - generic [ref=e208]: Select a model to start
+      - generic [ref=e210]:
+        - generic [ref=e212]:
+          - generic [ref=e213]:
+            - generic [ref=e214]:
+              - button "Enter fullscreen" [ref=e215] [cursor=pointer]:
+                - img [ref=e216]
+              - button "Expand view" [ref=e218] [cursor=pointer]:
+                - img [ref=e219]
+            - heading "Intelligence Hub" [level=2] [ref=e221]:
+              - generic [ref=e223]: Intelligence Hub
+          - button "Close" [ref=e225] [cursor=pointer]:
+            - img [ref=e227]
+        - generic [ref=e230]:
+          - button "Actions" [ref=e231] [cursor=pointer]
+          - button "Stats" [ref=e232] [cursor=pointer]
+        - generic [ref=e234]:
+          - generic [ref=e237]:
+            - heading "Contextual Analysis" [level=4] [ref=e238]
+            - paragraph [ref=e239]: Monitoring your conversation to extract key entities and research data in real-time.
+          - generic [ref=e240]:
+            - heading "Action States" [level=4] [ref=e241]: Action States
+            - paragraph [ref=e244]: No tool-backed skill actions observed yet
+          - generic [ref=e245]:
+            - generic [ref=e246]:
+              - heading "Connected Nodes" [level=4] [ref=e247]
+              - generic [ref=e248]: 0 TRACKED
+            - paragraph [ref=e250]: Current action panel reflects only existing tool/MCP-backed skill states.

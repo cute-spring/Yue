@@ -150,6 +150,27 @@ export default function MessageAssistantMetaBadges(props: MessageAssistantMetaBa
         </div>
       </Show>
 
+      <Show when={(props.msg.workspace_notes?.loaded_note_count ?? 0) > 0}>
+        <div class="flex items-center gap-1.5 rounded-md border border-sky-500/20 bg-sky-500/5 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-sky-600/80">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+          {props.msg.workspace_notes?.loaded_note_count} Notes
+        </div>
+      </Show>
+
+      <Show when={(props.msg.workspace_memory?.loaded_memory_count ?? 0) > 0}>
+        <div class="flex items-center gap-1.5 rounded-md border border-cyan-500/20 bg-cyan-500/5 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-cyan-600/80">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v12"/><path d="M17 9.5A5 5 0 0 0 7 9.5"/><path d="M7 14.5a5 5 0 0 0 10 0"/></svg>
+          {props.msg.workspace_memory?.loaded_memory_count} Memories
+        </div>
+      </Show>
+
+      <Show when={(props.msg.session_used_context?.sections?.length ?? 0) > 0}>
+        <div class="flex items-center gap-1.5 rounded-md border border-violet-500/20 bg-violet-500/5 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-violet-600/80">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 8c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3Z"/><path d="M5 16c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3Z"/></svg>
+          {props.msg.session_used_context?.sections?.length} Context
+        </div>
+      </Show>
+
       <Show when={props.msg.tools && props.msg.tools.length > 0}>
         <div class="flex items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-amber-500/80">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>

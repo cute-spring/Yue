@@ -23,6 +23,9 @@ class ChatRequest(BaseModel):
     workspace_source_mode: str | None = None
     selected_workspace_source_ids: list[str] | None = None
     grounding_mode: str | None = None
+    note_recall_enabled: bool | None = None
+    capture_suggestions_enabled: bool | None = None
+    memory_suggestions_enabled: bool | None = None
     images: list[str] | None = None
     attachments: list[Attachment] | None = None
     agent_id: str | None = None
@@ -49,6 +52,19 @@ class TruncateRequest(BaseModel):
 
 class SummaryGenerateRequest(BaseModel):
     force: bool = False
+
+
+class CaptureTelemetryRequest(BaseModel):
+    workspace_id: str | None = None
+    event_type: str
+    source: str = "chat"
+    assistant_message_id: int | str | None = None
+    assistant_turn_id: str | None = None
+    run_id: str | None = None
+    note_id: str | None = None
+    candidate_id: str | None = None
+    accepted: bool | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class ActionObservabilityResponse(BaseModel):

@@ -334,6 +334,75 @@ async def test_custom_provider(mock_config):
         assert model.model_name == "my-model"
 
 @pytest.mark.asyncio
+async def test_custom_provider_allows_blank_api_key_for_openai_compatible_local_servers(mock_config):
+    provider = CustomProviderImpl()
+    with patch("app.services.llm.providers.custom.config_service") as mock_cfg:
+        mock_cfg.get_llm_config.return_value = {
+            "custom_models": [
+                {"name": "local-openai", "base_url": "http://localhost:8080/v1", "model": "default"}
+            ]
+        }
+
+        model = provider.build("local-openai")
+        assert model.model_name == "default"
+
+@pytest.mark.asyncio
+async def test_custom_provider_discovers_models_from_openai_compatible_endpoint(mock_config, monkeypatch):
+    provider = CustomProviderImpl()
+
+    class MockResponse:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"id": "qwen3:8b"}, {"id": "mlx-community/model"}]}
+
+    class MockClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            assert url == "http://localhost:8080/v1/models"
+            assert headers == {}
+            return MockResponse()
+
+    with patch("app.services.llm.providers.custom.config_service") as mock_cfg:
+        mock_cfg.get_llm_config.return_value = {
+            "custom_models": [
+                {"name": "local-mlx", "base_url": "http://localhost:8080/v1"}
+            ]
+        }
+        monkeypatch.setattr(
+            "app.services.llm.providers.custom.build_async_client",
+            lambda **kwargs: MockClient(),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "app.services.llm.providers.custom.get_ssl_verify",
+            lambda: True,
+            raising=False,
+        )
+
+        models = await provider.list_models(refresh=True)
+
+    assert models == ["local-mlx/qwen3:8b", "local-mlx/mlx-community/model"]
+
+def test_custom_provider_builds_discovered_model_alias(mock_config):
+    provider = CustomProviderImpl()
+    with patch("app.services.llm.providers.custom.config_service") as mock_cfg:
+        mock_cfg.get_llm_config.return_value = {
+            "custom_models": [
+                {"name": "local-mlx", "base_url": "http://localhost:8080/v1"}
+            ]
+        }
+
+        model = provider.build("local-mlx/qwen3:8b")
+
+    assert model.model_name == "qwen3:8b"
+
+@pytest.mark.asyncio
 async def test_deepseek_provider(mock_config):
     provider = DeepSeekProviderImpl()
     models = await provider.list_models()

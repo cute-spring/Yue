@@ -47,7 +47,7 @@ def isolated_runtime_context_seam():
         skill_import_store=runtime_import_store,
         skill_import_service=runtime_import_service,
     )
-    with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context):
+    with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context, create=True):
         yield runtime_context
 
 def test_list_chats(client, mock_chat_service):
@@ -80,6 +80,43 @@ def test_get_chat_success(client, mock_chat_service):
     response = client.get("/api/chat/1")
     assert response.status_code == 200
     assert response.json()["id"] == "1"
+
+def test_add_capture_event_success(client, mock_chat_service):
+    now = datetime.now()
+    mock_chat_service.get_chat.return_value = {
+        "id": "1", "title": "Chat 1", "created_at": now, "updated_at": now, "messages": []
+    }
+    response = client.post(
+        "/api/chat/1/capture-events",
+        json={
+            "workspace_id": "ws_1",
+            "event_type": "suggestion_shown",
+            "source": "assistant_reply",
+            "assistant_message_id": 42,
+            "assistant_turn_id": "turn-1",
+            "run_id": "run-1",
+            "accepted": True,
+            "metadata": {"reason": "Structured answer"},
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "success"}
+    mock_chat_service.add_action_event.assert_called_once_with(
+        "1",
+        {
+            "event": "workspace.capture.telemetry",
+            "workspace_id": "ws_1",
+            "event_type": "suggestion_shown",
+            "source": "assistant_reply",
+            "assistant_message_id": 42,
+            "accepted": True,
+            "note_id": None,
+            "candidate_id": None,
+            "metadata": {"reason": "Structured answer"},
+        },
+        assistant_turn_id="turn-1",
+        run_id="run-1",
+    )
 
 def test_get_chat_not_found(client, mock_chat_service):
     mock_chat_service.get_chat.return_value = None

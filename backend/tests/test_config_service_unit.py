@@ -281,6 +281,18 @@ def test_custom_models_crud(temp_config_file):
     service.delete_custom_model("test-model")
     assert len(service.list_custom_models()) == 0
 
+def test_custom_enabled_models_are_persisted(temp_config_file):
+    service = ConfigService(str(temp_config_file))
+
+    service.update_llm_config({
+        "custom_enabled_models": ["local-mlx/qwen3:8b"],
+        "custom_enabled_models_mode": "allowlist",
+    })
+
+    llm_config = service.get_llm_config()
+    assert llm_config["custom_enabled_models"] == ["local-mlx/qwen3:8b"]
+    assert llm_config["custom_enabled_models_mode"] == "allowlist"
+
 def test_doc_access_validation(temp_config_file, monkeypatch):
     monkeypatch.delenv("DOC_ACCESS_ALLOW_ROOTS", raising=False)
     monkeypatch.delenv("DOC_ACCESS_DENY_ROOTS", raising=False)

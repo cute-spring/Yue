@@ -191,7 +191,7 @@ export default function ChatInput(props: ChatInputProps) {
 
   return (
     <div class="px-4 pb-6 lg:px-8 bg-transparent">
-      <div class="max-w-6xl mx-auto relative">
+      <div class="max-w-7xl mx-auto relative">
         <AgentSelector 
           show={props.showAgentSelector}
           agents={props.filteredAgents}

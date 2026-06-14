@@ -1,6 +1,6 @@
 import { Message } from '../../types';
 
-type WorkspaceEvidenceMessage = Pick<Message, 'workspace_grounding' | 'citations'>;
+type WorkspaceEvidenceMessage = Pick<Message, 'workspace_grounding' | 'workspace_notes' | 'workspace_memory' | 'citations'>;
 
 export const getWorkspaceGroundingModeLabel = (mode?: string | null): string => {
   if (mode === 'require_sources') return 'Citations required';
@@ -46,6 +46,22 @@ export const getWorkspaceCitationWarning = (msg: WorkspaceEvidenceMessage): stri
     return 'Citation-required mode was active, but no eligible workspace sources were available for this turn.';
   }
   return 'Citation-required mode was active. If this answer makes source-specific claims without citations, treat it as needing follow-up verification.';
+};
+
+export const getWorkspaceMemorySummary = (msg: WorkspaceEvidenceMessage): string => {
+  const memory = msg.workspace_memory;
+  if (!memory) return '';
+  const loadedCount = memory.loaded_memory_count ?? memory.loaded_memories?.length ?? 0;
+  if (loadedCount === 0) return 'No workspace memory cards were loaded for this turn.';
+  return `${loadedCount} workspace memory card${loadedCount === 1 ? '' : 's'} loaded for this turn.`;
+};
+
+export const getWorkspaceNoteSummary = (msg: WorkspaceEvidenceMessage): string => {
+  const notes = msg.workspace_notes;
+  if (!notes) return '';
+  const loadedCount = notes.loaded_note_count ?? notes.loaded_notes?.length ?? 0;
+  if (loadedCount === 0) return 'No saved workspace notes were recalled for this turn.';
+  return `${loadedCount} saved workspace note${loadedCount === 1 ? '' : 's'} recalled as lower-authority context for this turn.`;
 };
 
 export const formatCitationSourceLabel = (citation: {

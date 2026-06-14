@@ -284,4 +284,214 @@ describe('chatSubmission attachments', () => {
     expect(messagesState[1].workspace_grounding?.eligible_sources?.[0]?.display_name).toBe('Report.pdf');
     expect(messagesState[1].content).toBe('Grounded answer');
   });
+
+  it('attaches workspace memory stream metadata to the assistant message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeStreamResponse([
+        {
+          workspace_memory: {
+            workspace_id: 'ws_1',
+            loaded_memory_ids: ['mem_1'],
+            loaded_memory_count: 1,
+            loaded_memories: [
+              {
+                id: 'mem_1',
+                memory_type: 'preference',
+                title: 'Default Chinese',
+                content: 'Reply in Chinese by default.',
+              },
+            ],
+          },
+        },
+        { content: 'Memory-aware answer' },
+      ]),
+    );
+    const messagesState: Message[] = [];
+    const setMessages = (value: Message[] | ((prev: Message[]) => Message[])) => {
+      if (typeof value === 'function') {
+        messagesState.splice(0, messagesState.length, ...(value(messagesState) as Message[]));
+      } else {
+        messagesState.splice(0, messagesState.length, ...value);
+      }
+      return undefined;
+    };
+
+    await submitChatText({
+      rawText: 'remember my preference',
+      currentImages: [],
+      messages: () => messagesState,
+      currentChatId: () => 'chat_1',
+      currentWorkspaceId: () => 'ws_1',
+      selectedProvider: () => 'openai',
+      selectedModel: () => 'gpt-4o',
+      selectedAgent: () => null,
+      requestedSkill: () => null,
+      isDeepThinking: () => false,
+      setMessages,
+      setInput: () => undefined,
+      setImageAttachments: () => undefined,
+      setIsTyping: () => undefined,
+      setLastGenerationOutcome: () => undefined,
+      setActiveSkill: () => undefined,
+      setElapsedTime: () => undefined,
+      setCurrentChatId: () => undefined,
+      setActionStates: () => undefined,
+      setShowLLMSelector: () => undefined,
+      refreshChatMeta: async () => false,
+      scheduleMetaRefreshForTitle: () => undefined,
+      toast: {
+        error: () => undefined,
+        warning: () => undefined,
+      },
+      fileToBase64: async () => 'data:image/png;base64,AAA',
+      setAbortController: () => undefined,
+      setTimerInterval: () => undefined,
+      getTimerInterval: () => null,
+      fetchImpl: fetchMock,
+    });
+
+    expect(messagesState[1].workspace_memory?.workspace_id).toBe('ws_1');
+    expect(messagesState[1].workspace_memory?.loaded_memory_count).toBe(1);
+    expect(messagesState[1].workspace_memory?.loaded_memories?.[0]?.title).toBe('Default Chinese');
+    expect(messagesState[1].content).toBe('Memory-aware answer');
+  });
+
+  it('attaches workspace note recall stream metadata to the assistant message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeStreamResponse([
+        {
+          workspace_notes: {
+            workspace_id: 'ws_1',
+            loaded_note_ids: ['note_1'],
+            loaded_note_count: 1,
+            loaded_notes: [
+              {
+                id: 'note_1',
+                note_type: 'preference',
+                title: '用户偏好',
+                summary: '默认使用中文回复。',
+                tags: ['偏好', '中文'],
+              },
+            ],
+          },
+        },
+        { content: 'Note-aware answer' },
+      ]),
+    );
+    const messagesState: Message[] = [];
+    const setMessages = (value: Message[] | ((prev: Message[]) => Message[])) => {
+      if (typeof value === 'function') {
+        messagesState.splice(0, messagesState.length, ...(value(messagesState) as Message[]));
+      } else {
+        messagesState.splice(0, messagesState.length, ...value);
+      }
+      return undefined;
+    };
+
+    await submitChatText({
+      rawText: 'remember saved notes',
+      currentImages: [],
+      messages: () => messagesState,
+      currentChatId: () => 'chat_1',
+      currentWorkspaceId: () => 'ws_1',
+      selectedProvider: () => 'openai',
+      selectedModel: () => 'gpt-4o',
+      selectedAgent: () => null,
+      requestedSkill: () => null,
+      isDeepThinking: () => false,
+      setMessages,
+      setInput: () => undefined,
+      setImageAttachments: () => undefined,
+      setIsTyping: () => undefined,
+      setLastGenerationOutcome: () => undefined,
+      setActiveSkill: () => undefined,
+      setElapsedTime: () => undefined,
+      setCurrentChatId: () => undefined,
+      setActionStates: () => undefined,
+      setShowLLMSelector: () => undefined,
+      refreshChatMeta: async () => false,
+      scheduleMetaRefreshForTitle: () => undefined,
+      toast: {
+        error: () => undefined,
+        warning: () => undefined,
+      },
+      fileToBase64: async () => 'data:image/png;base64,AAA',
+      setAbortController: () => undefined,
+      setTimerInterval: () => undefined,
+      getTimerInterval: () => null,
+      fetchImpl: fetchMock,
+    });
+
+    expect(messagesState[1].workspace_notes?.workspace_id).toBe('ws_1');
+    expect(messagesState[1].workspace_notes?.loaded_note_count).toBe(1);
+    expect(messagesState[1].workspace_notes?.loaded_notes?.[0]?.title).toBe('用户偏好');
+    expect(messagesState[1].content).toBe('Note-aware answer');
+  });
+
+  it('attaches workspace capture suggestion stream metadata to the assistant message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeStreamResponse([
+        {
+          workspace_capture_suggestion: {
+            workspace_id: 'ws_1',
+            show_note_action: true,
+            show_memory_action: true,
+            reason: 'This grounded answer has source support and may be useful to reuse later.',
+            source: 'backend',
+            citation_count: 1,
+          },
+        },
+        { content: 'Suggestion-aware answer' },
+      ]),
+    );
+    const messagesState: Message[] = [];
+    const setMessages = (value: Message[] | ((prev: Message[]) => Message[])) => {
+      if (typeof value === 'function') {
+        messagesState.splice(0, messagesState.length, ...(value(messagesState) as Message[]));
+      } else {
+        messagesState.splice(0, messagesState.length, ...value);
+      }
+      return undefined;
+    };
+
+    await submitChatText({
+      rawText: 'remember this answer',
+      currentImages: [],
+      messages: () => messagesState,
+      currentChatId: () => 'chat_1',
+      currentWorkspaceId: () => 'ws_1',
+      selectedProvider: () => 'openai',
+      selectedModel: () => 'gpt-4o',
+      selectedAgent: () => null,
+      requestedSkill: () => null,
+      isDeepThinking: () => false,
+      setMessages,
+      setInput: () => undefined,
+      setImageAttachments: () => undefined,
+      setIsTyping: () => undefined,
+      setLastGenerationOutcome: () => undefined,
+      setActiveSkill: () => undefined,
+      setElapsedTime: () => undefined,
+      setCurrentChatId: () => undefined,
+      setActionStates: () => undefined,
+      setShowLLMSelector: () => undefined,
+      refreshChatMeta: async () => false,
+      scheduleMetaRefreshForTitle: () => undefined,
+      toast: {
+        error: () => undefined,
+        warning: () => undefined,
+      },
+      fileToBase64: async () => 'data:image/png;base64,AAA',
+      setAbortController: () => undefined,
+      setTimerInterval: () => undefined,
+      getTimerInterval: () => null,
+      fetchImpl: fetchMock,
+    });
+
+    expect(messagesState[1].workspace_capture_suggestion?.workspace_id).toBe('ws_1');
+    expect(messagesState[1].workspace_capture_suggestion?.show_note_action).toBe(true);
+    expect(messagesState[1].workspace_capture_suggestion?.show_memory_action).toBe(true);
+    expect(messagesState[1].workspace_capture_suggestion?.source).toBe('backend');
+    expect(messagesState[1].content).toBe('Suggestion-aware answer');
+  });
 });

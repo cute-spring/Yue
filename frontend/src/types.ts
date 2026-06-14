@@ -171,6 +171,122 @@ export type WorkspaceArtifact = {
   updated_at: string;
 };
 
+export type WorkspaceNote = {
+  id: string;
+  workspace_id?: string | null;
+  title: string;
+  summary?: string;
+  content: string;
+  tags?: string[];
+  note_type?: string;
+  capture_type?: string;
+  status?: string;
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+  source_message_ids?: number[];
+  citation_refs?: Record<string, any>[];
+  source_metadata?: Record<string, any>;
+  promoted_memory_id?: string | null;
+  promotion_hint?: WorkspaceNotePromotionHint;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceNotePromotionHint = {
+  eligible?: boolean;
+  state?: 'ready' | 'note_only' | 'promoted' | 'candidate_pending' | 'candidate_approved' | 'candidate_rejected' | string;
+  memory_type?: string | null;
+  confidence?: number | null;
+  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | string | null;
+  candidate_id?: string | null;
+  candidate_status?: 'pending' | 'approved' | 'rejected' | string | null;
+  conflict_memory_id?: string | null;
+  conflict_memory_title?: string | null;
+  score_reasons?: string[];
+  type_inference_reasons?: string[];
+  conflict_reasons?: string[];
+  reason_summary?: string | null;
+  promoted_memory_id?: string | null;
+};
+
+export type WorkspaceMemoryCard = {
+  id: string;
+  workspace_id: string;
+  memory_type: string;
+  scope_type?: 'user' | 'workspace' | 'project' | 'chat' | string;
+  scope_ref?: string | null;
+  title: string;
+  content: string;
+  status: 'active' | 'disabled' | 'archived' | 'superseded' | string;
+  confidence?: number | null;
+  created_by?: string | null;
+  why_saved?: string | null;
+  pinned?: boolean;
+  editable?: boolean;
+  revocable?: boolean;
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+  supersedes_memory_id?: string | null;
+  last_used_at?: string | null;
+  expires_at?: string | null;
+  source?: {
+    source_session_id?: string | null;
+    source_message_id?: number | null;
+    source_ids?: string[];
+    citation_refs?: Record<string, any>[];
+    note_id?: string | null;
+    suggested_from?: string | null;
+  } | null;
+  memory_metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceMemoryDraft = {
+  workspace_id: string;
+  memory_type: string;
+  scope_type?: 'user' | 'workspace' | 'project' | 'chat' | string;
+  scope_ref?: string | null;
+  title: string;
+  content: string;
+  confidence?: number | null;
+  why_saved?: string | null;
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+  expires_at?: string | null;
+  memory_metadata?: Record<string, any>;
+};
+
+export type WorkspaceMemoryCandidate = {
+  id: string;
+  workspace_id: string;
+  memory_type: string;
+  scope_type?: 'user' | 'workspace' | 'project' | 'chat' | string;
+  scope_ref?: string | null;
+  title: string;
+  content: string;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  score?: number | null;
+  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | string | null;
+  conflict_memory_id?: string | null;
+  why_saved?: string | null;
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+  reviewed_at?: string | null;
+  expires_at?: string | null;
+  source?: {
+    source_session_id?: string | null;
+    source_message_id?: number | null;
+    source_ids?: string[];
+    citation_refs?: Record<string, any>[];
+    note_id?: string | null;
+    suggested_from?: string | null;
+  } | null;
+  candidate_metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WorkspaceGroundingSource = {
   id: string;
   display_name?: string | null;
@@ -190,6 +306,68 @@ export type WorkspaceGrounding = {
   unavailable_sources?: WorkspaceGroundingSource[];
   enabled_tool_count?: number;
   tooling_warning?: string | null;
+};
+
+export type WorkspaceMemoryUsedItem = {
+  id: string;
+  memory_type?: string | null;
+  scope_type?: string | null;
+  title?: string | null;
+  content?: string | null;
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+};
+
+export type WorkspaceNoteUsedItem = {
+  id: string;
+  title?: string | null;
+  summary?: string | null;
+  content?: string | null;
+  note_type?: string | null;
+  tags?: string[];
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+};
+
+export type WorkspaceMemoryContext = {
+  workspace_id?: string | null;
+  loaded_memory_ids?: string[];
+  loaded_memories?: WorkspaceMemoryUsedItem[];
+  loaded_memory_count?: number;
+};
+
+export type WorkspaceNoteContext = {
+  workspace_id?: string | null;
+  loaded_note_ids?: string[];
+  loaded_notes?: WorkspaceNoteUsedItem[];
+  loaded_note_count?: number;
+};
+
+export type WorkspaceCaptureSuggestion = {
+  workspace_id?: string | null;
+  show_note_action: boolean;
+  show_memory_action: boolean;
+  reason: string;
+  source?: string | null;
+  citation_count?: number;
+  recalled_note_count?: number;
+  recalled_memory_count?: number;
+};
+
+export type SessionUsedContextSection = {
+  kind?: string | null;
+  label?: string | null;
+  summary?: string | null;
+  item_count?: number | null;
+};
+
+export type SessionUsedContext = {
+  action?: string | null;
+  reason?: string | null;
+  recent_event_count?: number | null;
+  selected_candidate_ids?: string[];
+  block_names?: string[];
+  sections?: SessionUsedContextSection[];
 };
 
 export type Message = {
@@ -212,7 +390,11 @@ export type Message = {
   tools?: string[];
   tool_calls?: ToolCall[];
   citations?: any[];
+  session_used_context?: SessionUsedContext;
   workspace_grounding?: WorkspaceGrounding;
+  workspace_notes?: WorkspaceNoteContext;
+  workspace_memory?: WorkspaceMemoryContext;
+  workspace_capture_suggestion?: WorkspaceCaptureSuggestion;
   context_id?: string;
   run_id?: string;
   assistant_turn_id?: string;

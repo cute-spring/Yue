@@ -1,4 +1,5 @@
 import { buildManagedModelsConfig, buildRevertedManagedModelsConfig } from './settingsUtils';
+import { buildCustomModelTestPayload } from './customModelUtils';
 import type { CustomModel, LLMProvider, LlmForm } from './types';
 
 type Accessor<T> = () => T;
@@ -28,6 +29,7 @@ type UseSettingsLlmOptions = {
   setCapabilityOverrides: Setter<Record<string, string[]>>;
   setIsSavingModels: Setter<boolean>;
   setIsLoadingModels: Setter<boolean>;
+  setModelManagerError: Setter<string>;
   adminModelsCache: Accessor<Record<string, any>>;
   setAdminModelsCache: Setter<Record<string, any>>;
   setAdminModelCapabilities: Setter<Record<string, string[]>>;
@@ -69,6 +71,11 @@ export function useSettingsLlm(options: UseSettingsLlmOptions) {
   const openModelManager = async (provider: LLMProvider) => {
     options.setManagingProvider(provider.name);
     options.setShowModelManager(true);
+    options.setManagedModels([]);
+    options.setEnabledModels(new Set<string>());
+    options.setCapabilityOverrides({});
+    options.setAdminModelCapabilities({});
+    options.setModelManagerError('');
 
     if (options.adminModelsCache()[provider.name]) {
       const data = options.adminModelsCache()[provider.name];
@@ -91,7 +98,46 @@ export function useSettingsLlm(options: UseSettingsLlmOptions) {
       options.setAdminModelsCache((prev) => ({ ...prev, [provider.name]: data }));
     } catch (error: any) {
       console.error('Failed to load models', error);
-      options.showToast('error', `Failed to load models: ${error.message}`);
+      const message = `Failed to load models: ${error.message}`;
+      options.setManagedModels([]);
+      options.setEnabledModels(new Set<string>());
+      options.setCapabilityOverrides({});
+      options.setAdminModelCapabilities({});
+      options.setModelManagerError(message);
+      options.showToast('error', message);
+    } finally {
+      options.setIsLoadingModels(false);
+    }
+  };
+
+  const openCustomModelManager = async (model: CustomModel) => {
+    options.setManagingProvider('custom');
+    options.setShowModelManager(true);
+    options.setManagedModels([]);
+    options.setEnabledModels(new Set<string>());
+    options.setCapabilityOverrides({});
+    options.setAdminModelCapabilities({});
+    options.setModelManagerError('');
+    options.setIsLoadingModels(true);
+
+    try {
+      const res = await fetch(`/api/models/custom/${encodeURIComponent(model.name)}/models?refresh=1`);
+      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      const data = await res.json();
+      options.setManagedModels(data.models || []);
+      options.setEnabledModels(new Set<string>(data.available_models || []));
+      options.setCapabilityOverrides(data.explicit_model_capabilities || {});
+      options.setAdminModelCapabilities(data.model_capabilities || {});
+      options.setAdminModelsCache((prev) => ({ ...prev, [`custom:${model.name}`]: data }));
+    } catch (error: any) {
+      console.error('Failed to load custom models', error);
+      const message = `Failed to load models for ${model.name}: ${error.message}. Please restart the Yue backend if this happened after a code update.`;
+      options.setManagedModels([]);
+      options.setEnabledModels(new Set<string>());
+      options.setCapabilityOverrides({});
+      options.setAdminModelCapabilities({});
+      options.setModelManagerError(message);
+      options.showToast('error', message);
     } finally {
       options.setIsLoadingModels(false);
     }
@@ -167,7 +213,7 @@ export function useSettingsLlm(options: UseSettingsLlmOptions) {
     const res = await fetch('/api/models/test/custom', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base_url: model.base_url, api_key: model.api_key, model: model.model }),
+      body: JSON.stringify(buildCustomModelTestPayload(model)),
     });
     const data = await res.json();
     if (data.ok) {
@@ -187,5 +233,6 @@ export function useSettingsLlm(options: UseSettingsLlmOptions) {
     testProvider,
     deleteCustomModel,
     testCustomModel,
+    openCustomModelManager,
   };
 }
