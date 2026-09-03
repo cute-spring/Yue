@@ -24,11 +24,12 @@ async def test_legacy_agent_behavior_baseline(client):
     }
     
     # Mocking dependencies to isolate the test to the chat flow
-    with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
+    with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat.chat_service") as mock_chat_service, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model") as mock_get_model:
+         patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model") as mock_get_model:
         
         # Setup AgentConfig (Legacy)
         mock_agent = AgentConfig(
