@@ -329,7 +329,7 @@ async def parse_with_llm(
         agent = Agent(
             model=model,
             system_prompt=SMART_PASTE_SYSTEM_PROMPT,
-            result_type=SmartPasteLlmEnvelope,
+            output_type=SmartPasteLlmEnvelope,
         )
         try:
             result = await asyncio.wait_for(

@@ -100,7 +100,7 @@ class SessionMetaService:
     ) -> str:
         model = get_model(provider, model_name)
         agent = Agent(model=model, system_prompt=system_prompt)
-        usage_limits = UsageLimits(response_tokens_limit=max_tokens) if max_tokens > 0 else None
+        usage_limits = UsageLimits(output_tokens_limit=max_tokens) if max_tokens > 0 else None
         final_text = ""
         async with agent.run_stream(user_prompt, usage_limits=usage_limits) as result:
             async for chunk in result.stream_text():

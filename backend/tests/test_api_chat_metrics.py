@@ -51,8 +51,8 @@ async def test_chat_stream_metrics_presence(client):
         
         # Mock usage data (Pydantic AI result.usage())
         mock_usage = MagicMock()
-        mock_usage.request_tokens = 10
-        mock_usage.response_tokens = 20
+        mock_usage.input_tokens = 10
+        mock_usage.output_tokens = 20
         mock_usage.total_tokens = 30
         mock_result.usage.return_value = mock_usage
         

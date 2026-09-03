@@ -33,8 +33,14 @@ class PydanticAIUsageAdapter(UsageAdapter):
     适配 Pydantic AI 的 Usage 对象
     """
     def adapt(self, raw_usage: Any, duration: float, finish_reason: Optional[str] = None) -> UsageStats:
-        prompt_tokens = self._to_int(getattr(raw_usage, "request_tokens", None))
-        completion_tokens = self._to_int(getattr(raw_usage, "response_tokens", None))
+        # V2 renamed these fields. Keep V1 names as a read-only fallback so
+        # historical fixtures and partially completed runs remain measurable.
+        prompt_tokens = self._to_int(getattr(raw_usage, "input_tokens", None))
+        if prompt_tokens is None:
+            prompt_tokens = self._to_int(getattr(raw_usage, "request_tokens", None))
+        completion_tokens = self._to_int(getattr(raw_usage, "output_tokens", None))
+        if completion_tokens is None:
+            completion_tokens = self._to_int(getattr(raw_usage, "response_tokens", None))
         total_tokens = self._to_int(getattr(raw_usage, "total_tokens", None))
         
         tps = None

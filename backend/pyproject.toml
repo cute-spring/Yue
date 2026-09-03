@@ -8,7 +8,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
-    "pydantic-ai-slim[openai,google]==1.107.4",
+    "pydantic-ai-slim[openai,google]==2.37.0",
     "python-dotenv",
     "httpx",
     "h2",
