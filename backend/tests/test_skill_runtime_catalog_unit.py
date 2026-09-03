@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from app.main import _resolve_runtime_skill_directories
+from app.services.skills.bootstrap import SkillRuntimeConfig, resolve_runtime_skill_directories as _resolve_runtime_skill_directories
 from app.services.skills.import_models import (
     SkillImportLifecycleState,
     SkillImportPreview,
@@ -232,10 +232,6 @@ def test_resolve_runtime_mode_defaults_to_import_gate_and_supports_explicit_lega
         )
     )
 
-    class FakeResolver:
-        def resolve(self):
-            return legacy_dirs
-
     assert resolve_skill_runtime_mode(None) == RUNTIME_MODE_IMPORT_GATE
     assert resolve_skill_runtime_mode("import-gate") == RUNTIME_MODE_IMPORT_GATE
     assert resolve_skill_runtime_mode("  IMPORT_GATE  ") == RUNTIME_MODE_IMPORT_GATE
@@ -243,17 +239,19 @@ def test_resolve_runtime_mode_defaults_to_import_gate_and_supports_explicit_lega
     assert resolve_skill_runtime_mode("unexpected-value") == RUNTIME_MODE_IMPORT_GATE
 
     resolved_legacy = _resolve_runtime_skill_directories(
-        resolver=FakeResolver(),
+        config=SkillRuntimeConfig("/tmp/builtin", "/tmp/workspace", "/tmp/user", str(tmp_path / "data"), RUNTIME_MODE_LEGACY, False, 0),
         import_store=store,
-        runtime_mode=RUNTIME_MODE_LEGACY,
     )
     resolved_gate = _resolve_runtime_skill_directories(
-        resolver=FakeResolver(),
+        config=SkillRuntimeConfig("/tmp/builtin", "/tmp/workspace", "/tmp/user", str(tmp_path / "data"), RUNTIME_MODE_IMPORT_GATE, False, 0),
         import_store=store,
-        runtime_mode=RUNTIME_MODE_IMPORT_GATE,
     )
 
-    assert resolved_legacy == legacy_dirs
+    assert [item.path for item in resolved_legacy] == [
+        str(Path("/tmp/builtin").resolve()),
+        str(Path("/tmp/workspace").resolve()),
+        str(Path("/tmp/user").resolve()),
+    ]
     assert resolved_gate == [SkillDirectorySpec(layer="import", path=str(active_dir.resolve()))]
 
 

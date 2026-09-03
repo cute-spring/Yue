@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -97,7 +98,7 @@ class TestAgentStorePersistence(unittest.TestCase):
             backend_dir = Path(__file__).resolve().parents[1]
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/migrate_agents_to_agent_kind_groups.py",
                     "--agents-file",
                     agents_file,
@@ -129,7 +130,7 @@ class TestAgentStorePersistence(unittest.TestCase):
             backend_dir = Path(__file__).resolve().parents[1]
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/migrate_agents_to_agent_kind_groups.py",
                     "--agents-file",
                     agents_file,

@@ -4,6 +4,7 @@ import json
 import shutil
 import tempfile
 import subprocess
+import sys
 from pathlib import Path
 from app.services.agent_store import AgentStore, AgentConfig
 from app.services.skills.import_models import (
@@ -245,7 +246,7 @@ def test_migrate_agents_script_dry_run(temp_dirs):
     backend_dir = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [
-            "python",
+            sys.executable,
             "scripts/migrate_agents_to_runtime_data.py",
             "--legacy-file",
             legacy_file,

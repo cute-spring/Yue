@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 - Protect the chat execution boundary streaming and persistence contract.
 
-**Status:** claimed
+**Status:** blocked (external release gates)
 
 - [ ] V2 instrumentation and Yue application metrics report accurate token usage, completion outcomes, errors, and latency without dashboard double-counting.
 - [ ] Offline regression tests, credentialed staging smoke tests, and concurrency/cleanup checks pass with results recorded as release evidence.
@@ -22,7 +22,9 @@ The local release command is:
 PYTHONPATH=.:../../session-context-manager/src .venv/bin/python -m pytest -m "not integration"
 ```
 
-It currently stops during collection on the separately tracked chat modularization imports in `test_chat_stream_runner_unit.py` and `test_skill_runtime_catalog_unit.py`. This must be green before canary approval.
+On 2026-09-04, the command collected and ran the complete offline suite after the stale modularization seams in the migration-owned tests were repaired. Result: `962 passed, 27 failed, 69 errors, 17 skipped`.
+
+The remaining failures are outside this migration: stale chat-service/workspace-service module patch paths, unrelated agent/preflight/doc/multimodal/reasoning/phase-harness assertions, and environment scripts that still invoke a missing `python` executable. The V2 migration-focused suites pass, including `tests/test_api_chat_unit.py` (`62 passed`). The full-suite gate remains red until the owning work resolves those failures; do not treat it as V2 release approval.
 
 ## Staging Evidence Template
 
