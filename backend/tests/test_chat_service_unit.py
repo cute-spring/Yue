@@ -22,12 +22,14 @@ def temp_db():
     test_engine = create_engine(f"sqlite:///{db_file}")
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
     
-    # Patch dependencies in chat_service
-    with patch("app.services.chat_service.engine", test_engine), \
-         patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
+    Base.metadata.create_all(bind=test_engine)
+    # Database dependencies now live in the split chat-service mixins.
+    with patch("app.services.chat_service_schema.engine", test_engine), \
+         patch("app.services.chat_service_schema.SessionLocal", TestingSessionLocal), \
+         patch("app.services.chat_service_sessions.SessionLocal", TestingSessionLocal), \
+         patch("app.services.chat_service_actions.SessionLocal", TestingSessionLocal), \
          patch("app.services.workspace_service.engine", test_engine), \
-         patch("app.services.workspace_service.SessionLocal", TestingSessionLocal), \
-         patch("app.services.chat_service.DATA_DIR", temp_dir):
+         patch("app.services.workspace_service.SessionLocal", TestingSessionLocal):
         
         service = ChatService()
         yield service, db_file
@@ -966,10 +968,12 @@ def test_migrate_from_json(temp_dir_with_json):
     test_engine = create_engine(f"sqlite:///{db_file}")
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
     
-    with patch("app.services.chat_service.engine", test_engine), \
-         patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
-         patch("app.services.chat_service.DATA_DIR", temp_dir), \
-         patch("app.services.chat_service.OLD_CHATS_FILE", json_file):
+    Base.metadata.create_all(bind=test_engine)
+    with patch("app.services.chat_service_schema.engine", test_engine), \
+         patch("app.services.chat_service_schema.SessionLocal", TestingSessionLocal), \
+         patch("app.services.chat_service_sessions.SessionLocal", TestingSessionLocal), \
+         patch("app.services.chat_service_actions.SessionLocal", TestingSessionLocal), \
+         patch("app.services.chat_service_schema.OLD_CHATS_FILE", json_file):
         service = ChatService()
         chats = service.list_chats()
         assert len(chats) == 1
@@ -1008,10 +1012,12 @@ def test_migrate_from_json_with_naive_timestamps_returns_utc_aware_datetimes():
     test_engine = create_engine(f"sqlite:///{db_file}")
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
     try:
-        with patch("app.services.chat_service.engine", test_engine), \
-             patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
-             patch("app.services.chat_service.DATA_DIR", temp_dir), \
-             patch("app.services.chat_service.OLD_CHATS_FILE", json_file):
+        Base.metadata.create_all(bind=test_engine)
+        with patch("app.services.chat_service_schema.engine", test_engine), \
+             patch("app.services.chat_service_schema.SessionLocal", TestingSessionLocal), \
+             patch("app.services.chat_service_sessions.SessionLocal", TestingSessionLocal), \
+             patch("app.services.chat_service_actions.SessionLocal", TestingSessionLocal), \
+             patch("app.services.chat_service_schema.OLD_CHATS_FILE", json_file):
             service = ChatService()
             chat = service.get_chat("legacy-naive")
             assert chat is not None

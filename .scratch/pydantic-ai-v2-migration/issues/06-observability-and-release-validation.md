@@ -22,9 +22,9 @@ The local release command is:
 PYTHONPATH=.:../../session-context-manager/src .venv/bin/python -m pytest -m "not integration"
 ```
 
-On 2026-09-04, the command collected and ran the complete offline suite after the stale modularization seams in the migration-owned tests were repaired. Result: `962 passed, 27 failed, 69 errors, 17 skipped`.
+On 2026-09-04, the command collected and ran the complete offline suite after stale modularization seams were repaired. Latest result: `1,035 passed, 23 failed, 17 skipped, 0 errors`.
 
-The remaining failures are outside this migration: stale chat-service/workspace-service module patch paths, unrelated agent/preflight/doc/multimodal/reasoning/phase-harness assertions, and environment scripts that still invoke a missing `python` executable. The V2 migration-focused suites pass, including `tests/test_api_chat_unit.py` (`62 passed`). The full-suite gate remains red until the owning work resolves those failures; do not treat it as V2 release approval.
+The remaining failures are outside this migration: an uncommitted first-message title regression in the chat-service split, unrelated agent/preflight/doc/multimodal/reasoning/phase-harness assertions, and environment scripts that still invoke a missing `python` executable. The V2 migration-focused suites pass, including `tests/test_api_chat_unit.py` (`62 passed`). The full-suite gate remains red until the owning work resolves those failures; do not treat it as V2 release approval.
 
 ## Staging Evidence Template
 

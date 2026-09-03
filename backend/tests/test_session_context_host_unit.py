@@ -203,9 +203,14 @@ def test_yue_reference_host_session_context_service_reaches_manager_resolve_happ
     try:
         from unittest.mock import patch
 
-        with patch("app.services.chat_service.engine", test_engine), patch(
-            "app.services.chat_service.SessionLocal", testing_session_local
-        ), patch("app.services.chat_service.DATA_DIR", temp_dir):
+        from app.core.database import Base
+
+        Base.metadata.create_all(bind=test_engine)
+        with patch("app.services.chat_service_schema.engine", test_engine), patch(
+            "app.services.chat_service_schema.SessionLocal", testing_session_local
+        ), patch("app.services.chat_service_sessions.SessionLocal", testing_session_local), patch(
+            "app.services.chat_service_actions.SessionLocal", testing_session_local
+        ):
             service = ChatService()
             session = service.create_chat(title="Session context test")
             service.add_message(session.id, "user", "We chose option A for the adapter.")
