@@ -20,17 +20,18 @@ def client():
 @pytest.fixture
 def mock_chat_service():
     with patch("app.api.chat.chat_service") as mock:
-        mock.get_session_skill.return_value = (None, None)
-        yield mock
+        with patch("app.api.chat_stream_deps.chat_service", mock):
+            mock.get_session_skill.return_value = (None, None)
+            yield mock
 
 
 @pytest.mark.asyncio
 async def test_multimodal_history_replay_keeps_images(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.load_image_to_base64", return_value="data:image/png;base64,QUJDRA==") as mock_load, \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.load_image_to_base64", return_value="data:image/png;base64,QUJDRA==") as mock_load, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat = MagicMock()
@@ -58,11 +59,11 @@ async def test_multimodal_history_replay_keeps_images(client, mock_chat_service)
 
 @pytest.mark.asyncio
 async def test_multimodal_missing_history_image_falls_back_without_crash(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.load_image_to_base64", return_value="/files/missing.png") as mock_load, \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.load_image_to_base64", return_value="/files/missing.png") as mock_load, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat = MagicMock()

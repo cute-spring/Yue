@@ -32,10 +32,11 @@ async def test_agent_refactor_regression_master_sub_agent_query(client):
     
     # 2. Mocking complex backend dependencies
     # We mock Agent initialization and chat service to isolate the API plumbing test
-    with patch("app.api.chat.Agent") as mock_agent_cls, \
+    with patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat.chat_service") as mock_chat_service, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model") as mock_get_model:
+         patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model") as mock_get_model:
         
         # Setup mocks
         mock_chat_service.create_chat.return_value = MagicMock(id=payload["chat_id"])
