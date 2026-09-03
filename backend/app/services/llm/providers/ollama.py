@@ -5,7 +5,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_async_client, get_model_cache, get_cache_ttl, get_ollama_http_client, get_ssl_verify, handle_llm_exception
+from ..utils import get_pydantic_ai_http_client, build_async_client, get_model_cache, get_cache_ttl, get_ssl_verify, handle_llm_exception
 from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class OllamaProviderImpl(SimpleProvider):
         
         return OpenAIChatModel(
             model_name or llm_config.get('ollama_model') or 'llama3',
-            provider=OllamaProvider(base_url=base_url, http_client=get_ollama_http_client()),
+            provider=OllamaProvider(base_url=base_url, http_client=get_pydantic_ai_http_client()),
         )
         
     def requirements(self) -> List[str]:

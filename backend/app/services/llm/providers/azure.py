@@ -17,7 +17,7 @@ from ..base import LLMProvider, SimpleProvider
 from ..utils import (
     build_client,
     get_cache_ttl,
-    get_http_client,
+    get_pydantic_ai_http_client,
     get_model_cache,
     get_ssl_verify,
     handle_llm_exception,
@@ -235,7 +235,7 @@ class AzureOpenAIProviderImpl(SimpleProvider):
                 api_version=api_version,
                 api_key=token if has_static_token else None,
                 azure_ad_token_provider=token_provider if not has_static_token else None,
-                http_client=get_http_client(),
+                http_client=get_pydantic_ai_http_client(),
                 default_query={"api-version": api_version},
             )
         except Exception as exc:

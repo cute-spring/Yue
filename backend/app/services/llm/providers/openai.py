@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_async_client, get_model_cache, get_cache_ttl, get_ssl_verify, handle_llm_exception
+from ..utils import get_pydantic_ai_http_client, build_async_client, get_model_cache, get_cache_ttl, get_ssl_verify, handle_llm_exception
 from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class OpenAIProviderImpl(SimpleProvider):
         base_url = _normalize_openai_base_url(llm_config.get('openai_base_url'))
         if not api_key:
             raise ValueError("OPENAI_API_KEY is not set.")
-        provider_kwargs = {"api_key": api_key, "http_client": get_http_client()}
+        provider_kwargs = {"api_key": api_key, "http_client": get_pydantic_ai_http_client()}
         if base_url:
             provider_kwargs["base_url"] = base_url
         return OpenAIChatModel(

@@ -1,9 +1,11 @@
 import pytest
 import httpx
+import httpx2
 import os
 from app.services.llm.utils import (
     get_ssl_verify,
     build_async_client,
+    get_pydantic_ai_http_client,
     get_model_cache,
     get_cache_ttl,
     handle_llm_exception
@@ -79,3 +81,19 @@ async def test_build_async_client_with_proxy(monkeypatch):
         assert os.environ.get("HTTP_PROXY") == "http://proxy:8080"
         assert os.environ.get("HTTPS_PROXY") == "http://proxy:8080"
         assert "local.net" in os.environ.get("NO_PROXY", "")
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_client_uses_httpx2_at_provider_boundary(monkeypatch):
+    monkeypatch.setattr("app.services.llm.utils._shared_pydantic_ai_http_client", None)
+    with patch("app.services.llm.utils.config_service") as mock_cfg, \
+         patch("app.services.llm.utils.get_ssl_verify", return_value=True):
+        mock_cfg.get_llm_config.return_value = {
+            "proxy_url": "http://proxy:8080",
+            "llm_request_timeout": 12,
+        }
+        client = get_pydantic_ai_http_client()
+        assert isinstance(client, httpx2.AsyncClient)
+        assert client.timeout.connect == 12.0
+        await client.aclose()
+    monkeypatch.setattr("app.services.llm.utils._shared_pydantic_ai_http_client", None)
