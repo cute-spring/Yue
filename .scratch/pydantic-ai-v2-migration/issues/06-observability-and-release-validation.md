@@ -57,6 +57,21 @@ credentialed staging scenarios below, external dashboard validation, numeric
 canary thresholds from the V1 baseline, and retention/validation of the V1
 deployable rollback artifact.
 
+The `main...HEAD` code review also identified local release-evidence follow-ups
+that do not make the offline suite red but must be closed before production
+approval:
+
+- exercise the V1 history fixture through the Yue chat execution boundary and
+  assert the Yue-visible replay result instead of only inspecting Pydantic AI
+  message-part layout
+- add the specified controlled structured-output agent regression with a
+  side-effecting tool and an explicit `end_strategy`
+- add an instrumentation-version/usage-attribute contract test and a sustained
+  streaming/MCP concurrency-cleanup check
+- establish product intent for `llm_request_timeout` when neither a proxy nor a
+  custom CA is configured; the current custom-client condition predates the V2
+  migration, so it was not changed as part of offline failure repair
+
 ## Staging Evidence Template
 
 Record each result with timestamp, deployed commit, `pydantic-ai-slim==2.37.0`, provider/model, and sanitized trace ID:
