@@ -41,7 +41,6 @@
 - `backend/app/services/skills/runtime_catalog.py`
 - `backend/app/services/skills/registry.py`
 - `backend/app/services/skills/parsing.py`
-- `backend/app/services/skills/import_service.py`
 - `backend/app/services/skills/import_store.py`
 - `backend/app/services/skills/import_models.py`
 - `backend/app/services/skills/models.py`
@@ -49,6 +48,11 @@
 - `backend/app/services/skills/compatibility.py`
 - `backend/app/services/skills/routing.py`
 - `backend/app/services/skills/actions.py`
+
+`backend/app/services/skills/import_service.py` is transitional rather than pure
+core because its default auto-mount path currently knows Yue's Skill Playground
+agent. A package-first host should move that behavior into a host adapter before
+reusing the service unchanged.
 
 这里有一个新的边界要点：
 

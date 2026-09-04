@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 - Protect the chat execution boundary streaming and persistence contract.
 
-**Status:** blocked (external release gates)
+**Status:** ready for staging (external release gates pending)
 
 - [ ] V2 instrumentation and Yue application metrics report accurate token usage, completion outcomes, errors, and latency without dashboard double-counting.
 - [ ] Offline regression tests, credentialed staging smoke tests, and concurrency/cleanup checks pass with results recorded as release evidence.
@@ -22,9 +22,40 @@ The local release command is:
 PYTHONPATH=.:../../session-context-manager/src .venv/bin/python -m pytest -m "not integration"
 ```
 
-On 2026-09-04, the command collected and ran the complete offline suite after stale modularization seams were repaired. Latest result: `1,040 passed, 18 failed, 17 skipped, 0 errors`.
+On 2026-09-05, the complete offline suite passed after stale test seams and
+portable test-environment assumptions were repaired:
 
-The remaining failures are outside this migration: unrelated preflight/doc/reasoning/phase-harness assertions and environment scripts that still invoke a missing `python` executable. The V2 migration-focused suites pass, including `tests/test_api_chat_unit.py` (`62 passed`). The full-suite gate remains red until the owning work resolves those failures; do not treat it as V2 release approval.
+```text
+1,058 passed, 17 skipped, 10 warnings in 38.15s
+```
+
+The exact command included an isolated writable data directory:
+
+```bash
+YUE_DATA_DIR=/private/tmp/yue-pydantic-ai-tests \
+  PYTHONPATH=.:../../session-context-manager/src \
+  .venv/bin/python -m pytest -m "not integration" --tb=short
+```
+
+Focused release-validation evidence:
+
+| Cluster | Command | Result |
+| --- | --- | --- |
+| Preflight setup | `.venv/bin/python -m pytest tests/test_api_skill_preflight.py -q` | `12 passed in 3.81s` |
+| Document access and DocsList | `.venv/bin/python -m pytest tests/test_doc_access_policy.py tests/test_docs_builtin.py -q` | `14 passed in 1.08s` |
+| Reasoning protocol SSE/meta | `.venv/bin/python -m pytest tests/test_reasoning_protocol.py -q` | `5 passed, 1 warning in 1.96s` |
+| Skill boundary manifest | `.venv/bin/python -m pytest tests/test_skill_runtime_boundary_manifest_unit.py -q` | `4 passed in 1.13s` |
+| Adjacent skill import behavior | `.venv/bin/python -m pytest tests/test_skill_import_gate_unit.py tests/test_api_skill_imports.py -q` | `51 passed in 3.57s` |
+
+There are no remaining offline failures. The warning set is non-blocking and
+consists of the existing `pythonjsonlogger` deprecation, pytest warnings for
+script tests that return booleans, and PDF binding type deprecations. No
+Pydantic AI migration runtime behavior was changed to clear these failures.
+
+The local gate is ready for staging. Release approval remains blocked on the
+credentialed staging scenarios below, external dashboard validation, numeric
+canary thresholds from the V1 baseline, and retention/validation of the V1
+deployable rollback artifact.
 
 ## Staging Evidence Template
 

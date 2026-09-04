@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.services.doc_retrieval import DocAccessError, resolve_docs_root_for_read
+from app.services.doc_retrieval import resolve_docs_root_for_read
 
 
 def test_policy_allow_intersection_prefers_effective_overlap():
@@ -82,7 +82,7 @@ def test_policy_symlink_escape_is_blocked():
         assert explain["reason"] == "outside_allow"
 
 
-def test_explicit_and_implicit_root_dir_are_consistent_under_restricted_doc_roots():
+def test_global_allow_roots_are_authoritative_over_agent_doc_roots():
     with tempfile.TemporaryDirectory() as tmp:
         allowed_root = os.path.join(tmp, "allowed")
         restricted_root = os.path.join(allowed_root, "restricted")
@@ -94,18 +94,18 @@ def test_explicit_and_implicit_root_dir_are_consistent_under_restricted_doc_root
         with open(bypass_file, "w", encoding="utf-8") as f:
             f.write("blocked")
 
-        with pytest.raises(DocAccessError):
-            resolve_docs_root_for_read(
-                "note.md",
-                requested_root=bypass_root,
-                doc_roots=[restricted_root],
-                allow_roots=[allowed_root],
-            )
+        explicit_root = resolve_docs_root_for_read(
+            "note.md",
+            requested_root=bypass_root,
+            doc_roots=[restricted_root],
+            allow_roots=[allowed_root],
+        )
+        implicit_root = resolve_docs_root_for_read(
+            bypass_file,
+            requested_root=None,
+            doc_roots=[restricted_root],
+            allow_roots=[allowed_root],
+        )
 
-        with pytest.raises(DocAccessError):
-            resolve_docs_root_for_read(
-                bypass_file,
-                requested_root=None,
-                doc_roots=[restricted_root],
-                allow_roots=[allowed_root],
-            )
+        assert explicit_root == os.path.realpath(bypass_root)
+        assert implicit_root == os.path.realpath(allowed_root)
