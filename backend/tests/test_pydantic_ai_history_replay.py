@@ -1,10 +1,13 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.models.function import FunctionModel
 
 from app.main import app
 from app.mcp.manager import McpManager
@@ -20,15 +23,29 @@ V1_HISTORY_FIXTURE = """[
 ]"""
 
 
-def test_serialized_history_replays_text_tool_and_multimodal_parts():
-    """Keep the framework-history format isolated from Yue's persisted records."""
-    restored = ModelMessagesTypeAdapter.validate_json(V1_HISTORY_FIXTURE)
+async def _stream_history_replay_verdict(messages, _info):
+    serialized = ModelMessagesTypeAdapter.dump_json(messages)
+    required_fragments = (
+        b"Find the document",
+        b"image-url",
+        b"docs_search",
+        b"call-1",
+        b"matching document",
+        b"I found the migration document.",
+    )
+    replayed = all(fragment in serialized for fragment in required_fragments)
+    yield "history replayed" if replayed else "history incomplete"
 
-    assert len(restored) == 4
-    assert restored[0].parts[0].content[0] == "Find the document"
-    assert restored[1].parts[0].tool_call_id == "call-1"
-    assert restored[2].parts[0].tool_call_id == "call-1"
-    assert restored[3].parts[0].content == "I found the migration document."
+
+@pytest.mark.asyncio
+async def test_v1_serialized_history_replays_through_v2_agent():
+    restored = ModelMessagesTypeAdapter.validate_json(V1_HISTORY_FIXTURE)
+    agent = Agent(FunctionModel(stream_function=_stream_history_replay_verdict))
+
+    async with agent.run_stream("Continue", message_history=restored) as result:
+        output = "".join([chunk async for chunk in result.stream_text()])
+
+    assert output == "history replayed"
 
 
 def test_v1_persisted_history_replays_through_chat_execution_boundary():
@@ -54,41 +71,6 @@ def test_v1_persisted_history_replays_through_chat_execution_boundary():
         ),
     ]
 
-    class ReplayStreamResult:
-        def __init__(self, text):
-            self._text = text
-
-        async def stream_text(self):
-            yield self._text
-
-    class ReplayRunContext:
-        def __init__(self, result):
-            self._result = result
-
-        async def __aenter__(self):
-            return self._result
-
-        async def __aexit__(self, *_args):
-            return None
-
-    class ReplayAgent:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def run_stream(self, _user_input, **kwargs):
-            serialized = ModelMessagesTypeAdapter.dump_json(kwargs["message_history"])
-            required_fragments = (
-                b"Find the document",
-                b"image-url",
-                b"docs_search",
-                b"call-1",
-                b"matching document",
-                b"I found the migration document.",
-            )
-            replayed = all(fragment in serialized for fragment in required_fragments)
-            text = "history replayed" if replayed else "history incomplete"
-            return ReplayRunContext(ReplayStreamResult(text))
-
     chat_service = MagicMock()
     chat_service.get_chat.return_value = previous_chat
     tool_registry = MagicMock()
@@ -99,8 +81,10 @@ def test_v1_persisted_history_replays_through_chat_execution_boundary():
         patch("app.api.chat_stream_deps.chat_service", chat_service),
         patch("app.api.chat_stream_deps.agent_store") as agent_store,
         patch("app.api.chat_stream_deps.tool_registry", tool_registry),
-        patch("app.api.chat_stream_deps.get_model", return_value=object()),
-        patch("app.api.chat_stream_deps.Agent", ReplayAgent),
+        patch(
+            "app.api.chat_stream_deps.get_model",
+            return_value=FunctionModel(stream_function=_stream_history_replay_verdict),
+        ),
     ):
         agent_store.get_agent.return_value = None
         response = TestClient(app).post(
@@ -187,64 +171,104 @@ async def test_repeated_streaming_and_mcp_cycles_leave_no_unfinished_runtime_wor
 
     McpManager._instance = None
     manager = McpManager()
-    transport = MagicMock()
-    transport.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock()))
-    transport.__aexit__ = AsyncMock(return_value=None)
-    session = AsyncMock()
-    session.is_closed = False
-    session_context = MagicMock()
-    session_context.__aenter__ = AsyncMock(return_value=session)
-    session_context.__aexit__ = AsyncMock(return_value=None)
+    manager.last_errors["server-0"] = "previous connection failure"
+    transport_contexts = []
+    http_client_contexts = []
+    session_contexts = []
+
+    def context_with(value, collection):
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=value)
+        context.__aexit__ = AsyncMock(return_value=None)
+        collection.append(context)
+        return context
+
+    def stdio_transport(*_args, **_kwargs):
+        return context_with((AsyncMock(), AsyncMock()), transport_contexts)
+
+    def http_client(*_args, **_kwargs):
+        return context_with(AsyncMock(), http_client_contexts)
+
+    def http_transport(*_args, **_kwargs):
+        return context_with(
+            (AsyncMock(), AsyncMock(), lambda: "session-id"),
+            transport_contexts,
+        )
+
+    def client_session(*_args, **_kwargs):
+        session = AsyncMock()
+        session.is_closed = False
+        session.initialize.return_value = SimpleNamespace()
+        return context_with(session, session_contexts)
+
+    async def run_stream_cycle(cycle):
+        async def text_stream():
+            yield f"chunk-{cycle}"
+
+        result = MagicMock()
+        result.stream_text.return_value = text_stream()
+        parser = MagicMock()
+        parser.parse_chunk.side_effect = lambda chunk: [{"content": chunk}]
+        queue = asyncio.Queue()
+        await queue.put({"event": "tool.call.finished", "cycle": cycle})
+        emitter = StreamEventEmitter(
+            event_v2_enabled=False,
+            run_id=f"run-{cycle}",
+            assistant_turn_id=f"turn-{cycle}",
+            serialize_payload=lambda payload: payload,
+            iso_utc_now=lambda: "2026-01-01T00:00:00Z",
+        )
+
+        payloads = [
+            payload async for payload in stream_result_chunks(
+                result=result,
+                parser=parser,
+                tool_event_queue=queue,
+                emitter=emitter,
+                stream_state=StreamState(),
+                serialize_payload=lambda payload: payload,
+                logger=MagicMock(),
+                log_label="sustained release validation",
+            )
+        ]
+        await asyncio.wait_for(queue.join(), timeout=0.1)
+        return payloads, queue
 
     with (
-        patch("app.mcp.manager.stdio_client", return_value=transport),
-        patch("app.mcp.manager.ClientSession", return_value=session_context),
+        patch("app.mcp.manager.stdio_client", side_effect=stdio_transport),
+        patch("app.mcp.manager.create_mcp_http_client", side_effect=http_client),
+        patch("app.mcp.manager.streamable_http_client", side_effect=http_transport),
+        patch("app.mcp.manager.ClientSession", side_effect=client_session),
     ):
-        for cycle in range(20):
-            async def text_stream():
-                yield f"chunk-{cycle}"
-
-            result = MagicMock()
-            result.stream_text.return_value = text_stream()
-            parser = MagicMock()
-            parser.parse_chunk.side_effect = lambda chunk: [{"content": chunk}]
-            queue = asyncio.Queue()
-            await queue.put({"event": "tool.call.finished", "cycle": cycle})
-            emitter = StreamEventEmitter(
-                event_v2_enabled=False,
-                run_id=f"run-{cycle}",
-                assistant_turn_id=f"turn-{cycle}",
-                serialize_payload=lambda payload: payload,
-                iso_utc_now=lambda: "2026-01-01T00:00:00Z",
-            )
-
-            payloads = [
-                payload async for payload in stream_result_chunks(
-                    result=result,
-                    parser=parser,
-                    tool_event_queue=queue,
-                    emitter=emitter,
-                    stream_state=StreamState(),
-                    serialize_payload=lambda payload: payload,
-                    logger=MagicMock(),
-                    log_label="sustained release validation",
-                )
-            ]
+        stream_results = await asyncio.gather(*(run_stream_cycle(cycle) for cycle in range(20)))
+        for cycle, (payloads, queue) in enumerate(stream_results):
             assert any(payload.get("cycle") == cycle for payload in payloads)
-            await asyncio.wait_for(queue.join(), timeout=0.1)
+            assert queue.empty()
 
-            connected = await manager.connect_to_server(
-                {
-                    "name": f"server-{cycle}",
-                    "transport": "stdio",
-                    "command": "node",
-                    "args": [],
-                }
-            )
-            assert connected is session
-            await manager.cleanup()
-            assert manager.sessions == {}
-            assert manager.server_info == {}
+        configs = [
+            {
+                "name": f"server-{cycle}",
+                "transport": "stdio" if cycle % 2 == 0 else "streamable_http",
+                "command": "node" if cycle % 2 == 0 else None,
+                "args": [],
+                "url": "https://mcp.example.test" if cycle % 2 else None,
+            }
+            for cycle in range(20)
+        ]
+        connected_sessions = await asyncio.gather(
+            *(manager.connect_to_server(config) for config in configs)
+        )
+        assert len(connected_sessions) == 20
+        assert len(manager.sessions) == 20
+        assert manager.last_errors == {}
+
+        await manager.cleanup()
+
+    assert manager.sessions == {}
+    assert manager.server_info == {}
+    assert all(context.__aexit__.await_count == 1 for context in transport_contexts)
+    assert all(context.__aexit__.await_count == 1 for context in http_client_contexts)
+    assert all(context.__aexit__.await_count == 1 for context in session_contexts)
 
     leaked_tasks = [
         task for task in asyncio.all_tasks()

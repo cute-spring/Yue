@@ -27,7 +27,7 @@ portable test-environment assumptions, and the remaining release-evidence
 coverage were completed:
 
 ```text
-1,062 passed, 17 skipped, 10 warnings in 38.63s
+1,062 passed, 17 skipped, 10 warnings in 37.33s
 ```
 
 The exact command included an isolated writable data directory:
@@ -47,11 +47,11 @@ Focused release-validation evidence:
 | Reasoning protocol SSE/meta | `.venv/bin/python -m pytest tests/test_reasoning_protocol.py -q` | `5 passed, 1 warning in 1.96s` |
 | Skill boundary manifest | `.venv/bin/python -m pytest tests/test_skill_runtime_boundary_manifest_unit.py -q` | `4 passed in 1.13s` |
 | Adjacent skill import behavior | `.venv/bin/python -m pytest tests/test_skill_import_gate_unit.py tests/test_api_skill_imports.py -q` | `51 passed in 3.57s` |
-| V1 history replay and sustained cleanup seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py -q --tb=short` | `5 passed, 1 warning in 2.83s` |
+| V1 history replay and sustained cleanup seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py -q --tb=short` | `5 passed, 1 warning in 2.14s` |
 | Explicit output policy and V2 instrumentation seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_migration_baseline.py -q --tb=short` | `5 passed, 1 warning in 2.66s` |
 | V2 instrumentation and Yue usage contracts | `.venv/bin/python -m pytest tests/test_pydantic_ai_migration_baseline.py::test_chat_execution_emits_v5_aggregated_usage_separately_from_yue_metrics -q` | `1 passed, 1 warning in 1.97s` |
-| Sustained streaming/MCP cleanup (20 cycles) | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py::test_repeated_streaming_and_mcp_cycles_leave_no_unfinished_runtime_work -vv --tb=short` | `1 passed, 1 warning in 2.56s` |
-| Combined history, output policy, instrumentation, runner, and MCP suite | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py tests/test_pydantic_ai_migration_baseline.py tests/test_chat_stream_runner_unit.py tests/test_mcp_manager_unit.py -q --tb=short` | `59 passed, 1 warning in 5.63s` |
+| Sustained streaming/MCP cleanup (20 concurrent streams; stdio and streamable HTTP) | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py::test_repeated_streaming_and_mcp_cycles_leave_no_unfinished_runtime_work -vv --tb=short` | `1 passed, 1 warning in 2.12s` |
+| Combined history, output policy, instrumentation, runner, and MCP suite | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py tests/test_pydantic_ai_migration_baseline.py tests/test_chat_stream_runner_unit.py tests/test_mcp_manager_unit.py -q --tb=short` | `59 passed, 1 warning in 5.84s` |
 
 There are no remaining offline failures. The warning set is non-blocking and
 consists of the existing `pythonjsonlogger` deprecation, pytest warnings for
@@ -66,17 +66,22 @@ deployable rollback artifact.
 The `main...HEAD` code-review follow-ups for local release evidence are now
 closed:
 
-- V1 persisted text, multimodal content, tool call/result, and final-answer
-  history is replayed through the Yue API/SSE boundary and verified by its
-  Yue-visible result.
+- The retained V1 serialized history fixture is deserialized and replayed by a
+  real V2 agent. Separately, Yue-persisted text, multimodal content, tool
+  call/result, and final-answer history is replayed through the Yue API/SSE
+  boundary using a real V2 agent and verified by its Yue-visible result.
 - A controlled structured-output agent explicitly uses `end_strategy="early"`;
   a side-effecting Yue tool present after the successful output is not run.
 - Pydantic AI instrumentation is explicitly configured for version 5 aggregated
-  usage attributes without content capture. The regression keeps framework
-  `gen_ai.aggregated_usage.*` attributes distinct from Yue's stable
-  `prompt_tokens` and `completion_tokens` SSE fields.
-- Twenty repeated streaming and MCP connect/cleanup cycles leave no queued tool
-  events, sessions, server metadata, or unfinished runtime tasks.
+  usage attributes without content capture. With an in-memory tracer provider,
+  the regression keeps framework `gen_ai.aggregated_usage.*` attributes distinct
+  from Yue's stable `prompt_tokens` and `completion_tokens` SSE fields. The
+  repository does not configure a production exporter; staging must supply and
+  evidence the deployed tracer-provider/export/dashboard path before the
+  observability release checkbox is complete.
+- Twenty concurrent streams plus stdio and streamable-HTTP MCP connect/cleanup
+  cycles leave no queued tool events, sessions, server metadata, stale error
+  state, open transport/client/session contexts, or unfinished runtime tasks.
 
 One product-policy decision remains outside the V2 migration scope: establish
 the intended `llm_request_timeout` behavior when neither a proxy nor a custom CA
@@ -95,6 +100,7 @@ Record each result with timestamp, deployed commit, `pydantic-ai-slim==2.37.0`, 
 | Google/Gemini | text streaming and usage fields succeed | pending |
 | stdio MCP | initialization, tool call, timeout, and cleanup succeed | pending |
 | streamable HTTP MCP | headers, tool call, timeout, reconnect, and cleanup succeed | pending |
+| Telemetry export and dashboards | V2 version-5 aggregated usage, outcomes, errors, and latency arrive without Yue-metric double counting | pending |
 
 Never record API keys, proxy credentials, raw authorization headers, or raw prompts in this evidence.
 
