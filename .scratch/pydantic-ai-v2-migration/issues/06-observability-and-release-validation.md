@@ -27,7 +27,7 @@ portable test-environment assumptions, and the remaining release-evidence
 coverage were completed:
 
 ```text
-1,062 passed, 17 skipped, 10 warnings in 37.33s
+1,063 passed, 17 skipped, 10 warnings in 37.68s
 ```
 
 The exact command included an isolated writable data directory:
@@ -48,10 +48,10 @@ Focused release-validation evidence:
 | Skill boundary manifest | `.venv/bin/python -m pytest tests/test_skill_runtime_boundary_manifest_unit.py -q` | `4 passed in 1.13s` |
 | Adjacent skill import behavior | `.venv/bin/python -m pytest tests/test_skill_import_gate_unit.py tests/test_api_skill_imports.py -q` | `51 passed in 3.57s` |
 | V1 history replay and sustained cleanup seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py -q --tb=short` | `5 passed, 1 warning in 2.14s` |
-| Explicit output policy and V2 instrumentation seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_migration_baseline.py -q --tb=short` | `5 passed, 1 warning in 2.66s` |
+| Usage edge cases, explicit output policy, and V2 instrumentation seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_migration_baseline.py -q --tb=short` | `6 passed, 1 warning in 1.93s` |
 | V2 instrumentation and Yue usage contracts | `.venv/bin/python -m pytest tests/test_pydantic_ai_migration_baseline.py::test_chat_execution_emits_v5_aggregated_usage_separately_from_yue_metrics -q` | `1 passed, 1 warning in 1.97s` |
 | Sustained streaming/MCP cleanup (20 concurrent streams; stdio and streamable HTTP) | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py::test_repeated_streaming_and_mcp_cycles_leave_no_unfinished_runtime_work -vv --tb=short` | `1 passed, 1 warning in 2.12s` |
-| Combined history, output policy, instrumentation, runner, and MCP suite | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py tests/test_pydantic_ai_migration_baseline.py tests/test_chat_stream_runner_unit.py tests/test_mcp_manager_unit.py -q --tb=short` | `59 passed, 1 warning in 5.84s` |
+| Combined history, output policy, instrumentation, runner, and MCP suite | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py tests/test_pydantic_ai_migration_baseline.py tests/test_chat_stream_runner_unit.py tests/test_mcp_manager_unit.py -q --tb=short` | `60 passed, 1 warning in 5.58s` |
 
 There are no remaining offline failures. The warning set is non-blocking and
 consists of the existing `pythonjsonlogger` deprecation, pytest warnings for

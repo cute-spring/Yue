@@ -51,6 +51,21 @@ def test_usage_contract_retains_v1_fields_as_a_compatibility_fallback():
     assert usage.completion_tokens == 7
 
 
+def test_usage_contract_preserves_missing_values_and_avoids_zero_duration_tps():
+    missing_usage = calculate_usage("openai", SimpleNamespace(), duration=1.0)
+    zero_duration_usage = calculate_usage(
+        "openai",
+        SimpleNamespace(input_tokens=11, output_tokens=7, total_tokens=18),
+        duration=0,
+    )
+
+    assert missing_usage.prompt_tokens is None
+    assert missing_usage.completion_tokens is None
+    assert missing_usage.total_tokens is None
+    assert missing_usage.tps is None
+    assert zero_duration_usage.tps is None
+
+
 @pytest.mark.asyncio
 async def test_structured_output_with_side_effecting_yue_tool_finishes_early():
     class Completion(BaseModel):
