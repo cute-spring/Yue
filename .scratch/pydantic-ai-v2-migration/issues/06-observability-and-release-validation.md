@@ -22,11 +22,12 @@ The local release command is:
 PYTHONPATH=.:../../session-context-manager/src .venv/bin/python -m pytest -m "not integration"
 ```
 
-On 2026-09-05, the complete offline suite passed after stale test seams and
-portable test-environment assumptions were repaired:
+On 2026-09-05, the complete offline suite passed after stale test seams,
+portable test-environment assumptions, and the remaining release-evidence
+coverage were completed:
 
 ```text
-1,058 passed, 17 skipped, 10 warnings in 38.15s
+1,062 passed, 17 skipped, 10 warnings in 38.63s
 ```
 
 The exact command included an isolated writable data directory:
@@ -46,6 +47,11 @@ Focused release-validation evidence:
 | Reasoning protocol SSE/meta | `.venv/bin/python -m pytest tests/test_reasoning_protocol.py -q` | `5 passed, 1 warning in 1.96s` |
 | Skill boundary manifest | `.venv/bin/python -m pytest tests/test_skill_runtime_boundary_manifest_unit.py -q` | `4 passed in 1.13s` |
 | Adjacent skill import behavior | `.venv/bin/python -m pytest tests/test_skill_import_gate_unit.py tests/test_api_skill_imports.py -q` | `51 passed in 3.57s` |
+| V1 history replay and sustained cleanup seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py -q --tb=short` | `5 passed, 1 warning in 2.83s` |
+| Explicit output policy and V2 instrumentation seams | `.venv/bin/python -m pytest tests/test_pydantic_ai_migration_baseline.py -q --tb=short` | `5 passed, 1 warning in 2.66s` |
+| V2 instrumentation and Yue usage contracts | `.venv/bin/python -m pytest tests/test_pydantic_ai_migration_baseline.py::test_chat_execution_emits_v5_aggregated_usage_separately_from_yue_metrics -q` | `1 passed, 1 warning in 1.97s` |
+| Sustained streaming/MCP cleanup (20 cycles) | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py::test_repeated_streaming_and_mcp_cycles_leave_no_unfinished_runtime_work -vv --tb=short` | `1 passed, 1 warning in 2.56s` |
+| Combined history, output policy, instrumentation, runner, and MCP suite | `.venv/bin/python -m pytest tests/test_pydantic_ai_history_replay.py tests/test_pydantic_ai_migration_baseline.py tests/test_chat_stream_runner_unit.py tests/test_mcp_manager_unit.py -q --tb=short` | `59 passed, 1 warning in 5.63s` |
 
 There are no remaining offline failures. The warning set is non-blocking and
 consists of the existing `pythonjsonlogger` deprecation, pytest warnings for
@@ -57,20 +63,27 @@ credentialed staging scenarios below, external dashboard validation, numeric
 canary thresholds from the V1 baseline, and retention/validation of the V1
 deployable rollback artifact.
 
-The `main...HEAD` code review also identified local release-evidence follow-ups
-that do not make the offline suite red but must be closed before production
-approval:
+The `main...HEAD` code-review follow-ups for local release evidence are now
+closed:
 
-- exercise the V1 history fixture through the Yue chat execution boundary and
-  assert the Yue-visible replay result instead of only inspecting Pydantic AI
-  message-part layout
-- add the specified controlled structured-output agent regression with a
-  side-effecting tool and an explicit `end_strategy`
-- add an instrumentation-version/usage-attribute contract test and a sustained
-  streaming/MCP concurrency-cleanup check
-- establish product intent for `llm_request_timeout` when neither a proxy nor a
-  custom CA is configured; the current custom-client condition predates the V2
-  migration, so it was not changed as part of offline failure repair
+- V1 persisted text, multimodal content, tool call/result, and final-answer
+  history is replayed through the Yue API/SSE boundary and verified by its
+  Yue-visible result.
+- A controlled structured-output agent explicitly uses `end_strategy="early"`;
+  a side-effecting Yue tool present after the successful output is not run.
+- Pydantic AI instrumentation is explicitly configured for version 5 aggregated
+  usage attributes without content capture. The regression keeps framework
+  `gen_ai.aggregated_usage.*` attributes distinct from Yue's stable
+  `prompt_tokens` and `completion_tokens` SSE fields.
+- Twenty repeated streaming and MCP connect/cleanup cycles leave no queued tool
+  events, sessions, server metadata, or unfinished runtime tasks.
+
+One product-policy decision remains outside the V2 migration scope: establish
+the intended `llm_request_timeout` behavior when neither a proxy nor a custom CA
+is configured. Repository evidence shows the current custom-client condition
+predates V2, so this migration does not silently change it. It is not an offline
+or staging-readiness blocker, but must be decided separately before changing
+provider timeout behavior.
 
 ## Staging Evidence Template
 

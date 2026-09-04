@@ -2,6 +2,7 @@ import logging
 import os
 import uuid
 from contextvars import ContextVar, Token
+from typing import Any
 
 
 TRACE_HEADER = "X-Request-Id"
@@ -64,3 +65,19 @@ def setup_logging() -> None:
         
     handler.setFormatter(formatter)
     root.addHandler(handler)
+
+
+def configure_pydantic_ai_instrumentation(*, tracer_provider: Any = None):
+    """Configure the Pydantic AI V2 telemetry contract for Yue agent runs."""
+    from pydantic_ai import Agent
+    from pydantic_ai.models.instrumented import InstrumentationSettings
+
+    settings = InstrumentationSettings(
+        tracer_provider=tracer_provider,
+        version=5,
+        use_aggregated_usage_attribute_names=True,
+        include_content=False,
+        include_binary_content=False,
+    )
+    Agent.instrument_all(settings)
+    return settings
