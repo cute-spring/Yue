@@ -1,5 +1,6 @@
 import os
 import httpx
+import httpx2
 import logging
 import inspect
 import time
@@ -11,7 +12,8 @@ from app.services.config_service import config_service
 logger = logging.getLogger(__name__)
 
 _shared_http_client: Optional[httpx.AsyncClient] = None
-_shared_ollama_client: Optional[httpx.AsyncClient] = None
+_shared_ollama_client: Optional[httpx2.AsyncClient] = None
+_shared_pydantic_ai_http_client: Optional[httpx2.AsyncClient] = None
 _model_cache: Dict[str, Dict[str, Any]] = {}
 _CACHE_TTL = 3600  # seconds
 _CA_BUNDLE_PATH: Optional[str] = None
@@ -78,7 +80,7 @@ def get_model_cache() -> Dict[str, Dict[str, Any]]:
 def get_cache_ttl() -> int:
     return _CACHE_TTL
 
-def get_ollama_http_client() -> httpx.AsyncClient:
+def get_ollama_http_client() -> httpx2.AsyncClient:
     global _shared_ollama_client
     if _shared_ollama_client is None:
         llm_config = config_service.get_llm_config()
@@ -98,7 +100,7 @@ def get_ollama_http_client() -> httpx.AsyncClient:
         except ImportError:
             pass
 
-        _shared_ollama_client = httpx.AsyncClient(**kwargs)
+        _shared_ollama_client = httpx2.AsyncClient(**kwargs)
     return _shared_ollama_client
 
 def _get_proxies_config(llm_config: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -160,7 +162,16 @@ def _apply_proxy_env(llm_config: Dict[str, Any]) -> None:
         os.environ["no_proxy"] = no_proxy_val
     else:
         # Clear them if not configured to avoid side effects
-        for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy"]:
+        for key in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "NO_PROXY",
+            "no_proxy",
+        ]:
             os.environ.pop(key, None)
 
 def build_async_client(
@@ -230,6 +241,44 @@ def get_http_client() -> Optional[httpx.AsyncClient]:
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=10, keepalive_expiry=10.0),
         )
     return _shared_http_client
+
+
+def get_pydantic_ai_http_client() -> Optional[httpx2.AsyncClient]:
+    """Build the httpx2 client required by Pydantic AI V2 provider SDKs.
+
+    Discovery, MCP transport, and other application HTTP continue to use
+    ``httpx``. Returning ``None`` without transport settings lets the provider
+    retain its own default httpx2 client.
+    """
+    global _shared_pydantic_ai_http_client
+    llm_config = config_service.get_llm_config()
+    proxy_url = llm_config.get("proxy_url")
+    ssl_cert_file = llm_config.get("ssl_cert_file")
+    if not proxy_url and not ssl_cert_file:
+        return None
+
+    if _shared_pydantic_ai_http_client is None:
+        verify = get_ssl_verify()
+        timeout_val = float(llm_config.get("llm_request_timeout", 60))
+        kwargs: Dict[str, Any] = {
+            "timeout": timeout_val,
+            "verify": verify,
+            "trust_env": True,
+            "limits": httpx2.Limits(
+                max_connections=100,
+                max_keepalive_connections=10,
+                keepalive_expiry=10.0,
+            ),
+        }
+        if proxy_url:
+            kwargs["proxy"] = proxy_url
+        try:
+            import h2
+            kwargs["http2"] = True
+        except ImportError:
+            pass
+        _shared_pydantic_ai_http_client = httpx2.AsyncClient(**kwargs)
+    return _shared_pydantic_ai_http_client
 
 def handle_llm_exception(e: Exception) -> str:
     """

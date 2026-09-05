@@ -2,7 +2,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client
+from ..utils import get_pydantic_ai_http_client
 from app.services.config_service import config_service
 
 class DeepSeekProviderImpl(SimpleProvider):
@@ -18,7 +18,7 @@ class DeepSeekProviderImpl(SimpleProvider):
             raise ValueError("DEEPSEEK_API_KEY is not set.")
         return OpenAIChatModel(
             model_name or llm_config.get('deepseek_model') or 'deepseek-chat',
-            provider=DeepSeekProvider(api_key=api_key, http_client=get_http_client()),
+            provider=DeepSeekProvider(api_key=api_key, http_client=get_pydantic_ai_http_client()),
         )
         
     def requirements(self) -> List[str]:

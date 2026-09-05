@@ -7,6 +7,7 @@ from datetime import datetime
 from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from app.core.database import Base
 
 # Add the backend directory to sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -23,18 +24,25 @@ class TestChatService(unittest.TestCase):
         self.TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.test_engine)
         
         # Set up patches
-        self.engine_patcher = patch("app.services.chat_service.engine", self.test_engine)
-        self.session_patcher = patch("app.services.chat_service.SessionLocal", self.TestingSessionLocal)
+        Base.metadata.create_all(bind=self.test_engine)
+        self.engine_patcher = patch("app.services.chat_service_schema.engine", self.test_engine)
+        self.schema_session_patcher = patch("app.services.chat_service_schema.SessionLocal", self.TestingSessionLocal)
+        self.sessions_patcher = patch("app.services.chat_service_sessions.SessionLocal", self.TestingSessionLocal)
+        self.actions_patcher = patch("app.services.chat_service_actions.SessionLocal", self.TestingSessionLocal)
         
         self.engine_patcher.start()
-        self.session_patcher.start()
+        self.schema_session_patcher.start()
+        self.sessions_patcher.start()
+        self.actions_patcher.start()
         
         self.service = ChatService()
 
     def tearDown(self):
         # Stop patches
         self.engine_patcher.stop()
-        self.session_patcher.stop()
+        self.schema_session_patcher.stop()
+        self.sessions_patcher.stop()
+        self.actions_patcher.stop()
         
         # Clean up test database
         self.test_engine.dispose()

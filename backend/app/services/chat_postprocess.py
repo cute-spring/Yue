@@ -157,7 +157,8 @@ def persist_assistant_message(
     continuation_status: Optional[str] = None,
     content_type: Optional[str] = None,
 ) -> bool:
-    if not stream_state.full_response:
+    chart_artifacts = getattr(stream_state, "chart_artifacts", None)
+    if not stream_state.full_response and not chart_artifacts:
         return False
     resolved_finish_reason = finish_reason or (
         current_exception.__class__.__name__
@@ -184,5 +185,6 @@ def persist_assistant_message(
         supports_reasoning=supports_reasoning,
         deep_thinking_enabled=bool(deep_thinking_enabled),
         reasoning_enabled=reasoning_enabled,
+        chart_artifacts=chart_artifacts,
     )
     return True

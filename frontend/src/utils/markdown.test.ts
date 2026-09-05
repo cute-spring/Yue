@@ -90,6 +90,36 @@ describe('Markdown Utils', () => {
       const output = renderMarkdown(input);
       expect(output).toContain('href="/exports/report.pptx"');
     });
+
+    it('should render complete yue-chart blocks as chart widgets', () => {
+      const input = [
+        '```yue-chart',
+        '{',
+        '  "version": 1,',
+        '  "kind": "chart",',
+        '  "chartType": "bar",',
+        '  "data": [{ "区域": "华东", "收入": 120 }],',
+        '  "encoding": {',
+        '    "x": { "field": "区域", "type": "category" },',
+        '    "y": { "field": "收入", "type": "number" }',
+        '  }',
+        '}',
+        '```',
+      ].join('\n');
+      const output = renderMarkdown(input);
+      expect(output).toContain('yue-chart-widget');
+      expect(output).toContain('data-complete="true"');
+      expect(output).toContain('YueChartSpec');
+      expect(output).toContain('data-spec=');
+    });
+
+    it('should defer incomplete yue-chart block rendering while typing', () => {
+      const input = '```yue-chart\n{ "version": 1';
+      const output = renderMarkdown(input, true);
+      expect(output).toContain('yue-chart-widget');
+      expect(output).toContain('data-complete="false"');
+      expect(output).toContain('Generating chart');
+    });
   });
 
   describe('copyCodeBlockText', () => {

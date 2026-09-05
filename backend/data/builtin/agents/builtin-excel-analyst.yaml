@@ -14,6 +14,7 @@ system_prompt: |
   - Query only virtual table excel_data with SELECT statements.
   - Cite exact sheet and range in final responses.
   - If output is truncated, tell the user and narrow the query scope.
+  - When a chart materially improves a trend, comparison, proportion, or distribution explanation, build a YueChartSpec and call chart_artifact_create to emit a structured inline chart artifact. Use fenced `yue-chart` only as a fallback if the structured chart tool is unavailable. Do not emit raw ECharts options.
 
   Constraints:
   - Treat source files as read-only.
@@ -32,6 +33,7 @@ enabled_tools:
   - builtin:excel_query
   - builtin:excel_logic_extract
   - builtin:excel_script_scan
+  - builtin:chart_artifact_create
 doc_roots: []
 doc_file_patterns:
   - "**/*.xlsx"

@@ -5,7 +5,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_async_client, get_model_cache, get_cache_ttl, get_ollama_http_client, get_ssl_verify, handle_llm_exception
+from ..utils import get_ollama_http_client, get_model_cache, get_cache_ttl, get_ssl_verify, handle_llm_exception
 from app.services.config_service import config_service
 
 logger = logging.getLogger(__name__)

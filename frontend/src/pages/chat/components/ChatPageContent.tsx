@@ -12,6 +12,7 @@ import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { useAgents } from '../../../hooks/useAgents';
 import { useChatState } from '../../../hooks/useChatState';
 import { useMermaid } from '../../../hooks/useMermaid';
+import { useCharts } from '../../../hooks/useCharts';
 import { useSpeechController } from '../../../context/SpeechControllerContext';
 import type { Preferences } from '../../settings/types';
 import { useVoiceInput } from '../../../hooks/useVoiceInput';
@@ -162,6 +163,7 @@ export default function ChatPageContent(props: {
     deleteWorkspaceMemory,
     approveWorkspaceMemoryCandidate,
     rejectWorkspaceMemoryCandidate,
+    saveChartArtifactToWorkspace,
     handleCreateWorkspace,
     trackWorkspaceCaptureTelemetry,
   } = useChatWorkspace({
@@ -215,7 +217,12 @@ export default function ChatPageContent(props: {
     setActiveSkill(null);
   });
 
-  const { debouncedRender } = useMermaid(messages);
+  const { debouncedRender: debouncedRenderMermaid } = useMermaid(() => undefined);
+  const { debouncedRenderCharts } = useCharts();
+  const debouncedRender = () => {
+    debouncedRenderMermaid();
+    debouncedRenderCharts();
+  };
   function forwardSubmit(event: Event) {
     handleSubmit(event);
   }
@@ -459,6 +466,7 @@ export default function ChatPageContent(props: {
           handleRegenerate={handleRegenerate}
           handleEditQuestion={handleEditQuestion}
           onContinue={handleContinue}
+          onSaveChartArtifact={saveChartArtifactToWorkspace}
           messagesEndRef={(el) => (messagesEndRef = el)}
           setInput={setInput}
           selectedProvider={selectedProvider()}

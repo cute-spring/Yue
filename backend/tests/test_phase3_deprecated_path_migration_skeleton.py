@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,7 +42,7 @@ class TestPhase3DeprecatedPathMigrationSkeleton(unittest.TestCase):
             backend_dir = Path(__file__).resolve().parents[1]
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/deprecated_path_migration_skeleton.py",
                     "--root",
                     str(root),
@@ -93,7 +94,7 @@ class TestPhase3DeprecatedPathMigrationSkeleton(unittest.TestCase):
             backend_dir = Path(__file__).resolve().parents[1]
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/deprecated_path_migration_skeleton.py",
                     "--root",
                     str(root),
@@ -142,7 +143,7 @@ class TestPhase3DeprecatedPathMigrationSkeleton(unittest.TestCase):
             backend_dir = Path(__file__).resolve().parents[1]
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/deprecated_path_migration_skeleton.py",
                     "--root",
                     str(root),

@@ -228,6 +228,7 @@ class Message(Base):
     continuation_root_id = Column(String, nullable=True)
     continuation_status = Column(String, nullable=True)
     content_type = Column(String, nullable=True)
+    chart_artifacts_json = Column(Text, nullable=True)
     embedding = Column(Text, nullable=True)
 
     session = relationship("Session", back_populates="messages")

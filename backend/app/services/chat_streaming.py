@@ -1,14 +1,17 @@
 import asyncio
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Any, AsyncIterator, Callable, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+
+from app.services.chart_artifacts import collect_chart_artifact_event, normalize_chart_artifact_event
 
 
 @dataclass
 class StreamState:
     full_response: str = ""
     first_token_time: Optional[float] = None
+    chart_artifacts: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class StreamEventEmitter:
@@ -20,12 +23,16 @@ class StreamEventEmitter:
         assistant_turn_id: str,
         serialize_payload: Callable[[Dict[str, Any]], str],
         iso_utc_now: Callable[[], str],
+        chart_artifact_sink: Optional[List[Dict[str, Any]]] = None,
+        logger: Any = None,
     ):
         self.event_v2_enabled = event_v2_enabled
         self.run_id = run_id
         self.assistant_turn_id = assistant_turn_id
         self.serialize_payload = serialize_payload
         self.iso_utc_now = iso_utc_now
+        self.chart_artifact_sink = chart_artifact_sink
+        self.logger = logger
         self.sequence = 0
 
     def event_type_of(self, payload: Dict[str, Any]) -> str:
@@ -45,6 +52,15 @@ class StreamEventEmitter:
 
     def event_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not self.event_v2_enabled:
+            if payload.get("event") == "artifact.chart.created":
+                try:
+                    normalize_chart_artifact_event(payload)
+                except Exception as exc:
+                    if self.logger is not None:
+                        self.logger.exception("Invalid chart artifact event dropped")
+                    return {"event": "trace.event", "reason": "invalid_chart_artifact", "error": str(exc)}
+                if self.chart_artifact_sink is not None:
+                    collect_chart_artifact_event(self.chart_artifact_sink, payload, self.logger)
             return payload
         self.sequence += 1
         envelope = {
@@ -57,7 +73,23 @@ class StreamEventEmitter:
             "ts": self.iso_utc_now(),
             "payload": payload,
         }
-        return {**envelope, **payload}
+        event_payload = {**envelope, **payload}
+        if event_payload.get("event") == "artifact.chart.created":
+            try:
+                normalize_chart_artifact_event(event_payload)
+            except Exception as exc:
+                if self.logger is not None:
+                    self.logger.exception("Invalid chart artifact event dropped")
+                return {
+                    **envelope,
+                    "event": "trace.event",
+                    "payload": {"reason": "invalid_chart_artifact", "error": str(exc)},
+                    "reason": "invalid_chart_artifact",
+                    "error": str(exc),
+                }
+            if self.chart_artifact_sink is not None:
+                collect_chart_artifact_event(self.chart_artifact_sink, event_payload, self.logger)
+        return event_payload
 
     def emit(self, payload: Dict[str, Any]) -> str:
         return self.serialize_payload(self.event_payload(payload))
@@ -106,6 +138,15 @@ async def stream_result_chunks(
                     break
                 except Exception:
                     logger.exception("Error in %s", log_label)
+                    # The queue getter may have won the race before the stream
+                    # failed; preserve that already-consumed Yue tool event.
+                    if queue_task.done() and not queue_task.cancelled():
+                        try:
+                            ev = queue_task.result()
+                            yield serialize_payload(ev)
+                            tool_event_queue.task_done()
+                        except Exception:
+                            pass
                     break
 
             if queue_task in done:
@@ -126,4 +167,3 @@ async def stream_result_chunks(
             ev = tool_event_queue.get_nowait()
             yield serialize_payload(ev)
             tool_event_queue.task_done()
-

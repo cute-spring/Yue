@@ -3,6 +3,8 @@ import hljs from 'highlight.js';
 import katex from 'katex';
 import { getMermaidThemePreset, MERMAID_THEME_PRESETS, type MermaidThemePreset } from './mermaidTheme';
 import { getCachedMermaidSvg } from './mermaidCache';
+import { YUE_CHART_BLOCK_LANGUAGE } from './chartSpec';
+import { renderYueChartWidgetHtml } from './chartArtifactHtml';
 
 /**
  * Normalizes mermaid code by removing backticks and language tags.
@@ -232,6 +234,26 @@ export function createMarkdownRenderer(isTyping: boolean = false): any {
     const sizeLabel =
       rawBytes >= 1024 ? `${(rawBytes / 1024).toFixed(rawBytes >= 10 * 1024 ? 0 : 1)} KB` : `${rawBytes} B`;
 
+    if (displayLanguage === YUE_CHART_BLOCK_LANGUAGE) {
+      const raw = (this as any)._currentContent || '';
+      const blockCount = ((this as any)._yueChartCount || 0) + 1;
+      (this as any)._yueChartCount = blockCount;
+
+      let isClosed = true;
+      let currentIdx = -1;
+      for (let i = 0; i < blockCount; i++) {
+        currentIdx = raw.indexOf(`\`\`\`${YUE_CHART_BLOCK_LANGUAGE}`, currentIdx + 1);
+      }
+
+      if (currentIdx !== -1) {
+        const afterBlock = raw.substring(currentIdx + YUE_CHART_BLOCK_LANGUAGE.length + 3);
+        const closingIdx = afterBlock.indexOf('```');
+        isClosed = closingIdx !== -1 && closingIdx >= text.trim().length;
+      }
+
+      return renderYueChartWidgetHtml(text, { complete: isClosed });
+    }
+
     let html = `
       <div class="code-block-container relative group my-6 rounded-xl overflow-hidden border border-border/50 bg-[#0d1117] shadow-xl transition-all duration-300 hover:border-primary/30">
         <div class="flex items-center justify-between px-4 py-2.5 bg-[#161b22]/80 backdrop-blur-sm border-b border-border/10">
@@ -431,6 +453,7 @@ export function renderMarkdown(content: string, isTyping: boolean = false): stri
   // Attach state for mermaid block tracking
   (renderer as any)._currentContent = linkPromoted;
   (renderer as any)._mermaidCount = 0;
+  (renderer as any)._yueChartCount = 0;
   
   return marked(mathProcessed, { renderer }) as string;
 }

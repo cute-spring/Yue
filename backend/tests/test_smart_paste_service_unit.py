@@ -268,7 +268,7 @@ async def test_parse_with_llm_returns_structured_results():
     mock_agent_instance.run = AsyncMock(return_value=mock_result)
 
     with patch("app.mcp.smart_paste_service.get_model", return_value=mock_model), \
-         patch("app.mcp.smart_paste_service.Agent", return_value=mock_agent_instance), \
+         patch("app.mcp.smart_paste_service.Agent", return_value=mock_agent_instance) as mock_agent_cls, \
          patch("app.mcp.smart_paste_service.config_service") as mock_cs:
         mock_cs.get_llm_config.return_value = {
             "llm_provider": "openai",
@@ -282,6 +282,8 @@ async def test_parse_with_llm_returns_structured_results():
         assert len(results) == 1
         assert results[0].name == "test-service"
         assert results[0].transport == "stdio"
+        _, agent_kwargs = mock_agent_cls.call_args
+        assert agent_kwargs["output_type"] is SmartPasteLlmEnvelope
 
 
 @pytest.mark.asyncio

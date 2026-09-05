@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "required": ["event", "payload"],
+  "properties": {
+    "version": { "type": "string" },
+    "event": { "type": "string" },
+    "event_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "assistant_turn_id": { "type": "string" },
+    "sequence": { "type": "integer" },
+    "ts": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": ["artifact_id", "artifact_type", "display_mode", "chart"],
+      "properties": {
+        "artifact_id": { "type": "string" },
+        "artifact_type": { "type": "string" },
+        "display_mode": { "type": "string" },
+        "message_id": { "type": ["integer", "string", "null"] },
+        "title": { "type": "string" },
+        "placement": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "marker": { "type": "string" }
+          }
+        },
+        "chart": { "type": "object" }
+      }
+    }
+  }
+}

@@ -9,17 +9,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.api.chat_stream_runner import (
     PromptRuntimeDeps,
     PreparedRuntime,
-    PromptPreparation,
     RetryRuntimeDeps,
     StreamRunnerDeps,
-    _create_stream_runtime,
     _finalize_stream_run,
-    _build_workspace_grounding_event,
     _handle_tool_call_mismatch_retry,
-    _prepare_prompt_runtime,
 )
+from app.api.chat_stream_runner_preparation import (
+    create_stream_runtime as _create_stream_runtime,
+    prepare_prompt_runtime as _prepare_prompt_runtime,
+)
+from app.api.chat_stream_runner_snapshot import build_workspace_grounding_event as _build_workspace_grounding_event
+from app.api.chat_stream_runner_types import PromptPreparation
 from app.api.chat_tool_events import ToolEventTracker
 from app.models.chat import Message as MessageModel, Session as SessionModel
+from app.core.database import Base
 from app.services.chat_service import ChatService
 from app.services.memory.session_context_host import YuePromptContextBridge, YueSessionContextService
 from app.services import chat_prompting
@@ -629,7 +632,7 @@ def test_prepare_prompt_runtime_injects_session_context_block_when_enabled():
         )
 
         with patch(
-            "app.api.chat_stream_runner.yue_session_context_service.build_prompt_context",
+                "app.api.chat_stream_runner_preparation.yue_session_context_service.build_prompt_context",
             return_value=fake_result,
         ) as mock_build_prompt_context:
             outputs = []
@@ -695,7 +698,7 @@ def test_prepare_prompt_runtime_keeps_reference_host_session_context_off_path_un
             deps=deps,
         )
 
-        with patch("app.api.chat_stream_runner.yue_session_context_service.build_prompt_context") as mock_build:
+        with patch("app.api.chat_stream_runner_preparation.yue_session_context_service.build_prompt_context") as mock_build:
             outputs = []
             async for item in _prepare_prompt_runtime(
                 ctx=ctx,
@@ -719,9 +722,8 @@ def test_prepare_prompt_runtime_reference_host_integration_uses_persisted_chat_h
     async def run_test():
         temp_dir, test_engine, testing_session_local = _make_temp_chat_service()
         try:
-            with patch("app.services.chat_service.engine", test_engine), patch(
-                "app.services.chat_service.SessionLocal", testing_session_local
-            ), patch("app.services.chat_service.DATA_DIR", temp_dir):
+            Base.metadata.create_all(bind=test_engine)
+            with patch("app.services.chat_service_sessions.SessionLocal", testing_session_local):
                 real_chat_service = ChatService()
                 chat_session = real_chat_service.create_chat(title="Reference host integration")
                 start = datetime(2026, 5, 23, 10, 0, 0)
@@ -813,7 +815,7 @@ def test_prepare_prompt_runtime_reference_host_integration_uses_persisted_chat_h
                     reference_host_service = YueSessionContextService(manager=fake_manager)
 
                     with patch(
-                        "app.api.chat_stream_runner.yue_session_context_service",
+                        "app.api.chat_stream_runner_preparation.yue_session_context_service",
                         reference_host_service,
                     ):
                         outputs = []

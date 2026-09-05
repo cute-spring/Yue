@@ -39,8 +39,8 @@ BOUNDARY_ENTRIES: tuple[BoundaryEntry, ...] = (
     ),
     BoundaryEntry(
         path="backend/app/services/skills/import_service.py",
-        role=ROLE_REUSABLE_NOW,
-        rationale="Import orchestration depends on runtime-core services, not Yue host modules.",
+        role=ROLE_TRANSITIONAL_ONLY,
+        rationale="Import orchestration includes Yue-specific Skill Playground auto-mount behavior.",
     ),
     BoundaryEntry(
         path="backend/app/services/skills/policy.py",

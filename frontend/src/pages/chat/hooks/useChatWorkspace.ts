@@ -1,6 +1,7 @@
 import { Accessor, Setter, createEffect, createMemo, createSignal } from 'solid-js';
 import {
   Message,
+  StructuredChartArtifact,
   Workspace,
   WorkspaceArtifact,
   WorkspaceNote,
@@ -369,6 +370,35 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     await loadWorkspaceArtifacts(workspaceId);
   };
 
+  const saveChartArtifactToWorkspace = async (message: Message, artifact: StructuredChartArtifact) => {
+    const workspaceId = args.selectedWorkspaceId();
+    const chatId = args.currentChatId();
+    if (!workspaceId || !chatId) {
+      args.toast.error('Select a workspace before saving this chart.', 3000);
+      return;
+    }
+    if (!artifact.artifact_id) {
+      args.toast.error('Chart artifact is missing an id.', 3000);
+      return;
+    }
+
+    const res = await fetch(`/api/workspaces/${workspaceId}/charts/from-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: typeof message.id === 'number' ? message.id : undefined,
+        artifact_id: artifact.artifact_id,
+        title: typeof (artifact.chart as any)?.title === 'string'
+          ? (artifact.chart as any).title
+          : undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadWorkspaceArtifacts(workspaceId);
+    args.toast.success('Chart saved to workspace.', 3000);
+  };
+
   const suggestWorkspaceMemoryFromLastAssistantMessage = async (): Promise<WorkspaceMemoryDraft | null> => {
     const workspaceId = args.selectedWorkspaceId();
     const chatId = args.currentChatId();
@@ -653,6 +683,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     buildWorkspaceRequestOverrides,
     saveLastAssistantAsWorkspaceNote,
     saveLastAssistantAsResearchArtifact,
+    saveChartArtifactToWorkspace,
     suggestWorkspaceMemoryFromLastAssistantMessage,
     suggestWorkspaceMemoryCandidateFromLastAssistantMessage,
     suggestWorkspaceMemoryCandidateFromNote,

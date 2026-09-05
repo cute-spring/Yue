@@ -18,6 +18,10 @@
     "sequence": { "type": "integer" },
     "ts": { "type": "string" },
     "payload": { "type": "object" },
+    "chart_artifacts": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
     "content": { "type": "string" },
     "error": { "type": "string" },
     "event": { "type": "string" },

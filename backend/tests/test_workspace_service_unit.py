@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from app.core.database import Base
 
 from app.services.chat_service import ChatService
 from app.services.notebook_service import NotebookService
@@ -22,6 +23,7 @@ def temp_db():
     test_engine = create_engine(f"sqlite:///{db_file}")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
+    Base.metadata.create_all(bind=test_engine)
     with patch("app.services.workspace_service.engine", test_engine), \
          patch("app.services.workspace_service.SessionLocal", testing_session_local), \
          patch("app.services.notebook_service.engine", test_engine), \

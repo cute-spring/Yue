@@ -376,6 +376,7 @@ def test_setup_endpoints_rescan_trust_and_run_real_uv_demo_skill(client, monkeyp
     test_client, store, _agent_store = client
     from app.api import skill_preflight as skill_preflight_module
 
+    monkeypatch.setenv("UV_CACHE_DIR", str(Path.cwd() / "data_temp" / "uv-test-cache"))
     runtime_root = _copy_fixture_into_backend_runtime("trusted-local-setup-uv-demo")
     monkeypatch.setattr(
         skill_preflight_module,

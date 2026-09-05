@@ -8,6 +8,14 @@ import json
 def client():
     return TestClient(app)
 
+
+@pytest.fixture
+def mock_chat_service():
+    with patch("app.api.chat.chat_service") as mock:
+        with patch("app.api.chat_stream_deps.chat_service", mock):
+            mock.get_session_skill.return_value = (None, None)
+            yield mock
+
 def _read_stream_payloads(response):
     payloads = []
     for line in response.iter_lines():
@@ -20,12 +28,11 @@ def _read_stream_payloads(response):
     return payloads
 
 @pytest.mark.asyncio
-async def test_reasoning_protocol_injection_only_when_reasoning_enabled(client):
-    with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
-         patch("app.api.chat.chat_service") as mock_chat_service, \
+async def test_reasoning_protocol_injection_only_when_reasoning_enabled(client, mock_chat_service):
+    with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat.config_service.get_model_capabilities") as mock_caps:
         mock_chat_service.create_chat.return_value = MagicMock(id="test-chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -64,12 +71,11 @@ async def test_reasoning_protocol_injection_only_when_reasoning_enabled(client):
         (True, True, True),
     ],
 )
-async def test_reasoning_decision_matrix_in_meta(client, supports_reasoning, deep_thinking_enabled, expected_reasoning_enabled):
-    with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
-         patch("app.api.chat.chat_service") as mock_chat_service, \
+async def test_reasoning_decision_matrix_in_meta(client, mock_chat_service, supports_reasoning, deep_thinking_enabled, expected_reasoning_enabled):
+    with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat.config_service.get_model_capabilities") as mock_caps:
         mock_chat_service.create_chat.return_value = MagicMock(id="test-chat-id")
         mock_chat_service.get_chat.return_value = None

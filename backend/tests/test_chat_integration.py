@@ -7,11 +7,12 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from app.core.database import Base
 
 from app.main import app
 from app.services.chat_service import ChatService
 from app.models.chat import Session as SessionModel, Message as MessageModel
-import app.services.chat_service as chat_service_module
+import app.services.chat_service_sessions as chat_service_sessions_module
 
 @pytest.fixture
 def temp_chat_service():
@@ -20,9 +21,11 @@ def temp_chat_service():
     test_engine = create_engine(f"sqlite:///{db_file}")
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
-    with patch("app.services.chat_service.engine", test_engine), \
-         patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
-         patch("app.services.chat_service.DATA_DIR", temp_dir):
+    Base.metadata.create_all(bind=test_engine)
+    with patch("app.services.chat_service_schema.engine", test_engine), \
+         patch("app.services.chat_service_schema.SessionLocal", TestingSessionLocal), \
+         patch("app.services.chat_service_sessions.SessionLocal", TestingSessionLocal), \
+         patch("app.services.chat_service_actions.SessionLocal", TestingSessionLocal):
         service = ChatService()
         yield service
 
@@ -32,15 +35,16 @@ def temp_chat_service():
 @pytest.fixture
 def client(temp_chat_service):
     try:
-        with patch("app.api.chat.chat_service", temp_chat_service):
+        with patch("app.api.chat.chat_service", temp_chat_service), \
+             patch("app.api.chat_stream_deps.chat_service", temp_chat_service):
             return TestClient(app)
     except TypeError:
         pytest.skip("TestClient incompatible with installed httpx/starlette")
 
 @pytest.mark.asyncio
 async def test_chat_integration_flow(client, temp_chat_service):
-    # Mock Agent in app.api.chat
-    with patch("app.api.chat.Agent") as mock_agent_cls:
+    # The stream runtime constructs agents through chat_stream_deps.
+    with patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
         
@@ -124,7 +128,7 @@ def test_history_returns_utc_aware_timestamps(client, temp_chat_service):
     session = temp_chat_service.create_chat(agent_id="default")
 
     # Simulate legacy naive UTC timestamps near day boundary.
-    with chat_service_module.SessionLocal() as db:
+    with chat_service_sessions_module.SessionLocal() as db:
         row = db.query(SessionModel).filter(SessionModel.id == session.id).first()
         assert row is not None
         row.created_at = datetime(2026, 4, 10, 17, 30, 0)  # naive UTC
@@ -145,7 +149,7 @@ def test_timestamp_contract_history_get_chat_and_meta(client, temp_chat_service)
     session = temp_chat_service.create_chat(agent_id="default")
     temp_chat_service.add_message(session.id, "user", "contract test")
 
-    with chat_service_module.SessionLocal() as db:
+    with chat_service_sessions_module.SessionLocal() as db:
         row = db.query(SessionModel).filter(SessionModel.id == session.id).first()
         msg = db.query(MessageModel).filter(MessageModel.session_id == session.id).first()
         assert row is not None
@@ -184,7 +188,7 @@ def test_history_date_from_date_to_filters(client, temp_chat_service):
     inside = temp_chat_service.create_chat(agent_id="default")
     outside = temp_chat_service.create_chat(agent_id="default")
 
-    with chat_service_module.SessionLocal() as db:
+    with chat_service_sessions_module.SessionLocal() as db:
         in_row = db.query(SessionModel).filter(SessionModel.id == inside.id).first()
         out_row = db.query(SessionModel).filter(SessionModel.id == outside.id).first()
         assert in_row is not None
@@ -214,7 +218,7 @@ def test_history_tag_and_date_combo_filters(client, temp_chat_service):
     api_out = temp_chat_service.create_chat(agent_id="default")
     design_in = temp_chat_service.create_chat(agent_id="default")
 
-    with chat_service_module.SessionLocal() as db:
+    with chat_service_sessions_module.SessionLocal() as db:
         rows = {
             api_in.id: db.query(SessionModel).filter(SessionModel.id == api_in.id).first(),
             api_out.id: db.query(SessionModel).filter(SessionModel.id == api_out.id).first(),

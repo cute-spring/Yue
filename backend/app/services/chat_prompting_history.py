@@ -1,6 +1,14 @@
 from typing import Any, Callable, List
 
-from pydantic_ai.messages import ImageUrl, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import (
+    ImageUrl,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 
 from app.services.chat_prompting_env import (
     EST_CHARS_PER_TOKEN,
@@ -51,6 +59,36 @@ def build_history_from_chat(
             else:
                 temp_history.append(ModelRequest(parts=[UserPromptPart(content=content)]))
         elif message.role == "assistant":
+            tool_calls = list(getattr(message, "tool_calls", None) or [])
+            tool_call_parts = []
+            tool_return_parts = []
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    continue
+                tool_name = tool_call.get("tool_name")
+                tool_call_id = tool_call.get("call_id")
+                if not isinstance(tool_name, str) or not tool_name or not isinstance(tool_call_id, str) or not tool_call_id:
+                    continue
+                tool_call_parts.append(
+                    ToolCallPart(
+                        tool_name=tool_name,
+                        args=tool_call.get("args") or {},
+                        tool_call_id=tool_call_id,
+                    )
+                )
+                tool_result = tool_call.get("result")
+                if tool_result is None:
+                    tool_result = tool_call.get("error") or tool_call.get("status") or ""
+                tool_return_parts.append(
+                    ToolReturnPart(
+                        tool_name=tool_name,
+                        content=tool_result,
+                        tool_call_id=tool_call_id,
+                    )
+                )
             temp_history.append(ModelResponse(parts=[TextPart(content=content)]))
+            if tool_call_parts:
+                temp_history.append(ModelRequest(parts=tool_return_parts))
+                temp_history.append(ModelResponse(parts=tool_call_parts))
 
     return list(reversed(temp_history))

@@ -1,6 +1,7 @@
-import { For, Show } from 'solid-js';
-import { Message } from '../../types';
+import { For, Show, createMemo, createSignal } from 'solid-js';
+import { Message, StructuredChartArtifact } from '../../types';
 import { renderMarkdown } from '../../utils/markdown';
+import { renderStructuredChartArtifactHtml } from '../../utils/chartArtifactHtml';
 import ToolCallItem from '../ToolCallItem';
 import MessageEvidencePanel from './MessageEvidencePanel';
 import { assistantContentMarkdownClass, renderThought } from './helpers';
@@ -23,10 +24,127 @@ interface MessageAssistantBodyProps {
   toggleCollapse: () => void;
   toggleThought: () => void;
   onContinue: (msg: Message) => void;
+  onRegenerateChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => void;
+  onSaveChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => Promise<void> | void;
+}
+
+type RenderPart =
+  | { type: 'markdown'; content: string; key: string }
+  | { type: 'chart'; artifact: StructuredChartArtifact; key: string };
+
+const markerForArtifact = (artifact: StructuredChartArtifact): string | null => {
+  if (artifact.placement?.type !== 'replace_marker') return null;
+  return artifact.placement.marker || `{{chart:${artifact.artifact_id}}}`;
+};
+
+export const buildAssistantRenderParts = (content: string, artifacts: StructuredChartArtifact[] = []): RenderPart[] => {
+  const sorted = [...artifacts].sort((a, b) => {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+    return (a.ts || '').localeCompare(b.ts || '');
+  });
+  const parts: RenderPart[] = [];
+  let remaining = content;
+  const appended: StructuredChartArtifact[] = [];
+
+  for (const artifact of sorted) {
+    const marker = markerForArtifact(artifact);
+    if (!marker) {
+      appended.push(artifact);
+      continue;
+    }
+    const markerIndex = remaining.indexOf(marker);
+    if (markerIndex < 0) {
+      appended.push(artifact);
+      continue;
+    }
+    const before = remaining.slice(0, markerIndex);
+    if (before) parts.push({ type: 'markdown', content: before, key: `md-${parts.length}` });
+    parts.push({ type: 'chart', artifact, key: `chart-${artifact.artifact_id}` });
+    remaining = remaining.slice(markerIndex + marker.length);
+  }
+
+  if (remaining || parts.length === 0) {
+    parts.push({ type: 'markdown', content: remaining, key: `md-${parts.length}` });
+  }
+  appended.forEach((artifact) => parts.push({ type: 'chart', artifact, key: `chart-${artifact.artifact_id}` }));
+  return parts;
+};
+
+function StructuredChartBlock(props: {
+  msg: Message;
+  artifact: StructuredChartArtifact;
+  onRegenerateChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => void;
+  onSaveChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => Promise<void> | void;
+}) {
+  const [isSaving, setIsSaving] = createSignal(false);
+  const save = async () => {
+    if (!props.onSaveChartArtifact || isSaving()) return;
+    setIsSaving(true);
+    try {
+      await props.onSaveChartArtifact(props.msg, props.artifact);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div class="my-4" data-chart-artifact-id={props.artifact.artifact_id}>
+      <div class="mb-2 flex items-center justify-end gap-2">
+        <Show when={props.onRegenerateChartArtifact}>
+          <button
+            type="button"
+            class="rounded-lg border border-border/50 px-2 py-1 text-xs font-semibold text-text-secondary transition-colors hover:border-primary/40 hover:text-primary"
+            title="Regenerate chart"
+            onClick={() => props.onRegenerateChartArtifact?.(props.msg, props.artifact)}
+          >
+            Regenerate
+          </button>
+        </Show>
+        <Show when={props.onSaveChartArtifact}>
+          <button
+            type="button"
+            class="rounded-lg border border-border/50 px-2 py-1 text-xs font-semibold text-text-secondary transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-wait disabled:opacity-60"
+            title="Save chart to workspace"
+            disabled={isSaving()}
+            onClick={() => { void save(); }}
+          >
+            {isSaving() ? 'Saving' : 'Save'}
+          </button>
+        </Show>
+      </div>
+      <div innerHTML={renderStructuredChartArtifactHtml(props.artifact.chart)} />
+    </div>
+  );
+}
+
+function RenderAssistantPart(props: {
+  part: RenderPart;
+  msg: Message;
+  isTyping: boolean;
+  onRegenerateChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => void;
+  onSaveChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => Promise<void> | void;
+}) {
+  if (props.part.type === 'chart') {
+    return (
+      <StructuredChartBlock
+        msg={props.msg}
+        artifact={props.part.artifact}
+        onRegenerateChartArtifact={props.onRegenerateChartArtifact}
+        onSaveChartArtifact={props.onSaveChartArtifact}
+      />
+    );
+  }
+  return (
+    <div
+      innerHTML={renderMarkdown(props.part.content, props.isTyping)}
+      class={assistantContentMarkdownClass}
+    />
+  );
 }
 
 export default function MessageAssistantBody(props: MessageAssistantBodyProps) {
   const showInitializing = () => props.isTyping && !props.thought && !props.content && !props.reasoningEnabled;
+  const renderParts = createMemo(() => buildAssistantRenderParts(props.content, props.msg.chart_artifacts || []));
 
   return (
     <div class="relative w-full">
@@ -223,16 +341,23 @@ export default function MessageAssistantBody(props: MessageAssistantBodyProps) {
             </div>
           </Show>
 
-          <Show when={props.content || (props.isTyping && !props.thought)}>
+          <Show when={props.content || (props.isTyping && !props.thought) || (props.msg.chart_artifacts && props.msg.chart_artifacts.length > 0)}>
             <Show when={props.visionFeedbackText}>
               <div class="mb-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-[13px] text-amber-700">
                 {props.visionFeedbackText}
               </div>
             </Show>
-            <div
-              innerHTML={renderMarkdown(props.content, props.isTyping)}
-              class={assistantContentMarkdownClass}
-            />
+            <For each={renderParts()}>
+              {(part) => (
+                <RenderAssistantPart
+                  part={part}
+                  msg={props.msg}
+                  isTyping={props.isTyping}
+                  onRegenerateChartArtifact={props.onRegenerateChartArtifact}
+                  onSaveChartArtifact={props.onSaveChartArtifact}
+                />
+              )}
+            </For>
           </Show>
 
           <Show when={props.isTruncated}>

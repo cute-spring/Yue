@@ -2,7 +2,7 @@ from typing import Optional, List, Any
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from ..base import SimpleProvider, LLMProvider
-from ..utils import get_http_client, build_async_client, get_ssl_verify
+from ..utils import get_pydantic_ai_http_client, build_async_client, get_ssl_verify
 from app.services.config_service import config_service
 
 class LiteLLMProviderImpl(SimpleProvider):
@@ -39,7 +39,7 @@ class LiteLLMProviderImpl(SimpleProvider):
             provider=OpenAIProvider(
                 base_url=base_url,
                 api_key=api_key,
-                http_client=get_http_client()
+                http_client=get_pydantic_ai_http_client()
             )
         )
         

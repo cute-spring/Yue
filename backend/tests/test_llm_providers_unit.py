@@ -1,5 +1,6 @@
 import pytest
 import httpx
+import httpx2
 import time
 from unittest.mock import MagicMock, AsyncMock, patch
 from app.services.llm.providers.openai import OpenAIProviderImpl, fetch_openai_models
@@ -254,6 +255,19 @@ async def test_ollama_provider(mock_config):
     assert model.model_name == "llama3"
     assert provider.configured()
     assert any("OLLAMA_BASE_URL" in r for r in provider.requirements())
+
+
+@pytest.mark.asyncio
+async def test_ollama_provider_uses_proxy_independent_httpx2_client(mock_config, monkeypatch):
+    monkeypatch.setattr("app.services.llm.utils._shared_ollama_client", None)
+    model = OllamaProviderImpl().build("llama3")
+    client = model._provider.client._client
+
+    assert isinstance(client, httpx2.AsyncClient)
+    assert client.trust_env is False
+
+    await client.aclose()
+
 
 @pytest.mark.asyncio
 async def test_ollama_fetch_error(mock_config):

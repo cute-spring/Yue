@@ -50,6 +50,8 @@ async def test_generate_session_meta_title():
 
         title = await service.generate_session_meta("chat-1", task="title")
         assert title == "智能标题"
+        usage_limits = mock_agent.run_stream.call_args.kwargs["usage_limits"]
+        assert usage_limits.output_tokens_limit == 48
 
 
 @pytest.mark.asyncio

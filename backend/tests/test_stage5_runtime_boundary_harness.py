@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,7 +12,7 @@ class TestStage5RuntimeBoundaryHarness(unittest.TestCase):
         workspace_root = backend_dir.parent
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "scripts/skill_runtime_boundary_harness.py",
                 "--workspace-root",
                 str(workspace_root),
@@ -69,7 +70,7 @@ class TestStage5RuntimeBoundaryHarness(unittest.TestCase):
             manifest_path = Path(td) / "boundary_manifest.json"
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/skill_runtime_boundary_harness.py",
                     "--workspace-root",
                     str(workspace_root),

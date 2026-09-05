@@ -370,6 +370,28 @@ export type SessionUsedContext = {
   sections?: SessionUsedContextSection[];
 };
 
+export type StructuredChartArtifact = {
+  artifact_id: string;
+  artifact_type: 'chart';
+  display_mode: 'inline';
+  placement?: {
+    type: 'append' | 'replace_marker';
+    marker?: string;
+  };
+  assistant_turn_id: string;
+  message_id?: number | string | null;
+  run_id?: string | null;
+  sequence: number;
+  ts?: string;
+  chart: unknown;
+  validation_status?: 'unvalidated' | 'valid' | 'invalid';
+  validation_error?: {
+    code: string;
+    message: string;
+    path?: string;
+  };
+};
+
 export type Message = {
   id?: number | string;
   role: string;
@@ -389,6 +411,7 @@ export type Message = {
   model?: string;
   tools?: string[];
   tool_calls?: ToolCall[];
+  chart_artifacts?: StructuredChartArtifact[];
   citations?: any[];
   session_used_context?: SessionUsedContext;
   workspace_grounding?: WorkspaceGrounding;

@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -121,15 +122,21 @@ async def test_docs_list_immediate_effect_via_real_config_service_update(mock_ct
 
 
 @pytest.mark.asyncio
-async def test_docs_list_fails_closed_when_allow_roots_empty(mock_ctx):
+async def test_docs_list_uses_uploads_root_when_configured_allow_roots_empty(mock_ctx):
     with tempfile.TemporaryDirectory() as tmp:
+        uploads_root = Path(tmp, "uploads")
+        uploads_root.mkdir()
+        (uploads_root / "attachment.txt").write_text("attachment", encoding="utf-8")
         service = ConfigService(os.path.join(tmp, "global_config.json"))
         service.update_doc_access({"allow_roots": [], "deny_roots": []})
         tool = DocsListTool()
-        with patch("app.mcp.builtin.docs.config_service", service):
+        with (
+            patch("app.services.config_service.get_uploads_root", return_value=uploads_root),
+            patch("app.mcp.builtin.docs.config_service", service),
+        ):
             payload = json.loads(await tool.execute(mock_ctx, {}))
-        assert payload["ok"] is False
-        assert payload["error_code"] == "invalid_root_dir"
+        assert payload[0]["root"] == str(uploads_root.resolve())
+        assert any(item["path"] == "attachment.txt" for item in payload[0]["items"])
 
 
 @pytest.mark.asyncio

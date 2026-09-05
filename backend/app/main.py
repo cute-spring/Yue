@@ -30,12 +30,20 @@ from app.services.skills import (
     bootstrap_skill_runtime_lifespan,
     build_skill_runtime_bootstrap_spec_from_env,
 )
-from app.observability import TRACE_HEADER, new_trace_id, reset_trace_id, set_trace_id, setup_logging
+from app.observability import (
+    TRACE_HEADER,
+    configure_pydantic_ai_instrumentation,
+    new_trace_id,
+    reset_trace_id,
+    set_trace_id,
+    setup_logging,
+)
 
 # Load .env from backend directory
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 setup_logging()
+configure_pydantic_ai_instrumentation()
 logger = logging.getLogger(__name__)
 logger.info("Loading env from: %s", env_path.absolute())
 

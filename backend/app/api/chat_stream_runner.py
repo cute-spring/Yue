@@ -41,6 +41,17 @@ from app.api.chat_stream_runner_snapshot import (
     build_workspace_capture_suggestion_event as _build_workspace_capture_suggestion_event,
 )
 from app.services.chat_streaming import StreamEventEmitter, StreamState
+
+
+async def _resolve_result_usage(result: Any) -> Any:
+    raw_usage = getattr(result, "usage", None)
+    if callable(raw_usage):
+        raw_usage = raw_usage()
+    if asyncio.iscoroutine(raw_usage):
+        raw_usage = await raw_usage
+    return raw_usage
+
+
 async def _handle_tool_call_mismatch_retry(
     *,
     ctx: StreamRunContext,
@@ -174,9 +185,7 @@ async def _execute_stream_run(
         limit_info = {"event": "run.limited", "reason": str(limit_err), "snapshot": {}}
         try:
             if ctx.result is not None and hasattr(ctx.result, "usage"):
-                raw_usage = ctx.result.usage()
-                if asyncio.iscoroutine(raw_usage):
-                    raw_usage = await raw_usage
+                raw_usage = await _resolve_result_usage(ctx.result)
                 limit_info["snapshot"] = raw_usage.model_dump() if hasattr(raw_usage, "model_dump") else str(raw_usage)
         except Exception:
             pass
@@ -251,9 +260,7 @@ async def _postprocess_stream_run(
         finish_reason_val = getattr(getattr(ctx.result, "response", None), "finish_reason", None)
         if not isinstance(finish_reason_val, str):
             finish_reason_val = None
-        raw_usage = ctx.result.usage()
-        if asyncio.iscoroutine(raw_usage):
-            raw_usage = await raw_usage
+        raw_usage = await _resolve_result_usage(ctx.result)
         usage_stats = deps.calculate_usage(
             provider=ctx.provider,
             raw_usage=raw_usage,

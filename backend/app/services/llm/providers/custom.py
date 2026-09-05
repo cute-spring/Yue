@@ -7,8 +7,8 @@ from ..base import SimpleProvider, LLMProvider
 from ..utils import (
     build_async_client,
     get_cache_ttl,
-    get_http_client,
     get_model_cache,
+    get_pydantic_ai_http_client,
     get_ssl_verify,
     handle_llm_exception,
 )
@@ -123,7 +123,7 @@ def build_custom_model_from_payload(
         provider=OpenAIProvider(
             base_url=_normalize_custom_base_url(base_url),
             api_key=normalized_api_key,
-            http_client=get_http_client()
+            http_client=get_pydantic_ai_http_client()
         )
     )
 

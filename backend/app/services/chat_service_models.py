@@ -35,6 +35,7 @@ class Message(BaseModel):
     content: str
     images: Optional[List[str]] = None
     attachments: Optional[List[Dict[str, Any]]] = None
+    chart_artifacts: Optional[List[Dict[str, Any]]] = None
     timestamp: datetime = Field(default_factory=datetime.now)
     thought_duration: Optional[float] = None
     ttft: Optional[float] = None

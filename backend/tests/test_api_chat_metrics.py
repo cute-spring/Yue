@@ -9,13 +9,8 @@ from datetime import datetime
 def client():
     return TestClient(app)
 
-@pytest.fixture
-def mock_chat_service():
-    with patch("app.api.chat.chat_service") as mock:
-        yield mock
-
 @pytest.mark.asyncio
-async def test_chat_stream_metrics_presence(client, mock_chat_service):
+async def test_chat_stream_metrics_presence(client):
     """
     Verify that the chat stream includes the new metrics:
     - ttft (Time To First Token)
@@ -25,11 +20,18 @@ async def test_chat_stream_metrics_presence(client, mock_chat_service):
     - total_tokens
     - tps (Tokens Per Second)
     """
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls:
-        
+    # The endpoint delegates execution through build_stream_runner_deps. Patch
+    # its collaborators, rather than the old chat.py globals, to preserve the
+    # route-to-SSE contract while avoiding a real model invocation.
+    with patch("app.api.chat.chat_service") as endpoint_chat_service, \
+         patch("app.api.chat_stream_deps.chat_service") as mock_chat_service, \
+         patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
+
+        endpoint_chat_service.create_chat.return_value = MagicMock(id="test-chat-metrics")
+        endpoint_chat_service.get_chat.return_value = None
         mock_chat_service.create_chat.return_value = MagicMock(id="test-chat-metrics")
         mock_chat_service.get_chat.return_value = None
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -49,8 +51,8 @@ async def test_chat_stream_metrics_presence(client, mock_chat_service):
         
         # Mock usage data (Pydantic AI result.usage())
         mock_usage = MagicMock()
-        mock_usage.request_tokens = 10
-        mock_usage.response_tokens = 20
+        mock_usage.input_tokens = 10
+        mock_usage.output_tokens = 20
         mock_usage.total_tokens = 30
         mock_result.usage.return_value = mock_usage
         

@@ -46,7 +46,7 @@ def isolated_runtime_context_seam():
         skill_import_store=runtime_import_store,
         skill_import_service=runtime_import_service,
     )
-    with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context):
+    with patch("app.api.chat_stream_deps.get_stage4_lite_runtime_context", return_value=runtime_context):
         yield runtime_context
 
 @pytest.mark.asyncio
@@ -89,10 +89,11 @@ YOU ARE A TEST SKILL.
                 "model": "gpt-4o"
             }
         
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.Agent") as mock_agent_cls, \
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
                  patch("app.api.chat.chat_service") as mock_chat_service, \
-                 patch("app.api.chat.tool_registry") as mock_registry:
+                 patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry:
 
                 # Mock AgentConfig (Legacy)
                 mock_agent = AgentConfig(
@@ -185,10 +186,11 @@ YOU ARE A MANUAL SKILL.
                 "requested_skill": "manual-skill:1.0.0"
             }
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.Agent") as mock_agent_cls, \
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
                  patch("app.api.chat.chat_service") as mock_chat_service, \
-                 patch("app.api.chat.tool_registry") as mock_registry:
+                 patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry:
 
                 mock_agent = AgentConfig(
                     id="manual-agent",
@@ -233,10 +235,11 @@ YOU ARE A MANUAL SKILL.
                 "model": "gpt-4o"
             }
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.Agent") as mock_agent_cls, \
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
                  patch("app.api.chat.chat_service") as mock_chat_service, \
-                 patch("app.api.chat.tool_registry") as mock_registry:
+                 patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry:
 
                 mock_agent = AgentConfig(
                     id="manual-agent",
@@ -301,10 +304,11 @@ YOU ARE AN UNCONSTRAINED SKILL.
             "model": "gpt-4o"
         }
 
-        with patch("app.api.chat.agent_store") as mock_agent_store, \
-             patch("app.api.chat.Agent") as mock_agent_cls, \
+        with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+             patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
              patch("app.api.chat.chat_service") as mock_chat_service, \
-             patch("app.api.chat.tool_registry") as mock_registry:
+             patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+             patch("app.api.chat_stream_deps.tool_registry") as mock_registry:
 
             mock_agent = AgentConfig(
                 id="unconstrained-agent",
@@ -390,10 +394,11 @@ constraints:
                 "model": "gpt-4o"
             }
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.Agent") as mock_agent_cls, \
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
                  patch("app.api.chat.chat_service") as mock_chat_service, \
-                 patch("app.api.chat.tool_registry") as mock_registry:
+                 patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry:
 
                 mock_agent = AgentConfig(
                     id="overlay-agent",
@@ -492,10 +497,11 @@ constraints:
                 "model": "gpt-4o"
             }
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.Agent") as mock_agent_cls, \
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
                  patch("app.api.chat.chat_service") as mock_chat_service, \
-                 patch("app.api.chat.tool_registry") as mock_registry:
+                 patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry:
 
                 mock_agent = AgentConfig(
                     id="overlay-agent",
@@ -565,13 +571,14 @@ YOU ARE A KILL SWITCH SKILL.
             "model": "gpt-4o"
         }
 
-        with patch("app.api.chat.agent_store") as mock_agent_store, \
+        with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
              patch("app.api.chat.config_service.get_feature_flags", return_value={
                  "skill_runtime_enabled": False,
              }), \
-             patch("app.api.chat.Agent") as mock_agent_cls, \
+             patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
              patch("app.api.chat.chat_service") as mock_chat_service, \
-             patch("app.api.chat.tool_registry") as mock_registry:
+             patch("app.api.chat_stream_deps.chat_service", mock_chat_service), \
+             patch("app.api.chat_stream_deps.tool_registry") as mock_registry:
 
             mock_agent = AgentConfig(
                 id="kill-switch-agent",
@@ -664,9 +671,13 @@ def test_source_layer_metrics():
         test_engine = create_engine(f"sqlite:///{db_file}")
         TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
         
-        with patch("app.services.chat_service.engine", test_engine), \
-             patch("app.services.chat_service.SessionLocal", TestingSessionLocal), \
-             patch("app.services.chat_service.DATA_DIR", td):
+        from app.core.database import Base
+
+        Base.metadata.create_all(bind=test_engine)
+        with patch("app.services.chat_service_schema.engine", test_engine), \
+             patch("app.services.chat_service_schema.SessionLocal", TestingSessionLocal), \
+             patch("app.services.chat_service_sessions.SessionLocal", TestingSessionLocal), \
+             patch("app.services.chat_service_actions.SessionLocal", TestingSessionLocal):
              
             service = chat_service_module.ChatService()
             chat = service.create_chat()

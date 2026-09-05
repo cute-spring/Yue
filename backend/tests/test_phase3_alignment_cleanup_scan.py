@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,7 +34,7 @@ class TestPhase3AlignmentCleanupScan(unittest.TestCase):
             backend_dir = Path(__file__).resolve().parents[1]
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/standard_alignment_cleanup_scan.py",
                     "--root",
                     str(root),
@@ -73,7 +74,7 @@ class TestPhase3AlignmentCleanupScan(unittest.TestCase):
             backend_dir = Path(__file__).resolve().parents[1]
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/standard_alignment_cleanup_scan.py",
                     "--root",
                     str(root),

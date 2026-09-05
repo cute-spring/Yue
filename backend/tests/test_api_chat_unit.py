@@ -27,8 +27,9 @@ def client():
 @pytest.fixture
 def mock_chat_service():
     with patch("app.api.chat.chat_service") as mock:
-        mock.get_session_skill.return_value = (None, None)
-        yield mock
+        with patch("app.api.chat_stream_deps.chat_service", mock):
+            mock.get_session_skill.return_value = (None, None)
+            yield mock
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +48,7 @@ def isolated_runtime_context_seam():
         skill_import_store=runtime_import_store,
         skill_import_service=runtime_import_service,
     )
-    with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context, create=True):
+    with patch("app.api.chat_stream_deps.get_stage4_lite_runtime_context", return_value=runtime_context):
         yield runtime_context
 
 def test_list_chats(client, mock_chat_service):
@@ -482,10 +483,10 @@ def test_list_action_states(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_basic(client, mock_chat_service):
     # This is a complex test because of StreamingResponse and many dependencies
-    with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model") as mock_get_model, \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         
         mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -527,10 +528,10 @@ async def test_chat_stream_basic(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_validates_sse_contract(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat_helpers.validate_sse_payload") as mock_validate:
         mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -559,10 +560,10 @@ async def test_chat_stream_validates_sse_contract(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_contract_violation_fails_open(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat_helpers.validate_sse_payload") as mock_validate:
         mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -652,10 +653,10 @@ actions:
             runtime_registry.skill_dirs = [tmp_dir]
             runtime_registry.load_all()
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.tool_registry") as mock_registry, \
-                 patch("app.api.chat.get_model") as mock_get_model, \
-                 patch("app.api.chat.Agent") as mock_agent_cls:
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -756,10 +757,10 @@ actions:
             runtime_registry.skill_dirs = [tmp_dir]
             runtime_registry.load_all()
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.tool_registry") as mock_registry, \
-                 patch("app.api.chat.get_model") as mock_get_model, \
-                 patch("app.api.chat.Agent") as mock_agent_cls:
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -879,10 +880,10 @@ actions:
             runtime_registry.skill_dirs = [tmp_dir]
             runtime_registry.load_all()
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.tool_registry") as mock_registry, \
-                 patch("app.api.chat.get_model") as mock_get_model, \
-                 patch("app.api.chat.Agent") as mock_agent_cls:
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -980,9 +981,9 @@ actions:
             runtime_registry.skill_dirs = [tmp_dir]
             runtime_registry.load_all()
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.tool_registry") as mock_registry, \
-                 patch("app.api.chat.Agent") as mock_agent_cls:
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -1095,10 +1096,10 @@ actions:
             runtime_registry.skill_dirs = [tmp_dir]
             runtime_registry.load_all()
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.tool_registry") as mock_registry, \
-                 patch("app.api.chat.get_model") as mock_get_model, \
-                 patch("app.api.chat.Agent") as mock_agent_cls:
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -1234,10 +1235,10 @@ actions:
             runtime_registry.skill_dirs = [tmp_dir]
             runtime_registry.load_all()
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.tool_registry") as mock_registry, \
-                 patch("app.api.chat.get_model") as mock_get_model, \
-                 patch("app.api.chat.Agent") as mock_agent_cls:
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -1355,10 +1356,10 @@ actions:
             runtime_registry.skill_dirs = [tmp_dir]
             runtime_registry.load_all()
 
-            with patch("app.api.chat.agent_store") as mock_agent_store, \
-                 patch("app.api.chat.tool_registry") as mock_registry, \
-                 patch("app.api.chat.get_model") as mock_get_model, \
-                 patch("app.api.chat.Agent") as mock_agent_cls:
+            with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+                 patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+                 patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -1408,13 +1409,13 @@ actions:
             runtime_registry.load_all()
 
 def test_estimate_tokens():
-    from app.api.chat import estimate_tokens
+    from app.services.chat_prompting_env import estimate_tokens
     assert estimate_tokens("abc") == 1
     assert estimate_tokens("") == 0
     assert estimate_tokens("abcdef") == 2
 
 def test_build_history_from_chat_preserves_order_and_images():
-    from app.api import chat as chat_api
+    from app.services.chat_prompting_history import build_history_from_chat
 
     chat_obj = MagicMock()
     chat_obj.messages = [
@@ -1423,8 +1424,11 @@ def test_build_history_from_chat_preserves_order_and_images():
         Message(role="user", content="with image", images=["/tmp/example.png"], timestamp=datetime.now()),
     ]
 
-    with patch("app.api.chat.load_image_to_base64", return_value="base64data"):
-        history = chat_api._build_history_from_chat(chat_obj)
+    history = build_history_from_chat(
+        chat_obj,
+        load_image_to_base64=MagicMock(return_value="base64data"),
+        logger=MagicMock(),
+    )
 
     assert len(history) == 3
     assert history[0].parts[0].content == "first"
@@ -1434,7 +1438,7 @@ def test_build_history_from_chat_preserves_order_and_images():
     assert getattr(last_parts[1], "url", None) == "base64data"
 
 def test_resolve_skill_runtime_state_manual_explicit_selection(mock_chat_service):
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
 
     fake_agent = AgentConfig(
         id="skill-agent",
@@ -1466,8 +1470,8 @@ def test_resolve_skill_runtime_state_manual_explicit_selection(mock_chat_service
         skill_import_store=MagicMock(name="import_store"),
     )
 
-    with patch("app.api.chat.build_stage4_lite_runtime_seams", return_value=MagicMock()):
-        state = chat_api._resolve_skill_runtime_state(
+    with patch("app.api.chat_stream_deps.build_stage4_lite_runtime_seams", return_value=MagicMock()):
+        state = chat_stream_deps.resolve_skill_runtime_state(
             agent_config=fake_agent,
             feature_flags={"skill_runtime_enabled": True},
             chat_id="chat-id",
@@ -1486,7 +1490,7 @@ def test_resolve_skill_runtime_state_manual_explicit_selection(mock_chat_service
 
 
 def test_resolve_skill_runtime_state_uses_injected_runtime_seams(mock_chat_service):
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
 
     fake_agent = AgentConfig(
         id="skill-agent",
@@ -1499,8 +1503,8 @@ def test_resolve_skill_runtime_state_uses_injected_runtime_seams(mock_chat_servi
         visible_skills=[],
     )
     injected_seams = MagicMock()
-    with patch("app.api.chat.build_stage4_lite_runtime_seams", side_effect=AssertionError("should not build seams")):
-        state = chat_api._resolve_skill_runtime_state(
+    with patch("app.api.chat_stream_deps.build_stage4_lite_runtime_seams", side_effect=AssertionError("should not build seams")):
+        state = chat_stream_deps.resolve_skill_runtime_state(
             agent_config=fake_agent,
             feature_flags={"skill_runtime_enabled": False},
             chat_id="chat-id",
@@ -1513,7 +1517,7 @@ def test_resolve_skill_runtime_state_uses_injected_runtime_seams(mock_chat_servi
 
 
 def test_resolve_skill_runtime_state_uses_runtime_context_dependencies(mock_chat_service):
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
 
     fake_agent = AgentConfig(
         id="skill-agent",
@@ -1535,8 +1539,8 @@ def test_resolve_skill_runtime_state_uses_runtime_context_dependencies(mock_chat
     runtime_state = MagicMock()
     runtime_state.__dict__ = {"selection_reason_code": "skill_mode_off"}
 
-    with patch("app.api.chat.prompting_resolve_skill_runtime_state", return_value=runtime_state) as mock_prompting:
-        state = chat_api._resolve_skill_runtime_state(
+    with patch("app.api.chat_stream_deps.prompting_resolve_skill_runtime_state", return_value=runtime_state) as mock_prompting:
+        state = chat_stream_deps.resolve_skill_runtime_state(
             agent_config=fake_agent,
             feature_flags={"skill_runtime_enabled": False},
             chat_id="chat-id",
@@ -1552,16 +1556,16 @@ def test_resolve_skill_runtime_state_uses_runtime_context_dependencies(mock_chat
 
 
 def test_assemble_runtime_prompt_builds_default_seams_from_runtime_context():
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
 
     runtime_context = MagicMock(
         skill_import_store=MagicMock(name="import_store"),
         skill_router=MagicMock(name="router"),
     )
     fake_seams = MagicMock(name="runtime_seams")
-    with patch("app.api.chat.build_stage4_lite_runtime_seams", return_value=fake_seams) as mock_build_seams, \
-         patch("app.api.chat.assemble_runtime_prompt", return_value="assembled") as mock_assemble:
-        result = chat_api._assemble_runtime_prompt(
+    with patch("app.api.chat_stream_deps.build_stage4_lite_runtime_seams", return_value=fake_seams) as mock_build_seams, \
+         patch("app.api.chat_stream_deps.assemble_runtime_prompt", return_value="assembled") as mock_assemble:
+        result = chat_stream_deps.assemble_runtime_prompt_with_context(
             runtime_context=runtime_context,
             agent_config=MagicMock(),
             request_system_prompt=None,
@@ -1587,16 +1591,16 @@ def test_assemble_runtime_prompt_builds_default_seams_from_runtime_context():
 
 
 def test_bind_runtime_prompt_helpers_forwards_runtime_context():
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
 
     runtime_context = MagicMock(name="runtime_context")
     fake_agent = MagicMock(name="agent")
     fake_state = {"selection_reason_code": "skill_mode_off"}
     fake_prompt = "assembled"
 
-    with patch("app.api.chat._resolve_skill_runtime_state", return_value=fake_state) as mock_resolve, \
-         patch("app.api.chat._assemble_runtime_prompt", return_value=fake_prompt) as mock_assemble:
-        bindings = chat_api._bind_runtime_prompt_helpers(runtime_context)
+    with patch("app.api.chat_stream_deps.resolve_skill_runtime_state", return_value=fake_state) as mock_resolve, \
+         patch("app.api.chat_stream_deps.assemble_runtime_prompt_with_context", return_value=fake_prompt) as mock_assemble:
+        bindings = chat_stream_deps.bind_runtime_prompt_helpers(runtime_context)
         resolved = bindings["resolve_skill_runtime_state"](
             agent_config=fake_agent,
             feature_flags={},
@@ -1628,11 +1632,11 @@ def test_bind_runtime_prompt_helpers_forwards_runtime_context():
 
 @pytest.mark.asyncio
 async def test_chat_stream_ollama_502(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.fetch_ollama_models") as mock_fetch, \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.fetch_ollama_models") as mock_fetch, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         
         mock_fetch.return_value = ["gpt-4o"]
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
@@ -1663,10 +1667,10 @@ async def test_chat_stream_ollama_502(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_no_tools_fallback(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model") as mock_get_model, \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -1699,12 +1703,15 @@ async def test_chat_stream_no_tools_fallback(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_service):
     with patch.dict("os.environ", {"PROMPT_SCOPE_SUMMARY_ENABLED": "true"}, clear=False), \
-         patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
-         patch("app.api.chat.config_service.get_feature_flags", return_value={
+         patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
+         patch("app.api.chat_stream_deps.config_service.get_feature_flags", return_value={
              "skill_runtime_enabled": True,
+         }), \
+         patch("app.api.chat_stream_deps.config_service.get_doc_access", return_value={
+             "allow_roots": ["/docs"], "deny_roots": [],
          }):
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -1717,6 +1724,7 @@ async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_ser
             provider="openai",
             model="gpt-4o",
             enabled_tools=["builtin:docs_read"],
+            doc_roots=["/docs"],
             skill_mode="auto",
             visible_skills=["pdf-insight-extractor:1.0.0"]
         )
@@ -1752,7 +1760,7 @@ async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_ser
         mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=mock_result)
         mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
 
-        with patch("app.api.chat.get_stage4_lite_runtime_context", return_value=runtime_context):
+        with patch("app.api.chat_stream_deps.get_stage4_lite_runtime_context", return_value=runtime_context):
             response = client.post("/api/chat/stream", json={"message": "请分析这个 PDF", "agent_id": "skill-agent"})
         assert response.status_code == 200
         data_lines = [line[6:] for line in response.iter_lines() if line.startswith("data: ")]
@@ -1774,12 +1782,12 @@ async def test_chat_stream_emits_skill_effectiveness_event(client, mock_chat_ser
 
 @pytest.mark.asyncio
 async def test_chat_stream_with_images(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
          patch("app.api.chat.save_base64_image") as mock_save, \
-         patch("app.api.chat.load_image_to_base64") as mock_load, \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+         patch("app.api.chat_stream_deps.load_image_to_base64") as mock_load, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_save.return_value = "/path/to/img.png"
@@ -1811,10 +1819,10 @@ async def test_chat_stream_with_images(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_persists_attachments(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = MagicMock(messages=[])
@@ -1854,7 +1862,7 @@ async def test_chat_stream_persists_attachments(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_refine_title_once_updates_only_placeholder_title():
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
     user_text = "A" * 35
     placeholder_title = "A" * 30 + "..."
     chat_obj = MagicMock()
@@ -1863,11 +1871,11 @@ async def test_refine_title_once_updates_only_placeholder_title():
         Message(role="user", content=user_text, timestamp=datetime.now()),
         Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
     ]
-    with patch("app.api.chat.chat_service") as mock_service, \
-         patch("app.api.chat.session_meta_service") as mock_meta:
+    with patch("app.api.chat_stream_deps.chat_service") as mock_service, \
+         patch("app.api.chat_stream_deps.session_meta_service") as mock_meta:
         mock_service.get_chat.return_value = chat_obj
         mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
-        await chat_api._refine_title_once("chat-id")
+        await chat_stream_deps.refine_title_once_for_chat("chat-id")
         mock_meta.generate_session_meta.assert_called_once()
         _, kwargs = mock_meta.generate_session_meta.call_args
         assert kwargs.get("task") == "title"
@@ -1875,36 +1883,36 @@ async def test_refine_title_once_updates_only_placeholder_title():
 
 @pytest.mark.asyncio
 async def test_refine_title_once_skips_manual_title():
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
     chat_obj = MagicMock()
     chat_obj.title = "Manual Name"
     chat_obj.messages = [
         Message(role="user", content="hello", timestamp=datetime.now()),
         Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
     ]
-    with patch("app.api.chat.chat_service") as mock_service, \
-         patch("app.api.chat.session_meta_service") as mock_meta:
+    with patch("app.api.chat_stream_deps.chat_service") as mock_service, \
+         patch("app.api.chat_stream_deps.session_meta_service") as mock_meta:
         mock_service.get_chat.return_value = chat_obj
         mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
-        await chat_api._refine_title_once("chat-id")
+        await chat_stream_deps.refine_title_once_for_chat("chat-id")
         mock_meta.generate_session_meta.assert_not_called()
         mock_service.update_chat_title.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_refine_title_once_forwards_runtime_provider_model():
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
     chat_obj = MagicMock()
     chat_obj.title = "A" * 30 + "..."
     chat_obj.messages = [
         Message(role="user", content="A" * 35, timestamp=datetime.now()),
         Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
     ]
-    with patch("app.api.chat.chat_service") as mock_service, \
-         patch("app.api.chat.session_meta_service") as mock_meta, \
-         patch("app.api.chat.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": True}):
+    with patch("app.api.chat_stream_deps.chat_service") as mock_service, \
+         patch("app.api.chat_stream_deps.session_meta_service") as mock_meta, \
+         patch("app.api.chat_stream_deps.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": True}):
         mock_service.get_chat.return_value = chat_obj
         mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
-        await chat_api._refine_title_once("chat-id", provider_override="openai", model_override="gpt-4o")
+        await chat_stream_deps.refine_title_once_for_chat("chat-id", provider_override="openai", model_override="gpt-4o")
         mock_meta.generate_session_meta.assert_called_once()
         _, kwargs = mock_meta.generate_session_meta.call_args
         assert kwargs.get("provider_override") == "openai"
@@ -1912,29 +1920,29 @@ async def test_refine_title_once_forwards_runtime_provider_model():
 
 @pytest.mark.asyncio
 async def test_refine_title_once_ignores_runtime_provider_model_when_disabled():
-    from app.api import chat as chat_api
+    from app.api import chat_stream_deps
     chat_obj = MagicMock()
     chat_obj.title = "A" * 30 + "..."
     chat_obj.messages = [
         Message(role="user", content="A" * 35, timestamp=datetime.now()),
         Message(role="assistant", content="assistant answer", timestamp=datetime.now()),
     ]
-    with patch("app.api.chat.chat_service") as mock_service, \
-         patch("app.api.chat.session_meta_service") as mock_meta, \
-         patch("app.api.chat.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": False}):
+    with patch("app.api.chat_stream_deps.chat_service") as mock_service, \
+         patch("app.api.chat_stream_deps.session_meta_service") as mock_meta, \
+         patch("app.api.chat_stream_deps.config_service.get_llm_config", return_value={"meta_use_runtime_model_for_title": False}):
         mock_service.get_chat.return_value = chat_obj
         mock_meta.generate_session_meta = AsyncMock(return_value="Refined Title")
-        await chat_api._refine_title_once("chat-id", provider_override="openai", model_override="gpt-4o")
+        await chat_stream_deps.refine_title_once_for_chat("chat-id", provider_override="openai", model_override="gpt-4o")
         mock_meta.generate_session_meta.assert_called_once()
         _, kwargs = mock_meta.generate_session_meta.call_args
         assert kwargs.get("provider_override") is None
         assert kwargs.get("model_override") is None
 
 def test_title_refinement_reason_distribution_endpoint(client, mock_chat_service):
-    from app.api import chat as chat_api
-    chat_api._TITLE_REFINEMENT_REASON_COUNTS.clear()
-    chat_api._TITLE_REFINEMENT_REASON_COUNTS["updated"] = 2
-    chat_api._TITLE_REFINEMENT_REASON_COUNTS["non_placeholder"] = 3
+    from app.api import chat_stream_deps
+    chat_stream_deps._TITLE_REFINEMENT_REASON_COUNTS.clear()
+    chat_stream_deps._TITLE_REFINEMENT_REASON_COUNTS["updated"] = 2
+    chat_stream_deps._TITLE_REFINEMENT_REASON_COUNTS["non_placeholder"] = 3
     response = client.get("/api/chat/title-refinement/reasons")
     assert response.status_code == 200
     payload = response.json()
@@ -1943,12 +1951,12 @@ def test_title_refinement_reason_distribution_endpoint(client, mock_chat_service
     assert payload["counts"]["non_placeholder"] == 3
 
 def test_record_title_refinement_reason_counts():
-    from app.api import chat as chat_api
-    chat_api._TITLE_REFINEMENT_REASON_COUNTS.clear()
-    chat_api._record_title_refinement_reason("updated")
-    chat_api._record_title_refinement_reason("updated")
-    chat_api._record_title_refinement_reason("non_placeholder")
-    distribution = chat_api._title_refinement_reason_distribution()
+    from app.api import chat_stream_deps
+    chat_stream_deps._TITLE_REFINEMENT_REASON_COUNTS.clear()
+    chat_stream_deps.record_title_refinement_reason_payload("updated")
+    chat_stream_deps.record_title_refinement_reason_payload("updated")
+    chat_stream_deps.record_title_refinement_reason_payload("non_placeholder")
+    distribution = chat_stream_deps.title_refinement_reason_distribution_payload()
     assert distribution["total"] == 3
     assert distribution["counts"]["updated"] == 2
     assert distribution["counts"]["non_placeholder"] == 1
@@ -1956,10 +1964,10 @@ def test_record_title_refinement_reason_counts():
 @pytest.mark.asyncio
 async def test_chat_stream_with_agent_config(client, mock_chat_service):
     with patch.dict("os.environ", {"PROMPT_SCOPE_SUMMARY_ENABLED": "true"}, clear=False), \
-         patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat.config_service.get_doc_access", return_value={"allow_roots": ["/docs"], "deny_roots": ["/docs/private"]}):
         
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -1994,11 +2002,12 @@ async def test_chat_stream_with_agent_config(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_request_model_role_routes_runtime_model(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model") as mock_get_model, \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
-         patch("app.api.chat.config_service") as mock_config_service:
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
+         patch("app.api.chat_stream_deps.config_service") as mock_config_service, \
+         patch("app.api.chat.config_service", mock_config_service):
 
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -2036,10 +2045,10 @@ async def test_chat_stream_request_model_role_routes_runtime_model(client, mock_
 
 @pytest.mark.asyncio
 async def test_chat_stream_with_thought_tags(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
@@ -2069,10 +2078,10 @@ async def test_chat_stream_with_thought_tags(client, mock_chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_with_citations(client, mock_chat_service):
-    with patch("app.api.chat.agent_store") as mock_agent_store, \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_agent_config = MagicMock()
@@ -2127,10 +2136,10 @@ async def test_chat_stream_with_citations(client, mock_chat_service):
 @pytest.mark.asyncio
 async def test_chat_stream_emits_tool_call_mismatch_when_no_tool_events(client, mock_chat_service):
     with patch.dict("os.environ", {"TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED": "false"}, clear=False), \
-         patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+         patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -2175,10 +2184,10 @@ async def test_chat_stream_auto_retry_after_tool_call_mismatch(client, mock_chat
         "TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED": "true",
         "TOOL_CALL_MISMATCH_FALLBACK_MODEL": "gpt-4o-mini"
     }, clear=False), \
-         patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+         patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -2230,10 +2239,10 @@ async def test_chat_stream_skip_same_model_retry_and_use_next_candidate(client, 
         "TOOL_CALL_MISMATCH_AUTO_RETRY_ENABLED": "true",
         "TOOL_CALL_MISMATCH_FALLBACK_MODELS": "openai/gpt-4o,deepseek/deepseek-chat"
     }, clear=False), \
-         patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model") as mock_get_model, \
-         patch("app.api.chat.Agent") as mock_agent_cls:
+         patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")
         mock_chat_service.get_chat.return_value = None
@@ -2286,10 +2295,10 @@ async def test_chat_stream_skip_same_model_retry_and_use_next_candidate(client, 
 
 @pytest.mark.asyncio
 async def test_chat_stream_emits_meta_reasoning_flags_and_envelope_sequence(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat.config_service.get_model_capabilities") as mock_caps:
         mock_caps.return_value = ["reasoning"]
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
@@ -2332,11 +2341,11 @@ async def test_chat_stream_emits_meta_reasoning_flags_and_envelope_sequence(clie
 
 @pytest.mark.asyncio
 async def test_chat_stream_emits_vision_meta(client, mock_chat_service):
-    with patch("app.api.chat.agent_store"), \
-         patch("app.api.chat.tool_registry") as mock_registry, \
-         patch("app.api.chat.get_model"), \
+    with patch("app.api.chat_stream_deps.agent_store"), \
+         patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+         patch("app.api.chat_stream_deps.get_model"), \
          patch("app.api.chat.save_base64_image", return_value="/files/x.png"), \
-         patch("app.api.chat.Agent") as mock_agent_cls, \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls, \
          patch("app.api.chat.config_service.get_model_capabilities", return_value=["vision"]):
         mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
         mock_chat_service.create_chat.return_value = MagicMock(id="chat-id")

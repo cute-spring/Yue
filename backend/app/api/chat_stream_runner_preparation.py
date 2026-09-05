@@ -66,6 +66,8 @@ def create_stream_runtime(
         assistant_turn_id=ctx.assistant_turn_id,
         serialize_payload=deps.serialize_sse_payload,
         iso_utc_now=deps.iso_utc_now,
+        chart_artifact_sink=ctx.stream_state.chart_artifacts,
+        logger=deps.logger,
     )
     tool_tracker = deps.tool_event_tracker_cls(
         chat_id=ctx.chat_id,
@@ -471,6 +473,19 @@ async def prepare_runtime_dependencies(
             raise model_err
 
     ctx.deps = deps.build_agent_deps(ctx.agent_config)
+
+    async def emit_chart_artifact_payload(payload: Dict[str, Any]) -> None:
+        await tool_tracker.on_tool_event(
+            {
+                "event": "artifact.chart.created",
+                "payload": payload,
+                "run_id": ctx.run_id,
+                "assistant_turn_id": ctx.assistant_turn_id,
+            }
+        )
+
+    if isinstance(ctx.deps, dict):
+        ctx.deps["emit_chart_artifact"] = emit_chart_artifact_payload
     ctx.model_settings = deps.patch_model_settings(
         deps.config_service.get_model_settings(ctx.provider, ctx.model_name)
     )
