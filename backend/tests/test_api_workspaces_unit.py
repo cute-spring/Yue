@@ -692,6 +692,97 @@ def test_create_research_artifact(client, mock_workspace_service):
 
     assert response.status_code == 200
     assert response.json()["artifact_type"] == "research_report"
+    metadata = mock_workspace_service.create_artifact.call_args.kwargs["artifact_metadata"]
+    assert metadata["evidence_contract"]["claim_states"]["source_supported"] == "Source-supported"
+    assert metadata["evidence_contract"]["source_scope_preview"] == {
+        "mode": "require_sources",
+        "source_ids": ["src_1"],
+        "source_count": 1,
+        "unavailable_source_ids": [],
+        "citation_requirement": "required",
+    }
+    assert metadata["durable_memory_write"] == "not_performed"
+
+
+def test_create_research_artifact_tracks_cited_and_unsupported_claims(client, mock_workspace_service):
+    artifact_payload = {
+        "id": "art_research",
+        "workspace_id": "ws_1",
+        "artifact_type": "research_report",
+        "title": "What is supported?",
+        "source_session_id": None,
+        "source_message_id": None,
+        "action_state_id": None,
+        "artifact_path": None,
+        "content_ref": "research:What is supported?",
+        "artifact_metadata": {},
+        "created_at": "2026-05-30T00:00:00Z",
+        "updated_at": "2026-05-30T00:00:00Z",
+    }
+    mock_workspace_service.get_source.return_value = object()
+    mock_artifact = type("WorkspaceArtifactStub", (), {"model_dump": lambda self, mode="json": artifact_payload})()
+    mock_workspace_service.create_artifact.return_value = mock_artifact
+
+    response = client.post(
+        "/api/workspaces/ws_1/research-artifacts",
+        json={
+            "question": "What is supported?",
+            "source_ids": ["src_1"],
+            "findings": [
+                {
+                    "claim": "Cited claim",
+                    "evidence_state": "source_supported",
+                    "citations": [{"source_id": "src_1", "quote": "Evidence"}],
+                },
+                {"claim": "Unsupported claim", "evidence_state": "unsupported"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    metadata = mock_workspace_service.create_artifact.call_args.kwargs["artifact_metadata"]
+    assert metadata["findings"][0]["evidence_state"] == "source_supported"
+    assert metadata["findings"][1]["evidence_state"] == "unsupported"
+    assert metadata["citation_warnings"] == []
+
+
+def test_create_research_artifact_warns_for_missing_evidence(client, mock_workspace_service):
+    artifact_payload = {
+        "id": "art_research",
+        "workspace_id": "ws_1",
+        "artifact_type": "research_report",
+        "title": "What is missing?",
+        "source_session_id": None,
+        "source_message_id": None,
+        "action_state_id": None,
+        "artifact_path": None,
+        "content_ref": "research:What is missing?",
+        "artifact_metadata": {},
+        "created_at": "2026-05-30T00:00:00Z",
+        "updated_at": "2026-05-30T00:00:00Z",
+    }
+    mock_workspace_service.create_artifact.return_value = type(
+        "WorkspaceArtifactStub",
+        (),
+        {"model_dump": lambda self, mode="json": artifact_payload},
+    )()
+
+    response = client.post(
+        "/api/workspaces/ws_1/research-artifacts",
+        json={
+            "question": "What is missing?",
+            "mode": "require_sources",
+            "findings": [{"claim": "Needs citation", "evidence_state": "source_supported"}],
+            "missing_evidence": ["No source confirms launch date."],
+            "unavailable_source_ids": ["src_missing"],
+        },
+    )
+
+    assert response.status_code == 200
+    metadata = mock_workspace_service.create_artifact.call_args.kwargs["artifact_metadata"]
+    assert metadata["missing_evidence"] == ["No source confirms launch date."]
+    assert metadata["unavailable_source_ids"] == ["src_missing"]
+    assert metadata["citation_warnings"] == ["Finding 1 is source-supported but has no citation."]
 
 
 def test_create_research_artifact_rejects_unknown_source(client, mock_workspace_service):

@@ -356,6 +356,12 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     const question =
       [...args.messages()].reverse().find((message) => message.role === 'user')?.content ||
       'Workspace research artifact';
+    const citations = lastAssistantMsg.citations || [];
+    const evidenceState = citations.length > 0 ? 'source_supported' : 'inferred';
+    const missingEvidence =
+      groundingMode() === 'require_sources' && citations.length === 0
+        ? ['No citations were captured for the saved assistant response.']
+        : [];
     const res = await fetch(`/api/workspaces/${workspaceId}/research-artifacts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -364,6 +370,15 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
         summary: lastAssistantMsg.content,
         source_ids: effectiveWorkspaceSourceIds(),
         mode: groundingMode(),
+        findings: [
+          {
+            claim: lastAssistantMsg.content,
+            evidence_state: evidenceState,
+            citations,
+          },
+        ],
+        missing_evidence: missingEvidence,
+        citation_warnings: missingEvidence,
         source_session_id: chatId,
         source_message_id: typeof lastAssistantMsg.id === 'number' ? lastAssistantMsg.id : undefined,
       }),

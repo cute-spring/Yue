@@ -13,12 +13,24 @@ export type ResearchArtifactMetadata = {
   summary: string;
   sourceIds: string[];
   mode: string;
+  findings: Record<string, unknown>[];
   openQuestions: string[];
   exportPaths: string[];
+  evidenceContract: {
+    claimStates: Record<string, string>;
+    sourceScopePreview: Record<string, unknown>;
+    citationWarnings: string[];
+    missingEvidence: string[];
+    durableMemoryWrite: string;
+  };
 };
 
 export const getResearchArtifactMetadata = (artifact: WorkspaceArtifact): ResearchArtifactMetadata => {
   const metadata = artifact.artifact_metadata || {};
+  const evidenceContract =
+    typeof metadata.evidence_contract === 'object' && metadata.evidence_contract !== null
+      ? (metadata.evidence_contract as Record<string, unknown>)
+      : {};
   return {
     question: typeof metadata.question === 'string' && metadata.question.trim() ? metadata.question : artifact.title,
     summary: typeof metadata.summary === 'string' ? metadata.summary : '',
@@ -26,12 +38,42 @@ export const getResearchArtifactMetadata = (artifact: WorkspaceArtifact): Resear
       ? metadata.source_ids.filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
       : [],
     mode: typeof metadata.mode === 'string' && metadata.mode.trim() ? metadata.mode : 'normal',
+    findings: Array.isArray(metadata.findings)
+      ? metadata.findings.filter(
+          (value: unknown): value is Record<string, unknown> =>
+            typeof value === 'object' && value !== null,
+        )
+      : [],
     openQuestions: Array.isArray(metadata.open_questions)
       ? metadata.open_questions.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
       : [],
     exportPaths: Array.isArray(metadata.export_paths)
       ? metadata.export_paths.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
       : [],
+    evidenceContract: {
+      claimStates:
+        typeof evidenceContract.claim_states === 'object' && evidenceContract.claim_states !== null
+          ? (evidenceContract.claim_states as Record<string, string>)
+          : {},
+      sourceScopePreview:
+        typeof evidenceContract.source_scope_preview === 'object' && evidenceContract.source_scope_preview !== null
+          ? (evidenceContract.source_scope_preview as Record<string, unknown>)
+          : {},
+      citationWarnings: Array.isArray(evidenceContract.citation_warnings)
+        ? evidenceContract.citation_warnings.filter(
+            (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
+          )
+        : [],
+      missingEvidence: Array.isArray(evidenceContract.missing_evidence)
+        ? evidenceContract.missing_evidence.filter(
+            (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
+          )
+        : [],
+      durableMemoryWrite:
+        typeof evidenceContract.durable_memory_write === 'string'
+          ? evidenceContract.durable_memory_write
+          : 'requires_separate_user_confirmation',
+    },
   };
 };
 

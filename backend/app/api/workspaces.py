@@ -146,8 +146,37 @@ class ResearchArtifactCreate(BaseModel):
     findings: list[Dict[str, Any]] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     export_paths: list[str] = Field(default_factory=list)
+    unavailable_source_ids: list[str] = Field(default_factory=list)
+    citation_warnings: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
     source_session_id: Optional[str] = None
     source_message_id: Optional[int] = None
+
+
+RESEARCH_EVIDENCE_LABELS = {
+    "source_supported": "Source-supported",
+    "inferred": "Inferred",
+    "user_confirmed": "User-confirmed",
+    "unsupported": "Unsupported",
+    "missing_evidence": "Missing evidence",
+}
+
+
+def _normalize_research_findings(findings: list[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], list[str]]:
+    normalized: list[Dict[str, Any]] = []
+    warnings: list[str] = []
+    for index, finding in enumerate(findings):
+        next_finding = dict(finding)
+        state = str(next_finding.get("evidence_state") or "inferred").strip()
+        if state not in RESEARCH_EVIDENCE_LABELS:
+            state = "inferred"
+        next_finding["evidence_state"] = state
+        citations = next_finding.get("citations")
+        has_citations = isinstance(citations, list) and len(citations) > 0
+        if state == "source_supported" and not has_citations:
+            warnings.append(f"Finding {index + 1} is source-supported but has no citation.")
+        normalized.append(next_finding)
+    return normalized, warnings
 
 
 class NoteFromMessageCreate(BaseModel):
@@ -385,14 +414,40 @@ async def create_research_artifact(workspace_id: str, payload: ResearchArtifactC
         if workspace_service.get_source(workspace_id, source_id) is None:
             raise HTTPException(status_code=400, detail=f"Invalid workspace source id: {source_id}")
 
+    findings, generated_warnings = _normalize_research_findings(payload.findings)
+    citation_warnings = [*payload.citation_warnings, *generated_warnings]
+    citation_requirement = (
+        "required"
+        if payload.mode == "require_sources"
+        else "preferred"
+        if payload.mode == "prefer_sources"
+        else "optional"
+    )
     metadata = {
         "question": question,
         "source_ids": payload.source_ids,
         "mode": payload.mode,
         "summary": payload.summary,
-        "findings": payload.findings,
+        "findings": findings,
         "open_questions": payload.open_questions,
         "export_paths": payload.export_paths,
+        "evidence_contract": {
+            "claim_states": RESEARCH_EVIDENCE_LABELS,
+            "source_scope_preview": {
+                "mode": payload.mode,
+                "source_ids": payload.source_ids,
+                "source_count": len(payload.source_ids),
+                "unavailable_source_ids": payload.unavailable_source_ids,
+                "citation_requirement": citation_requirement,
+            },
+            "citation_warnings": citation_warnings,
+            "missing_evidence": payload.missing_evidence,
+            "durable_memory_write": "requires_separate_user_confirmation",
+        },
+        "unavailable_source_ids": payload.unavailable_source_ids,
+        "citation_warnings": citation_warnings,
+        "missing_evidence": payload.missing_evidence,
+        "durable_memory_write": "not_performed",
     }
     artifact = workspace_service.create_artifact(
         workspace_id,

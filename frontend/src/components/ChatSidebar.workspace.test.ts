@@ -53,8 +53,35 @@ describe('ChatSidebar research artifact helpers', () => {
       summary: 'The answer summary.',
       source_ids: ['src_pdf', 'missing_src'],
       mode: 'require_sources',
+      findings: [
+        {
+          claim: 'Cited claim',
+          evidence_state: 'source_supported',
+          citations: [{ source_id: 'src_pdf' }],
+        },
+        { claim: 'Unsupported claim', evidence_state: 'unsupported' },
+      ],
       open_questions: ['What is unresolved?'],
       export_paths: ['/tmp/report.md'],
+      evidence_contract: {
+        claim_states: {
+          source_supported: 'Source-supported',
+          inferred: 'Inferred',
+          user_confirmed: 'User-confirmed',
+          unsupported: 'Unsupported',
+          missing_evidence: 'Missing evidence',
+        },
+        source_scope_preview: {
+          mode: 'require_sources',
+          source_ids: ['src_pdf', 'missing_src'],
+          source_count: 2,
+          unavailable_source_ids: ['missing_src'],
+          citation_requirement: 'required',
+        },
+        citation_warnings: ['missing_src is unavailable'],
+        missing_evidence: ['No source confirms the rollout date.'],
+        durable_memory_write: 'requires_separate_user_confirmation',
+      },
     },
     created_at: '2026-05-30T00:00:00Z',
     updated_at: '2026-05-30T00:00:00Z',
@@ -79,8 +106,35 @@ describe('ChatSidebar research artifact helpers', () => {
       summary: 'The answer summary.',
       sourceIds: ['src_pdf', 'missing_src'],
       mode: 'require_sources',
+      findings: [
+        {
+          claim: 'Cited claim',
+          evidence_state: 'source_supported',
+          citations: [{ source_id: 'src_pdf' }],
+        },
+        { claim: 'Unsupported claim', evidence_state: 'unsupported' },
+      ],
       openQuestions: ['What is unresolved?'],
       exportPaths: ['/tmp/report.md'],
+      evidenceContract: {
+        claimStates: {
+          source_supported: 'Source-supported',
+          inferred: 'Inferred',
+          user_confirmed: 'User-confirmed',
+          unsupported: 'Unsupported',
+          missing_evidence: 'Missing evidence',
+        },
+        sourceScopePreview: {
+          mode: 'require_sources',
+          source_ids: ['src_pdf', 'missing_src'],
+          source_count: 2,
+          unavailable_source_ids: ['missing_src'],
+          citation_requirement: 'required',
+        },
+        citationWarnings: ['missing_src is unavailable'],
+        missingEvidence: ['No source confirms the rollout date.'],
+        durableMemoryWrite: 'requires_separate_user_confirmation',
+      },
     });
   });
 
