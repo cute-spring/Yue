@@ -3,6 +3,7 @@ import {
   DiscoveryQuestionnaireArtifactInput,
   Message,
   SessionHandoffArtifactInput,
+  WorkspaceArtifact,
   WorkspaceNote,
 } from '../../../types';
 
@@ -21,6 +22,7 @@ type HandleChatCommandArgs = {
   saveSessionHandoffArtifact: (handoff: SessionHandoffArtifactInput) => Promise<void>;
   saveDiscoveryQuestionnaireArtifact: (questionnaire: DiscoveryQuestionnaireArtifactInput) => Promise<void>;
   messages: Message[];
+  workspaceArtifacts: WorkspaceArtifact[];
   toast: ToastLike;
 };
 
@@ -140,8 +142,43 @@ const latestNumericMessageId = (messages: Message[]): number | null => {
   return typeof message?.id === 'number' ? message.id : null;
 };
 
+const EARLY_WORKBENCH_ARTIFACT_TYPES = new Set([
+  'clarify_decision_brief',
+  'decision_brief',
+  'session_handoff',
+  'discovery_questionnaire',
+]);
+
+const relatedWorkbenchArtifacts = (artifacts: WorkspaceArtifact[]): WorkspaceArtifact[] =>
+  artifacts
+    .filter((artifact) => EARLY_WORKBENCH_ARTIFACT_TYPES.has(artifact.artifact_type))
+    .slice(0, 8);
+
+const artifactReferences = (artifacts: WorkspaceArtifact[]): Record<string, unknown>[] =>
+  relatedWorkbenchArtifacts(artifacts).map((artifact) => ({
+    id: artifact.id,
+    type: artifact.artifact_type,
+    title: artifact.title,
+    content_ref: artifact.content_ref || null,
+    source_session_id: artifact.source_session_id || null,
+    source_message_id: artifact.source_message_id || null,
+  }));
+
+const formatArtifactReferences = (artifacts: WorkspaceArtifact[]): string => {
+  const refs = relatedWorkbenchArtifacts(artifacts);
+  if (!refs.length) return '- No related early workbench artifacts linked yet.';
+  return refs
+    .map((artifact) =>
+      `- ${artifact.title} (${artifact.artifact_type}, id: ${artifact.id}${
+        artifact.content_ref ? `, ref: ${artifact.content_ref}` : ''
+      })`,
+    )
+    .join('\n');
+};
+
 export const buildSessionHandoffArtifact = (
   messages: Message[],
+  workspaceArtifacts: WorkspaceArtifact[] = [],
   generatedAt = new Date(),
 ): SessionHandoffArtifactInput => {
   const includedMessages = messages.filter((message) => message.content?.trim());
@@ -205,6 +242,9 @@ export const buildSessionHandoffArtifact = (
       ? chartArtifacts.map((artifact, index) => `- Artifact ${index + 1}: ${normalizeForLine(redact(JSON.stringify(artifact)))}`).join('\n')
       : '- No generated artifacts captured in this chat.',
     '',
+    '## Related Workspace Artifacts',
+    formatArtifactReferences(workspaceArtifacts),
+    '',
     '## Blockers',
     section(blockers),
     '',
@@ -235,6 +275,7 @@ export const buildSessionHandoffArtifact = (
         'assumptions',
         'sources',
         'artifacts',
+        'related_workspace_artifacts',
         'blockers',
         'open_questions',
         'proposed_next_actions',
@@ -245,6 +286,7 @@ export const buildSessionHandoffArtifact = (
         redacts: ['api keys', 'passwords', 'secrets', 'tokens', 'bearer credentials', 'JWTs'],
       },
       source_message_ids: sourceMessageIds,
+      related_artifacts: artifactReferences(workspaceArtifacts),
       no_external_side_effects: true,
     },
   };
@@ -280,6 +322,7 @@ const inferRecipient = (gap: string): string => {
 export const buildDiscoveryQuestionnaireArtifact = (
   gap: string,
   messages: Message[],
+  workspaceArtifacts: WorkspaceArtifact[] = [],
   generatedAt = new Date(),
 ): DiscoveryQuestionnaireArtifactInput => {
   const normalizedGap = normalizeForLine(redact(gap), 'Unspecified human information gap.');
@@ -324,6 +367,9 @@ export const buildDiscoveryQuestionnaireArtifact = (
     '## Context For Recipient',
     section(recentContext, 'No additional chat context captured.'),
     '',
+    '## Related Workspace Artifacts',
+    formatArtifactReferences(workspaceArtifacts),
+    '',
     '## Fact Questions',
     ...factQuestions.map((question, index) => [
       `${index + 1}. ${question}`,
@@ -364,6 +410,7 @@ export const buildDiscoveryQuestionnaireArtifact = (
       recipient,
       question_classes: ['fact', 'decision_or_preference'],
       source_message_ids: sourceMessageIds,
+      related_artifacts: artifactReferences(workspaceArtifacts),
       no_external_side_effects: true,
       requires_user_approval_before_send: true,
     },
@@ -380,6 +427,7 @@ export const handleChatCommand = ({
   saveSessionHandoffArtifact,
   saveDiscoveryQuestionnaireArtifact,
   messages,
+  workspaceArtifacts,
   toast,
 }: HandleChatCommandArgs): boolean => {
   if (trimmedInput === '/help') {
@@ -414,7 +462,7 @@ export const handleChatCommand = ({
   }
 
   if (trimmedInput === HANDOFF_COMMAND || trimmedInput.startsWith(`${HANDOFF_COMMAND} `)) {
-    const handoff = buildSessionHandoffArtifact(messages);
+    const handoff = buildSessionHandoffArtifact(messages, workspaceArtifacts);
     saveSessionHandoffArtifact(handoff)
       .then(() => toast.success('Saved session handoff artifact.', 3000))
       .catch((err) => {
@@ -434,7 +482,7 @@ export const handleChatCommand = ({
       return true;
     }
 
-    const questionnaire = buildDiscoveryQuestionnaireArtifact(gap, messages);
+    const questionnaire = buildDiscoveryQuestionnaireArtifact(gap, messages, workspaceArtifacts);
     saveDiscoveryQuestionnaireArtifact(questionnaire)
       .then(() => toast.success('Saved discovery questionnaire artifact.', 3000))
       .catch((err) => {

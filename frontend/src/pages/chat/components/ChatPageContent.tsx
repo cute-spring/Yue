@@ -310,6 +310,7 @@ export default function ChatPageContent(props: {
     setInput,
     messages,
     setMessages,
+    workspaceArtifacts,
     imageAttachments,
     isTyping,
     selectedModel,

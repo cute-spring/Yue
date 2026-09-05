@@ -4,6 +4,7 @@ import {
   Message,
   SessionHandoffArtifactInput,
   SkillSpec,
+  WorkspaceArtifact,
   WorkspaceNote,
 } from '../../../types';
 import { canSubmitChatRequest } from '../../../hooks/useChatState';
@@ -36,6 +37,7 @@ type UseChatContentActionsArgs = {
   setInput: Setter<string>;
   messages: Accessor<Message[]>;
   setMessages: Setter<Message[]>;
+  workspaceArtifacts: Accessor<WorkspaceArtifact[]>;
   imageAttachments: Accessor<File[]>;
   isTyping: Accessor<boolean>;
   selectedModel: Accessor<string>;
@@ -113,6 +115,7 @@ export function useChatContentActions(args: UseChatContentActionsArgs) {
         saveSessionHandoffArtifact: args.saveSessionHandoffArtifact,
         saveDiscoveryQuestionnaireArtifact: args.saveDiscoveryQuestionnaireArtifact,
         messages: args.messages(),
+        workspaceArtifacts: args.workspaceArtifacts(),
         toast: args.toast,
       })
     ) {

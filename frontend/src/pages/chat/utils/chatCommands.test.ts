@@ -12,10 +12,12 @@ import {
   DiscoveryQuestionnaireArtifactInput,
   Message,
   SessionHandoffArtifactInput,
+  WorkspaceArtifact,
 } from '../../../types';
 
 const createCommandHarness = () => {
   const messages: Message[] = [];
+  const workspaceArtifacts: WorkspaceArtifact[] = [];
   let input = '';
   const submitText = vi.fn();
   const saveSessionHandoffArtifact = vi.fn(async (_handoff: SessionHandoffArtifactInput) => undefined);
@@ -24,6 +26,7 @@ const createCommandHarness = () => {
   );
   const harness = {
     messages,
+    workspaceArtifacts,
     submitText,
     saveSessionHandoffArtifact,
     saveDiscoveryQuestionnaireArtifact,
@@ -49,6 +52,7 @@ const createCommandHarness = () => {
         saveSessionHandoffArtifact: harness.saveSessionHandoffArtifact,
         saveDiscoveryQuestionnaireArtifact: harness.saveDiscoveryQuestionnaireArtifact,
         messages: harness.messages,
+        workspaceArtifacts: harness.workspaceArtifacts,
         toast: {
           error: () => undefined,
           success: () => undefined,
@@ -129,6 +133,7 @@ describe('chat commands', () => {
           citations: [{ url: 'https://example.test/source' }],
         },
       ],
+      [],
       new Date('2026-09-05T12:00:00.000Z'),
     );
 
@@ -207,6 +212,7 @@ describe('chat commands', () => {
         { id: 1, role: 'user', content: 'We need to ship the roadmap.' },
         { id: 2, role: 'assistant', content: 'Current blocker: stakeholder constraints are missing.' },
       ],
+      [],
       new Date('2026-09-05T12:00:00.000Z'),
     );
 
@@ -222,6 +228,60 @@ describe('chat commands', () => {
     expect(questionnaire.artifact_metadata.question_classes).toEqual(['fact', 'decision_or_preference']);
     expect(questionnaire.artifact_metadata.no_external_side_effects).toBe(true);
     expect(questionnaire.artifact_metadata.requires_user_approval_before_send).toBe(true);
+  });
+
+  it('links early workbench artifacts into handoffs and questionnaires without triggering follow-up work', () => {
+    const workspaceArtifacts = [
+      {
+        id: 'brief-1',
+        workspace_id: 'workspace-1',
+        artifact_type: 'clarify_decision_brief',
+        title: 'Clarify brief - rollout choices',
+        source_session_id: 'chat-1',
+        source_message_id: 4,
+        content_ref: 'decision-brief:chat-1:2026-09-05T12:00:00.000Z',
+        artifact_metadata: {},
+        created_at: '2026-09-05T12:00:00.000Z',
+        updated_at: '2026-09-05T12:00:00.000Z',
+      },
+      {
+        id: 'handoff-1',
+        workspace_id: 'workspace-1',
+        artifact_type: 'session_handoff',
+        title: 'Session handoff - 2026-09-05',
+        source_session_id: 'chat-1',
+        source_message_id: 5,
+        content_ref: 'session-handoff:chat-1:2026-09-05T12:00:00.000Z',
+        artifact_metadata: {},
+        created_at: '2026-09-05T12:00:00.000Z',
+        updated_at: '2026-09-05T12:00:00.000Z',
+      },
+    ];
+
+    const handoff = buildSessionHandoffArtifact(
+      [{ id: 6, role: 'user', content: 'Prepare continuation' }],
+      workspaceArtifacts,
+      new Date('2026-09-05T13:00:00.000Z'),
+    );
+    const questionnaire = buildDiscoveryQuestionnaireArtifact(
+      'Ask the PM for launch approval criteria',
+      [{ id: 7, role: 'user', content: 'Need PM input.' }],
+      workspaceArtifacts,
+      new Date('2026-09-05T13:00:00.000Z'),
+    );
+
+    expect(handoff.markdown).toContain('## Related Workspace Artifacts');
+    expect(handoff.markdown).toContain('Clarify brief - rollout choices');
+    expect(handoff.artifact_metadata.related_artifacts).toMatchObject([
+      { id: 'brief-1', type: 'clarify_decision_brief' },
+      { id: 'handoff-1', type: 'session_handoff' },
+    ]);
+    expect(questionnaire.markdown).toContain('Session handoff - 2026-09-05');
+    expect(questionnaire.artifact_metadata.related_artifacts).toMatchObject([
+      { id: 'brief-1', type: 'clarify_decision_brief' },
+      { id: 'handoff-1', type: 'session_handoff' },
+    ]);
+    expect(questionnaire.artifact_metadata.no_external_side_effects).toBe(true);
   });
 
   it('saves slash questionnaire as a workspace artifact without submitting chat text', () => {
