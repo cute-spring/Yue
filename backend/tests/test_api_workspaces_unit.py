@@ -1,6 +1,7 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.api.workspaces import router
@@ -294,6 +295,104 @@ def test_create_research_artifact_rejects_unknown_source(client, mock_workspace_
     )
 
     assert response.status_code == 400
+
+
+def test_create_chart_artifact_from_message(client, mock_workspace_service):
+    artifact_payload = {
+        "id": "art_chart",
+        "workspace_id": "ws_1",
+        "artifact_type": "chart",
+        "title": "Revenue by Region",
+        "source_session_id": "chat_1",
+        "source_message_id": 10,
+        "action_state_id": None,
+        "artifact_path": None,
+        "content_ref": "chart:chat_1:10:chart_1",
+        "artifact_metadata": {"artifact_id": "chart_1"},
+        "created_at": "2026-07-24T00:00:00Z",
+        "updated_at": "2026-07-24T00:00:00Z",
+    }
+    mock_workspace_service.get_workspace.return_value = object()
+    mock_artifact = type("WorkspaceArtifactStub", (), {"model_dump": lambda self, mode="json": artifact_payload})()
+    mock_workspace_service.create_artifact.return_value = mock_artifact
+
+    with patch("app.api.workspaces.chat_service") as mock_chat_service:
+        mock_chat_service.get_chat.return_value = SimpleNamespace(
+            id="chat_1",
+            workspace_id="ws_1",
+            messages=[
+                SimpleNamespace(
+                    id=10,
+                    role="assistant",
+                    chart_artifacts=[
+                        {
+                            "artifact_id": "chart_1",
+                            "artifact_type": "chart",
+                            "display_mode": "inline",
+                            "assistant_turn_id": "turn_1",
+                            "run_id": "run_1",
+                            "sequence": 4,
+                            "chart": {
+                                "version": 1,
+                                "kind": "chart",
+                                "chartType": "bar",
+                                "title": "Revenue by Region",
+                                "data": [{"region": "APAC", "revenue": 120}],
+                                "encoding": {
+                                    "x": {"field": "region", "type": "category"},
+                                    "y": {"field": "revenue", "type": "number"},
+                                },
+                            },
+                        }
+                    ],
+                )
+            ],
+        )
+
+        response = client.post(
+            "/api/workspaces/ws_1/charts/from-message",
+            json={"chat_id": "chat_1", "message_id": 10, "artifact_id": "chart_1"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["artifact_type"] == "chart"
+    mock_workspace_service.create_artifact.assert_called_once()
+    _, kwargs = mock_workspace_service.create_artifact.call_args
+    assert kwargs["artifact_type"] == "chart"
+    assert kwargs["title"] == "Revenue by Region"
+    assert kwargs["source_session_id"] == "chat_1"
+    assert kwargs["source_message_id"] == 10
+    assert kwargs["artifact_metadata"]["chart"]["chartType"] == "bar"
+
+
+def test_create_chart_artifact_from_message_rejects_wrong_workspace_chat(client, mock_workspace_service):
+    mock_workspace_service.get_workspace.return_value = object()
+    with patch("app.api.workspaces.chat_service") as mock_chat_service:
+        mock_chat_service.get_chat.return_value = SimpleNamespace(id="chat_1", workspace_id="ws_other", messages=[])
+
+        response = client.post(
+            "/api/workspaces/ws_1/charts/from-message",
+            json={"chat_id": "chat_1", "artifact_id": "chart_1"},
+        )
+
+    assert response.status_code == 404
+
+
+def test_create_chart_artifact_from_message_rejects_missing_chart(client, mock_workspace_service):
+    mock_workspace_service.get_workspace.return_value = object()
+    with patch("app.api.workspaces.chat_service") as mock_chat_service:
+        mock_chat_service.get_chat.return_value = SimpleNamespace(
+            id="chat_1",
+            workspace_id="ws_1",
+            messages=[SimpleNamespace(id=10, role="assistant", chart_artifacts=[])],
+        )
+
+        response = client.post(
+            "/api/workspaces/ws_1/charts/from-message",
+            json={"chat_id": "chat_1", "message_id": 10, "artifact_id": "chart_1"},
+        )
+
+    assert response.status_code == 404
 
 
 def test_update_workspace(client, mock_workspace_service):

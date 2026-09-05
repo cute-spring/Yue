@@ -1,5 +1,5 @@
 import { For, Show } from 'solid-js';
-import { Message } from '../types';
+import { Message, StructuredChartArtifact } from '../types';
 import MessageItem from './MessageItem';
 import { getMergedContinuationContent, hasContinuationSiblings } from '../utils/continuation';
 
@@ -16,6 +16,7 @@ interface MessageListProps {
   handleRegenerate: (index: number) => void;
   handleEditQuestion: (index: number, newContent: string) => Promise<void>;
   onContinue: (msg: Message) => void;
+  onSaveChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => Promise<void> | void;
   messagesEndRef: (el: HTMLDivElement) => void;
   chatContainerRef: (el: HTMLDivElement) => void;
   handleScroll: (e: Event) => void;
@@ -116,6 +117,7 @@ export default function MessageList(props: MessageListProps) {
                 handleRegenerate={props.handleRegenerate}
                 handleEditQuestion={props.handleEditQuestion}
                 onContinue={props.onContinue}
+                onSaveChartArtifact={props.onSaveChartArtifact}
                 selectedProvider={props.selectedProvider}
                 selectedModel={props.selectedModel}
               />

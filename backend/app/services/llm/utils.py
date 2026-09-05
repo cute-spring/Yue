@@ -12,7 +12,7 @@ from app.services.config_service import config_service
 logger = logging.getLogger(__name__)
 
 _shared_http_client: Optional[httpx.AsyncClient] = None
-_shared_ollama_client: Optional[httpx.AsyncClient] = None
+_shared_ollama_client: Optional[httpx2.AsyncClient] = None
 _shared_pydantic_ai_http_client: Optional[httpx2.AsyncClient] = None
 _model_cache: Dict[str, Dict[str, Any]] = {}
 _CACHE_TTL = 3600  # seconds
@@ -80,7 +80,7 @@ def get_model_cache() -> Dict[str, Dict[str, Any]]:
 def get_cache_ttl() -> int:
     return _CACHE_TTL
 
-def get_ollama_http_client() -> httpx.AsyncClient:
+def get_ollama_http_client() -> httpx2.AsyncClient:
     global _shared_ollama_client
     if _shared_ollama_client is None:
         llm_config = config_service.get_llm_config()
@@ -100,7 +100,7 @@ def get_ollama_http_client() -> httpx.AsyncClient:
         except ImportError:
             pass
 
-        _shared_ollama_client = httpx.AsyncClient(**kwargs)
+        _shared_ollama_client = httpx2.AsyncClient(**kwargs)
     return _shared_ollama_client
 
 def _get_proxies_config(llm_config: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -162,7 +162,16 @@ def _apply_proxy_env(llm_config: Dict[str, Any]) -> None:
         os.environ["no_proxy"] = no_proxy_val
     else:
         # Clear them if not configured to avoid side effects
-        for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy"]:
+        for key in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "NO_PROXY",
+            "no_proxy",
+        ]:
             os.environ.pop(key, None)
 
 def build_async_client(

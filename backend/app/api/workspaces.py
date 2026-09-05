@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.services.chat_service import chat_service
+from app.services.chart_artifacts import validate_chart_artifact_payload
 from app.services.notebook_service import notebook_service
 from app.services.workspace_service import workspace_service
 
@@ -81,6 +82,13 @@ class NoteFromSourceCreate(BaseModel):
     title: Optional[str] = None
     content: str
     citation_refs: list[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ChartArtifactFromMessageCreate(BaseModel):
+    chat_id: str
+    artifact_id: str
+    message_id: Optional[int] = None
+    title: Optional[str] = None
 
 
 @router.get("/")
@@ -238,6 +246,84 @@ async def create_research_artifact(workspace_id: str, payload: ResearchArtifactC
         source_message_id=payload.source_message_id,
         content_ref=f"research:{question[:48]}",
         artifact_metadata=metadata,
+    )
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return artifact.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/charts/from-message")
+async def create_chart_artifact_from_message(workspace_id: str, payload: ChartArtifactFromMessageCreate):
+    workspace = workspace_service.get_workspace(workspace_id)
+    if workspace is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    chat = chat_service.get_chat(payload.chat_id)
+    if chat is None or chat.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Workspace chat not found")
+
+    message = None
+    if payload.message_id is not None:
+        message = next((msg for msg in chat.messages if msg.id == payload.message_id), None)
+    else:
+        message = next(
+            (
+                msg
+                for msg in reversed(chat.messages)
+                if msg.role == "assistant"
+                and any(
+                    isinstance(artifact, dict) and artifact.get("artifact_id") == payload.artifact_id
+                    for artifact in (msg.chart_artifacts or [])
+                )
+            ),
+            None,
+        )
+    if message is None or message.role != "assistant":
+        raise HTTPException(status_code=404, detail="Assistant message not found")
+
+    chart_artifact = next(
+        (
+            artifact
+            for artifact in (message.chart_artifacts or [])
+            if isinstance(artifact, dict) and artifact.get("artifact_id") == payload.artifact_id
+        ),
+        None,
+    )
+    if chart_artifact is None:
+        raise HTTPException(status_code=404, detail="Chart artifact not found")
+
+    try:
+        validated_artifact = validate_chart_artifact_payload(
+            {
+                "artifact_id": chart_artifact.get("artifact_id"),
+                "artifact_type": chart_artifact.get("artifact_type"),
+                "display_mode": chart_artifact.get("display_mode"),
+                "placement": chart_artifact.get("placement"),
+                "chart": chart_artifact.get("chart"),
+            }
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid chart artifact: {exc}") from exc
+
+    chart = validated_artifact["chart"]
+    title = (payload.title or chart.get("title") or chart_artifact.get("title") or "Yue chart").strip()
+    artifact = workspace_service.create_artifact(
+        workspace_id,
+        artifact_type="chart",
+        title=title[:120],
+        source_session_id=chat.id,
+        source_message_id=message.id if isinstance(message.id, int) else None,
+        content_ref=f"chart:{chat.id}:{message.id}:{payload.artifact_id}",
+        artifact_metadata={
+            "artifact_id": payload.artifact_id,
+            "artifact_type": "chart",
+            "display_mode": "inline",
+            "assistant_turn_id": chart_artifact.get("assistant_turn_id"),
+            "run_id": chart_artifact.get("run_id"),
+            "sequence": chart_artifact.get("sequence"),
+            "ts": chart_artifact.get("ts"),
+            "placement": chart_artifact.get("placement"),
+            "chart": chart,
+        },
     )
     if artifact is None:
         raise HTTPException(status_code=404, detail="Workspace not found")

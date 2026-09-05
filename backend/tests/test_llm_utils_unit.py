@@ -59,6 +59,36 @@ async def test_build_async_client_basic():
             assert client.timeout.connect == 10.0
             assert client.trust_env is True
 
+
+@pytest.mark.asyncio
+async def test_build_async_client_without_proxy_clears_all_proxy_variants(monkeypatch):
+    for key in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ]:
+        monkeypatch.setenv(key, "http://127.0.0.1:7897")
+    monkeypatch.setenv("NO_PROXY", "localhost,127.0.0.1,::1")
+    monkeypatch.setenv("no_proxy", "localhost,127.0.0.1,::1")
+
+    async with build_async_client(timeout=10.0, verify=True, llm_config={}):
+        pass
+
+    for key in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "NO_PROXY",
+        "no_proxy",
+    ]:
+        assert key not in os.environ
+
 @pytest.mark.asyncio
 async def test_build_async_client_with_proxy(monkeypatch):
     llm_config = {"proxy_url": "http://proxy:8080", "no_proxy": "local.net"}

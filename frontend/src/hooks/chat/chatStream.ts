@@ -1,4 +1,4 @@
-import { ActionState, ChatEventEnvelope, ToolCall } from '../../types';
+import { ActionState, ChatEventEnvelope, Message, StructuredChartArtifact, ToolCall } from '../../types';
 
 export const normalizeStreamEvent = (raw: any): ChatEventEnvelope => {
   if (raw && raw.version === 'v2') {
@@ -124,6 +124,89 @@ export const buildActionStatesFromEvents = (events: ChatEventEnvelope[]): Action
     return ka.ts.localeCompare(kb.ts);
   });
   return sorted.reduce<ActionState[]>((states, event) => applyActionEventToStates(states, event), []);
+};
+
+export const isChartArtifactCreatedEvent = (event: ChatEventEnvelope): boolean =>
+  event.event === 'artifact.chart.created';
+
+export const normalizeStructuredChartArtifact = (event: ChatEventEnvelope): StructuredChartArtifact | null => {
+  if (!isChartArtifactCreatedEvent(event)) return null;
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  const artifactId = typeof payload.artifact_id === 'string' && payload.artifact_id
+    ? payload.artifact_id
+    : typeof event.artifact_id === 'string' && event.artifact_id
+      ? event.artifact_id
+      : '';
+  const assistantTurnId = typeof event.assistant_turn_id === 'string' && event.assistant_turn_id
+    ? event.assistant_turn_id
+    : typeof payload.assistant_turn_id === 'string'
+      ? payload.assistant_turn_id
+      : '';
+  const sequence = typeof event.sequence === 'number'
+    ? event.sequence
+    : typeof payload.sequence === 'number'
+      ? payload.sequence
+      : Number.MAX_SAFE_INTEGER;
+  const chart = payload.chart ?? event.chart;
+  if (!assistantTurnId || chart === undefined || chart === null) return null;
+  return {
+    artifact_id: artifactId || `${assistantTurnId}:${sequence}`,
+    artifact_type: 'chart',
+    display_mode: 'inline',
+    placement: payload.placement as StructuredChartArtifact['placement'],
+    assistant_turn_id: assistantTurnId,
+    message_id: payload.message_id as number | string | null | undefined,
+    run_id: (event.run_id as string | undefined) || (payload.run_id as string | undefined),
+    sequence,
+    ts: typeof event.ts === 'string' ? event.ts : typeof payload.ts === 'string' ? payload.ts : undefined,
+    chart,
+    validation_status: 'unvalidated',
+  };
+};
+
+export const mergeStructuredChartArtifacts = (
+  current: StructuredChartArtifact[] = [],
+  incoming: StructuredChartArtifact,
+): StructuredChartArtifact[] => {
+  const keyOf = (artifact: StructuredChartArtifact) =>
+    artifact.artifact_id || `${artifact.assistant_turn_id}:${artifact.sequence}`;
+  const incomingKey = keyOf(incoming);
+  const byKey = new Map(current.map((artifact) => [keyOf(artifact), artifact]));
+  byKey.set(incomingKey, incoming);
+  return [...byKey.values()].sort((a, b) => {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+    const tsCompare = (a.ts || '').localeCompare(b.ts || '');
+    if (tsCompare !== 0) return tsCompare;
+    return (a.artifact_id || '').localeCompare(b.artifact_id || '');
+  });
+};
+
+export const applyChartArtifactEventToMessages = (
+  messages: Message[],
+  event: ChatEventEnvelope,
+): Message[] => {
+  const artifact = normalizeStructuredChartArtifact(event);
+  if (!artifact) return messages;
+  const next = [...messages];
+  let targetIndex = next.findIndex((message) =>
+    message.role === 'assistant' && message.assistant_turn_id === artifact.assistant_turn_id,
+  );
+  if (targetIndex < 0) {
+    const lastIndex = next.length - 1;
+    const lastMessage = lastIndex >= 0 ? next[lastIndex] : undefined;
+    if (lastMessage?.role === 'assistant' && !lastMessage.assistant_turn_id) {
+      targetIndex = lastIndex;
+    }
+  }
+  if (targetIndex < 0) return messages;
+  const current = next[targetIndex];
+  next[targetIndex] = {
+    ...current,
+    assistant_turn_id: current.assistant_turn_id || artifact.assistant_turn_id,
+    run_id: current.run_id || artifact.run_id || undefined,
+    chart_artifacts: mergeStructuredChartArtifacts(current.chart_artifacts || [], artifact),
+  };
+  return next;
 };
 
 export const shouldAcceptEvent = (seenEventIds: Set<string>, event: ChatEventEnvelope): boolean => {

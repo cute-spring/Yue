@@ -1,6 +1,7 @@
 import { ActionState, ChatEventEnvelope, Message } from '../../types';
 import {
   applyActionEventToStates,
+  applyChartArtifactEventToMessages,
   buildToolCallsFromEvents,
   getVisionStreamFeedback,
   normalizeStreamEvent,
@@ -236,6 +237,9 @@ export async function streamAssistantResponse({
             }
             return next;
           });
+        } else if (data.event === 'artifact.chart.created') {
+          flushBuffer();
+          setMessages(prev => applyChartArtifactEventToMessages(prev, data));
         } else if (data.event === 'tool.call.started' || data.event === 'tool.call.finished') {
           const turnId = (data.assistant_turn_id as string) || '__current__';
           const bucket = toolEventsByTurn.get(turnId) || [];

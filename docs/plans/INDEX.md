@@ -89,6 +89,18 @@
 - [x] **Phase 3: Source Workspace Phase 1/2 MVP 实施与验证** (workspace/source/artifact 持久化、source readiness、source picker、grounding mode、note/research artifact 保存、Chat 侧栏最薄闭环已落地；workspace memory 与 rich artifact detail deferred)
 - [ ] **Phase 4: Source Workspace 硬化与产品化** (已完成首批切片：evidence scope 可见化、research artifact 原生详情卡、source capability 标签、PDF/CSV/unsupported/missing mixed readiness 覆盖、message-level evidence contract/citation UX、attachment auto-registration readiness enrichment、require-sources tooling warning、临时后端真实 workspace 浏览器 smoke、前后端测试/build 通过；后续按 [2026-06-02-source-workspace-phase4-priority-plan.md](./2026-06-02-source-workspace-phase4-priority-plan.md) 推进 4 个高必要性方向：真实 grounded-answer 闭环、evidence contract 产品化、workspace 使用流硬化、workspace memory 审核流设计)
 
+### Epic 13: ECharts 图表渲染协议能力
+> **状态**: Phase 5 producer guidance 已落地；下一步进入更广泛场景接入与发布门禁
+> **详情文档**: [2026-07-24-echarts-chart-rendering-protocol-plan.md](./2026-07-24-echarts-chart-rendering-protocol-plan.md)
+> **Phase 4B Spec**: [2026-07-24-echarts-chart-rendering-phase4b-spec.md](./2026-07-24-echarts-chart-rendering-phase4b-spec.md)
+> **目标**: 为 Yue 增加通用、安全、协议化的数据图表渲染能力。场景是否需要图表由 agent、skill、MCP tool、后端流程或用户明确需求决定；前端只负责识别协议、校验安全边界，并将合法 `YueChartSpec` 编译为 ECharts 渲染。
+- [x] **Phase 1: YueChartSpec 协议与前端校验** (frontend MVP 已落地)
+- [x] **Phase 2: YueChartSpec 到安全 ECharts option 的编译器** (frontend MVP 已落地)
+- [x] **Phase 3: Chat 内联 chart renderer 与降级 UI** (通过 `yue-chart` 渲染 hook 落地)
+- [x] **Phase 4A: `yue-chart` fenced block MVP 兼容路径**
+- [x] **Phase 4B: 结构化 `artifact.chart.created` 事件与历史回放**
+- [x] **Phase 5: Agent / skill / MCP tool prompt guidance 与测试门禁** (`chart_artifact_create` structured producer、Excel Analyst、excel-metric-explorer、generic prompt、external MCP producer guidance/examples 已补)
+
 ### Epic 3: 文件管理与存储抽象层重构 (业务逻辑层)
 > **状态**: 待启动
 > **详情文档**: [File_Management_Improvement_Review.md](./File_Management_Improvement_Review.md)

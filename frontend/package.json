@@ -11,12 +11,14 @@
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:mocked": "playwright test --config=playwright.mocked.config.ts",
     "test:e2e:real-history": "playwright test --config=playwright.real.config.ts"
   },
   "dependencies": {
     "@solidjs/router": "^0.10.10",
     "@tailwindcss/typography": "^0.5.19",
     "clsx": "^2.1.0",
+    "echarts": "^6.1.0",
     "highlight.js": "^11.11.1",
     "html-to-image": "^1.11.13",
     "katex": "^0.16.28",

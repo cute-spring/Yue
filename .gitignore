@@ -85,3 +85,5 @@ backend/data/exports/
 !backend/data/global_config.json.example
 !backend/data/mcp_configs.json.example
 output/hatch-pet/
+
+.understand-anything/

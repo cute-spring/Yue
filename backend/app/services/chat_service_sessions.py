@@ -9,6 +9,7 @@ from app.core.database import SessionLocal
 from app.models.chat import Message as MessageModel
 from app.models.chat import Session as SessionModel
 from app.models.chat import ToolCall as ToolCallModel
+from app.services.chart_artifacts import bind_chart_artifacts_to_message
 from .chat_service_models import ChatSession, Message, ToolCall
 
 
@@ -222,6 +223,13 @@ class ChatServiceSessionsMixin:
                 msg_dict["attachments"] = json.loads(message.attachments)
             except Exception:
                 msg_dict["attachments"] = []
+        chart_artifacts_raw = getattr(message, "chart_artifacts_json", None)
+        if chart_artifacts_raw:
+            try:
+                parsed_chart_artifacts = json.loads(chart_artifacts_raw)
+                msg_dict["chart_artifacts"] = parsed_chart_artifacts if isinstance(parsed_chart_artifacts, list) else []
+            except Exception:
+                msg_dict["chart_artifacts"] = []
         return Message(**msg_dict)
 
     def add_message(
@@ -247,6 +255,7 @@ class ChatServiceSessionsMixin:
         supports_reasoning: Optional[bool] = None,
         deep_thinking_enabled: Optional[bool] = None,
         reasoning_enabled: Optional[bool] = None,
+        chart_artifacts: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[ChatSession]:
         now = datetime.utcnow()
         session_workspace_id: Optional[str] = None
@@ -278,12 +287,21 @@ class ChatServiceSessionsMixin:
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
                 finish_reason=finish_reason,
+                chart_artifacts_json=None,
             )
             db.add(new_msg)
+            db.flush()
+
+            if role == "assistant" and chart_artifacts:
+                bound_chart_artifacts = bind_chart_artifacts_to_message(chart_artifacts, message_id=new_msg.id)
+                if bound_chart_artifacts:
+                    new_msg.chart_artifacts_json = json.dumps(bound_chart_artifacts, ensure_ascii=False)
 
             if role == "user":
                 msg_count = db.query(MessageModel).filter(MessageModel.session_id == chat_id).count()
-                if msg_count == 0 and session.title == "New Chat":
+                # The newly created message has already been flushed, so the
+                # first persisted user message makes the count exactly one.
+                if msg_count == 1 and session.title == "New Chat":
                     session.title = content[:30] + "..." if len(content) > 30 else content
 
             if role in {"user", "assistant"}:

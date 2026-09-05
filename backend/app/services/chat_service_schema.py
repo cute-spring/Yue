@@ -30,6 +30,7 @@ class ChatServiceSchemaMixin:
             self._ensure_session_tags_schema()
             self._ensure_message_attachments_schema()
             self._ensure_message_continuation_schema()
+            self._ensure_message_chart_artifacts_schema()
         except OperationalError as exc:
             logger.warning("ChatService create_all skipped due to database operational error: %s", exc)
 
@@ -123,6 +124,17 @@ class ChatServiceSchemaMixin:
         with engine.begin() as connection:
             for statement in statements:
                 connection.execute(text(statement))
+
+    def _ensure_message_chart_artifacts_schema(self) -> None:
+        try:
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("messages")}
+        except Exception:
+            return
+        if "chart_artifacts_json" in columns:
+            return
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE messages ADD COLUMN chart_artifacts_json TEXT"))
 
     @staticmethod
     def _normalize_tag(tag: str) -> str:

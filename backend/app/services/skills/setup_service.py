@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -184,7 +185,8 @@ class SkillSetupService:
         if executable_name == "python" and tokens[:3] == ["python", "-m", "venv"]:
             if len(tokens) != 4 or self._resolve_token_path(root, tokens[3]) != env_root:
                 raise RuntimeError(f"setup command rejected by Phase 1 policy: {command}")
-            return tokens
+            # Use the interpreter running Yue; a `python` shim is not portable.
+            return [sys.executable, *tokens[1:]]
 
         if executable_name == "python":
             exec_path = self._normalize_token_path(root, tokens[0]) if ("/" in tokens[0] or tokens[0].startswith(".")) else None

@@ -1,5 +1,5 @@
 import { createSignal, Show, onCleanup, createEffect, createMemo } from 'solid-js';
-import { Message } from '../types';
+import { Message, StructuredChartArtifact } from '../types';
 import { getAdaptedThought } from "../utils/thoughtParser";
 import MessageExportMenu from './MessageExportMenu';
 import SpeechControl from './SpeechControl';
@@ -53,6 +53,7 @@ interface MessageItemProps {
   handleRegenerate: (index: number) => void;
   handleEditQuestion: (index: number, newContent: string) => Promise<void>;
   onContinue: (msg: Message) => void;
+  onSaveChartArtifact?: (msg: Message, artifact: StructuredChartArtifact) => Promise<void> | void;
   selectedProvider: string;
   selectedModel: string;
 }
@@ -282,6 +283,8 @@ export default function MessageItem(props: MessageItemProps) {
             toggleCollapse={toggleCollapse}
             toggleThought={() => props.toggleThought(props.index)}
             onContinue={props.onContinue}
+            onRegenerateChartArtifact={() => props.handleRegenerate(props.index)}
+            onSaveChartArtifact={props.onSaveChartArtifact}
           />
         )}
         

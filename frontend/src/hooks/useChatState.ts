@@ -6,8 +6,11 @@ import {
   buildActionStatesFromEvents,
   buildToolCallsFromEvents,
   canSubmitChatRequest,
+  applyChartArtifactEventToMessages,
   getVisionStreamFeedback,
+  mergeStructuredChartArtifacts,
   normalizeStreamEvent,
+  normalizeStructuredChartArtifact,
   shouldAcceptEvent,
 } from './chat/chatStream';
 import { submitChatText } from './chat/chatSubmission';
@@ -16,6 +19,9 @@ import { createChatHistoryState } from './chat/useChatHistoryState';
 export {
   applyActionEventToStates,
   buildActionStatesFromEvents,
+  applyChartArtifactEventToMessages,
+  mergeStructuredChartArtifacts,
+  normalizeStructuredChartArtifact,
   normalizeStreamEvent,
   buildToolCallsFromEvents,
   shouldAcceptEvent,
