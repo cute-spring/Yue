@@ -1,0 +1,41 @@
+id: agent-instruction-review
+name: Agent Instruction Review
+capability: agent_instruction_review
+purpose: Review agent prompts and imported skills for trigger quality, safety, context load, tool fit, and runtime readiness.
+presentation: workbench_mode
+workflow_status: contract_only
+product_boundary: trusted_ai_workbench_skill_runtime
+suggested_phase: phase_1_admin_report_after_rubric_definition
+visible_entry_points:
+  - kind: admin_action
+    label: Review this skill
+    description: Analyze one selected skill or agent instruction set.
+  - kind: skill_health_action
+    label: Instruction quality report
+    description: Surface review findings where admins evaluate readiness.
+shortcuts: []
+expected_outputs:
+  - kind: admin_report
+    label: Instruction quality report
+    description: Findings for triggers, context load, tool policy, safety boundaries, examples, and Yue runtime fit.
+    workspace_attachment: optional
+    provenance: recommended
+    reusable_across_sessions: true
+safety_labels:
+  - admin_only
+  - advisory_only
+  - import_gate_required
+safety_boundaries:
+  - Do not activate, modify, publish, or rewrite a skill automatically.
+  - Do not bypass import gate checks or tool policy enforcement.
+  - Keep recommendations advisory until a user applies them.
+routing:
+  target: agent_instruction_review
+  activation: admin_manual
+  prompt_policy: review_only
+  tool_policy: read_only_skill_metadata
+source_specs:
+  - docs/specs/yue-built-in-skills/2026-09-05-agent-instruction-review-spec.md
+metadata:
+  roadmap_order: 6
+  target_user: Yue admins, first-party skill maintainers, and workspace owners reviewing skill readiness.

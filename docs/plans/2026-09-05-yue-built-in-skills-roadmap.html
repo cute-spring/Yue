@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yue Built-In Skills Product and Implementation Roadmap</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #ecfdf5;
+      --ink: #111827;
+      --muted: #64748b;
+      --line: #d1d5db;
+      --emerald: #10b981;
+      --emerald-dark: #047857;
+      --blue: #2563eb;
+      --violet: #7c3aed;
+      --amber: #d97706;
+      --rose: #e11d48;
+      --shadow: 0 18px 48px rgba(15, 23, 42, 0.10);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      align-items: stretch;
+      padding: 34px;
+      background: var(--surface);
+      border: 1px solid #e5e7eb;
+      box-shadow: var(--shadow);
+    }
+
+    h1, h2, h3 {
+      line-height: 1.18;
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 36px;
+      max-width: 760px;
+    }
+
+    h2 {
+      font-size: 24px;
+      margin-top: 40px;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin: 10px 0 0;
+    }
+
+    .eyebrow {
+      color: var(--emerald-dark);
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .lead {
+      color: #334155;
+      font-size: 17px;
+      max-width: 780px;
+      margin-top: 18px;
+    }
+
+    .hero-panel {
+      border: 1px solid #dbeafe;
+      background: #f8fafc;
+      padding: 20px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .metric {
+      border-left: 4px solid var(--emerald);
+      background: #ffffff;
+      padding: 12px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .section {
+      background: var(--surface);
+      border: 1px solid #e5e7eb;
+      padding: 28px;
+      margin-top: 24px;
+    }
+
+    .principles {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .principle {
+      background: #f8fafc;
+      border-top: 4px solid var(--emerald);
+      padding: 16px;
+      min-height: 132px;
+    }
+
+    .principle:nth-child(2) { border-color: var(--blue); }
+    .principle:nth-child(3) { border-color: var(--violet); }
+    .principle:nth-child(4) { border-color: var(--amber); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .flow-step {
+      position: relative;
+      padding: 14px;
+      min-height: 150px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+    }
+
+    .flow-step:after {
+      content: "";
+      position: absolute;
+      top: 48%;
+      right: -11px;
+      width: 11px;
+      height: 2px;
+      background: var(--line);
+    }
+
+    .flow-step:last-child:after {
+      display: none;
+    }
+
+    .number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      margin-bottom: 10px;
+      border-radius: 50%;
+      background: var(--emerald);
+      color: white;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #ecfdf5;
+      color: var(--emerald-dark);
+      border: 1px solid #a7f3d0;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 6px;
+      margin-top: 8px;
+    }
+
+    .tag.blue {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+    }
+
+    .tag.violet {
+      background: #f5f3ff;
+      color: #6d28d9;
+      border-color: #ddd6fe;
+    }
+
+    .tag.amber {
+      background: #fffbeb;
+      color: #b45309;
+      border-color: #fde68a;
+    }
+
+    .skill-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .skill-card {
+      border: 1px solid #e5e7eb;
+      background: #ffffff;
+      padding: 18px;
+      min-height: 300px;
+    }
+
+    .skill-card header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+
+    .skill-name {
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .owner {
+      font-size: 12px;
+      color: #475569;
+      background: #f1f5f9;
+      padding: 4px 8px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+
+    .card-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    ul {
+      padding-left: 18px;
+      margin: 8px 0 0;
+    }
+
+    li {
+      margin: 4px 0;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: 160px repeat(4, minmax(0, 1fr));
+      border: 1px solid #e5e7eb;
+      margin-top: 18px;
+      overflow: hidden;
+    }
+
+    .roadmap div {
+      padding: 12px;
+      border-right: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
+      min-height: 74px;
+      background: #ffffff;
+    }
+
+    .roadmap .head {
+      background: #064e3b;
+      color: #ecfdf5;
+      font-weight: 800;
+    }
+
+    .roadmap .lane {
+      background: #f0fdf4;
+      color: #065f46;
+      font-weight: 800;
+    }
+
+    .roadmap .now {
+      border-top: 4px solid var(--emerald);
+    }
+
+    .roadmap .next {
+      border-top: 4px solid var(--blue);
+    }
+
+    .roadmap .later {
+      border-top: 4px solid var(--violet);
+    }
+
+    .roadmap .mature {
+      border-top: 4px solid var(--amber);
+    }
+
+    .dependency-map {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .dep-box {
+      border: 1px solid #e5e7eb;
+      background: #f8fafc;
+      padding: 16px;
+    }
+
+    .dep-box strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .decision-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      background: #ffffff;
+    }
+
+    .decision-table th,
+    .decision-table td {
+      border: 1px solid #e5e7eb;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .decision-table th {
+      background: #f0fdf4;
+      color: #065f46;
+    }
+
+    .callout {
+      border-left: 5px solid var(--emerald);
+      background: var(--surface-2);
+      padding: 16px;
+      margin-top: 18px;
+    }
+
+    .footer {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 28px;
+      text-align: center;
+    }
+
+    @media (max-width: 960px) {
+      .hero,
+      .skill-grid,
+      .principles,
+      .dependency-map {
+        grid-template-columns: 1fr;
+      }
+
+      .flow {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .flow-step:after {
+        display: none;
+      }
+
+      .roadmap {
+        grid-template-columns: 130px repeat(4, minmax(180px, 1fr));
+        overflow-x: auto;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 18px 12px 40px;
+      }
+
+      .hero,
+      .section {
+        padding: 20px;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+
+      .flow,
+      .card-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Yue product roadmap</div>
+        <h1>Built-In Skills as Workbench Modes</h1>
+        <p class="lead">
+          This roadmap turns six high-value skill patterns into Yue-native product capabilities.
+          The goal is not to copy coding-agent commands into chat. The goal is to make Yue a trusted AI
+          workbench where sources, tools, decisions, approvals, memory, and artifacts reinforce each other.
+        </p>
+        <p>
+          The six skills should become a small set of reusable work primitives:
+          research with evidence, clarification with decisions, durable workspace language, session handoff,
+          external discovery, and instruction quality review.
+        </p>
+      </div>
+      <aside class="hero-panel">
+        <h3>Planning Snapshot</h3>
+        <p class="small">Recommended build direction for the Yue built-in skill roadmap.</p>
+        <div class="metric-grid">
+          <div class="metric">
+            <strong>6</strong>
+            <span>Yue-aligned built-in skills</span>
+          </div>
+          <div class="metric">
+            <strong>3</strong>
+            <span>MVP candidates that can start soon</span>
+          </div>
+          <div class="metric">
+            <strong>2</strong>
+            <span>Workspace trust and memory capabilities</span>
+          </div>
+          <div class="metric">
+            <strong>1</strong>
+            <span>Developer/admin quality layer</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="section">
+      <h2>Product Position</h2>
+      <p>
+        Yue should expose these skills as productized workbench modes, not mainly as raw slash commands.
+        Slash commands can remain as shortcuts, but the primary mental model should be visible user workflows:
+        ask a grounded research question, clarify a vague task, save a session handoff, create a questionnaire,
+        update workspace terms, or review an imported skill.
+      </p>
+      <div class="principles">
+        <div class="principle">
+          <h3>Evidence First</h3>
+          <p class="small">Claims should show whether they are source-supported, inferred, missing evidence, or user-confirmed.</p>
+        </div>
+        <div class="principle">
+          <h3>Workspace Native</h3>
+          <p class="small">Outputs should attach to workspaces as artifacts, notes, glossary entries, or future runbook seeds.</p>
+        </div>
+        <div class="principle">
+          <h3>Approval Gated</h3>
+          <p class="small">External or durable state changes need preview, provenance, and explicit user confirmation.</p>
+        </div>
+        <div class="principle">
+          <h3>Low Friction</h3>
+          <p class="small">Yue should ask fewer, better questions and provide recommended answers when user decisions are needed.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>How The Six Skills Work Together</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <span class="number">1</span>
+          <h3>Clarify</h3>
+          <p class="small">If intent is vague, Yue asks only the decisions that change the outcome.</p>
+        </div>
+        <div class="flow-step">
+          <span class="number">2</span>
+          <h3>Gather</h3>
+          <p class="small">If evidence or outside knowledge is needed, Yue uses sources or creates a questionnaire.</p>
+        </div>
+        <div class="flow-step">
+          <span class="number">3</span>
+          <h3>Ground</h3>
+          <p class="small">Research, workspace sources, and citations define the evidence boundary.</p>
+        </div>
+        <div class="flow-step">
+          <span class="number">4</span>
+          <h3>Produce</h3>
+          <p class="small">The result becomes a report, plan, brief, questionnaire, or generated artifact.</p>
+        </div>
+        <div class="flow-step">
+          <span class="number">5</span>
+          <h3>Preserve</h3>
+          <p class="small">Important context becomes a handoff, note, glossary entry, or memory candidate.</p>
+        </div>
+        <div class="flow-step">
+          <span class="number">6</span>
+          <h3>Reuse</h3>
+          <p class="small">Future chats, agents, and runbooks reuse the artifacts and shared language.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Skill Roadmap Cards</h2>
+      <div class="skill-grid">
+        <article class="skill-card">
+          <header>
+            <div>
+              <div class="skill-name">1. Deep Research</div>
+              <span class="tag">P0</span><span class="tag blue">User-facing</span><span class="tag violet">Evidence</span>
+            </div>
+            <span class="owner">Workbench mode</span>
+          </header>
+          <p><strong>Purpose:</strong> Turn source-backed questions into cited, durable research artifacts.</p>
+          <div class="card-columns">
+            <div>
+              <h3>MVP</h3>
+              <ul>
+                <li>Research job form: question, sources, depth, output type.</li>
+                <li>Workspace source selection and citation requirement.</li>
+                <li>Research artifact with summary, findings, evidence, gaps, and next actions.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Prerequisites</h3>
+              <ul>
+                <li>Workspace sources and uploaded files are addressable by tools.</li>
+                <li>Grounding modes are productized.</li>
+                <li>Citation and missing-evidence states are visible.</li>
+              </ul>
+            </div>
+          </div>
+          <p><strong>Use:</strong> Trigger from `/research`, workspace source panel, attachment flow, or "research this" message action.</p>
+          <p><strong>Value:</strong> Differentiates Yue from generic chat by making answers inspectable and reusable.</p>
+        </article>
+
+        <article class="skill-card">
+          <header>
+            <div>
+              <div class="skill-name">2. Clarify Mode</div>
+              <span class="tag">P0</span><span class="tag blue">User-facing</span><span class="tag amber">Low dependency</span>
+            </div>
+            <span class="owner">Conversation mode</span>
+          </header>
+          <p><strong>Purpose:</strong> Convert vague requests into explicit decisions before Yue acts.</p>
+          <div class="card-columns">
+            <div>
+              <h3>MVP</h3>
+              <ul>
+                <li>Ask one round of high-impact questions.</li>
+                <li>Include recommended answers.</li>
+                <li>End with a task brief or roadmap outline.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Prerequisites</h3>
+              <ul>
+                <li>Prompt-level skill injection works.</li>
+                <li>Auto-trigger rules avoid interrupting simple chats.</li>
+                <li>Manual shortcut is available.</li>
+              </ul>
+            </div>
+          </div>
+          <p><strong>Use:</strong> Trigger via `/clarify`, ambiguous high-cost requests, or before Research, Runbook, and Questionnaire flows.</p>
+          <p><strong>Value:</strong> Prevents wrong-direction work while keeping user effort low.</p>
+        </article>
+
+        <article class="skill-card">
+          <header>
+            <div>
+              <div class="skill-name">3. Workspace Glossary</div>
+              <span class="tag blue">User-facing</span><span class="tag violet">Memory</span><span class="tag amber">Design first</span>
+            </div>
+            <span class="owner">Workspace capability</span>
+          </header>
+          <p><strong>Purpose:</strong> Maintain shared project language and stable facts for each workspace.</p>
+          <div class="card-columns">
+            <div>
+              <h3>MVP</h3>
+              <ul>
+                <li>Save confirmed terms into a workspace glossary.</li>
+                <li>Detect fuzzy or conflicting terms in chat.</li>
+                <li>Show provenance and confirmation status.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Prerequisites</h3>
+              <ul>
+                <li>Workspace-level memory or glossary storage.</li>
+                <li>User confirmation before durable writes.</li>
+                <li>Policy for term, fact, preference, and conclusion classes.</li>
+              </ul>
+            </div>
+          </div>
+          <p><strong>Use:</strong> Trigger through "remember this term", glossary panel, memory review queue, or term conflict detection.</p>
+          <p><strong>Value:</strong> Makes Yue improve over time without silently persisting weak conclusions.</p>
+        </article>
+
+        <article class="skill-card">
+          <header>
+            <div>
+              <div class="skill-name">4. Session Handoff</div>
+              <span class="tag">P0</span><span class="tag blue">User-facing</span><span class="tag violet">Artifact</span>
+            </div>
+            <span class="owner">Artifact flow</span>
+          </header>
+          <p><strong>Purpose:</strong> Preserve a useful chat as a continuation-ready workspace artifact.</p>
+          <div class="card-columns">
+            <div>
+              <h3>MVP</h3>
+              <ul>
+                <li>Generate a structured handoff from the current chat.</li>
+                <li>Include decisions, sources, artifacts, open questions, and next actions.</li>
+                <li>Attach the handoff to the active workspace.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Prerequisites</h3>
+              <ul>
+                <li>Chat history and active skill state are readable.</li>
+                <li>Artifact or note save path is clear.</li>
+                <li>Sensitive values are redacted.</li>
+              </ul>
+            </div>
+          </div>
+          <p><strong>Use:</strong> Trigger from `/handoff`, message actions, workspace "summarize work", or before opening a new task.</p>
+          <p><strong>Value:</strong> Turns transient chat into durable project memory and supports multi-agent continuation.</p>
+        </article>
+
+        <article class="skill-card">
+          <header>
+            <div>
+              <div class="skill-name">5. Discovery Questionnaire</div>
+              <span class="tag blue">User-facing</span><span class="tag amber">Low dependency</span>
+            </div>
+            <span class="owner">Document artifact</span>
+          </header>
+          <p><strong>Purpose:</strong> Convert missing human knowledge into a targeted questionnaire.</p>
+          <div class="card-columns">
+            <div>
+              <h3>MVP</h3>
+              <ul>
+                <li>Ask who the questionnaire is for and what must be learned.</li>
+                <li>Generate a concise Markdown or HTML questionnaire.</li>
+                <li>Save it as an artifact with context and answer stubs.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Prerequisites</h3>
+              <ul>
+                <li>Artifact export or note creation.</li>
+                <li>Optional connector support for sending later.</li>
+                <li>Clear separation from Research when the blocker is a person.</li>
+              </ul>
+            </div>
+          </div>
+          <p><strong>Use:</strong> Trigger via `/questionnaire`, "ask someone else", or Research missing-info sections.</p>
+          <p><strong>Value:</strong> Helps Yue handle real work where the missing source is a stakeholder, expert, or teammate.</p>
+        </article>
+
+        <article class="skill-card">
+          <header>
+            <div>
+              <div class="skill-name">6. Agent Instruction Review</div>
+              <span class="tag violet">Admin</span><span class="tag amber">Developer-facing</span>
+            </div>
+            <span class="owner">Quality layer</span>
+          </header>
+          <p><strong>Purpose:</strong> Review agent prompts and imported skills for trigger quality, safety, and runtime fit.</p>
+          <div class="card-columns">
+            <div>
+              <h3>MVP</h3>
+              <ul>
+                <li>Analyze selected skill or agent prompt.</li>
+                <li>Report trigger, context load, allowed tools, safety, and examples quality.</li>
+                <li>Recommend fixes without turning Yue into an authoring IDE.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Prerequisites</h3>
+              <ul>
+                <li>Skill package and prompt metadata are readable.</li>
+                <li>Review rubric is stable.</li>
+                <li>Import gate compatibility report is available.</li>
+              </ul>
+            </div>
+          </div>
+          <p><strong>Use:</strong> Trigger from Skill Health, Skill Import preview, Agent editor, or internal built-in skill development.</p>
+          <p><strong>Value:</strong> Improves routing accuracy and reduces prompt bloat across Yue's skill ecosystem.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Phased Implementation Roadmap</h2>
+      <div class="roadmap" role="table" aria-label="Phased roadmap">
+        <div class="head">Capability</div>
+        <div class="head">Phase 0: Define</div>
+        <div class="head">Phase 1: MVP</div>
+        <div class="head">Phase 2: Productize</div>
+        <div class="head">Phase 3: Automate</div>
+
+        <div class="lane">Clarify Mode</div>
+        <div class="now">Trigger criteria and question format.</div>
+        <div class="next">Manual `/clarify` and one-round decision brief.</div>
+        <div class="later">Auto-suggest when tasks are vague or high-cost.</div>
+        <div class="mature">Feeds Research, Runbook, and Questionnaire setup.</div>
+
+        <div class="lane">Session Handoff</div>
+        <div class="now">Handoff schema and redaction policy.</div>
+        <div class="next">Generate handoff artifact from current chat.</div>
+        <div class="later">Attach to workspace and start new chat from handoff.</div>
+        <div class="mature">Use as runbook seed and multi-agent continuation input.</div>
+
+        <div class="lane">Questionnaire</div>
+        <div class="now">Recipient and information-gap model.</div>
+        <div class="next">Generate Markdown artifact with answer stubs.</div>
+        <div class="later">Import responses back into workspace.</div>
+        <div class="mature">Connector-assisted send and follow-up tracking.</div>
+
+        <div class="lane">Deep Research</div>
+        <div class="now">Evidence contract and source-scope rules.</div>
+        <div class="next">Workspace-source research artifact with citations.</div>
+        <div class="later">Progress states, export, and missing-evidence handling.</div>
+        <div class="mature">Long-running research jobs and connector sources.</div>
+
+        <div class="lane">Workspace Glossary</div>
+        <div class="now">Memory classes and confirmation policy.</div>
+        <div class="next">Manual save confirmed terms to glossary.</div>
+        <div class="later">Term conflict detection and provenance UI.</div>
+        <div class="mature">Memory review queue and recall governance.</div>
+
+        <div class="lane">Instruction Review</div>
+        <div class="now">Rubric for trigger, safety, examples, and tool fit.</div>
+        <div class="next">Admin analysis report for one skill or agent.</div>
+        <div class="later">Integrate with import preview and Skill Health.</div>
+        <div class="mature">Quality score trends and pre-activation recommendations.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Dependencies and Readiness</h2>
+      <div class="dependency-map">
+        <div class="dep-box">
+          <strong>Ready Soon</strong>
+          <p class="small">Clarify Mode, Session Handoff, and Discovery Questionnaire can start with mostly prompt, chat history, and artifact plumbing.</p>
+        </div>
+        <div class="dep-box">
+          <strong>Needs Trust Contract</strong>
+          <p class="small">Deep Research and Workspace Glossary need clear evidence, citation, provenance, and confirmation rules before they feel trustworthy.</p>
+        </div>
+        <div class="dep-box">
+          <strong>Admin First</strong>
+          <p class="small">Agent Instruction Review should land inside Skill Health and Import Gate before becoming a general user-facing feature.</p>
+        </div>
+      </div>
+
+      <table class="decision-table">
+        <thead>
+          <tr>
+            <th>Decision</th>
+            <th>Recommendation</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Primary interface</td>
+            <td>Workbench modes with optional slash commands</td>
+            <td>Matches Yue's chat-agent platform positioning and avoids exposing raw command mechanics as the main user model.</td>
+          </tr>
+          <tr>
+            <td>First three MVPs</td>
+            <td>Clarify Mode, Session Handoff, Discovery Questionnaire</td>
+            <td>They have low dependency risk and immediately improve day-to-day user workflows.</td>
+          </tr>
+          <tr>
+            <td>First trust-heavy MVP</td>
+            <td>Deep Research over workspace sources</td>
+            <td>It reuses Yue's document, PDF, citation, artifact, and trace foundations while creating a clear differentiator.</td>
+          </tr>
+          <tr>
+            <td>Memory write policy</td>
+            <td>Explicit user confirmation before durable glossary or memory writes</td>
+            <td>Prevents unsupported research conclusions and temporary chat state from becoming long-term workspace memory.</td>
+          </tr>
+          <tr>
+            <td>Instruction Review scope</td>
+            <td>Review and recommend, not full authoring</td>
+            <td>Preserves Yue's current boundary as a skill consumer, import gate, activation platform, and runtime.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>Usage Model</h2>
+      <p>
+        Yue should let users reach these skills through natural language first, product controls second, and slash commands third.
+        The same skill can be manually selected by advanced users or automatically suggested by runtime routing.
+      </p>
+      <table class="decision-table">
+        <thead>
+          <tr>
+            <th>User says or does</th>
+            <th>Yue response</th>
+            <th>Resulting artifact</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>"Research this using my workspace files."</td>
+            <td>Open Research Job with selected sources and citation requirement.</td>
+            <td>Research report with evidence and gaps.</td>
+          </tr>
+          <tr>
+            <td>"Help me plan this feature."</td>
+            <td>Ask a short decision round with recommended answers.</td>
+            <td>Clarified task brief or roadmap outline.</td>
+          </tr>
+          <tr>
+            <td>"In this workspace, Source means an uploaded or indexed evidence file."</td>
+            <td>Offer to save a confirmed glossary entry.</td>
+            <td>Workspace glossary term with provenance.</td>
+          </tr>
+          <tr>
+            <td>"Summarize where we are so another agent can continue."</td>
+            <td>Generate a redacted handoff from current chat state.</td>
+            <td>Session handoff artifact.</td>
+          </tr>
+          <tr>
+            <td>"We need to ask the PM for missing requirements."</td>
+            <td>Ask who receives it and what decisions are needed.</td>
+            <td>Discovery questionnaire.</td>
+          </tr>
+          <tr>
+            <td>Admin imports or edits an agent skill.</td>
+            <td>Analyze trigger fit, context load, tool policy, examples, and risks.</td>
+            <td>Instruction quality report.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>Out Of Scope For The First Roadmap</h2>
+      <ul>
+        <li>Do not build Yue into a full skill authoring IDE.</li>
+        <li>Do not auto-write long-term memory without user review.</li>
+        <li>Do not start with unrestricted web-wide autonomous research.</li>
+        <li>Do not require every user to understand slash commands.</li>
+        <li>Do not merge coding-agent workflows such as TDD, code review, and implementation into the global built-in set.</li>
+        <li>Do not let skill activation bypass Yue's import gate, compatibility checks, and tool policy.</li>
+      </ul>
+      <div class="callout">
+        <strong>Recommended next step:</strong>
+        turn this roadmap into a formal implementation spec, then split it into small tickets:
+        first Clarify Mode, Session Handoff, and Discovery Questionnaire; then Deep Research MVP;
+        then Workspace Glossary and Agent Instruction Review.
+      </div>
+    </section>
+
+    <p class="footer">
+      Created for Yue on 2026-09-05. This roadmap uses Yue's current product boundary:
+      skill consumer, import gate, activation platform, runtime, and trusted AI workbench.
+    </p>
+  </main>
+</body>
+</html>

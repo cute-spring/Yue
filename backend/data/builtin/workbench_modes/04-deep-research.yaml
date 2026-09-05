@@ -1,0 +1,46 @@
+id: deep-research
+name: Deep Research
+capability: deep_research
+purpose: Turn source-backed questions into cited, durable research artifacts.
+presentation: workbench_mode
+workflow_status: contract_only
+product_boundary: trusted_ai_workbench_skill_runtime
+suggested_phase: phase_1_mvp_after_low_dependency_modes
+visible_entry_points:
+  - kind: message_action
+    label: Research this
+    description: Start a source-backed research task from a message or prompt.
+  - kind: workspace_source_action
+    label: Research with selected sources
+    description: Use workspace sources as the evidence scope.
+shortcuts:
+  - command: /research
+    label: Research
+    description: Start a cited research report from selected or confirmed sources.
+    availability: manual
+expected_outputs:
+  - kind: artifact
+    label: Research report
+    description: A cited report with summary, findings, evidence, gaps, assumptions, and next actions.
+    workspace_attachment: required
+    provenance: required
+    reusable_across_sessions: true
+safety_labels:
+  - evidence_required
+  - source_scope_required
+  - missing_evidence_visible
+  - durable_memory_approval_required
+safety_boundaries:
+  - Do not present unsupported claims as sourced facts.
+  - Preview or confirm broad source scope before execution.
+  - Do not convert findings into durable memory without separate user confirmation.
+routing:
+  target: deep_research
+  activation: manual_first
+  prompt_policy: require_evidence_contract
+  tool_policy: source_scoped_read_only_for_mvp
+source_specs:
+  - docs/specs/yue-built-in-skills/2026-09-05-deep-research-spec.md
+metadata:
+  roadmap_order: 4
+  target_user: Knowledge workers who need grounded reports from workspace files, attachments, or trusted sources.

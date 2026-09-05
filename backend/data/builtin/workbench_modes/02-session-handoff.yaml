@@ -1,0 +1,45 @@
+id: session-handoff
+name: Session Handoff
+capability: session_handoff
+purpose: Preserve useful chat context as a continuation-ready workspace artifact.
+presentation: workbench_mode
+workflow_status: contract_only
+product_boundary: trusted_ai_workbench_skill_runtime
+suggested_phase: phase_1_mvp
+visible_entry_points:
+  - kind: conversation_action
+    label: Summarize where we are
+    description: Generate a handoff from the current conversation.
+  - kind: workspace_action
+    label: Save handoff
+    description: Attach continuation context to the active workspace.
+shortcuts:
+  - command: /handoff
+    label: Handoff
+    description: Generate a continuation-ready handoff for the current conversation.
+    availability: manual
+expected_outputs:
+  - kind: artifact
+    label: Session handoff
+    description: A continuation artifact with decisions, sources, artifacts, blockers, open questions, next actions, and a prompt.
+    workspace_attachment: required
+    provenance: recommended
+    reusable_across_sessions: true
+safety_labels:
+  - redaction_required
+  - no_external_side_effect
+  - provenance_recommended
+safety_boundaries:
+  - Redact or exclude sensitive values.
+  - Do not invent decisions that were not made.
+  - Do not create external tasks, tickets, or notifications automatically.
+routing:
+  target: session_handoff
+  activation: manual_first
+  prompt_policy: inject_mode_instructions_only
+  tool_policy: workspace_artifact_write_after_user_request
+source_specs:
+  - docs/specs/yue-built-in-skills/2026-09-05-session-handoff-spec.md
+metadata:
+  roadmap_order: 2
+  target_user: Users ending, resuming, or delegating a substantial work session.

@@ -1,0 +1,45 @@
+id: discovery-questionnaire
+name: Discovery Questionnaire
+capability: discovery_questionnaire
+purpose: Convert missing human knowledge into a targeted questionnaire.
+presentation: workbench_mode
+workflow_status: contract_only
+product_boundary: trusted_ai_workbench_skill_runtime
+suggested_phase: phase_1_mvp
+visible_entry_points:
+  - kind: artifact_action
+    label: Create questionnaire
+    description: Turn a human information gap into a workspace artifact.
+  - kind: research_followup
+    label: Ask a stakeholder
+    description: Convert missing human knowledge from research or planning into questions.
+shortcuts:
+  - command: /questionnaire
+    label: Questionnaire
+    description: Create a stakeholder questionnaire from a human information gap.
+    availability: manual
+expected_outputs:
+  - kind: artifact
+    label: Discovery questionnaire
+    description: A recipient-aware questionnaire with context, prioritized questions, answer stubs, and decision prompts.
+    workspace_attachment: required
+    provenance: recommended
+    reusable_across_sessions: true
+safety_labels:
+  - external_send_approval_required
+  - sensitive_data_minimization
+  - human_source_boundary
+safety_boundaries:
+  - Do not send questionnaires externally without explicit approval.
+  - Avoid asking for unnecessary sensitive personal data.
+  - Keep unreviewed responses out of durable workspace memory.
+routing:
+  target: discovery_questionnaire
+  activation: manual_first
+  prompt_policy: inject_mode_instructions_only
+  tool_policy: workspace_artifact_write_after_user_request
+source_specs:
+  - docs/specs/yue-built-in-skills/2026-09-05-discovery-questionnaire-spec.md
+metadata:
+  roadmap_order: 3
+  target_user: Users blocked by missing stakeholder, expert, teammate, customer, or decision-owner context.

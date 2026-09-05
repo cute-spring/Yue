@@ -1,0 +1,45 @@
+id: clarify-mode
+name: Clarify Mode
+capability: clarify_mode
+purpose: Convert vague or high-cost requests into explicit decisions before Yue acts.
+presentation: workbench_mode
+workflow_status: contract_only
+product_boundary: trusted_ai_workbench_skill_runtime
+suggested_phase: phase_1_mvp
+visible_entry_points:
+  - kind: conversation_action
+    label: Clarify this request
+    description: Start a focused decision round from the current prompt or message.
+  - kind: workflow_preflight
+    label: Clarify before structured work
+    description: Prepare Research, Handoff, Questionnaire, or other workbench modes.
+shortcuts:
+  - command: /clarify
+    label: Clarify
+    description: Manually start Clarify Mode from the composer.
+    availability: manual
+expected_outputs:
+  - kind: artifact
+    label: Decision brief
+    description: A concise task brief with selected decisions, recommended defaults, assumptions, and open questions.
+    workspace_attachment: optional
+    provenance: recommended
+    reusable_across_sessions: true
+safety_labels:
+  - low_friction
+  - user_decision_required
+  - dismissible_suggestion
+safety_boundaries:
+  - Do not interrupt simple or low-risk chat requests unnecessarily.
+  - Distinguish recommended defaults from user-approved decisions.
+  - Do not execute consequential downstream actions until required decisions are confirmed.
+routing:
+  target: clarify_mode
+  activation: manual_first
+  prompt_policy: inject_mode_instructions_only
+  tool_policy: no_additional_tools
+source_specs:
+  - docs/specs/yue-built-in-skills/2026-09-05-clarify-mode-spec.md
+metadata:
+  roadmap_order: 1
+  target_user: Any Yue user starting an ambiguous, expensive, or multi-step task.

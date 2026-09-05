@@ -1,0 +1,41 @@
+id: workspace-glossary
+name: Workspace Glossary / Domain Modeling
+capability: workspace_glossary_domain_modeling
+purpose: Maintain shared project language and stable workspace facts with provenance and confirmation.
+presentation: workbench_mode
+workflow_status: contract_only
+product_boundary: trusted_ai_workbench_skill_runtime
+suggested_phase: phase_1_manual_save_after_policy_definition
+visible_entry_points:
+  - kind: workspace_panel
+    label: Glossary
+    description: Review and manage confirmed workspace terms.
+  - kind: message_action
+    label: Remember this term
+    description: Propose a durable glossary entry from confirmed user language.
+shortcuts: []
+expected_outputs:
+  - kind: workspace_memory
+    label: Workspace glossary entry
+    description: A confirmed term with definition, aliases, provenance, confirmation status, and update metadata.
+    workspace_attachment: required
+    provenance: required
+    reusable_across_sessions: true
+safety_labels:
+  - durable_memory_approval_required
+  - provenance_required
+  - conflict_review_required
+safety_boundaries:
+  - Do not write durable glossary or memory entries without explicit confirmation.
+  - Do not turn research findings, model inferences, or temporary assumptions into workspace facts automatically.
+  - Preserve provenance and confirmation state for saved entries.
+routing:
+  target: workspace_glossary
+  activation: user_confirmed_write
+  prompt_policy: classify_memory_candidate_before_write
+  tool_policy: durable_memory_write_requires_approval
+source_specs:
+  - docs/specs/yue-built-in-skills/2026-09-05-workspace-glossary-domain-modeling-spec.md
+metadata:
+  roadmap_order: 5
+  target_user: Teams or solo users with recurring project terminology and stable workspace facts.
