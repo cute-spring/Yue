@@ -99,6 +99,7 @@ export function useChatContentActions(args: UseChatContentActionsArgs) {
         trimmedInput,
         setMessages: args.setMessages,
         setInput: args.setInput,
+        submitText: args.submitText,
         saveLastAssistantAsWorkspaceNote: args.saveLastAssistantAsWorkspaceNote,
         saveLastAssistantAsResearchArtifact: args.saveLastAssistantAsResearchArtifact,
         toast: args.toast,
