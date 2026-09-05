@@ -1,5 +1,5 @@
 import { Accessor, Setter, createMemo } from 'solid-js';
-import { Message, SkillSpec, WorkspaceNote } from '../../../types';
+import { Message, SessionHandoffArtifactInput, SkillSpec, WorkspaceNote } from '../../../types';
 import { canSubmitChatRequest } from '../../../hooks/useChatState';
 import { buildContinuationRequestOverrides } from '../../../utils/continuation';
 import { buildVisibleSkillOptions } from '../utils/skillResolution';
@@ -38,6 +38,7 @@ type UseChatContentActionsArgs = {
   originalHandleSubmit: (event: Event) => void;
   saveLastAssistantAsWorkspaceNote: () => Promise<WorkspaceNote | null>;
   saveLastAssistantAsResearchArtifact: () => Promise<void>;
+  saveSessionHandoffArtifact: (handoff: SessionHandoffArtifactInput) => Promise<void>;
   buildWorkspaceRequestOverrides: () => Record<string, unknown>;
   generateSummary: (chatId: string, force?: boolean) => Promise<string | null | undefined>;
   currentChatId: Accessor<string | null>;
@@ -102,6 +103,8 @@ export function useChatContentActions(args: UseChatContentActionsArgs) {
         submitText: args.submitText,
         saveLastAssistantAsWorkspaceNote: args.saveLastAssistantAsWorkspaceNote,
         saveLastAssistantAsResearchArtifact: args.saveLastAssistantAsResearchArtifact,
+        saveSessionHandoffArtifact: args.saveSessionHandoffArtifact,
+        messages: args.messages(),
         toast: args.toast,
       })
     ) {

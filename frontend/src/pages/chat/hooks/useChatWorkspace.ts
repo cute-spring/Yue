@@ -1,6 +1,7 @@
 import { Accessor, Setter, createEffect, createMemo, createSignal } from 'solid-js';
 import {
   Message,
+  SessionHandoffArtifactInput,
   StructuredChartArtifact,
   Workspace,
   WorkspaceArtifact,
@@ -370,6 +371,36 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     await loadWorkspaceArtifacts(workspaceId);
   };
 
+  const saveSessionHandoffArtifact = async (handoff: SessionHandoffArtifactInput) => {
+    const workspaceId = args.selectedWorkspaceId();
+    const chatId = args.currentChatId();
+
+    if (!workspaceId || !chatId) {
+      args.toast.error('Select a workspace before saving a session handoff.', 3000);
+      return;
+    }
+
+    const contentRef = `session-handoff:${chatId}:${handoff.artifact_metadata.generated_at || Date.now()}`;
+    const res = await fetch(`/api/workspaces/${workspaceId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artifact_type: 'session_handoff',
+        title: handoff.title,
+        source_session_id: chatId,
+        source_message_id: handoff.latest_source_message_id ?? undefined,
+        content_ref: contentRef,
+        artifact_metadata: {
+          ...handoff.artifact_metadata,
+          markdown: handoff.markdown,
+          source_session_id: chatId,
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadWorkspaceArtifacts(workspaceId);
+  };
+
   const saveChartArtifactToWorkspace = async (message: Message, artifact: StructuredChartArtifact) => {
     const workspaceId = args.selectedWorkspaceId();
     const chatId = args.currentChatId();
@@ -683,6 +714,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     buildWorkspaceRequestOverrides,
     saveLastAssistantAsWorkspaceNote,
     saveLastAssistantAsResearchArtifact,
+    saveSessionHandoffArtifact,
     saveChartArtifactToWorkspace,
     suggestWorkspaceMemoryFromLastAssistantMessage,
     suggestWorkspaceMemoryCandidateFromLastAssistantMessage,

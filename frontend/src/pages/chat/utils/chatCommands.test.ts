@@ -1,14 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildClarifyModePrompt, handleChatCommand, parseClarifyModeTask } from './chatCommands';
-import { Message } from '../../../types';
+import {
+  buildClarifyModePrompt,
+  buildSessionHandoffArtifact,
+  handleChatCommand,
+  parseClarifyModeTask,
+  redactSessionHandoffText,
+} from './chatCommands';
+import { Message, SessionHandoffArtifactInput } from '../../../types';
 
 const createCommandHarness = () => {
   const messages: Message[] = [];
   let input = '';
   const submitText = vi.fn();
+  const saveSessionHandoffArtifact = vi.fn(async (_handoff: SessionHandoffArtifactInput) => undefined);
   const harness = {
     messages,
     submitText,
+    saveSessionHandoffArtifact,
     setMessages: (value: Message[] | ((prev: Message[]) => Message[])) => {
       const next = typeof value === 'function' ? value(messages) : value;
       messages.splice(0, messages.length, ...next);
@@ -28,6 +36,8 @@ const createCommandHarness = () => {
         submitText: harness.submitText,
         saveLastAssistantAsWorkspaceNote: async () => null,
         saveLastAssistantAsResearchArtifact: async () => undefined,
+        saveSessionHandoffArtifact: harness.saveSessionHandoffArtifact,
+        messages: harness.messages,
         toast: {
           error: () => undefined,
           success: () => undefined,
@@ -91,6 +101,69 @@ describe('chat commands', () => {
     expect(handled).toBe(false);
     expect(harness.submitText).not.toHaveBeenCalled();
     expect(harness.messages).toHaveLength(0);
+  });
+
+  it('builds a redacted session handoff with continuation sections and provenance', () => {
+    const handoff = buildSessionHandoffArtifact(
+      [
+        {
+          id: 1,
+          role: 'user',
+          content: 'Implement the handoff. api_key=super-secret-value',
+        },
+        {
+          id: 2,
+          role: 'assistant',
+          content: 'Completed command wiring. Decision: save as workspace artifact. Blocker: missing review.',
+          citations: [{ url: 'https://example.test/source' }],
+        },
+      ],
+      new Date('2026-09-05T12:00:00.000Z'),
+    );
+
+    expect(handoff.title).toBe('Session handoff - 2026-09-05');
+    expect(handoff.markdown).toContain('## Objective');
+    expect(handoff.markdown).toContain('## Current State');
+    expect(handoff.markdown).toContain('## Decisions');
+    expect(handoff.markdown).toContain('## Sources');
+    expect(handoff.markdown).toContain('## Artifacts');
+    expect(handoff.markdown).toContain('## Blockers');
+    expect(handoff.markdown).toContain('## Open Questions');
+    expect(handoff.markdown).toContain('## Proposed Next Actions');
+    expect(handoff.markdown).toContain('## Continuation Prompt');
+    expect(handoff.markdown).toContain('api_key=[REDACTED]');
+    expect(handoff.markdown).not.toContain('super-secret-value');
+    expect(handoff.latest_source_message_id).toBe(2);
+    expect(handoff.source_message_ids).toEqual([1, 2]);
+    expect(handoff.artifact_metadata.no_external_side_effects).toBe(true);
+  });
+
+  it('redacts common credential shapes from handoff text', () => {
+    const redacted = redactSessionHandoffText(
+      'password=hunter2 token: abcdefghijklmnopqrstuvwxyz Bearer abcdefghijklmnopqrstuvwxyz sk-abcdefghijklmnop',
+    );
+
+    expect(redacted).toContain('password=[REDACTED]');
+    expect(redacted).toContain('token=[REDACTED]');
+    expect(redacted).toContain('Bearer [REDACTED_TOKEN]');
+    expect(redacted).toContain('[REDACTED_OPENAI_KEY]');
+    expect(redacted).not.toContain('hunter2');
+  });
+
+  it('saves slash handoff as a workspace artifact without submitting chat text', () => {
+    const harness = createCommandHarness();
+    harness.messages.push(
+      { id: 1, role: 'user', content: 'Continue ticket 03' },
+      { id: 2, role: 'assistant', content: 'Decision: save handoff as artifact.' },
+    );
+
+    const handled = harness.runCommand('/handoff');
+
+    expect(handled).toBe(true);
+    expect(harness.submitText).not.toHaveBeenCalled();
+    expect(harness.saveSessionHandoffArtifact).toHaveBeenCalledTimes(1);
+    expect(harness.saveSessionHandoffArtifact.mock.calls[0][0].markdown).toContain('Session Handoff');
+    expect(harness.getInput()).toBe('');
   });
 
   it('submits natural-language manual clarify trigger with the transformed prompt', () => {

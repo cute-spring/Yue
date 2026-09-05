@@ -171,6 +171,14 @@ export type WorkspaceArtifact = {
   updated_at: string;
 };
 
+export type SessionHandoffArtifactInput = {
+  title: string;
+  markdown: string;
+  source_message_ids: Array<number | string>;
+  latest_source_message_id?: number | null;
+  artifact_metadata: Record<string, any>;
+};
+
 export type WorkspaceNote = {
   id: string;
   workspace_id?: string | null;
