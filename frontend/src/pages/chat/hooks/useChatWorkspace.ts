@@ -1,5 +1,6 @@
 import { Accessor, Setter, createEffect, createMemo, createSignal } from 'solid-js';
 import {
+  DiscoveryQuestionnaireArtifactInput,
   Message,
   SessionHandoffArtifactInput,
   StructuredChartArtifact,
@@ -401,6 +402,40 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     await loadWorkspaceArtifacts(workspaceId);
   };
 
+  const saveDiscoveryQuestionnaireArtifact = async (
+    questionnaire: DiscoveryQuestionnaireArtifactInput,
+  ) => {
+    const workspaceId = args.selectedWorkspaceId();
+    const chatId = args.currentChatId();
+
+    if (!workspaceId || !chatId) {
+      args.toast.error('Select a workspace before saving a discovery questionnaire.', 3000);
+      return;
+    }
+
+    const contentRef = `discovery-questionnaire:${chatId}:${
+      questionnaire.artifact_metadata.generated_at || Date.now()
+    }`;
+    const res = await fetch(`/api/workspaces/${workspaceId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artifact_type: 'discovery_questionnaire',
+        title: questionnaire.title,
+        source_session_id: chatId,
+        source_message_id: questionnaire.latest_source_message_id ?? undefined,
+        content_ref: contentRef,
+        artifact_metadata: {
+          ...questionnaire.artifact_metadata,
+          markdown: questionnaire.markdown,
+          source_session_id: chatId,
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadWorkspaceArtifacts(workspaceId);
+  };
+
   const saveChartArtifactToWorkspace = async (message: Message, artifact: StructuredChartArtifact) => {
     const workspaceId = args.selectedWorkspaceId();
     const chatId = args.currentChatId();
@@ -715,6 +750,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     saveLastAssistantAsWorkspaceNote,
     saveLastAssistantAsResearchArtifact,
     saveSessionHandoffArtifact,
+    saveDiscoveryQuestionnaireArtifact,
     saveChartArtifactToWorkspace,
     suggestWorkspaceMemoryFromLastAssistantMessage,
     suggestWorkspaceMemoryCandidateFromLastAssistantMessage,

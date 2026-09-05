@@ -1,5 +1,10 @@
 import { Setter } from 'solid-js';
-import { Message, SessionHandoffArtifactInput, WorkspaceNote } from '../../../types';
+import {
+  DiscoveryQuestionnaireArtifactInput,
+  Message,
+  SessionHandoffArtifactInput,
+  WorkspaceNote,
+} from '../../../types';
 
 type ToastLike = {
   error: (message: string, duration?: number) => void;
@@ -14,12 +19,14 @@ type HandleChatCommandArgs = {
   saveLastAssistantAsWorkspaceNote: () => Promise<WorkspaceNote | null>;
   saveLastAssistantAsResearchArtifact: () => Promise<void>;
   saveSessionHandoffArtifact: (handoff: SessionHandoffArtifactInput) => Promise<void>;
+  saveDiscoveryQuestionnaireArtifact: (questionnaire: DiscoveryQuestionnaireArtifactInput) => Promise<void>;
   messages: Message[];
   toast: ToastLike;
 };
 
 const CLARIFY_COMMAND = '/clarify';
 const HANDOFF_COMMAND = '/handoff';
+const QUESTIONNAIRE_COMMAND = '/questionnaire';
 
 export const parseClarifyModeTask = (trimmedInput: string): string | null => {
   if (trimmedInput === CLARIFY_COMMAND) return '';
@@ -82,6 +89,16 @@ export const buildClarifyModePrompt = (task: string): string => {
 const buildClarifyUsageMessage = (): Message => ({
   role: 'assistant',
   content: 'Use `/clarify <task>` to ask Yue for one focused decision round and a decision brief before it acts.',
+  timestamp: new Date().toISOString(),
+});
+
+const buildQuestionnaireUsageMessage = (): Message => ({
+  role: 'assistant',
+  content: [
+    'Use `/questionnaire <human information gap>` to save a stakeholder questionnaire.',
+    '',
+    'Include the recipient, objective, and what Yue needs to learn.',
+  ].join('\n'),
   timestamp: new Date().toISOString(),
 });
 
@@ -233,6 +250,126 @@ export const buildSessionHandoffArtifact = (
   };
 };
 
+export const parseDiscoveryQuestionnaireGap = (trimmedInput: string): string | null => {
+  if (trimmedInput === QUESTIONNAIRE_COMMAND) return '';
+  if (trimmedInput.startsWith(`${QUESTIONNAIRE_COMMAND} `)) {
+    return trimmedInput.slice(QUESTIONNAIRE_COMMAND.length).trim();
+  }
+
+  const naturalTriggers = [
+    'make questions for the stakeholder:',
+    'make a questionnaire for:',
+    'we need to ask the pm:',
+    'we need to ask the stakeholder:',
+  ];
+  const lower = trimmedInput.toLowerCase();
+  for (const trigger of naturalTriggers) {
+    if (lower.startsWith(trigger)) {
+      return trimmedInput.slice(trigger.length).trim();
+    }
+  }
+
+  return null;
+};
+
+const inferRecipient = (gap: string): string => {
+  const match = gap.match(/\b(?:for|ask|from)\s+(the\s+)?([A-Za-z][A-Za-z0-9 _-]{1,40})/i);
+  return normalizeForLine(redact(match?.[2] || 'Stakeholder or decision owner'));
+};
+
+export const buildDiscoveryQuestionnaireArtifact = (
+  gap: string,
+  messages: Message[],
+  generatedAt = new Date(),
+): DiscoveryQuestionnaireArtifactInput => {
+  const normalizedGap = normalizeForLine(redact(gap), 'Unspecified human information gap.');
+  const includedMessages = messages.filter((message) => message.content?.trim());
+  const sourceMessageIds = includedMessages
+    .map((message) => message.id)
+    .filter((id): id is number | string => id !== undefined);
+  const recentContext = [
+    ...summarizeMessages(includedMessages, 'user', 2),
+    ...summarizeMessages(includedMessages, 'assistant', 2),
+  ].slice(-4);
+  const generatedAtIso = generatedAt.toISOString();
+  const title = `Discovery questionnaire - ${generatedAtIso.slice(0, 10)}`;
+  const recipient = inferRecipient(gap);
+  const section = (items: string[], fallback = 'None captured yet.') =>
+    items.length ? items.map((item) => `- ${item}`).join('\n') : `- ${fallback}`;
+
+  const factQuestions = [
+    `What facts, constraints, or source-of-truth details should Yue know about: ${normalizedGap}?`,
+    'Which existing documents, dashboards, systems, or people should be treated as authoritative?',
+    'Are there deadlines, budgets, compliance requirements, or operational constraints Yue must respect?',
+  ];
+  const decisionQuestions = [
+    'What decision do you want Yue to optimize for if tradeoffs appear?',
+    'Which option or direction is already preferred, and what would change that preference?',
+    'Who needs to approve the next step before Yue acts beyond drafting or analysis?',
+  ];
+
+  const markdown = [
+    '# Discovery Questionnaire',
+    '',
+    `Generated: ${generatedAtIso}`,
+    'Mode: Discovery Questionnaire',
+    'Delivery: Not sent externally. Review and send only after explicit user approval.',
+    '',
+    '## Recipient',
+    `- ${recipient}`,
+    '',
+    '## Objective',
+    `- Fill this human information gap: ${normalizedGap}`,
+    '',
+    '## Context For Recipient',
+    section(recentContext, 'No additional chat context captured.'),
+    '',
+    '## Fact Questions',
+    ...factQuestions.map((question, index) => [
+      `${index + 1}. ${question}`,
+      '   Answer:',
+      '   Source or confidence:',
+    ].join('\n')),
+    '',
+    '## Decision Or Preference Questions',
+    ...decisionQuestions.map((question, index) => [
+      `${index + 1}. ${question}`,
+      '   Answer:',
+      '   Decision owner:',
+    ].join('\n')),
+    '',
+    '## Answer Stubs',
+    '- Facts confirmed:',
+    '- Decisions or preferences confirmed:',
+    '- Remaining unknowns:',
+    '- Follow-up needed:',
+    '',
+    '## Safety Notes',
+    '- Avoid sharing unnecessary sensitive personal data.',
+    '- Do not treat returned answers as durable workspace facts until a user reviews and confirms them.',
+    '- Do not send this questionnaire through email, chat, tickets, forms, or other connectors without explicit approval.',
+  ].join('\n');
+
+  return {
+    title,
+    markdown,
+    information_gap: normalizedGap,
+    source_message_ids: sourceMessageIds,
+    latest_source_message_id: latestNumericMessageId(includedMessages),
+    artifact_metadata: {
+      mode: 'discovery_questionnaire',
+      generated_at: generatedAtIso,
+      content: markdown,
+      information_gap: normalizedGap,
+      recipient,
+      question_classes: ['fact', 'decision_or_preference'],
+      source_message_ids: sourceMessageIds,
+      no_external_side_effects: true,
+      requires_user_approval_before_send: true,
+    },
+  };
+};
+
 export const handleChatCommand = ({
   trimmedInput,
   setMessages,
@@ -241,13 +378,14 @@ export const handleChatCommand = ({
   saveLastAssistantAsWorkspaceNote,
   saveLastAssistantAsResearchArtifact,
   saveSessionHandoffArtifact,
+  saveDiscoveryQuestionnaireArtifact,
   messages,
   toast,
 }: HandleChatCommandArgs): boolean => {
   if (trimmedInput === '/help') {
     const helpMsg: Message = {
       role: 'assistant',
-      content: 'Commands: /help /clarify /handoff /note /research /clear',
+      content: 'Commands: /help /clarify /handoff /questionnaire /note /research /clear',
       timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, helpMsg]);
@@ -282,6 +420,26 @@ export const handleChatCommand = ({
       .catch((err) => {
         console.error('Failed to save session handoff', err);
         toast.error('Failed to save session handoff.', 3000);
+      });
+    setInput('');
+    return true;
+  }
+
+  const questionnaireGap = parseDiscoveryQuestionnaireGap(trimmedInput);
+  if (questionnaireGap !== null) {
+    const gap = questionnaireGap.trim();
+    if (!gap) {
+      setMessages((prev) => [...prev, buildQuestionnaireUsageMessage()]);
+      setInput('');
+      return true;
+    }
+
+    const questionnaire = buildDiscoveryQuestionnaireArtifact(gap, messages);
+    saveDiscoveryQuestionnaireArtifact(questionnaire)
+      .then(() => toast.success('Saved discovery questionnaire artifact.', 3000))
+      .catch((err) => {
+        console.error('Failed to save discovery questionnaire', err);
+        toast.error('Failed to save discovery questionnaire.', 3000);
       });
     setInput('');
     return true;

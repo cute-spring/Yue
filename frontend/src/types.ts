@@ -179,6 +179,15 @@ export type SessionHandoffArtifactInput = {
   artifact_metadata: Record<string, any>;
 };
 
+export type DiscoveryQuestionnaireArtifactInput = {
+  title: string;
+  markdown: string;
+  information_gap: string;
+  source_message_ids: Array<number | string>;
+  latest_source_message_id?: number | null;
+  artifact_metadata: Record<string, any>;
+};
+
 export type WorkspaceNote = {
   id: string;
   workspace_id?: string | null;

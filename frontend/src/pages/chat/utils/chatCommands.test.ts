@@ -1,22 +1,32 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildClarifyModePrompt,
+  buildDiscoveryQuestionnaireArtifact,
   buildSessionHandoffArtifact,
   handleChatCommand,
+  parseDiscoveryQuestionnaireGap,
   parseClarifyModeTask,
   redactSessionHandoffText,
 } from './chatCommands';
-import { Message, SessionHandoffArtifactInput } from '../../../types';
+import {
+  DiscoveryQuestionnaireArtifactInput,
+  Message,
+  SessionHandoffArtifactInput,
+} from '../../../types';
 
 const createCommandHarness = () => {
   const messages: Message[] = [];
   let input = '';
   const submitText = vi.fn();
   const saveSessionHandoffArtifact = vi.fn(async (_handoff: SessionHandoffArtifactInput) => undefined);
+  const saveDiscoveryQuestionnaireArtifact = vi.fn(
+    async (_questionnaire: DiscoveryQuestionnaireArtifactInput) => undefined,
+  );
   const harness = {
     messages,
     submitText,
     saveSessionHandoffArtifact,
+    saveDiscoveryQuestionnaireArtifact,
     setMessages: (value: Message[] | ((prev: Message[]) => Message[])) => {
       const next = typeof value === 'function' ? value(messages) : value;
       messages.splice(0, messages.length, ...next);
@@ -37,6 +47,7 @@ const createCommandHarness = () => {
         saveLastAssistantAsWorkspaceNote: async () => null,
         saveLastAssistantAsResearchArtifact: async () => undefined,
         saveSessionHandoffArtifact: harness.saveSessionHandoffArtifact,
+        saveDiscoveryQuestionnaireArtifact: harness.saveDiscoveryQuestionnaireArtifact,
         messages: harness.messages,
         toast: {
           error: () => undefined,
@@ -175,5 +186,70 @@ describe('chat commands', () => {
     expect(harness.submitText).toHaveBeenCalledTimes(1);
     expect(harness.submitText.mock.calls[0][0]).toContain('## Clarifying Questions');
     expect(harness.submitText.mock.calls[0][0]).toContain('## Decision Brief');
+  });
+
+  it('parses questionnaire slash and natural-language triggers without catching prefixes', () => {
+    expect(parseDiscoveryQuestionnaireGap('/questionnaire Ask the PM about launch risk')).toBe(
+      'Ask the PM about launch risk',
+    );
+    expect(parseDiscoveryQuestionnaireGap('/questionnaire')).toBe('');
+    expect(parseDiscoveryQuestionnaireGap('make questions for the stakeholder: pricing constraints')).toBe(
+      'pricing constraints',
+    );
+    expect(parseDiscoveryQuestionnaireGap('/questionnairefoo')).toBeNull();
+    expect(parseDiscoveryQuestionnaireGap('Can you ask better questions?')).toBeNull();
+  });
+
+  it('builds a discovery questionnaire artifact with fact and decision sections', () => {
+    const questionnaire = buildDiscoveryQuestionnaireArtifact(
+      'Ask the PM what launch constraints and approval preferences are missing',
+      [
+        { id: 1, role: 'user', content: 'We need to ship the roadmap.' },
+        { id: 2, role: 'assistant', content: 'Current blocker: stakeholder constraints are missing.' },
+      ],
+      new Date('2026-09-05T12:00:00.000Z'),
+    );
+
+    expect(questionnaire.title).toBe('Discovery questionnaire - 2026-09-05');
+    expect(questionnaire.markdown).toContain('## Recipient');
+    expect(questionnaire.markdown).toContain('## Objective');
+    expect(questionnaire.markdown).toContain('## Context For Recipient');
+    expect(questionnaire.markdown).toContain('## Fact Questions');
+    expect(questionnaire.markdown).toContain('## Decision Or Preference Questions');
+    expect(questionnaire.markdown).toContain('Answer:');
+    expect(questionnaire.markdown).toContain('Decision owner:');
+    expect(questionnaire.markdown).toContain('Not sent externally');
+    expect(questionnaire.artifact_metadata.question_classes).toEqual(['fact', 'decision_or_preference']);
+    expect(questionnaire.artifact_metadata.no_external_side_effects).toBe(true);
+    expect(questionnaire.artifact_metadata.requires_user_approval_before_send).toBe(true);
+  });
+
+  it('saves slash questionnaire as a workspace artifact without submitting chat text', () => {
+    const harness = createCommandHarness();
+    harness.messages.push(
+      { id: 1, role: 'user', content: 'We need stakeholder input.' },
+      { id: 2, role: 'assistant', content: 'Blocker: PM constraints missing.' },
+    );
+
+    const handled = harness.runCommand('/questionnaire Ask the PM about launch constraints');
+
+    expect(handled).toBe(true);
+    expect(harness.submitText).not.toHaveBeenCalled();
+    expect(harness.saveDiscoveryQuestionnaireArtifact).toHaveBeenCalledTimes(1);
+    expect(harness.saveDiscoveryQuestionnaireArtifact.mock.calls[0][0].markdown).toContain(
+      'Discovery Questionnaire',
+    );
+    expect(harness.getInput()).toBe('');
+  });
+
+  it('asks for minimal setup when slash questionnaire has no stated gap', () => {
+    const harness = createCommandHarness();
+
+    const handled = harness.runCommand('/questionnaire');
+
+    expect(handled).toBe(true);
+    expect(harness.saveDiscoveryQuestionnaireArtifact).not.toHaveBeenCalled();
+    expect(harness.messages.at(-1)?.content).toContain('recipient, objective, and what Yue needs to learn');
+    expect(harness.getInput()).toBe('');
   });
 });

@@ -155,6 +155,7 @@ export default function ChatPageContent(props: {
     saveLastAssistantAsWorkspaceNote,
     saveLastAssistantAsResearchArtifact,
     saveSessionHandoffArtifact,
+    saveDiscoveryQuestionnaireArtifact,
     suggestWorkspaceMemoryFromLastAssistantMessage,
     suggestWorkspaceMemoryCandidateFromLastAssistantMessage,
     suggestWorkspaceMemoryCandidateFromNote,
@@ -318,6 +319,7 @@ export default function ChatPageContent(props: {
     saveLastAssistantAsWorkspaceNote,
     saveLastAssistantAsResearchArtifact,
     saveSessionHandoffArtifact,
+    saveDiscoveryQuestionnaireArtifact,
     buildWorkspaceRequestOverrides: () => ({
       ...buildWorkspaceRequestOverrides(),
       note_recall_enabled: props.speechPrefs().note_recall_enabled,
