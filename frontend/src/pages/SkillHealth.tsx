@@ -21,6 +21,38 @@ export type SetupResult = {
   error: string | null;
 };
 
+export type InstructionReviewStatus = 'pass' | 'warning' | 'blocker';
+
+export type InstructionReviewFinding = {
+  code: string;
+  title: string;
+  detail: string;
+  recommendation: string;
+};
+
+export type InstructionReviewReport = {
+  target: {
+    target_type: 'skill' | 'agent';
+    name: string;
+    version?: string | null;
+    source_ref?: string | null;
+  };
+  advisory_only: boolean;
+  mutates_target: boolean;
+  review_scope: string[];
+  summary: string;
+  overall_status: InstructionReviewStatus;
+  blockers: InstructionReviewFinding[];
+  recommendations: InstructionReviewFinding[];
+  yue_runtime_positioning: string;
+};
+
+export type InstructionReviewResult = {
+  ok: boolean;
+  report: InstructionReviewReport | null;
+  error: string | null;
+};
+
 export type PreflightSummary = {
   total: number;
   available: number;
@@ -265,6 +297,24 @@ export const formatImportSuccessMessage = (payload: SkillImportResponse): string
   return `${skillName} imported successfully.`;
 };
 
+export const formatInstructionReviewErrorMessage = (errorCode: string | null): string => {
+  if (errorCode === 'skill_name_required') return 'Select a skill before running instruction review.';
+  if (errorCode === 'skill_review_failed') return 'Instruction review failed. Please retry.';
+  if (errorCode === 'network_error') return 'Network error. Check backend connectivity and retry.';
+  return 'Instruction review failed. Please retry.';
+};
+
+export const getInstructionReviewReadinessSummary = (report: InstructionReviewReport | null): string => {
+  if (!report) return 'Instruction review not run.';
+  if (report.overall_status === 'blocker') {
+    return `${report.blockers.length} blocker${report.blockers.length === 1 ? '' : 's'} before activation.`;
+  }
+  if (report.overall_status === 'warning') {
+    return `${report.recommendations.length} recommendation${report.recommendations.length === 1 ? '' : 's'} for admin review.`;
+  }
+  return 'Ready for explicit admin activation review.';
+};
+
 export const groupPreflightRecordsByAvailability = (
   records: SkillPreflightRecord[],
 ): { available: SkillPreflightRecord[]; nonAvailable: SkillPreflightRecord[] } => ({
@@ -393,6 +443,38 @@ export const importSkillFromPath = async (
   }
 };
 
+export const reviewSkillInstructions = async (
+  skillName: string,
+  skillVersion?: string | null,
+  fetchImpl: typeof fetch = fetch,
+): Promise<InstructionReviewResult> => {
+  try {
+    const response = await fetchImpl('/api/skills/review-instructions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_type: 'skill',
+        skill_name: skillName,
+        version: skillVersion || undefined,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      const detail = payload?.detail;
+      const errorCode =
+        typeof detail === 'string'
+          ? detail
+          : typeof detail?.code === 'string'
+            ? detail.code
+            : 'skill_review_failed';
+      return { ok: false, report: null, error: errorCode };
+    }
+    return { ok: true, report: payload as InstructionReviewReport, error: null };
+  } catch {
+    return { ok: false, report: null, error: 'network_error' };
+  }
+};
+
 export const mountSkillToAgent = async (
   skillRef: string,
   agentId: string,
@@ -479,6 +561,8 @@ export default function SkillHealth() {
   const [rescanBusy, setRescanBusy] = createSignal(false);
   const [mountedRefs, setMountedRefs] = createSignal<Set<string>>(new Set());
   const [highlightedSkillRef, setHighlightedSkillRef] = createSignal<string | null>(null);
+  const [reviewBusyRef, setReviewBusyRef] = createSignal<string | null>(null);
+  const [instructionReviews, setInstructionReviews] = createSignal<Record<string, InstructionReviewReport>>({});
   const [notice, setNotice] = createSignal<PageNotice | null>(null);
 
   let highlightResetTimer: number | undefined;
@@ -571,6 +655,12 @@ export default function SkillHealth() {
     if (importedSkillRef && (mountStatus === 'mounted' || mountStatus === 'already_mounted')) {
       setMountedRefs((prev) => new Set(prev).add(importedSkillRef));
     }
+    if (result.payload.import?.skill_name) {
+      const review = await reviewSkillInstructions(result.payload.import.skill_name, result.payload.import.skill_version);
+      if (review.ok && review.report && importedSkillRef) {
+        setInstructionReviews((prev) => ({ ...prev, [importedSkillRef]: review.report! }));
+      }
+    }
     const refreshResult = await rescanSkillPreflight();
     if (refreshResult.ok) {
       setRecords(refreshResult.items);
@@ -610,6 +700,22 @@ export default function SkillHealth() {
           element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
       },
+    });
+  };
+
+  const handleInstructionReview = async (record: SkillPreflightRecord) => {
+    setReviewBusyRef(record.skill_ref);
+    setNotice(null);
+    const result = await reviewSkillInstructions(record.skill_name, record.skill_version);
+    setReviewBusyRef(null);
+    if (!result.ok || !result.report) {
+      setNotice({ type: 'error', message: formatInstructionReviewErrorMessage(result.error) });
+      return;
+    }
+    setInstructionReviews((prev) => ({ ...prev, [record.skill_ref]: result.report! }));
+    setNotice({
+      type: result.report.overall_status === 'blocker' ? 'error' : 'success',
+      message: `Instruction review: ${getInstructionReviewReadinessSummary(result.report)}`,
     });
   };
 
@@ -786,6 +892,7 @@ export default function SkillHealth() {
               const action = () => getMountActionState(item.status);
               const setupAction = () => getSetupActionState(item);
               const health = () => getExcalidrawHealthSummary(item);
+              const review = () => instructionReviews()[item.skill_ref] || null;
               return (
                 <div
                   id={getSkillPreflightRecordAnchorId(item.skill_ref)}
@@ -838,8 +945,33 @@ export default function SkillHealth() {
                           {busyRef() === item.skill_ref ? 'Working...' : setupAction().label}
                         </button>
                       </Show>
+                      <button
+                        type="button"
+                        disabled={reviewBusyRef() === item.skill_ref}
+                        onClick={() => handleInstructionReview(item)}
+                        class="px-3 py-1.5 rounded-lg border border-sky-200 text-sky-700 text-xs font-bold uppercase tracking-wider hover:bg-sky-50 disabled:opacity-50"
+                      >
+                        {reviewBusyRef() === item.skill_ref ? 'Reviewing...' : 'Review'}
+                      </button>
                     </div>
                   </div>
+                  <Show when={review()}>
+                    {(report) => (
+                      <div class="text-sm text-sky-800 bg-sky-50 border border-sky-100 rounded-lg p-3 space-y-2">
+                        <div class="font-bold">Instruction Review: {getInstructionReviewReadinessSummary(report())}</div>
+                        <Show when={report().blockers.length > 0}>
+                          <div>Blockers: {report().blockers.map((finding) => finding.title).join('; ')}</div>
+                        </Show>
+                        <Show when={report().recommendations.length > 0}>
+                          <div>Recommendations: {report().recommendations.map((finding) => finding.title).join('; ')}</div>
+                        </Show>
+                        <div class="text-xs text-sky-700">
+                          Advisory only: {report().advisory_only ? 'Yes' : 'No'} | Mutates skill:{' '}
+                          {report().mutates_target ? 'Yes' : 'No'}
+                        </div>
+                      </div>
+                    )}
+                  </Show>
                   <Show when={item.issues.length > 0}>
                     <div class="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-lg p-3">
                       Issues: {item.issues.join('; ')}
@@ -892,6 +1024,7 @@ export default function SkillHealth() {
               const action = () => getMountActionState(item.status);
               const setupAction = () => getSetupActionState(item);
               const health = () => getExcalidrawHealthSummary(item);
+              const review = () => instructionReviews()[item.skill_ref] || null;
               return (
                 <div
                   id={getSkillPreflightRecordAnchorId(item.skill_ref)}
@@ -944,8 +1077,33 @@ export default function SkillHealth() {
                           {busyRef() === item.skill_ref ? 'Working...' : setupAction().label}
                         </button>
                       </Show>
+                      <button
+                        type="button"
+                        disabled={reviewBusyRef() === item.skill_ref}
+                        onClick={() => handleInstructionReview(item)}
+                        class="px-3 py-1.5 rounded-lg border border-sky-200 text-sky-700 text-xs font-bold uppercase tracking-wider hover:bg-sky-50 disabled:opacity-50"
+                      >
+                        {reviewBusyRef() === item.skill_ref ? 'Reviewing...' : 'Review'}
+                      </button>
                     </div>
                   </div>
+                  <Show when={review()}>
+                    {(report) => (
+                      <div class="text-sm text-sky-800 bg-sky-50 border border-sky-100 rounded-lg p-3 space-y-2">
+                        <div class="font-bold">Instruction Review: {getInstructionReviewReadinessSummary(report())}</div>
+                        <Show when={report().blockers.length > 0}>
+                          <div>Blockers: {report().blockers.map((finding) => finding.title).join('; ')}</div>
+                        </Show>
+                        <Show when={report().recommendations.length > 0}>
+                          <div>Recommendations: {report().recommendations.map((finding) => finding.title).join('; ')}</div>
+                        </Show>
+                        <div class="text-xs text-sky-700">
+                          Advisory only: {report().advisory_only ? 'Yes' : 'No'} | Mutates skill:{' '}
+                          {report().mutates_target ? 'Yes' : 'No'}
+                        </div>
+                      </div>
+                    )}
+                  </Show>
                   <Show when={item.issues.length > 0}>
                     <div class="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-lg p-3">
                       Issues: {item.issues.join('; ')}

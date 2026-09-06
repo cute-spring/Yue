@@ -9,8 +9,10 @@ import {
   formatImportErrorMessage,
   formatImportSuccessMessage,
   formatInstallCandidateSelectionMessage,
+  formatInstructionReviewErrorMessage,
   formatSetupErrorMessage,
   formatMountErrorMessage,
+  getInstructionReviewReadinessSummary,
   getSkillInstallCandidates,
   getSkillPreflightRecordAnchorId,
   getSkillRecordCardClass,
@@ -28,7 +30,9 @@ import {
   importSkillFromPath,
   mountSkillToAgent,
   rescanSkillPreflight,
+  reviewSkillInstructions,
   trustAndSetupSkill,
+  type InstructionReviewReport,
   type SkillPreflightRecord,
 } from './SkillHealth';
 
@@ -261,6 +265,88 @@ describe('SkillHealth helpers', () => {
       error: 'import_source_not_found',
     });
     expect(formatImportErrorMessage(result.error)).toContain('not found');
+  });
+
+  it('reviews skill instructions through the advisory backend endpoint', async () => {
+    const report: InstructionReviewReport = {
+      target: { target_type: 'skill', name: 'ok-skill', version: '1.0.0', source_ref: null },
+      advisory_only: true,
+      mutates_target: false,
+      review_scope: ['trigger_clarity'],
+      summary: 'Instruction review found recommendations.',
+      overall_status: 'warning',
+      blockers: [],
+      recommendations: [
+        {
+          code: 'examples_missing',
+          title: 'Examples are missing',
+          detail: 'No example usage is available.',
+          recommendation: 'Add examples.',
+        },
+      ],
+      yue_runtime_positioning: 'Yue is reviewing runtime and workbench fit only.',
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => report,
+    }));
+
+    const result = await reviewSkillInstructions('ok-skill', '1.0.0', fetchMock as any);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/skills/review-instructions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_type: 'skill',
+        skill_name: 'ok-skill',
+        version: '1.0.0',
+      }),
+    });
+    expect(result).toEqual({ ok: true, report, error: null });
+    expect(getInstructionReviewReadinessSummary(result.report)).toBe('1 recommendation for admin review.');
+  });
+
+  it('summarizes instruction review blockers without granting activation', () => {
+    const report: InstructionReviewReport = {
+      target: { target_type: 'skill', name: 'risky-skill', version: '1.0.0', source_ref: null },
+      advisory_only: true,
+      mutates_target: false,
+      review_scope: ['tool_policy'],
+      summary: 'Instruction review found blockers.',
+      overall_status: 'blocker',
+      blockers: [
+        {
+          code: 'tool_policy_missing',
+          title: 'Tool policy is not explicit',
+          detail: 'Instructions mention side effects.',
+          recommendation: 'Declare allowed tools.',
+        },
+        {
+          code: 'approval_boundary_missing',
+          title: 'Approval boundary is risky',
+          detail: 'Instructions discourage approval.',
+          recommendation: 'Require preview and approval.',
+        },
+      ],
+      recommendations: [],
+      yue_runtime_positioning: 'Yue is reviewing runtime and workbench fit only.',
+    };
+
+    expect(getInstructionReviewReadinessSummary(report)).toBe('2 blockers before activation.');
+    expect(report.advisory_only).toBe(true);
+    expect(report.mutates_target).toBe(false);
+  });
+
+  it('returns normalized instruction review errors', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ detail: 'skill_name_required' }),
+    }));
+
+    const result = await reviewSkillInstructions('', null, fetchMock as any);
+
+    expect(result).toEqual({ ok: false, report: null, error: 'skill_name_required' });
+    expect(formatInstructionReviewErrorMessage(result.error)).toContain('Select a skill');
   });
 
   it('builds install candidates from workspace skills, deduped by path', () => {
