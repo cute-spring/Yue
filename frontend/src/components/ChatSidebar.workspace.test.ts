@@ -4,6 +4,7 @@ import {
   filterChatsByWorkspace,
   formatWorkspaceCountLabel,
   getArtifactSourceLabels,
+  getResearchFollowUpCandidates,
   getResearchArtifactMetadata,
   getWorkspaceEvidenceSummary,
   getWorkspaceSourceReadinessCounts,
@@ -144,6 +145,19 @@ describe('ChatSidebar research artifact helpers', () => {
 
   it('resolves artifact source ids to readable labels where possible', () => {
     expect(getArtifactSourceLabels(artifact, sources)).toEqual(['Report.pdf', 'missing_src']);
+  });
+
+  it('routes research gaps into questionnaire candidates and open decisions into Clarify input', () => {
+    expect(getResearchFollowUpCandidates(artifact)).toEqual({
+      questionnaireGaps: ['No source confirms the rollout date.'],
+      clarifyQuestions: ['What is unresolved?'],
+    });
+    expect(
+      getResearchFollowUpCandidates({
+        ...artifact,
+        artifact_type: 'session_handoff',
+      }),
+    ).toEqual({ questionnaireGaps: [], clarifyQuestions: [] });
   });
 
   it('summarizes selected evidence scope and grounding mode', () => {

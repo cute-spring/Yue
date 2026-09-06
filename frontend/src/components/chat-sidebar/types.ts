@@ -101,6 +101,11 @@ export interface ChatSidebarProps {
     },
   ) => Promise<void> | void;
   onRejectWorkspaceMemoryCandidate: (candidateId: string, reason?: string | null) => Promise<void> | void;
+  onCreateQuestionnaireFromResearchGap?: (
+    artifact: WorkspaceArtifact,
+    gap: string,
+  ) => Promise<void> | void;
+  onClarifyResearchDecision?: (artifact: WorkspaceArtifact, question: string) => void;
   onDeleteChat: (id: string) => void;
   onGenerateSummary: (id: string) => void;
 }

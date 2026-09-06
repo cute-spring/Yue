@@ -40,7 +40,10 @@ type ChatWorkspaceDockProps = Pick<
   | 'onDeleteWorkspaceMemory'
   | 'onApproveWorkspaceMemoryCandidate'
   | 'onRejectWorkspaceMemoryCandidate'
->;
+> & {
+  onCreateQuestionnaireFromResearchGap?: ChatSidebarProps['onCreateQuestionnaireFromResearchGap'];
+  onClarifyResearchDecision?: ChatSidebarProps['onClarifyResearchDecision'];
+};
 
 export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
   const [isOpen, setIsOpen] = createSignal(false);
@@ -343,6 +346,8 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
               onDeleteWorkspaceMemory={props.onDeleteWorkspaceMemory}
               onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
               onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
+              onCreateQuestionnaireFromResearchGap={props.onCreateQuestionnaireFromResearchGap}
+              onClarifyResearchDecision={props.onClarifyResearchDecision}
             />
           </div>
         </aside>

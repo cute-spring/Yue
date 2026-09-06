@@ -1,5 +1,5 @@
 import { createSignal, Show, createEffect } from 'solid-js';
-import { SkillSpec } from '../../../types';
+import { SkillSpec, WorkspaceArtifact } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 import ChatSidebar from '../../../components/ChatSidebar';
 import { ChatWorkspaceDock } from '../../../components/chat-sidebar/ChatWorkspaceDock';
@@ -21,6 +21,7 @@ import { useVoiceComposerIntegration } from '../hooks/useVoiceComposerIntegratio
 import { useChatPageEffects } from '../hooks/useChatPageEffects';
 import ChatHeader from './ChatHeader';
 import { useChatContentActions } from '../hooks/useChatContentActions';
+import { buildDiscoveryQuestionnaireArtifact } from '../utils/chatCommands';
 
 export default function ChatPageContent(props: {
   speechPrefs: () => Preferences;
@@ -348,6 +349,24 @@ export default function ChatPageContent(props: {
     isMobile: isMobileViewport,
   });
 
+  const handleCreateQuestionnaireFromResearchGap = async (
+    artifact: WorkspaceArtifact,
+    gap: string,
+  ) => {
+    const questionnaire = buildDiscoveryQuestionnaireArtifact(
+      `Research gap from "${artifact.title}": ${gap}`,
+      messages(),
+      [artifact, ...workspaceArtifacts().filter((entry) => entry.id !== artifact.id)],
+    );
+    await saveDiscoveryQuestionnaireArtifact(questionnaire);
+    toast.success('Saved discovery questionnaire from research gap.', 3000);
+  };
+
+  const handleClarifyResearchDecision = (artifact: WorkspaceArtifact, question: string) => {
+    setInput(`/clarify Research decision from "${artifact.title}": ${question}`);
+    toast.success('Clarify prompt staged in the composer.', 3000);
+  };
+
   return (
     <div class="flex h-full bg-background overflow-hidden relative">
       <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
@@ -443,6 +462,8 @@ export default function ChatPageContent(props: {
         onDeleteWorkspaceMemory={deleteWorkspaceMemory}
         onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidate}
         onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidate}
+        onCreateQuestionnaireFromResearchGap={handleCreateQuestionnaireFromResearchGap}
+        onClarifyResearchDecision={handleClarifyResearchDecision}
         memorySuggestionsEnabled={props.speechPrefs().memory_suggestions_enabled}
       />
 

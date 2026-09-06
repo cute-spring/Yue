@@ -149,16 +149,17 @@ const latestNumericMessageId = (messages: Message[]): number | null => {
   return typeof message?.id === 'number' ? message.id : null;
 };
 
-const EARLY_WORKBENCH_ARTIFACT_TYPES = new Set([
+const WORKBENCH_ARTIFACT_TYPES = new Set([
   'clarify_decision_brief',
   'decision_brief',
   'session_handoff',
   'discovery_questionnaire',
+  'research_report',
 ]);
 
 const relatedWorkbenchArtifacts = (artifacts: WorkspaceArtifact[]): WorkspaceArtifact[] =>
   artifacts
-    .filter((artifact) => EARLY_WORKBENCH_ARTIFACT_TYPES.has(artifact.artifact_type))
+    .filter((artifact) => WORKBENCH_ARTIFACT_TYPES.has(artifact.artifact_type))
     .slice(0, 8);
 
 const artifactReferences = (artifacts: WorkspaceArtifact[]): Record<string, unknown>[] =>

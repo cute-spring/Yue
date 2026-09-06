@@ -147,6 +147,22 @@ export const getArtifactSourceLabels = (
   sources: WorkspaceSource[],
 ): string[] => getResearchArtifactMetadata(artifact).sourceIds.map((sourceId) => getWorkspaceSourceLabel(sourceId, sources));
 
+export type ResearchFollowUpCandidates = {
+  questionnaireGaps: string[];
+  clarifyQuestions: string[];
+};
+
+export const getResearchFollowUpCandidates = (artifact: WorkspaceArtifact): ResearchFollowUpCandidates => {
+  if (artifact.artifact_type !== 'research_report') {
+    return { questionnaireGaps: [], clarifyQuestions: [] };
+  }
+  const metadata = getResearchArtifactMetadata(artifact);
+  return {
+    questionnaireGaps: metadata.evidenceContract.missingEvidence,
+    clarifyQuestions: metadata.openQuestions,
+  };
+};
+
 export const getWorkspaceEvidenceSummary = (
   workspaceSourceMode: 'all_ready' | 'selected' | 'none',
   groundingMode: 'normal' | 'prefer_sources' | 'require_sources',

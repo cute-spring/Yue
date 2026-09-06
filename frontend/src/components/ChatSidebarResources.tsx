@@ -11,6 +11,7 @@ import {
   formatWorkspaceCountLabel,
   formatWorkspaceArtifactType,
   getArtifactSourceLabels,
+  getResearchFollowUpCandidates,
   getResearchArtifactMetadata,
   getWorkspaceEvidenceSummary,
   getWorkspaceSourceReadinessCounts,
@@ -113,6 +114,11 @@ interface ChatSidebarResourcesProps {
     },
   ) => Promise<void> | void;
   onRejectWorkspaceMemoryCandidate: (candidateId: string, reason?: string | null) => Promise<void> | void;
+  onCreateQuestionnaireFromResearchGap?: (
+    artifact: WorkspaceArtifact,
+    gap: string,
+  ) => Promise<void> | void;
+  onClarifyResearchDecision?: (artifact: WorkspaceArtifact, question: string) => void;
 }
 
 const formatSourceModeLabel = (mode: WorkspaceSourceMode) => {
@@ -932,6 +938,7 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                         {(artifact) => {
                           const metadata = createMemo(() => getResearchArtifactMetadata(artifact));
                           const sourceLabels = createMemo(() => getArtifactSourceLabels(artifact, props.workspaceSources));
+                          const followUps = createMemo(() => getResearchFollowUpCandidates(artifact));
                           return (
                             <details
                               open={props.workspaceArtifacts.length === 1}
@@ -1009,14 +1016,59 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                   </div>
                                 </Show>
 
-                                <Show when={metadata().openQuestions.length > 0}>
+                                <Show when={followUps().clarifyQuestions.length > 0}>
                                   <div class="mt-3">
-                                    <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Open questions</div>
+                                    <div class="flex items-center justify-between gap-2">
+                                      <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Open questions</div>
+                                      <Show when={props.onClarifyResearchDecision}>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const question = followUps().clarifyQuestions.join('\n');
+                                            props.onClarifyResearchDecision?.(artifact, question);
+                                          }}
+                                          class="shrink-0 rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-600 hover:border-blue-200 hover:bg-blue-50"
+                                          title="Stage these open questions in Clarify Mode"
+                                        >
+                                          Clarify
+                                        </button>
+                                      </Show>
+                                    </div>
                                     <div class="mt-1 space-y-1">
-                                      <For each={metadata().openQuestions}>
+                                      <For each={followUps().clarifyQuestions}>
                                         {(question) => (
                                           <div class="rounded-lg bg-white/80 px-2 py-1 text-[10px] leading-snug text-slate-600">
                                             {question}
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </div>
+                                </Show>
+
+                                <Show when={followUps().questionnaireGaps.length > 0}>
+                                  <div class="mt-3">
+                                    <div class="flex items-center justify-between gap-2">
+                                      <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Missing evidence</div>
+                                      <Show when={props.onCreateQuestionnaireFromResearchGap}>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const gap = followUps().questionnaireGaps.join('\n');
+                                            void props.onCreateQuestionnaireFromResearchGap?.(artifact, gap);
+                                          }}
+                                          class="shrink-0 rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-600 hover:border-blue-200 hover:bg-blue-50"
+                                          title="Create a discovery questionnaire from this missing evidence"
+                                        >
+                                          Questionnaire
+                                        </button>
+                                      </Show>
+                                    </div>
+                                    <div class="mt-1 space-y-1">
+                                      <For each={followUps().questionnaireGaps}>
+                                        {(gap) => (
+                                          <div class="rounded-lg bg-white/80 px-2 py-1 text-[10px] leading-snug text-slate-600">
+                                            {gap}
                                           </div>
                                         )}
                                       </For>
