@@ -863,6 +863,19 @@ class WorkspaceService:
         return " ".join(WorkspaceService._tokenize_memory_query(text))
 
     @staticmethod
+    def _redact_sensitive_memory_text(text: str) -> str:
+        redacted = re.sub(r"\b(sk-[A-Za-z0-9_-]{12,})\b", "[REDACTED_OPENAI_KEY]", text)
+        redacted = re.sub(r"\b(gh[pousr]_[A-Za-z0-9_]{20,})\b", "[REDACTED_GITHUB_TOKEN]", redacted)
+        redacted = re.sub(r"\b(Bearer\s+)[A-Za-z0-9._~+/=-]{12,}", r"\1[REDACTED_TOKEN]", redacted, flags=re.IGNORECASE)
+        redacted = re.sub(
+            r"\b(api[_-]?key|password|passwd|secret|token)\s*[:=]\s*[\"']?[^\"'\s,;]+",
+            r"\1=[REDACTED]",
+            redacted,
+            flags=re.IGNORECASE,
+        )
+        return redacted
+
+    @staticmethod
     def _memory_type_priority(memory_type: str) -> int:
         priority = {
             "preference": 0,
@@ -951,7 +964,7 @@ class WorkspaceService:
                 aliases = [item.strip() for item in re.split(r"[,，/、]", alias_match.group(1)) if item.strip()]
         return {
             "memory_class": self._memory_class_for_type(memory_type),
-            "definition": content[:500],
+            "definition": self._redact_sensitive_memory_text(content[:500]),
             "aliases": aliases,
             "provenance": {
                 "source_session_id": source_session_id,
@@ -1701,10 +1714,19 @@ class WorkspaceService:
             if workspace is None:
                 return None
             normalized_scope_type = self._normalize_memory_scope_type(scope_type)
+            normalized_type = self._normalize_memory_type(memory_type)
+            safe_content = self._redact_sensitive_memory_text(content.strip())
+            next_metadata = dict(memory_metadata or {})
+            next_metadata.setdefault("memory_class", self._memory_class_for_type(normalized_type))
+            next_metadata.setdefault("confirmation_status", "user_confirmed")
+            next_metadata.setdefault("updated_at", now.isoformat())
+            if normalized_type == "term":
+                next_metadata.setdefault("definition", safe_content)
+                next_metadata.setdefault("aliases", [])
             row = WorkspaceMemoryCardModel(
                 id=str(uuid.uuid4()),
                 workspace_id=workspace_id,
-                memory_type=self._normalize_memory_type(memory_type),
+                memory_type=normalized_type,
                 scope_type=normalized_scope_type,
                 scope_ref=self._resolve_memory_scope_ref(
                     scope_type=normalized_scope_type,
@@ -1713,7 +1735,7 @@ class WorkspaceService:
                     current_chat_id=source_session_id if normalized_scope_type == "chat" else None,
                 ),
                 title=title.strip(),
-                content=content.strip(),
+                content=safe_content,
                 status=self._normalize_memory_status(status),
                 confidence=confidence,
                 created_by=self._normalize_created_by(created_by),
@@ -1725,7 +1747,7 @@ class WorkspaceService:
                 source_message_id=source_message_id,
                 supersedes_memory_id=supersedes_memory_id,
                 expires_at=self._coerce_datetime(expires_at),
-                memory_metadata_json=json.dumps(memory_metadata or {}),
+                memory_metadata_json=json.dumps(next_metadata),
                 created_at=now,
                 updated_at=now,
             )
@@ -2257,7 +2279,7 @@ class WorkspaceService:
                 current_chat_id=candidate.source_session_id if next_scope_type == "chat" else None,
             )
             next_title = str(title or candidate.title).strip() or candidate.title
-            next_content = str(content or candidate.content).strip() or candidate.content
+            next_content = self._redact_sensitive_memory_text(str(content or candidate.content).strip() or candidate.content)
             next_confidence = confidence if confidence is not None else candidate.score
             next_why_saved = str(why_saved or getattr(candidate, "why_saved", None) or "").strip() or None
             next_expires_at = self._coerce_datetime(expires_at if expires_at is not None else getattr(candidate, "expires_at", None))
@@ -2266,6 +2288,27 @@ class WorkspaceService:
                 if pinned is not None
                 else bool(getattr(target_memory, "pinned", False)) if target_memory is not None else False
             )
+            approval_preview = candidate_metadata.get("approval_preview")
+            if not isinstance(approval_preview, dict):
+                approval_preview = {}
+            approved_metadata = {
+                **candidate_metadata,
+                "approved_from_candidate_id": candidate.id,
+                "approval_mode": normalized_mode,
+                "memory_class": self._memory_class_for_type(next_type),
+                "aliases": approval_preview.get("aliases") if isinstance(approval_preview.get("aliases"), list) else [],
+                "definition": next_content if next_type == "term" else None,
+                "provenance": approval_preview.get("provenance")
+                if isinstance(approval_preview.get("provenance"), dict)
+                else {
+                    "source_session_id": candidate.source_session_id,
+                    "source_message_id": candidate.source_message_id,
+                    "source_ids": candidate_metadata.get("source_ids") or [],
+                    "citation_refs": candidate_metadata.get("citation_refs") or [],
+                },
+                "confirmation_status": "user_confirmed",
+                "updated_at": now.isoformat(),
+            }
 
             if normalized_mode in {"replace_existing", "update_existing"} and target_memory is None:
                 return None
@@ -2290,6 +2333,7 @@ class WorkspaceService:
                         "previous_content": target_memory.content,
                     }
                 )
+                target_metadata.update(approved_metadata)
                 target_metadata["candidate_update_history"] = history[-10:]
                 target_memory.memory_type = next_type
                 target_memory.scope_type = next_scope_type
@@ -2326,13 +2370,7 @@ class WorkspaceService:
                     source_message_id=candidate.source_message_id,
                     supersedes_memory_id=target_memory.id if normalized_mode == "replace_existing" and target_memory is not None else None,
                     expires_at=next_expires_at,
-                    memory_metadata_json=json.dumps(
-                        {
-                            **candidate_metadata,
-                            "approved_from_candidate_id": candidate.id,
-                            "approval_mode": normalized_mode,
-                        }
-                    ),
+                    memory_metadata_json=json.dumps(approved_metadata),
                     created_at=now,
                     updated_at=now,
                 )

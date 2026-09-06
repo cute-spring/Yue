@@ -760,6 +760,68 @@ def test_workspace_memory_candidate_includes_glossary_approval_preview(temp_db):
     assert preview["durable_write_performed"] is False
 
 
+def test_approved_glossary_term_persists_confirmation_metadata(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Confirmed Glossary Workspace")
+    session = chat_service.create_chat(title="Confirmed glossary chat", workspace_id=workspace.id)
+    chat_service.add_message(
+        session.id,
+        "assistant",
+        "Term: Runbook seed refers to a handoff that can start a future workflow. Alias: workflow seed",
+    )
+    assistant = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "assistant")
+    candidate = workspace_service.suggest_memory_candidate_from_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=assistant.id,
+        source_ids=["src_terms"],
+    )
+    assert candidate is not None
+
+    approved = workspace_service.approve_memory_candidate(
+        workspace.id,
+        candidate.id,
+        approval_mode="create_new",
+    )
+
+    assert approved is not None
+    assert approved.memory_type == "term"
+    assert approved.status == "active"
+    assert approved.memory_metadata["memory_class"] == "term"
+    assert approved.memory_metadata["aliases"] == ["workflow seed"]
+    assert approved.memory_metadata["definition"].startswith("Term: Runbook seed refers")
+    assert approved.memory_metadata["confirmation_status"] == "user_confirmed"
+    assert approved.memory_metadata["provenance"]["source_session_id"] == session.id
+    assert approved.memory_metadata["provenance"]["source_message_id"] == assistant.id
+    assert approved.memory_metadata["provenance"]["source_ids"] == ["src_terms"]
+    assert approved.memory_metadata["updated_at"]
+
+
+def test_manual_glossary_term_save_redacts_secret_values(temp_db):
+    workspace_service, _, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Manual Glossary Workspace")
+    saved = workspace_service.create_memory(
+        workspace.id,
+        memory_type="term",
+        title="API Token",
+        content="Term: API token means api_key=super-secret-value",
+        memory_metadata={"aliases": ["credential"]},
+    )
+
+    assert saved is not None
+    assert saved.memory_type == "term"
+    assert saved.status == "active"
+    assert "super-secret-value" not in saved.content
+    assert "api_key=[REDACTED]" in saved.content
+    assert saved.memory_metadata["memory_class"] == "term"
+    assert saved.memory_metadata["aliases"] == ["credential"]
+    assert saved.memory_metadata["definition"] == saved.content
+    assert saved.memory_metadata["confirmation_status"] == "user_confirmed"
+    assert saved.memory_metadata["updated_at"]
+
+
 def test_workspace_memory_classifier_covers_glossary_classes(temp_db):
     workspace_service, _, _ = temp_db
 
