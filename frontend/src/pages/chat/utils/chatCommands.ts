@@ -5,6 +5,7 @@ import {
   SessionHandoffArtifactInput,
   WorkspaceArtifact,
   WorkspaceNote,
+  WorkspaceSource,
 } from '../../../types';
 
 type ToastLike = {
@@ -17,18 +18,24 @@ type HandleChatCommandArgs = {
   setMessages: Setter<Message[]>;
   setInput: (value: string) => void;
   submitText: (value: string, overrides?: Record<string, unknown>) => Promise<void> | void;
+  buildWorkspaceRequestOverrides: () => Record<string, unknown>;
   saveLastAssistantAsWorkspaceNote: () => Promise<WorkspaceNote | null>;
   saveLastAssistantAsResearchArtifact: () => Promise<void>;
   saveSessionHandoffArtifact: (handoff: SessionHandoffArtifactInput) => Promise<void>;
   saveDiscoveryQuestionnaireArtifact: (questionnaire: DiscoveryQuestionnaireArtifactInput) => Promise<void>;
   messages: Message[];
   workspaceArtifacts: WorkspaceArtifact[];
+  workspaceSources: WorkspaceSource[];
+  workspaceSourceMode: 'all_ready' | 'selected' | 'none';
+  selectedWorkspaceSourceIds: string[];
+  groundingMode: 'normal' | 'prefer_sources' | 'require_sources';
   toast: ToastLike;
 };
 
 const CLARIFY_COMMAND = '/clarify';
 const HANDOFF_COMMAND = '/handoff';
 const QUESTIONNAIRE_COMMAND = '/questionnaire';
+const RESEARCH_COMMAND = '/research';
 
 export const parseClarifyModeTask = (trimmedInput: string): string | null => {
   if (trimmedInput === CLARIFY_COMMAND) return '';
@@ -314,6 +321,89 @@ export const parseDiscoveryQuestionnaireGap = (trimmedInput: string): string | n
   return null;
 };
 
+export const parseDeepResearchQuestion = (trimmedInput: string): string | null => {
+  if (trimmedInput === RESEARCH_COMMAND) return '';
+  if (trimmedInput.startsWith(`${RESEARCH_COMMAND} `)) {
+    return trimmedInput.slice(RESEARCH_COMMAND.length).trim();
+  }
+
+  const naturalTriggers = [
+    'research this:',
+    'research this using my workspace files:',
+    'deep research:',
+  ];
+  const lower = trimmedInput.toLowerCase();
+  for (const trigger of naturalTriggers) {
+    if (lower.startsWith(trigger)) {
+      return trimmedInput.slice(trigger.length).trim();
+    }
+  }
+
+  return null;
+};
+
+const buildSourceScopePreview = (
+  sources: WorkspaceSource[],
+  sourceMode: 'all_ready' | 'selected' | 'none',
+  selectedSourceIds: string[],
+  groundingMode: 'normal' | 'prefer_sources' | 'require_sources',
+): { lines: string[]; sourceIds: string[]; unavailableSourceIds: string[]; citationRequirement: string } => {
+  const selectedSources =
+    sourceMode === 'none'
+      ? []
+      : sourceMode === 'selected'
+        ? sources.filter((source) => selectedSourceIds.includes(source.id))
+        : sources.filter((source) => source.status === 'ready');
+  const sourceIds = selectedSources.map((source) => source.id);
+  const unavailableSourceIds = selectedSources
+    .filter((source) => source.status && source.status !== 'ready')
+    .map((source) => source.id);
+  const citationRequirement =
+    groundingMode === 'require_sources'
+      ? 'required'
+      : groundingMode === 'prefer_sources'
+        ? 'preferred'
+        : 'optional';
+  const sourceLines = selectedSources.length
+    ? selectedSources.map((source) => {
+        const label = source.display_name || source.source_ref || source.id;
+        return `- ${label} (${source.status || 'unknown'}, id: ${source.id})`;
+      })
+    : ['- No workspace sources selected for this run.'];
+
+  return { lines: sourceLines, sourceIds, unavailableSourceIds, citationRequirement };
+};
+
+export const buildDeepResearchPrompt = (
+  question: string,
+  sources: WorkspaceSource[],
+  sourceMode: 'all_ready' | 'selected' | 'none',
+  selectedSourceIds: string[],
+  groundingMode: 'normal' | 'prefer_sources' | 'require_sources',
+): string => {
+  const scope = buildSourceScopePreview(sources, sourceMode, selectedSourceIds, groundingMode);
+  return [
+    'Deep Research',
+    '',
+    'Research question:',
+    question.trim(),
+    '',
+    'Source Scope Preview:',
+    `- Source mode: ${sourceMode}`,
+    `- Citation requirement: ${scope.citationRequirement}`,
+    `- Source ids: ${scope.sourceIds.length ? scope.sourceIds.join(', ') : 'none'}`,
+    `- Unavailable source ids: ${scope.unavailableSourceIds.length ? scope.unavailableSourceIds.join(', ') : 'none'}`,
+    ...scope.lines,
+    '',
+    'Evidence contract:',
+    '- Label each claim as source-supported, inferred, user-confirmed, unsupported, or missing-evidence.',
+    '- Cite source-supported claims with the exact source reference available in this workspace.',
+    '- Put unsupported claims and missing evidence in separate sections instead of presenting them as sourced facts.',
+    '- Include summary, findings, citations, evidence gaps, assumptions, and next actions.',
+    '- Do not write durable workspace memory, send externally, or create tickets without explicit user approval.',
+  ].join('\n');
+};
+
 const inferRecipient = (gap: string): string => {
   const match = gap.match(/\b(?:for|ask|from)\s+(the\s+)?([A-Za-z][A-Za-z0-9 _-]{1,40})/i);
   return normalizeForLine(redact(match?.[2] || 'Stakeholder or decision owner'));
@@ -422,12 +512,17 @@ export const handleChatCommand = ({
   setMessages,
   setInput,
   submitText,
+  buildWorkspaceRequestOverrides,
   saveLastAssistantAsWorkspaceNote,
   saveLastAssistantAsResearchArtifact,
   saveSessionHandoffArtifact,
   saveDiscoveryQuestionnaireArtifact,
   messages,
   workspaceArtifacts,
+  workspaceSources,
+  workspaceSourceMode,
+  selectedWorkspaceSourceIds,
+  groundingMode,
   toast,
 }: HandleChatCommandArgs): boolean => {
   if (trimmedInput === '/help') {
@@ -506,7 +601,23 @@ export const handleChatCommand = ({
     return true;
   }
 
-  if (trimmedInput === '/research') {
+  const researchQuestion = parseDeepResearchQuestion(trimmedInput);
+  if (researchQuestion !== null && researchQuestion.trim()) {
+    void submitText(
+      buildDeepResearchPrompt(
+        researchQuestion,
+        workspaceSources,
+        workspaceSourceMode,
+        selectedWorkspaceSourceIds,
+        groundingMode,
+      ),
+      buildWorkspaceRequestOverrides(),
+    );
+    setInput('');
+    return true;
+  }
+
+  if (trimmedInput === RESEARCH_COMMAND) {
     saveLastAssistantAsResearchArtifact()
       .then(() => toast.success('Saved as research artifact.', 3000))
       .catch((err) => {

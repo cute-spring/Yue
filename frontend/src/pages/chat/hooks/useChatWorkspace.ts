@@ -377,6 +377,8 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
             citations,
           },
         ],
+        assumptions: evidenceState === 'inferred' ? ['Saved assistant response has no citations attached.'] : [],
+        next_actions: ['Review evidence labels and fill any missing citations before sharing.'],
         missing_evidence: missingEvidence,
         citation_warnings: missingEvidence,
         source_session_id: chatId,

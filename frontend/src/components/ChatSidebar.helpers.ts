@@ -14,7 +14,9 @@ export type ResearchArtifactMetadata = {
   sourceIds: string[];
   mode: string;
   findings: Record<string, unknown>[];
+  assumptions: string[];
   openQuestions: string[];
+  nextActions: string[];
   exportPaths: string[];
   evidenceContract: {
     claimStates: Record<string, string>;
@@ -44,8 +46,14 @@ export const getResearchArtifactMetadata = (artifact: WorkspaceArtifact): Resear
             typeof value === 'object' && value !== null,
         )
       : [],
+    assumptions: Array.isArray(metadata.assumptions)
+      ? metadata.assumptions.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
     openQuestions: Array.isArray(metadata.open_questions)
       ? metadata.open_questions.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
+    nextActions: Array.isArray(metadata.next_actions)
+      ? metadata.next_actions.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
       : [],
     exportPaths: Array.isArray(metadata.export_paths)
       ? metadata.export_paths.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)

@@ -685,6 +685,8 @@ def test_create_research_artifact(client, mock_workspace_service):
             "summary": "Summary",
             "source_ids": ["src_1"],
             "mode": "require_sources",
+            "assumptions": ["Assume current workspace sources are sufficient."],
+            "next_actions": ["Review unsupported claims."],
             "source_session_id": "chat_1",
             "source_message_id": 10,
         },
@@ -701,6 +703,8 @@ def test_create_research_artifact(client, mock_workspace_service):
         "unavailable_source_ids": [],
         "citation_requirement": "required",
     }
+    assert metadata["assumptions"] == ["Assume current workspace sources are sufficient."]
+    assert metadata["next_actions"] == ["Review unsupported claims."]
     assert metadata["durable_memory_write"] == "not_performed"
 
 

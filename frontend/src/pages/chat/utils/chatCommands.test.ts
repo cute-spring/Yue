@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildClarifyModePrompt,
+  buildDeepResearchPrompt,
   buildDiscoveryQuestionnaireArtifact,
   buildSessionHandoffArtifact,
   handleChatCommand,
+  parseDeepResearchQuestion,
   parseDiscoveryQuestionnaireGap,
   parseClarifyModeTask,
   redactSessionHandoffText,
@@ -13,13 +15,16 @@ import {
   Message,
   SessionHandoffArtifactInput,
   WorkspaceArtifact,
+  WorkspaceSource,
 } from '../../../types';
 
 const createCommandHarness = () => {
   const messages: Message[] = [];
   const workspaceArtifacts: WorkspaceArtifact[] = [];
+  const workspaceSources: WorkspaceSource[] = [];
   let input = '';
   const submitText = vi.fn();
+  const buildWorkspaceRequestOverrides = vi.fn(() => ({ workspace_source_mode: 'all_ready' }));
   const saveSessionHandoffArtifact = vi.fn(async (_handoff: SessionHandoffArtifactInput) => undefined);
   const saveDiscoveryQuestionnaireArtifact = vi.fn(
     async (_questionnaire: DiscoveryQuestionnaireArtifactInput) => undefined,
@@ -27,7 +32,9 @@ const createCommandHarness = () => {
   const harness = {
     messages,
     workspaceArtifacts,
+    workspaceSources,
     submitText,
+    buildWorkspaceRequestOverrides,
     saveSessionHandoffArtifact,
     saveDiscoveryQuestionnaireArtifact,
     setMessages: (value: Message[] | ((prev: Message[]) => Message[])) => {
@@ -47,12 +54,17 @@ const createCommandHarness = () => {
         setMessages: harness.setMessages,
         setInput: harness.setInput,
         submitText: harness.submitText,
+        buildWorkspaceRequestOverrides: harness.buildWorkspaceRequestOverrides,
         saveLastAssistantAsWorkspaceNote: async () => null,
         saveLastAssistantAsResearchArtifact: async () => undefined,
         saveSessionHandoffArtifact: harness.saveSessionHandoffArtifact,
         saveDiscoveryQuestionnaireArtifact: harness.saveDiscoveryQuestionnaireArtifact,
         messages: harness.messages,
         workspaceArtifacts: harness.workspaceArtifacts,
+        workspaceSources: harness.workspaceSources,
+        workspaceSourceMode: 'all_ready',
+        selectedWorkspaceSourceIds: [],
+        groundingMode: 'normal',
         toast: {
           error: () => undefined,
           success: () => undefined,
@@ -310,6 +322,81 @@ describe('chat commands', () => {
     expect(handled).toBe(true);
     expect(harness.saveDiscoveryQuestionnaireArtifact).not.toHaveBeenCalled();
     expect(harness.messages.at(-1)?.content).toContain('recipient, objective, and what Yue needs to learn');
+    expect(harness.getInput()).toBe('');
+  });
+
+  it('parses slash and natural-language Deep Research triggers', () => {
+    expect(parseDeepResearchQuestion('/research How should Yue cite claims?')).toBe(
+      'How should Yue cite claims?',
+    );
+    expect(parseDeepResearchQuestion('/research')).toBe('');
+    expect(parseDeepResearchQuestion('research this: workspace evidence policy')).toBe(
+      'workspace evidence policy',
+    );
+    expect(parseDeepResearchQuestion('/researchfoo')).toBeNull();
+  });
+
+  it('builds a Deep Research prompt with source scope preview and evidence contract', () => {
+    const sources: WorkspaceSource[] = [
+      {
+        id: 'src_ready',
+        workspace_id: 'ws_1',
+        source_type: 'upload',
+        source_ref: 'uploads/report.pdf',
+        display_name: 'Report.pdf',
+        status: 'ready',
+        created_at: '2026-09-05T00:00:00.000Z',
+        updated_at: '2026-09-05T00:00:00.000Z',
+      },
+      {
+        id: 'src_waiting',
+        workspace_id: 'ws_1',
+        source_type: 'upload',
+        source_ref: 'uploads/raw.csv',
+        display_name: 'Raw.csv',
+        status: 'processing',
+        created_at: '2026-09-05T00:00:00.000Z',
+        updated_at: '2026-09-05T00:00:00.000Z',
+      },
+    ];
+
+    const prompt = buildDeepResearchPrompt(
+      'What changed?',
+      sources,
+      'selected',
+      ['src_ready', 'src_waiting'],
+      'require_sources',
+    );
+
+    expect(prompt).toContain('Deep Research');
+    expect(prompt).toContain('Research question:');
+    expect(prompt).toContain('Source Scope Preview:');
+    expect(prompt).toContain('Citation requirement: required');
+    expect(prompt).toContain('Unavailable source ids: src_waiting');
+    expect(prompt).toContain('source-supported, inferred, user-confirmed, unsupported, or missing-evidence');
+    expect(prompt).toContain('summary, findings, citations, evidence gaps, assumptions, and next actions');
+    expect(prompt).toContain('Do not write durable workspace memory');
+  });
+
+  it('submits slash Deep Research with workspace overrides when a question is provided', () => {
+    const harness = createCommandHarness();
+    harness.workspaceSources.push({
+      id: 'src_ready',
+      workspace_id: 'ws_1',
+      source_type: 'upload',
+      source_ref: 'uploads/report.pdf',
+      display_name: 'Report.pdf',
+      status: 'ready',
+      created_at: '2026-09-05T00:00:00.000Z',
+      updated_at: '2026-09-05T00:00:00.000Z',
+    });
+
+    const handled = harness.runCommand('/research What changed?');
+
+    expect(handled).toBe(true);
+    expect(harness.submitText).toHaveBeenCalledTimes(1);
+    expect(harness.submitText.mock.calls[0][0]).toContain('Deep Research');
+    expect(harness.submitText.mock.calls[0][1]).toEqual({ workspace_source_mode: 'all_ready' });
     expect(harness.getInput()).toBe('');
   });
 });

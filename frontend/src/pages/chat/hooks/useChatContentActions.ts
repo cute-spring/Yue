@@ -6,6 +6,7 @@ import {
   SkillSpec,
   WorkspaceArtifact,
   WorkspaceNote,
+  WorkspaceSource,
 } from '../../../types';
 import { canSubmitChatRequest } from '../../../hooks/useChatState';
 import { buildContinuationRequestOverrides } from '../../../utils/continuation';
@@ -38,6 +39,10 @@ type UseChatContentActionsArgs = {
   messages: Accessor<Message[]>;
   setMessages: Setter<Message[]>;
   workspaceArtifacts: Accessor<WorkspaceArtifact[]>;
+  workspaceSources: Accessor<WorkspaceSource[]>;
+  workspaceSourceMode: Accessor<'all_ready' | 'selected' | 'none'>;
+  selectedWorkspaceSourceIds: Accessor<string[]>;
+  groundingMode: Accessor<'normal' | 'prefer_sources' | 'require_sources'>;
   imageAttachments: Accessor<File[]>;
   isTyping: Accessor<boolean>;
   selectedModel: Accessor<string>;
@@ -110,12 +115,17 @@ export function useChatContentActions(args: UseChatContentActionsArgs) {
         setMessages: args.setMessages,
         setInput: args.setInput,
         submitText: args.submitText,
+        buildWorkspaceRequestOverrides: args.buildWorkspaceRequestOverrides,
         saveLastAssistantAsWorkspaceNote: args.saveLastAssistantAsWorkspaceNote,
         saveLastAssistantAsResearchArtifact: args.saveLastAssistantAsResearchArtifact,
         saveSessionHandoffArtifact: args.saveSessionHandoffArtifact,
         saveDiscoveryQuestionnaireArtifact: args.saveDiscoveryQuestionnaireArtifact,
         messages: args.messages(),
         workspaceArtifacts: args.workspaceArtifacts(),
+        workspaceSources: args.workspaceSources(),
+        workspaceSourceMode: args.workspaceSourceMode(),
+        selectedWorkspaceSourceIds: args.selectedWorkspaceSourceIds(),
+        groundingMode: args.groundingMode(),
         toast: args.toast,
       })
     ) {

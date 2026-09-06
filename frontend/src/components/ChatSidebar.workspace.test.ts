@@ -61,7 +61,9 @@ describe('ChatSidebar research artifact helpers', () => {
         },
         { claim: 'Unsupported claim', evidence_state: 'unsupported' },
       ],
+      assumptions: ['Dates are inferred from the current plan.'],
       open_questions: ['What is unresolved?'],
+      next_actions: ['Confirm source scope before follow-up research.'],
       export_paths: ['/tmp/report.md'],
       evidence_contract: {
         claim_states: {
@@ -114,7 +116,9 @@ describe('ChatSidebar research artifact helpers', () => {
         },
         { claim: 'Unsupported claim', evidence_state: 'unsupported' },
       ],
+      assumptions: ['Dates are inferred from the current plan.'],
       openQuestions: ['What is unresolved?'],
+      nextActions: ['Confirm source scope before follow-up research.'],
       exportPaths: ['/tmp/report.md'],
       evidenceContract: {
         claimStates: {

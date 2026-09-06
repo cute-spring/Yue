@@ -144,7 +144,9 @@ class ResearchArtifactCreate(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     mode: str = "normal"
     findings: list[Dict[str, Any]] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
     export_paths: list[str] = Field(default_factory=list)
     unavailable_source_ids: list[str] = Field(default_factory=list)
     citation_warnings: list[str] = Field(default_factory=list)
@@ -429,7 +431,9 @@ async def create_research_artifact(workspace_id: str, payload: ResearchArtifactC
         "mode": payload.mode,
         "summary": payload.summary,
         "findings": findings,
+        "assumptions": payload.assumptions,
         "open_questions": payload.open_questions,
+        "next_actions": payload.next_actions,
         "export_paths": payload.export_paths,
         "evidence_contract": {
             "claim_states": RESEARCH_EVIDENCE_LABELS,
