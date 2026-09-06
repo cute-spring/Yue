@@ -726,6 +726,83 @@ def test_workspace_memory_candidate_conflict_and_approval_flow(temp_db):
     assert candidates_after[0].status == "approved"
 
 
+def test_workspace_memory_candidate_includes_glossary_approval_preview(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Glossary Preview Workspace")
+    session = chat_service.create_chat(title="Glossary chat", workspace_id=workspace.id)
+    chat_service.add_message(
+        session.id,
+        "assistant",
+        "Term: Yue refers to the trusted AI workbench and skill runtime. Alias: workbench runtime",
+    )
+    assistant = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "assistant")
+
+    candidate = workspace_service.suggest_memory_candidate_from_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=assistant.id,
+        source_ids=["src_glossary"],
+    )
+
+    assert candidate is not None
+    assert candidate.status == "pending"
+    assert candidate.memory_type == "term"
+    preview = candidate.candidate_metadata["approval_preview"]
+    assert preview["memory_class"] == "term"
+    assert preview["definition"].startswith("Term: Yue refers")
+    assert preview["aliases"] == ["workbench runtime"]
+    assert preview["confirmation_status"] == "requires_user_confirmation"
+    assert preview["intended_scope"] == {"scope_type": "workspace", "scope_ref": workspace.id}
+    assert preview["provenance"]["source_session_id"] == session.id
+    assert preview["provenance"]["source_message_id"] == assistant.id
+    assert preview["provenance"]["source_ids"] == ["src_glossary"]
+    assert preview["durable_write_performed"] is False
+
+
+def test_workspace_memory_classifier_covers_glossary_classes(temp_db):
+    workspace_service, _, _ = temp_db
+
+    examples = [
+        ("Yue means trusted AI workbench.", "term", "term"),
+        ("The workspace default region is eu-west.", "project_fact", "fact"),
+        ("Always answer release notes in English.", "preference", "preference"),
+        ("Historical conclusion: we rejected the legacy parser.", "historical_conclusion", "conclusion"),
+        ("Assumption for now: maybe launch is Friday.", "temporary_state", "temporary_state"),
+    ]
+
+    for content, expected_type, expected_class in examples:
+        memory_type, _ = workspace_service._infer_memory_type_from_content(content)
+        assert memory_type == expected_type
+        assert workspace_service._memory_class_for_type(memory_type) == expected_class
+
+
+def test_workspace_memory_candidate_keeps_research_assumptions_pending_not_durable(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Research Assumption Workspace")
+    session = chat_service.create_chat(title="Research memory chat", workspace_id=workspace.id)
+    chat_service.add_message(
+        session.id,
+        "assistant",
+        "Research finding: Assumption for now, maybe the launch date is Friday.",
+    )
+    assistant = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "assistant")
+
+    candidate = workspace_service.suggest_memory_candidate_from_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=assistant.id,
+    )
+
+    assert candidate is not None
+    assert candidate.status == "pending"
+    assert candidate.memory_type == "temporary_state"
+    assert candidate.candidate_metadata["approval_preview"]["memory_class"] == "temporary_state"
+    assert candidate.candidate_metadata["approval_preview"]["durable_write_performed"] is False
+    assert workspace_service.list_memories(workspace.id) == []
+
+
 def test_workspace_memory_candidate_can_be_rejected(temp_db):
     workspace_service, chat_service, _ = temp_db
 

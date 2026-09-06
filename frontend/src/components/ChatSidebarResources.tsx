@@ -715,6 +715,18 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
     }
   };
 
+  const handleKeepCandidateSessionOnly = async (candidateId: string) => {
+    setCandidateActionMemoryId(candidateId);
+    setMemoryError(null);
+    try {
+      await props.onRejectWorkspaceMemoryCandidate(candidateId, 'Kept as session-only context');
+    } catch (error) {
+      setMemoryError(error instanceof Error ? error.message : 'Failed to keep candidate session-only');
+    } finally {
+      setCandidateActionMemoryId(null);
+    }
+  };
+
   return (
     <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
       <button
@@ -1574,6 +1586,12 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                             const reasons = candidate.candidate_metadata?.conflict_reasons;
                             return Array.isArray(reasons) ? reasons.map((item) => String(item)) : [];
                           });
+                          const approvalPreview = createMemo(() => {
+                            const preview = candidate.candidate_metadata?.approval_preview;
+                            return typeof preview === 'object' && preview !== null
+                              ? (preview as Record<string, any>)
+                              : null;
+                          });
                           const isActing = createMemo(() => candidateActionMemoryId() === candidate.id);
                           return (
                             <div class="rounded-xl border border-blue-100 bg-white px-3 py-3 shadow-sm">
@@ -1606,6 +1624,25 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                               <Show when={candidate.why_saved}>
                                 <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-2 text-[10px] leading-relaxed text-slate-600">
                                   {candidate.why_saved}
+                                </div>
+                              </Show>
+
+                              <Show when={approvalPreview()}>
+                                <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-2 text-[10px] leading-relaxed text-slate-600">
+                                  <div class="font-bold uppercase tracking-wide text-slate-500">Approval preview</div>
+                                  <div class="mt-1 grid gap-1">
+                                    <div>Class: {approvalPreview()?.memory_class || 'fact'}</div>
+                                    <div>Confirmation: {approvalPreview()?.confirmation_status || 'requires_user_confirmation'}</div>
+                                    <div>
+                                      Scope: {approvalPreview()?.intended_scope?.scope_type || candidate.scope_type}
+                                      <Show when={approvalPreview()?.intended_scope?.scope_ref}>
+                                        <> - {approvalPreview()?.intended_scope?.scope_ref}</>
+                                      </Show>
+                                    </div>
+                                    <Show when={Array.isArray(approvalPreview()?.aliases) && approvalPreview()?.aliases.length > 0}>
+                                      <div>Aliases: {approvalPreview()?.aliases.join(', ')}</div>
+                                    </Show>
+                                  </div>
                                 </div>
                               </Show>
 
@@ -1684,6 +1721,14 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                     Update existing
                                   </button>
                                 </Show>
+                                <button
+                                  type="button"
+                                  disabled={isActing()}
+                                  onClick={() => void handleKeepCandidateSessionOnly(candidate.id)}
+                                  class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Session-only
+                                </button>
                                 <button
                                   type="button"
                                   disabled={isActing()}

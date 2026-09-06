@@ -45,6 +45,18 @@ WORKSPACE_MEMORY_TYPES = {
     "term",
     "open_question",
     "recurring_instruction",
+    "temporary_state",
+}
+
+WORKSPACE_MEMORY_CLASS_BY_TYPE = {
+    "term": "term",
+    "project_fact": "fact",
+    "decision": "fact",
+    "preference": "preference",
+    "recurring_instruction": "preference",
+    "historical_conclusion": "conclusion",
+    "open_question": "temporary_state",
+    "temporary_state": "temporary_state",
 }
 
 
@@ -859,8 +871,13 @@ class WorkspaceService:
             "project_fact": 3,
             "term": 4,
             "open_question": 5,
+            "temporary_state": 6,
         }
         return priority.get(memory_type, 9)
+
+    @staticmethod
+    def _memory_class_for_type(memory_type: str) -> str:
+        return WORKSPACE_MEMORY_CLASS_BY_TYPE.get(memory_type, "fact")
 
     def _memory_relevance_score(
         self,
@@ -892,7 +909,10 @@ class WorkspaceService:
         lowered = content.lower()
         reasons: List[str] = []
         memory_type = "project_fact"
-        if any(token in lowered for token in ["以后", "默认", "prefer", "always", "风格", "语气", "希望", "请用"]):
+        if any(token in lowered for token in ["可能", "也许", "maybe", "perhaps", "暂时", "for now", "assumption", "assume for now"]):
+            memory_type = "temporary_state"
+            reasons.append("Looks provisional or session-scoped rather than durable.")
+        elif any(token in lowered for token in ["以后", "默认", "prefer", "always", "风格", "语气", "希望", "请用"]):
             memory_type = "preference"
             reasons.append("Contains stable preference cues.")
         elif any(token in lowered for token in ["决定", "采用", "选择", "方案", "must", "should use", "we chose"]):
@@ -910,6 +930,43 @@ class WorkspaceService:
         else:
             reasons.append("Looks like a reusable project fact.")
         return memory_type, reasons
+
+    def _build_memory_approval_preview(
+        self,
+        *,
+        memory_type: str,
+        title: str,
+        content: str,
+        scope_type: str,
+        scope_ref: Optional[str],
+        source_session_id: Optional[str],
+        source_message_id: Optional[int],
+        source_ids: Optional[List[str]] = None,
+        citation_refs: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        aliases: List[str] = []
+        if memory_type == "term":
+            alias_match = re.search(r"(?:简称|alias(?:es)?|aka)\s*[:：]\s*([^\n]+)", content, flags=re.IGNORECASE)
+            if alias_match:
+                aliases = [item.strip() for item in re.split(r"[,，/、]", alias_match.group(1)) if item.strip()]
+        return {
+            "memory_class": self._memory_class_for_type(memory_type),
+            "definition": content[:500],
+            "aliases": aliases,
+            "provenance": {
+                "source_session_id": source_session_id,
+                "source_message_id": source_message_id,
+                "source_ids": source_ids or [],
+                "citation_refs": citation_refs or [],
+            },
+            "confirmation_status": "requires_user_confirmation",
+            "intended_scope": {
+                "scope_type": scope_type,
+                "scope_ref": scope_ref,
+            },
+            "available_actions": ["approve", "reject", "keep_session_only"],
+            "durable_write_performed": False,
+        }
 
     def _map_note_type_to_memory_type(self, note_type: Optional[str]) -> tuple[str, List[str]]:
         normalized = str(note_type or "").strip().lower()
@@ -1059,7 +1116,19 @@ class WorkspaceService:
             "suggested_from": "assistant_message",
             "score_reasons": score_reasons,
             "type_inference_reasons": inference_reasons,
+            "memory_class": self._memory_class_for_type(memory_type),
         }
+        draft_metadata["approval_preview"] = self._build_memory_approval_preview(
+            memory_type=memory_type,
+            title=title,
+            content=content[:500],
+            scope_type="workspace",
+            scope_ref=workspace_id,
+            source_session_id=chat_id,
+            source_message_id=getattr(message, "id", None),
+            source_ids=draft_metadata["source_ids"],
+            citation_refs=draft_metadata["citation_refs"],
+        )
         why_saved = " ".join(score_reasons[:2]).strip() or "Suggested from assistant message."
         return WorkspaceMemoryDraft(
             workspace_id=workspace_id,
@@ -1113,7 +1182,19 @@ class WorkspaceService:
             "suggested_from": "workspace_note",
             "score_reasons": score_reasons,
             "type_inference_reasons": [*type_reasons, *inference_reasons],
+            "memory_class": self._memory_class_for_type(memory_type),
         }
+        draft_metadata["approval_preview"] = self._build_memory_approval_preview(
+            memory_type=memory_type,
+            title=note.title[:80] or "Workspace memory",
+            content=candidate_text[:500],
+            scope_type="workspace",
+            scope_ref=workspace_id,
+            source_session_id=note.source_session_id,
+            source_message_id=note.source_message_id,
+            source_ids=draft_metadata["source_ids"],
+            citation_refs=draft_metadata["citation_refs"],
+        )
         why_saved = " ".join(score_reasons[:2]).strip() or "Suggested from workspace note."
         return WorkspaceMemoryDraft(
             workspace_id=workspace_id,
