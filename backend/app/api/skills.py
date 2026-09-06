@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Body, Query
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel
 from app.services.skill_service import (
     build_stage4_lite_runtime_seams,
@@ -7,6 +7,10 @@ from app.services.skill_service import (
     get_stage4_lite_runtime_context,
 )
 from app.services.skills import SkillSpec, SkillSummary
+from app.services.skills.instruction_review import (
+    InstructionReviewReport,
+    InstructionReviewService,
+)
 from app.services.skills.runtime_catalog import (
     RUNTIME_MODE_IMPORT_GATE,
     is_skill_runtime_static_readonly_enabled,
@@ -22,6 +26,16 @@ class SkillSelectionResponse(BaseModel):
     reason_code: str
     fallback_used: bool
     
+
+class SkillInstructionReviewRequest(BaseModel):
+    target_type: Literal["skill", "agent"] = "skill"
+    skill_name: Optional[str] = None
+    version: Optional[str] = None
+    agent_id: Optional[str] = None
+    name: Optional[str] = None
+    prompt: Optional[str] = None
+    allowed_tools: Optional[List[str]] = None
+
 
 def _runtime_seams():
     return build_stage4_lite_runtime_seams()
@@ -106,6 +120,36 @@ async def list_skills():
 @router.get("/summary", response_model=List[SkillSummary])
 async def list_skill_summaries():
     return _runtime_context().skill_registry.list_summaries()
+
+
+@router.post("/review-instructions", response_model=InstructionReviewReport)
+async def review_skill_or_agent_instructions(request: SkillInstructionReviewRequest):
+    """Return an advisory instruction-quality report for one skill or agent."""
+    service = InstructionReviewService()
+    if request.prompt is not None:
+        return service.review_prompt(
+            target_type=request.target_type,
+            name=request.name or request.skill_name or request.agent_id or "ad-hoc",
+            prompt=request.prompt,
+            allowed_tools=request.allowed_tools,
+            source_ref=request.agent_id or request.skill_name,
+        )
+
+    if request.target_type == "agent":
+        if not request.agent_id:
+            raise HTTPException(status_code=400, detail="agent_id_required")
+        agent = _get_agent(request.agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent {request.agent_id} not found")
+        return service.review_agent(agent)
+
+    if not request.skill_name:
+        raise HTTPException(status_code=400, detail="skill_name_required")
+    skill = _runtime_context().skill_registry.get_skill(request.skill_name, request.version)
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill {request.skill_name} not found")
+    return service.review_skill(skill)
+
 
 @router.get("/{name}", response_model=SkillSpec)
 async def get_skill(name: str, version: Optional[str] = None):

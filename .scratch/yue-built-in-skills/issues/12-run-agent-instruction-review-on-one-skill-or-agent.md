@@ -4,10 +4,10 @@
 
 **Blocked by:** 01 - Establish built-in workbench mode contract.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] An admin can run instruction review on one selected skill or agent.
-- [ ] The review report covers trigger clarity, activation risk, context loading, tool policy, safety boundaries, examples quality, and Yue runtime fit.
-- [ ] The report distinguishes blockers from recommendations.
-- [ ] The report recommends fixes without modifying or activating the skill automatically.
-- [ ] The feature reinforces Yue as a runtime and workbench rather than a full skill authoring IDE.
+- [x] An admin can run instruction review on one selected skill or agent.
+- [x] The review report covers trigger clarity, activation risk, context loading, tool policy, safety boundaries, examples quality, and Yue runtime fit.
+- [x] The report distinguishes blockers from recommendations.
+- [x] The report recommends fixes without modifying or activating the skill automatically.
+- [x] The feature reinforces Yue as a runtime and workbench rather than a full skill authoring IDE.
