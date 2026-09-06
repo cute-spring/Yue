@@ -1230,6 +1230,7 @@ class WorkspaceService:
         prompt_memories: List[WorkspacePromptMemory] = []
         lines: List[str] = []
         for record in records:
+            metadata = self._parse_source_policy(record.memory_metadata_json)
             prompt_memories.append(
                 WorkspacePromptMemory(
                     id=record.id,
@@ -1244,13 +1245,20 @@ class WorkspaceService:
             source_bits: List[str] = []
             scope_type = str(getattr(record, "scope_type", None) or "workspace")
             source_bits.append(f"scope={scope_type}")
+            confirmation_status = str(metadata.get("confirmation_status") or "").strip()
+            if confirmation_status:
+                source_bits.append(f"confirmed={confirmation_status}")
             if record.source_session_id:
                 source_bits.append(f"chat={record.source_session_id}")
             if record.source_message_id is not None:
                 source_bits.append(f"message={record.source_message_id}")
             source_suffix = f" ({'; '.join(source_bits)})" if source_bits else ""
+            alias_suffix = ""
+            aliases = metadata.get("aliases")
+            if record.memory_type == "term" and isinstance(aliases, list) and aliases:
+                alias_suffix = f" aliases={', '.join(str(item) for item in aliases if str(item).strip())}"
             lines.append(
-                f"- {record.id} [{record.memory_type}] {record.title}: {record.content}{source_suffix}"
+                f"- {record.id} [{record.memory_type}] {record.title}: {record.content}{alias_suffix}{source_suffix}"
             )
         return prompt_memories, lines
 

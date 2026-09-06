@@ -822,6 +822,75 @@ def test_manual_glossary_term_save_redacts_secret_values(temp_db):
     assert saved.memory_metadata["updated_at"]
 
 
+def test_workspace_glossary_terms_recall_confirmation_and_provenance(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Glossary Recall Workspace")
+    session = chat_service.create_chat(title="Glossary recall chat", workspace_id=workspace.id)
+    chat_service.add_message(session.id, "assistant", "Term source message")
+    assistant = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "assistant")
+    term = workspace_service.create_memory(
+        workspace.id,
+        memory_type="term",
+        title="Yue",
+        content="Yue means trusted AI workbench and skill runtime.",
+        source_session_id=session.id,
+        source_message_id=assistant.id,
+        memory_metadata={
+            "aliases": ["workbench runtime"],
+            "confirmation_status": "user_confirmed",
+            "provenance": {
+                "source_session_id": session.id,
+                "source_message_id": assistant.id,
+            },
+        },
+    )
+    assert term is not None
+
+    prompt_context = workspace_service.build_prompt_context(
+        workspace.id,
+        current_query="How should Yue describe the workbench runtime?",
+    )
+
+    assert prompt_context is not None
+    assert term.id in prompt_context.loaded_memory_ids
+    assert "[term] Yue" in prompt_context.prompt_block
+    assert "aliases=workbench runtime" in prompt_context.prompt_block
+    assert "confirmed=user_confirmed" in prompt_context.prompt_block
+    assert f"chat={session.id}" in prompt_context.prompt_block
+    assert f"message={assistant.id}" in prompt_context.prompt_block
+
+
+def test_workspace_glossary_conflict_candidate_does_not_overwrite_existing_definition(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Glossary Conflict Workspace")
+    existing = workspace_service.create_memory(
+        workspace.id,
+        memory_type="term",
+        title="Yue",
+        content="Yue means trusted AI workbench and skill runtime.",
+    )
+    assert existing is not None
+    session = chat_service.create_chat(title="Glossary conflict chat", workspace_id=workspace.id)
+    chat_service.add_message(session.id, "assistant", "Term: Yue means a standalone coding agent.")
+    assistant = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "assistant")
+
+    candidate = workspace_service.suggest_memory_candidate_from_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=assistant.id,
+    )
+
+    assert candidate is not None
+    assert candidate.status == "pending"
+    assert candidate.conflict_memory_id == existing.id
+    assert candidate.suggested_action in {"replace_existing", "update_existing"}
+    unchanged = workspace_service.get_memory(workspace.id, existing.id)
+    assert unchanged is not None
+    assert unchanged.content == "Yue means trusted AI workbench and skill runtime."
+
+
 def test_workspace_memory_classifier_covers_glossary_classes(temp_db):
     workspace_service, _, _ = temp_db
 
