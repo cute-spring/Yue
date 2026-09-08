@@ -1,6 +1,7 @@
 import { For, Show } from 'solid-js';
 import { Message, StructuredChartArtifact, WorkspaceMemoryCandidate, WorkspaceNote } from '../types';
 import MessageItem from './MessageItem';
+import type { InlineMemoryConfirmationPayload } from './workspace/InlineMemoryConfirmation';
 import { getMergedContinuationContent, hasContinuationSiblings } from '../utils/continuation';
 
 interface MessageListProps {
@@ -31,6 +32,11 @@ interface MessageListProps {
   memorySuggestionsEnabled?: boolean;
   onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
   onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onApproveWorkspaceMemoryCandidate?: (
+    candidateId: string,
+    payload: InlineMemoryConfirmationPayload,
+  ) => Promise<void> | void;
+  onRejectWorkspaceMemoryCandidate?: (candidateId: string, reason?: string | null) => Promise<void> | void;
   onTrackWorkspaceCaptureTelemetry?: (payload: {
     event_type: string;
     source?: string;
@@ -65,7 +71,21 @@ export default function MessageList(props: MessageListProps) {
     });
   };
 
-  const hasPendingCandidateForMessage = (msg: Message) => {
+  const getPendingCandidateForMessage = (msg: Message) => {
+    if (msg.role !== 'assistant') return null;
+    const messageId = msg.id;
+    if (messageId == null) return null;
+    return (
+      (props.workspaceMemoryCandidates || []).find((candidate) => {
+        if (candidate.status !== 'pending' || candidate.source_message_id == null) return false;
+        if (String(candidate.source_message_id) !== String(messageId)) return false;
+        if (!props.currentChatId || !candidate.source_session_id) return true;
+        return candidate.source_session_id === props.currentChatId;
+      }) || null
+    );
+  };
+
+  const hasPendingCandidate = (msg: Message) => {
     if (msg.role !== 'assistant') return false;
     const messageId = msg.id;
     if (messageId == null) return false;
@@ -166,13 +186,18 @@ export default function MessageList(props: MessageListProps) {
                 selectedModel={props.selectedModel}
                 hasSelectedWorkspace={!!props.selectedWorkspaceId}
                 alreadySavedAsWorkspaceNote={isMessageSavedAsWorkspaceNote(msg)}
-                hasPendingWorkspaceMemoryCandidate={hasPendingCandidateForMessage(msg)}
+                hasPendingWorkspaceMemoryCandidate={hasPendingCandidate(msg)}
+                pendingWorkspaceMemoryCandidate={
+                  index() === lastAssistantIndex() ? getPendingCandidateForMessage(msg) : null
+                }
                 captureSuggestionsEnabled={props.captureSuggestionsEnabled !== false}
                 memorySuggestionsEnabled={props.memorySuggestionsEnabled !== false}
                 onSaveWorkspaceNote={index() === lastAssistantIndex() ? props.onSaveWorkspaceNote : undefined}
                 onSuggestWorkspaceMemoryCandidate={
                   index() === lastAssistantIndex() ? props.onSuggestWorkspaceMemoryCandidate : undefined
                 }
+                onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
+                onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
                 onTrackWorkspaceCaptureTelemetry={
                   index() === lastAssistantIndex() ? props.onTrackWorkspaceCaptureTelemetry : undefined
                 }

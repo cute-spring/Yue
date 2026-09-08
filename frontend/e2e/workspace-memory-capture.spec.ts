@@ -35,6 +35,29 @@ const routeWorkspaceBootstrap = async (page: Page, state: {
   await page.route('**/api/workspaces/ws_1/memory-candidates', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.candidates) });
   });
+  await page.route('**/api/workspaces/ws_1/understanding', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        workspace_id: 'ws_1',
+        groups: [
+          {
+            group: 'background',
+            label: 'Background',
+            total_count: state.memories.length,
+            active_count: state.memories.length,
+            pending_count: state.candidates.filter((candidate) => candidate.status === 'pending').length,
+            representative_items: [
+              ...state.memories.map((memory) => ({ ...memory, kind: 'memory' })),
+              ...state.candidates.map((candidate) => ({ ...candidate, kind: 'candidate' })),
+            ],
+          },
+        ],
+        applied_user_memory_preview: [],
+      }),
+    });
+  });
   await page.route('**/api/notebook/**', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.notes) });
   });
@@ -279,6 +302,151 @@ test('workspace capture flow saves a note, creates a memory candidate, and recal
   });
 });
 
+test('assistant memory review shows inline confirmation before durable save', async ({ page }) => {
+  const state = {
+    notes: [] as Record<string, unknown>[],
+    candidates: [] as Record<string, unknown>[],
+    memories: [] as Record<string, unknown>[],
+  };
+  let approvedPayload: Record<string, unknown> | null = null;
+  let rejectedPayload: Record<string, unknown> | null = null;
+  let candidateCreateCount = 0;
+
+  await mockChatBootstrap(page, {
+    prefs: {
+      theme: 'light',
+      language: 'en',
+      default_agent: null,
+      capture_suggestions_enabled: true,
+      memory_suggestions_enabled: true,
+      note_recall_enabled: true,
+    },
+    agents: [],
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o-mini');
+  });
+  await routeWorkspaceBootstrap(page, state);
+
+  await page.route('**/api/chat/chat-memory-inline/meta', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'chat-memory-inline',
+        title: 'Inline memory confirmation',
+        summary: null,
+        updated_at: '2026-06-04T00:00:00Z',
+      }),
+    });
+  });
+  await page.route('**/api/chat/chat-memory-inline/capture-events', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'success' }) });
+  });
+  await page.route('**/api/workspaces/ws_1/memory-candidates/suggest-from-message', async (route) => {
+    candidateCreateCount += 1;
+    const candidate = {
+      id: candidateCreateCount === 1 ? 'cand_inline_1' : 'cand_inline_2',
+      workspace_id: 'ws_1',
+      memory_type: 'preference',
+      scope_type: 'workspace',
+      scope_ref: null,
+      title: 'Simple workspace',
+      content: 'Keep the Workspace UI simple and concise.',
+      status: 'pending',
+      score: 0.91,
+      suggested_action: 'create_new',
+      conflict_memory_id: null,
+      why_saved: 'The user explicitly stated a durable preference.',
+      source_session_id: 'chat-memory-inline',
+      source_message_id: 101,
+      reviewed_at: null,
+      expires_at: null,
+      source: null,
+      candidate_metadata: {},
+      created_at: '2026-06-04T00:00:00Z',
+      updated_at: '2026-06-04T00:00:00Z',
+    };
+    state.candidates = [candidate];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(candidate) });
+  });
+  await page.route('**/api/workspaces/ws_1/memory-candidates/cand_inline_1/approve', async (route) => {
+    approvedPayload = route.request().postDataJSON() as Record<string, unknown>;
+    state.memories = [{ ...state.candidates[0], id: 'mem_inline_1', status: 'active' }];
+    state.candidates = [];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.memories[0]) });
+  });
+  await page.route('**/api/workspaces/ws_1/memory-candidates/cand_inline_2/reject', async (route) => {
+    rejectedPayload = route.request().postDataJSON() as Record<string, unknown>;
+    state.candidates = [];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'rejected' }) });
+  });
+
+  let streamCallCount = 0;
+  await page.route('**/api/chat/stream', async (route) => {
+    streamCallCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: makeSseBody([
+        { chat_id: 'chat-memory-inline' },
+        {
+          meta: {
+            id: 101,
+            timestamp: '2026-06-04T00:00:00Z',
+            provider: 'openai',
+            model: 'gpt-4o-mini',
+          },
+          run_id: `run-${streamCallCount}`,
+          assistant_turn_id: `turn-${streamCallCount}`,
+        },
+        { content: streamCallCount === 1 ? 'Keep the Workspace UI simple and concise.' : 'Use the same simple workspace rule.' },
+        {
+          workspace_capture_suggestion: {
+            workspace_id: 'ws_1',
+            show_note_action: false,
+            show_memory_action: true,
+            reason: 'This looks like a durable preference.',
+            source: 'assistant_reply',
+          },
+        },
+        { finish_reason: 'stop' },
+      ]),
+    });
+  });
+
+  await openWorkspaceDock(page);
+
+  await page.locator('textarea').first().fill('Please remember that I prefer simple Workspace UI.');
+  await page.getByRole('button', { name: 'Send Message' }).click();
+  await page.getByRole('button', { name: 'Review as memory' }).click();
+
+  await expect(page.getByText('Confirm Memory')).toBeVisible();
+  await expect(page.getByText('Yue can remember this for This Workspace.')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Memory title').fill('Keep Workspace simple');
+  await page.getByLabel('Memory content').fill('Keep the Workspace UI simple, concise, and non-adaptive.');
+  await page.getByRole('button', { name: 'Remember' }).click();
+
+  await expect(page.getByText('Remembered: Simple workspace')).toBeVisible();
+  expect(approvedPayload).toMatchObject({
+    approval_mode: 'create_new',
+    title: 'Keep Workspace simple',
+    content: 'Keep the Workspace UI simple, concise, and non-adaptive.',
+    scope_type: 'workspace',
+  });
+
+  await page.locator('textarea').first().fill('Do not save this one durably.');
+  await page.getByRole('button', { name: 'Send Message' }).click();
+  await page.getByRole('button', { name: 'Review as memory' }).click();
+  await expect(page.getByText('Confirm Memory')).toBeVisible();
+  await page.getByRole('button', { name: 'Just this time' }).click();
+
+  await expect(page.getByText('Kept for this chat only.')).toBeVisible();
+  expect(rejectedPayload).toMatchObject({ reason: 'Kept as session-only context' });
+});
+
 test('workspace memory protections disable unsafe actions and preserve recurring instruction bulk updates', async ({ page }) => {
   const approvalPayloads: Record<string, unknown>[] = [];
   const bulkStatusPayloads: Record<string, unknown>[] = [];
@@ -393,22 +561,25 @@ test('workspace memory protections disable unsafe actions and preserve recurring
   });
 
   const workspaceDock = await openWorkspaceDock(page);
+  await workspaceDock.getByRole('button', { name: /Resources/i }).click();
   await workspaceDock.getByRole('button', { name: /Memory 3 total/i }).click();
 
-  await expect(workspaceDock.getByText('Locked instruction', { exact: true })).toBeVisible();
-  await workspaceDock.getByText('Locked instruction', { exact: true }).click();
+  const lockedInstruction = workspaceDock.locator('details').filter({ hasText: 'Locked instruction' });
+  await expect(lockedInstruction).toBeVisible();
+  await lockedInstruction.click();
   await expect(workspaceDock.getByRole('button', { name: 'Locked', exact: true })).toBeDisabled();
   await expect(workspaceDock.getByRole('button', { name: 'Disable', exact: true })).toBeDisabled();
 
-  await expect(workspaceDock.getByText('Protected preference', { exact: true })).toBeVisible();
-  await workspaceDock.getByText('Protected preference', { exact: true }).click();
+  const protectedPreference = workspaceDock.locator('details').filter({ hasText: 'Protected preference' });
+  await expect(protectedPreference).toBeVisible();
+  await protectedPreference.click();
   await expect(workspaceDock.getByRole('button', { name: 'Protected', exact: true })).toBeDisabled();
 
   const disableAllButtons = workspaceDock.getByRole('button', { name: 'Disable all' });
   await disableAllButtons.nth(1).click();
 
   await expect.poll(() => bulkStatusPayloads.length).toBe(1);
-  await workspaceDock.getByText('Live instruction', { exact: true }).click();
+  await workspaceDock.locator('details').filter({ hasText: 'Live instruction' }).click();
   await expect(workspaceDock.getByRole('button', { name: 'Enable', exact: true })).toBeVisible();
   await expect(workspaceDock.getByText('Protected preference', { exact: true })).toBeVisible();
 

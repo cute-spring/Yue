@@ -1,6 +1,7 @@
 import type { JSX } from 'solid-js';
 import { Show, createEffect, createSignal } from 'solid-js';
 import { Message, WorkspaceCaptureSuggestion, WorkspaceMemoryCandidate, WorkspaceNote } from '../../types';
+import InlineMemoryConfirmation, { type InlineMemoryConfirmationPayload } from '../workspace/InlineMemoryConfirmation';
 import MessageAssistantMetaBadges from './MessageAssistantMetaBadges';
 
 interface MessageAssistantFooterProps {
@@ -15,8 +16,14 @@ interface MessageAssistantFooterProps {
   onCollapse: () => void;
   onRegenerate: () => void;
   workspaceCaptureSuggestion?: WorkspaceCaptureSuggestion | null;
+  pendingWorkspaceMemoryCandidate?: WorkspaceMemoryCandidate | null;
   onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
   onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onApproveWorkspaceMemoryCandidate?: (
+    candidateId: string,
+    payload: InlineMemoryConfirmationPayload,
+  ) => Promise<void> | void;
+  onRejectWorkspaceMemoryCandidate?: (candidateId: string, reason?: string | null) => Promise<void> | void;
   onTrackWorkspaceCaptureTelemetry?: (payload: {
     event_type: string;
     source?: string;
@@ -38,6 +45,9 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
   const [captureError, setCaptureError] = createSignal<string | null>(null);
   const [isDismissed, setIsDismissed] = createSignal(false);
   const [trackedSuggestionKey, setTrackedSuggestionKey] = createSignal<string | null>(null);
+  const [inlineCandidate, setInlineCandidate] = createSignal<WorkspaceMemoryCandidate | null>(null);
+  const [isCandidateActionBusy, setIsCandidateActionBusy] = createSignal(false);
+  const visibleCandidate = () => props.pendingWorkspaceMemoryCandidate || inlineCandidate();
 
   createEffect(() => {
     props.msg.id;
@@ -47,6 +57,7 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
     setIsSavingNote(false);
     setIsCreatingCandidate(false);
     setIsDismissed(false);
+    setInlineCandidate(null);
   });
 
   createEffect(() => {
@@ -100,7 +111,8 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
     try {
       const candidate = await props.onSuggestWorkspaceMemoryCandidate();
       if (candidate) {
-        setCaptureFeedback(candidate.title ? `Memory candidate ready: ${candidate.title}` : 'Memory candidate created.');
+        setInlineCandidate(candidate);
+        setCaptureFeedback(null);
       }
     } catch (error) {
       setCaptureError(error instanceof Error ? error.message : 'Failed to create memory candidate');
@@ -123,6 +135,41 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
         reason: props.workspaceCaptureSuggestion?.reason || null,
       },
     });
+  };
+
+  const handleRememberCandidate = async (
+    candidate: WorkspaceMemoryCandidate,
+    payload: InlineMemoryConfirmationPayload,
+  ) => {
+    if (!props.onApproveWorkspaceMemoryCandidate) return;
+    setIsCandidateActionBusy(true);
+    setCaptureError(null);
+    try {
+      await props.onApproveWorkspaceMemoryCandidate(candidate.id, payload);
+      setInlineCandidate(null);
+      setCaptureFeedback(candidate.title ? `Remembered: ${candidate.title}` : 'Saved to memory.');
+      setIsDismissed(true);
+    } catch (error) {
+      setCaptureError(error instanceof Error ? error.message : 'Failed to save memory');
+    } finally {
+      setIsCandidateActionBusy(false);
+    }
+  };
+
+  const handleKeepCandidateSessionOnly = async (candidate: WorkspaceMemoryCandidate) => {
+    if (!props.onRejectWorkspaceMemoryCandidate) return;
+    setIsCandidateActionBusy(true);
+    setCaptureError(null);
+    try {
+      await props.onRejectWorkspaceMemoryCandidate(candidate.id, 'Kept as session-only context');
+      setInlineCandidate(null);
+      setCaptureFeedback('Kept for this chat only.');
+      setIsDismissed(true);
+    } catch (error) {
+      setCaptureError(error instanceof Error ? error.message : 'Failed to keep memory session-only');
+    } finally {
+      setIsCandidateActionBusy(false);
+    }
   };
 
   return (
@@ -177,6 +224,27 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
             </div>
           </Show>
         </div>
+      </Show>
+      <Show when={captureFeedback() && isDismissed()}>
+        <div class="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700">
+          {captureFeedback()}
+        </div>
+      </Show>
+      <Show when={captureError() && !props.workspaceCaptureSuggestion}>
+        <div class="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-700">
+          {captureError()}
+        </div>
+      </Show>
+      <Show when={visibleCandidate()}>
+        {(candidate) => (
+          <InlineMemoryConfirmation
+            candidate={candidate()}
+            busy={isCandidateActionBusy()}
+            error={captureError()}
+            onRemember={handleRememberCandidate}
+            onKeepSessionOnly={handleKeepCandidateSessionOnly}
+          />
+        )}
       </Show>
 
       <div class="flex flex-wrap items-center justify-between gap-3">

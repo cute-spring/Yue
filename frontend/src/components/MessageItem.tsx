@@ -5,6 +5,7 @@ import MessageExportMenu from './MessageExportMenu';
 import SpeechControl from './SpeechControl';
 import MessageAssistantBody from './message-item/MessageAssistantBody';
 import MessageAssistantFooter from './message-item/MessageAssistantFooter';
+import type { InlineMemoryConfirmationPayload } from './workspace/InlineMemoryConfirmation';
 import MessageUserContent from './message-item/MessageUserContent';
 import { getSpeechMessageId } from '../utils/speech';
 import { useMaybeSpeechController } from '../context/SpeechControllerContext';
@@ -60,10 +61,16 @@ interface MessageItemProps {
   hasSelectedWorkspace?: boolean;
   alreadySavedAsWorkspaceNote?: boolean;
   hasPendingWorkspaceMemoryCandidate?: boolean;
+  pendingWorkspaceMemoryCandidate?: WorkspaceMemoryCandidate | null;
   captureSuggestionsEnabled?: boolean;
   memorySuggestionsEnabled?: boolean;
   onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
   onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onApproveWorkspaceMemoryCandidate?: (
+    candidateId: string,
+    payload: InlineMemoryConfirmationPayload,
+  ) => Promise<void> | void;
+  onRejectWorkspaceMemoryCandidate?: (candidateId: string, reason?: string | null) => Promise<void> | void;
   onTrackWorkspaceCaptureTelemetry?: (payload: {
     event_type: string;
     source?: string;
@@ -362,8 +369,11 @@ export default function MessageItem(props: MessageItemProps) {
             onCollapse={toggleCollapse}
             onRegenerate={() => props.handleRegenerate(props.index)}
             workspaceCaptureSuggestion={workspaceCaptureSuggestion()}
+            pendingWorkspaceMemoryCandidate={props.pendingWorkspaceMemoryCandidate}
             onSaveWorkspaceNote={props.onSaveWorkspaceNote}
             onSuggestWorkspaceMemoryCandidate={props.onSuggestWorkspaceMemoryCandidate}
+            onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
+            onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
             onTrackWorkspaceCaptureTelemetry={props.onTrackWorkspaceCaptureTelemetry}
           />
         </Show>

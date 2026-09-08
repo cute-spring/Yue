@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 - Implement two-layer Workspace first screen.
 
-**Status:** ready
+**Status:** resolved
 
 **Scope:**
 - Add `InlineMemoryConfirmation` UI for candidates created from the existing `Review as memory` actions.
@@ -23,4 +23,3 @@
 - Explicit memory review no longer feels like a separate management workflow.
 - Durable memory still requires user confirmation.
 - Approving a candidate updates the Workspace Understanding summary.
-

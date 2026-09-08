@@ -561,6 +561,8 @@ export default function ChatPageContent(props: {
           memorySuggestionsEnabled={props.speechPrefs().memory_suggestions_enabled}
           onSaveWorkspaceNote={saveLastAssistantAsWorkspaceNote}
           onSuggestWorkspaceMemoryCandidate={suggestWorkspaceMemoryCandidateFromLastAssistantMessage}
+          onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidateAndRefresh}
+          onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidateAndRefresh}
           onTrackWorkspaceCaptureTelemetry={trackWorkspaceCaptureTelemetry}
         />
 
