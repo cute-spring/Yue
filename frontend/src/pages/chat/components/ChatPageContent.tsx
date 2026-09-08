@@ -17,6 +17,7 @@ import { useSpeechController } from '../../../context/SpeechControllerContext';
 import type { Preferences } from '../../settings/types';
 import { useVoiceInput } from '../../../hooks/useVoiceInput';
 import { useChatWorkspace } from '../hooks/useChatWorkspace';
+import { useWorkspaceUnderstanding } from '../hooks/useWorkspaceUnderstanding';
 import { useVoiceComposerIntegration } from '../hooks/useVoiceComposerIntegration';
 import { useChatPageEffects } from '../hooks/useChatPageEffects';
 import ChatHeader from './ChatHeader';
@@ -179,6 +180,49 @@ export default function ChatPageContent(props: {
     currentChatId,
     messages,
   });
+
+  const {
+    workspaceUnderstanding,
+    workspaceUnderstandingLoading,
+    workspaceUnderstandingError,
+    refreshWorkspaceUnderstanding,
+  } = useWorkspaceUnderstanding({ selectedWorkspaceId });
+
+  const createWorkspaceMemoryAndRefresh = async (payload: Parameters<typeof createWorkspaceMemory>[0]) => {
+    await createWorkspaceMemory(payload);
+    await refreshWorkspaceUnderstanding();
+  };
+
+  const updateWorkspaceMemoryAndRefresh = async (
+    memoryId: string,
+    payload: Parameters<typeof updateWorkspaceMemory>[1],
+  ) => {
+    await updateWorkspaceMemory(memoryId, payload);
+    await refreshWorkspaceUnderstanding();
+  };
+
+  const bulkUpdateWorkspaceMemoryStatusByTypeAndRefresh = async (memoryType: string, status: string) => {
+    await bulkUpdateWorkspaceMemoryStatusByType(memoryType, status);
+    await refreshWorkspaceUnderstanding();
+  };
+
+  const deleteWorkspaceMemoryAndRefresh = async (memoryId: string) => {
+    await deleteWorkspaceMemory(memoryId);
+    await refreshWorkspaceUnderstanding();
+  };
+
+  const approveWorkspaceMemoryCandidateAndRefresh = async (
+    candidateId: string,
+    payload: Parameters<typeof approveWorkspaceMemoryCandidate>[1],
+  ) => {
+    await approveWorkspaceMemoryCandidate(candidateId, payload);
+    await refreshWorkspaceUnderstanding();
+  };
+
+  const rejectWorkspaceMemoryCandidateAndRefresh = async (candidateId: string, reason?: string | null) => {
+    await rejectWorkspaceMemoryCandidate(candidateId, reason);
+    await refreshWorkspaceUnderstanding();
+  };
 
   createEffect(() => {
     setHistoryWorkspaceFilterId(selectedWorkspaceId());
@@ -391,6 +435,9 @@ export default function ChatPageContent(props: {
         artifactsLoading={artifactsLoading()}
         notesLoading={notesLoading()}
         memoriesLoading={memoriesLoading()}
+        workspaceUnderstanding={workspaceUnderstanding()}
+        workspaceUnderstandingLoading={workspaceUnderstandingLoading()}
+        workspaceUnderstandingError={workspaceUnderstandingError()}
         currentChatId={currentChatId()}
         onNewChat={() => {
           speech.stopCurrent();
@@ -411,12 +458,13 @@ export default function ChatPageContent(props: {
         onSuggestWorkspaceMemoryFromLastAssistantMessage={suggestWorkspaceMemoryFromLastAssistantMessage}
         onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage={suggestWorkspaceMemoryCandidateFromLastAssistantMessage}
         onSuggestWorkspaceMemoryCandidateFromNote={suggestWorkspaceMemoryCandidateFromNote}
-        onCreateWorkspaceMemory={createWorkspaceMemory}
-        onUpdateWorkspaceMemory={updateWorkspaceMemory}
-        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByType}
-        onDeleteWorkspaceMemory={deleteWorkspaceMemory}
-        onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidate}
-        onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidate}
+        onCreateWorkspaceMemory={createWorkspaceMemoryAndRefresh}
+        onUpdateWorkspaceMemory={updateWorkspaceMemoryAndRefresh}
+        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByTypeAndRefresh}
+        onDeleteWorkspaceMemory={deleteWorkspaceMemoryAndRefresh}
+        onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidateAndRefresh}
+        onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidateAndRefresh}
+        onRefreshWorkspaceUnderstanding={refreshWorkspaceUnderstanding}
         onDeleteChat={(id) => setConfirmDeleteId(id)}
         onGenerateSummary={handleGenerateSummary}
       />
@@ -437,6 +485,9 @@ export default function ChatPageContent(props: {
         artifactsLoading={artifactsLoading()}
         notesLoading={notesLoading()}
         memoriesLoading={memoriesLoading()}
+        workspaceUnderstanding={workspaceUnderstanding()}
+        workspaceUnderstandingLoading={workspaceUnderstandingLoading()}
+        workspaceUnderstandingError={workspaceUnderstandingError()}
         onNewChat={() => {
           speech.stopCurrent();
           startNewChat(isMobile(), setShowHistory);
@@ -456,12 +507,13 @@ export default function ChatPageContent(props: {
         onSuggestWorkspaceMemoryFromLastAssistantMessage={suggestWorkspaceMemoryFromLastAssistantMessage}
         onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage={suggestWorkspaceMemoryCandidateFromLastAssistantMessage}
         onSuggestWorkspaceMemoryCandidateFromNote={suggestWorkspaceMemoryCandidateFromNote}
-        onCreateWorkspaceMemory={createWorkspaceMemory}
-        onUpdateWorkspaceMemory={updateWorkspaceMemory}
-        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByType}
-        onDeleteWorkspaceMemory={deleteWorkspaceMemory}
-        onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidate}
-        onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidate}
+        onCreateWorkspaceMemory={createWorkspaceMemoryAndRefresh}
+        onUpdateWorkspaceMemory={updateWorkspaceMemoryAndRefresh}
+        onBulkUpdateWorkspaceMemoryStatusByType={bulkUpdateWorkspaceMemoryStatusByTypeAndRefresh}
+        onDeleteWorkspaceMemory={deleteWorkspaceMemoryAndRefresh}
+        onApproveWorkspaceMemoryCandidate={approveWorkspaceMemoryCandidateAndRefresh}
+        onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidateAndRefresh}
+        onRefreshWorkspaceUnderstanding={refreshWorkspaceUnderstanding}
         onCreateQuestionnaireFromResearchGap={handleCreateQuestionnaireFromResearchGap}
         onClarifyResearchDecision={handleClarifyResearchDecision}
         memorySuggestionsEnabled={props.speechPrefs().memory_suggestions_enabled}

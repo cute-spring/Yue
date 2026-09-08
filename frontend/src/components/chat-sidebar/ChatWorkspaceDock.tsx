@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
 import ChatSidebarResources from '../ChatSidebarResources';
+import WorkspaceUnderstandingPanel from '../workspace/WorkspaceUnderstandingPanel';
 import { formatWorkspaceCountLabel, getWorkspaceSourceReadinessCounts } from './sidebarFilters';
 import type { ChatSidebarProps } from './types';
 
@@ -20,6 +21,9 @@ type ChatWorkspaceDockProps = Pick<
   | 'artifactsLoading'
   | 'notesLoading'
   | 'memoriesLoading'
+  | 'workspaceUnderstanding'
+  | 'workspaceUnderstandingLoading'
+  | 'workspaceUnderstandingError'
   | 'memorySuggestionsEnabled'
   | 'onNewChat'
   | 'onSelectWorkspace'
@@ -40,6 +44,7 @@ type ChatWorkspaceDockProps = Pick<
   | 'onDeleteWorkspaceMemory'
   | 'onApproveWorkspaceMemoryCandidate'
   | 'onRejectWorkspaceMemoryCandidate'
+  | 'onRefreshWorkspaceUnderstanding'
 > & {
   onCreateQuestionnaireFromResearchGap?: ChatSidebarProps['onCreateQuestionnaireFromResearchGap'];
   onClarifyResearchDecision?: ChatSidebarProps['onClarifyResearchDecision'];
@@ -118,7 +123,7 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
 
     const noSourcesYet = props.workspaceSources.length === 0;
     const hasSourceAttention = props.workspaceSources.some((source) => source.status !== 'ready');
-    setIsResourcesExpanded(true);
+    setIsResourcesExpanded(false);
     setIsSourcesExpanded(noSourcesYet || props.workspaceSourceMode === 'selected' || hasSourceAttention);
     setIsArtifactsExpanded(props.workspaceArtifacts.length > 0 && props.workspaceArtifacts.length <= 2);
     setIsNotesExpanded(props.workspaceNotes.length > 0);
@@ -296,7 +301,7 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
 
           <div class="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-4 py-3">
             <div class="mb-3 flex items-center justify-between gap-3">
-              <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Resources</div>
+              <div class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Understanding</div>
               <button
                 onClick={props.onNewChat}
                 class="shrink-0 rounded-lg bg-primary px-3 py-2 text-[11px] font-bold text-white shadow-sm transition-colors hover:bg-primary-hover active:scale-95"
@@ -305,50 +310,68 @@ export function ChatWorkspaceDock(props: ChatWorkspaceDockProps) {
                 New Chat
               </button>
             </div>
-            <ChatSidebarResources
-              selectedWorkspaceId={props.selectedWorkspaceId}
-              workspaceSources={props.workspaceSources}
-              workspaceArtifacts={props.workspaceArtifacts}
-              workspaceNotes={props.workspaceNotes}
-              workspaceMemories={props.workspaceMemories}
-              workspaceMemoryCandidates={props.workspaceMemoryCandidates}
-              workspaceSourceMode={props.workspaceSourceMode}
-              selectedWorkspaceSourceIds={props.selectedWorkspaceSourceIds}
-              groundingMode={props.groundingMode}
-              sourcesLoading={props.sourcesLoading}
-              artifactsLoading={props.artifactsLoading}
-              notesLoading={props.notesLoading}
-        memoriesLoading={props.memoriesLoading}
-        memorySuggestionsEnabled={props.memorySuggestionsEnabled}
-        isResourcesExpanded={isResourcesExpanded()}
-              isSourcesExpanded={isSourcesExpanded()}
-              isArtifactsExpanded={isArtifactsExpanded()}
-              isNotesExpanded={isNotesExpanded()}
-              isMemoriesExpanded={isMemoriesExpanded()}
-              onToggleResources={() => setIsResourcesExpanded((prev) => !prev)}
-              onToggleSources={() => setIsSourcesExpanded((prev) => !prev)}
-              onToggleArtifacts={() => setIsArtifactsExpanded((prev) => !prev)}
-              onToggleNotes={() => setIsNotesExpanded((prev) => !prev)}
-              onToggleMemories={() => setIsMemoriesExpanded((prev) => !prev)}
-              onWorkspaceSourceModeChange={props.onWorkspaceSourceModeChange}
-              onToggleWorkspaceSource={props.onToggleWorkspaceSource}
-              onGroundingModeChange={props.onGroundingModeChange}
-              onCheckWorkspaceSources={props.onCheckWorkspaceSources}
-              onCheckWorkspaceSource={props.onCheckWorkspaceSource}
-              onLoadChat={props.onLoadChat}
-              onSaveLastAssistantAsWorkspaceNote={props.onSaveLastAssistantAsWorkspaceNote}
-              onSuggestWorkspaceMemoryFromLastAssistantMessage={props.onSuggestWorkspaceMemoryFromLastAssistantMessage}
-              onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage={props.onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage}
-              onSuggestWorkspaceMemoryCandidateFromNote={props.onSuggestWorkspaceMemoryCandidateFromNote}
-              onCreateWorkspaceMemory={props.onCreateWorkspaceMemory}
-              onUpdateWorkspaceMemory={props.onUpdateWorkspaceMemory}
-              onBulkUpdateWorkspaceMemoryStatusByType={props.onBulkUpdateWorkspaceMemoryStatusByType}
-              onDeleteWorkspaceMemory={props.onDeleteWorkspaceMemory}
-              onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
-              onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
-              onCreateQuestionnaireFromResearchGap={props.onCreateQuestionnaireFromResearchGap}
-              onClarifyResearchDecision={props.onClarifyResearchDecision}
+            <WorkspaceUnderstandingPanel
+              workspace={selectedWorkspace()}
+              summary={props.workspaceUnderstanding || null}
+              loading={props.workspaceUnderstandingLoading}
+              error={props.workspaceUnderstandingError}
+              sourceCount={props.workspaceSources.length}
+              noteCount={props.workspaceNotes.length}
+              artifactCount={props.workspaceArtifacts.length}
+              memoryCount={props.workspaceMemories.length}
+              pendingCandidateCount={props.workspaceMemoryCandidates.filter((candidate) => candidate.status === 'pending').length}
+              onRefresh={() => props.onRefreshWorkspaceUnderstanding?.()}
+              onReviewGroup={() => {
+                setIsResourcesExpanded(true);
+                setIsMemoriesExpanded(true);
+              }}
             />
+            <div class="mt-4">
+              <ChatSidebarResources
+                selectedWorkspaceId={props.selectedWorkspaceId}
+                workspaceSources={props.workspaceSources}
+                workspaceArtifacts={props.workspaceArtifacts}
+                workspaceNotes={props.workspaceNotes}
+                workspaceMemories={props.workspaceMemories}
+                workspaceMemoryCandidates={props.workspaceMemoryCandidates}
+                workspaceSourceMode={props.workspaceSourceMode}
+                selectedWorkspaceSourceIds={props.selectedWorkspaceSourceIds}
+                groundingMode={props.groundingMode}
+                sourcesLoading={props.sourcesLoading}
+                artifactsLoading={props.artifactsLoading}
+                notesLoading={props.notesLoading}
+                memoriesLoading={props.memoriesLoading}
+                memorySuggestionsEnabled={props.memorySuggestionsEnabled}
+                isResourcesExpanded={isResourcesExpanded()}
+                isSourcesExpanded={isSourcesExpanded()}
+                isArtifactsExpanded={isArtifactsExpanded()}
+                isNotesExpanded={isNotesExpanded()}
+                isMemoriesExpanded={isMemoriesExpanded()}
+                onToggleResources={() => setIsResourcesExpanded((prev) => !prev)}
+                onToggleSources={() => setIsSourcesExpanded((prev) => !prev)}
+                onToggleArtifacts={() => setIsArtifactsExpanded((prev) => !prev)}
+                onToggleNotes={() => setIsNotesExpanded((prev) => !prev)}
+                onToggleMemories={() => setIsMemoriesExpanded((prev) => !prev)}
+                onWorkspaceSourceModeChange={props.onWorkspaceSourceModeChange}
+                onToggleWorkspaceSource={props.onToggleWorkspaceSource}
+                onGroundingModeChange={props.onGroundingModeChange}
+                onCheckWorkspaceSources={props.onCheckWorkspaceSources}
+                onCheckWorkspaceSource={props.onCheckWorkspaceSource}
+                onLoadChat={props.onLoadChat}
+                onSaveLastAssistantAsWorkspaceNote={props.onSaveLastAssistantAsWorkspaceNote}
+                onSuggestWorkspaceMemoryFromLastAssistantMessage={props.onSuggestWorkspaceMemoryFromLastAssistantMessage}
+                onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage={props.onSuggestWorkspaceMemoryCandidateFromLastAssistantMessage}
+                onSuggestWorkspaceMemoryCandidateFromNote={props.onSuggestWorkspaceMemoryCandidateFromNote}
+                onCreateWorkspaceMemory={props.onCreateWorkspaceMemory}
+                onUpdateWorkspaceMemory={props.onUpdateWorkspaceMemory}
+                onBulkUpdateWorkspaceMemoryStatusByType={props.onBulkUpdateWorkspaceMemoryStatusByType}
+                onDeleteWorkspaceMemory={props.onDeleteWorkspaceMemory}
+                onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
+                onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
+                onCreateQuestionnaireFromResearchGap={props.onCreateQuestionnaireFromResearchGap}
+                onClarifyResearchDecision={props.onClarifyResearchDecision}
+              />
+            </div>
           </div>
         </aside>
       </Show>

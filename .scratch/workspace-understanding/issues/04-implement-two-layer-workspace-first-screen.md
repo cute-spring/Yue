@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 - Add frontend Understanding types and hook.
 
-**Status:** ready
+**Status:** resolved
 
 **Scope:**
 - Add production components inspired by the prototype, not copied wholesale:
@@ -27,4 +27,3 @@
 - The user can still reach existing Sources, Notes, Artifacts, and Memory management.
 - `About You` is visible but visually separate from workspace-level understanding.
 - The layout remains usable on desktop and mobile.
-

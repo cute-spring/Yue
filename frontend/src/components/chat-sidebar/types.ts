@@ -6,6 +6,7 @@ import type {
   WorkspaceMemoryCandidate,
   WorkspaceMemoryCard,
   WorkspaceMemoryDraft,
+  WorkspaceUnderstandingSummary,
   WorkspaceSource,
 } from '../../types';
 
@@ -28,6 +29,9 @@ export interface ChatSidebarProps {
   artifactsLoading?: boolean;
   notesLoading?: boolean;
   memoriesLoading?: boolean;
+  workspaceUnderstanding?: WorkspaceUnderstandingSummary | null;
+  workspaceUnderstandingLoading?: boolean;
+  workspaceUnderstandingError?: string | null;
   memorySuggestionsEnabled?: boolean;
   currentChatId: string | null;
   onNewChat: () => void;
@@ -101,6 +105,7 @@ export interface ChatSidebarProps {
     },
   ) => Promise<void> | void;
   onRejectWorkspaceMemoryCandidate: (candidateId: string, reason?: string | null) => Promise<void> | void;
+  onRefreshWorkspaceUnderstanding?: () => Promise<WorkspaceUnderstandingSummary | null> | void;
   onCreateQuestionnaireFromResearchGap?: (
     artifact: WorkspaceArtifact,
     gap: string,
