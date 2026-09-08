@@ -1,12 +1,29 @@
+from datetime import datetime, timezone
+import os
+import shutil
+import tempfile
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from app.core.database import Base
+from app.models.chat import Workspace as WorkspaceModel
+from app.models.chat import WorkspaceMemoryCandidate as WorkspaceMemoryCandidateModel
+from app.models.chat import WorkspaceMemoryCard as WorkspaceMemoryCardModel
 from app.services.notebook_service import Note
-from types import SimpleNamespace
 
 from app.api.workspaces import router
+from app.services.workspace_understanding_service import (
+    WORKSPACE_UNDERSTANDING_GROUPS,
+    WorkspaceUnderstandingGroup,
+    WorkspaceUnderstandingItem,
+    WorkspaceUnderstandingSummary,
+)
 
 
 @pytest.fixture
@@ -25,6 +42,27 @@ def mock_workspace_service():
         yield mock
 
 
+@pytest.fixture
+def mock_workspace_understanding_service():
+    with patch("app.api.workspaces.workspace_understanding_service") as mock:
+        yield mock
+
+
+@pytest.fixture
+def api_temp_db():
+    temp_dir = tempfile.mkdtemp()
+    db_file = os.path.join(temp_dir, "test_yue_api.db")
+    test_engine = create_engine(f"sqlite:///{db_file}")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+    Base.metadata.create_all(bind=test_engine)
+    with patch("app.services.workspace_understanding_service.SessionLocal", testing_session_local):
+        yield testing_session_local
+
+    test_engine.dispose()
+    shutil.rmtree(temp_dir)
+
+
 def test_list_workspaces(client, mock_workspace_service):
     mock_workspace_service.list_workspaces.return_value = []
 
@@ -40,6 +78,123 @@ def test_get_workspace_not_found(client, mock_workspace_service):
     response = client.get("/api/workspaces/missing")
 
     assert response.status_code == 404
+
+
+def test_get_workspace_understanding_returns_summary_contract(client, mock_workspace_understanding_service):
+    summary = WorkspaceUnderstandingSummary(
+        workspace_id="ws_1",
+        groups=[
+            WorkspaceUnderstandingGroup(
+                group=definition.key,
+                label=definition.label,
+                total_count=1 if definition.key == "decisions" else 0,
+                active_count=1 if definition.key == "decisions" else 0,
+                pending_count=0,
+                representative_items=[
+                    WorkspaceUnderstandingItem(
+                        id="mem_1",
+                        kind="memory",
+                        title="Use fixed groups",
+                        content="Workspace Understanding uses fixed groups.",
+                        status="active",
+                        memory_type="decision",
+                        source_session_id="chat_1",
+                        source_message_id=42,
+                        confidence=0.9,
+                        updated_at=datetime(2026, 9, 7, tzinfo=timezone.utc),
+                    )
+                ] if definition.key == "decisions" else [],
+            )
+            for definition in WORKSPACE_UNDERSTANDING_GROUPS
+        ],
+        applied_user_memory_preview=[],
+    )
+    mock_workspace_understanding_service.build_summary.return_value = summary
+
+    response = client.get("/api/workspaces/ws_1/understanding")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_id"] == "ws_1"
+    assert [group["group"] for group in payload["groups"]] == [group.key for group in WORKSPACE_UNDERSTANDING_GROUPS]
+    decisions_group = next(group for group in payload["groups"] if group["group"] == "decisions")
+    assert decisions_group["representative_items"][0]["title"] == "Use fixed groups"
+    assert decisions_group["representative_items"][0]["kind"] == "memory"
+    assert payload["applied_user_memory_preview"] == []
+    mock_workspace_understanding_service.build_summary.assert_called_once_with("ws_1")
+
+
+def test_get_workspace_understanding_not_found(client, mock_workspace_understanding_service):
+    mock_workspace_understanding_service.build_summary.return_value = None
+
+    response = client.get("/api/workspaces/missing/understanding")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workspace not found"
+
+
+def test_get_workspace_understanding_uses_service_and_database(client, api_temp_db):
+    now = datetime(2026, 9, 7, tzinfo=timezone.utc)
+    with api_temp_db() as db:
+        db.add(
+            WorkspaceModel(
+                id="ws_1",
+                name="Workspace Understanding",
+                description=None,
+                default_agent_id=None,
+                source_policy_json="{}",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
+            WorkspaceMemoryCardModel(
+                id="mem_1",
+                workspace_id="ws_1",
+                memory_type="decision",
+                scope_type="workspace",
+                scope_ref="ws_1",
+                title="Use fixed groups",
+                content="Keep the Workspace Understanding groups predictable.",
+                status="active",
+                confidence=0.88,
+                created_by="user",
+                memory_metadata_json="{}",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
+            WorkspaceMemoryCandidateModel(
+                id="cand_1",
+                workspace_id="ws_1",
+                memory_type="open_question",
+                scope_type="workspace",
+                scope_ref="ws_1",
+                title="Choose detector type",
+                content="Should high-signal detection start rule-based or LLM-assisted?",
+                status="pending",
+                score=0.74,
+                suggested_action="create_new",
+                candidate_metadata_json="{}",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+    response = client.get("/api/workspaces/ws_1/understanding")
+
+    assert response.status_code == 200
+    payload = response.json()
+    by_group = {group["group"]: group for group in payload["groups"]}
+    assert [group["group"] for group in payload["groups"]] == [group.key for group in WORKSPACE_UNDERSTANDING_GROUPS]
+    assert by_group["decisions"]["total_count"] == 1
+    assert by_group["decisions"]["active_count"] == 1
+    assert by_group["decisions"]["representative_items"][0]["id"] == "mem_1"
+    assert by_group["open_questions"]["total_count"] == 0
+    assert by_group["open_questions"]["pending_count"] == 1
+    assert by_group["open_questions"]["representative_items"][0]["id"] == "cand_1"
 
 
 def test_create_workspace(client, mock_workspace_service):

@@ -8,6 +8,7 @@ from app.services.chat_service import chat_service
 from app.services.chart_artifacts import validate_chart_artifact_payload
 from app.services.notebook_service import notebook_service
 from app.services.workspace_service import workspace_service
+from app.services.workspace_understanding_service import workspace_understanding_service
 
 router = APIRouter()
 
@@ -228,6 +229,14 @@ async def get_workspace(workspace_id: str):
     if workspace is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
     return workspace.model_dump(mode="json")
+
+
+@router.get("/{workspace_id}/understanding")
+async def get_workspace_understanding(workspace_id: str):
+    summary = workspace_understanding_service.build_summary(workspace_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return summary.model_dump(mode="json")
 
 
 @router.get("/{workspace_id}/sources")

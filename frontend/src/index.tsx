@@ -10,6 +10,7 @@ import SkillGroups from './pages/SkillGroups';
 import SkillHealth from './pages/SkillHealth';
 import Settings from './pages/Settings';
 import MemoryAnimation from './pages/MemoryAnimation';
+import WorkspaceUnderstandingPrototype from './pages/WorkspaceUnderstandingPrototype';
 
 import Notebook from './pages/Notebook';
 
@@ -31,6 +32,7 @@ render(() => (
       <Route path="/settings" component={Settings} />
       <Route path="/notebook" component={Notebook} />
       <Route path="/memory-animation" component={MemoryAnimation} />
+      <Route path="/workspace-understanding-prototype" component={WorkspaceUnderstandingPrototype} />
     </Router>
   </ToastProvider>
 ), root!);
