@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 - Add Workspace Understanding API contract.
 
-**Status:** ready
+**Status:** resolved
 
 **Scope:**
 - Add `WorkspaceUnderstandingSummary`, `WorkspaceUnderstandingGroup`, and `WorkspaceUnderstandingItem` types to `frontend/src/types.ts`.
@@ -22,4 +22,3 @@
 - Workspace Understanding loading is isolated behind a small hook interface.
 - `useChatWorkspace` does not become responsible for product grouping behavior.
 - The frontend has typed access to groups, counts, representative items, and applied user memory preview.
-

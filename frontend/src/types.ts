@@ -304,6 +304,41 @@ export type WorkspaceMemoryCandidate = {
   updated_at: string;
 };
 
+type UnknownApiString = string & Record<never, never>;
+
+export type WorkspaceUnderstandingItemKind = 'memory' | 'candidate' | UnknownApiString;
+export type WorkspaceUnderstandingScopeType = 'user' | 'workspace' | 'project' | 'chat' | UnknownApiString;
+
+export type WorkspaceUnderstandingItem = {
+  id: string;
+  kind: WorkspaceUnderstandingItemKind;
+  title: string;
+  content: string;
+  status: string;
+  memory_type: string;
+  scope_type?: WorkspaceUnderstandingScopeType;
+  scope_ref?: string | null;
+  source_session_id?: string | null;
+  source_message_id?: number | null;
+  confidence?: number | null;
+  updated_at: string;
+};
+
+export type WorkspaceUnderstandingGroup = {
+  group: string;
+  label: string;
+  total_count: number;
+  active_count: number;
+  pending_count: number;
+  representative_items: WorkspaceUnderstandingItem[];
+};
+
+export type WorkspaceUnderstandingSummary = {
+  workspace_id: string;
+  groups: WorkspaceUnderstandingGroup[];
+  applied_user_memory_preview: WorkspaceUnderstandingItem[];
+};
+
 export type WorkspaceGroundingSource = {
   id: string;
   display_name?: string | null;
