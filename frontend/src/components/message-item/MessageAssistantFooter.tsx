@@ -19,11 +19,13 @@ interface MessageAssistantFooterProps {
   pendingWorkspaceMemoryCandidate?: WorkspaceMemoryCandidate | null;
   onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
   onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onSuggestHighSignalUserMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
   onApproveWorkspaceMemoryCandidate?: (
     candidateId: string,
     payload: InlineMemoryConfirmationPayload,
   ) => Promise<void> | void;
   onRejectWorkspaceMemoryCandidate?: (candidateId: string, reason?: string | null) => Promise<void> | void;
+  onDismissHighSignalUserMemorySuggestion?: () => void;
   onTrackWorkspaceCaptureTelemetry?: (payload: {
     event_type: string;
     source?: string;
@@ -105,11 +107,16 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
   };
 
   const handleSuggestWorkspaceMemory = async () => {
-    if (!props.onSuggestWorkspaceMemoryCandidate) return;
+    const suggestion = props.workspaceCaptureSuggestion;
+    const suggest =
+      suggestion?.source === 'high_signal_user_message'
+        ? props.onSuggestHighSignalUserMemoryCandidate
+        : props.onSuggestWorkspaceMemoryCandidate;
+    if (!suggest) return;
     setIsCreatingCandidate(true);
     setCaptureError(null);
     try {
-      const candidate = await props.onSuggestWorkspaceMemoryCandidate();
+      const candidate = await suggest();
       if (candidate) {
         setInlineCandidate(candidate);
         setCaptureFeedback(null);
@@ -123,9 +130,12 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
 
   const handleDismissSuggestion = () => {
     setIsDismissed(true);
+    if (props.workspaceCaptureSuggestion?.source === 'high_signal_user_message') {
+      props.onDismissHighSignalUserMemorySuggestion?.();
+    }
     void props.onTrackWorkspaceCaptureTelemetry?.({
       event_type: 'suggestion_dismissed',
-      source: 'assistant_reply',
+      source: props.workspaceCaptureSuggestion?.source || 'assistant_reply',
       workspace_id: props.workspaceCaptureSuggestion?.workspace_id || null,
       assistant_message_id: props.msg.id ?? null,
       assistant_turn_id: props.msg.assistant_turn_id || null,
@@ -181,6 +191,11 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
               <div class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Worth keeping</div>
               <div class="mt-1 text-[11px] leading-snug text-emerald-900/80">
                 {props.workspaceCaptureSuggestion?.reason}
+                <Show when={props.workspaceCaptureSuggestion?.suggested_destination}>
+                  <span class="ml-1 font-semibold">
+                    {props.workspaceCaptureSuggestion?.suggested_destination}
+                  </span>
+                </Show>
               </div>
             </div>
             <button

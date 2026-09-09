@@ -1,5 +1,5 @@
 import { createSignal, Show, onCleanup, createEffect, createMemo } from 'solid-js';
-import { Message, StructuredChartArtifact, WorkspaceMemoryCandidate, WorkspaceNote } from '../types';
+import { Message, StructuredChartArtifact, WorkspaceCaptureSuggestion, WorkspaceMemoryCandidate, WorkspaceNote } from '../types';
 import { getAdaptedThought } from "../utils/thoughtParser";
 import MessageExportMenu from './MessageExportMenu';
 import SpeechControl from './SpeechControl';
@@ -62,15 +62,18 @@ interface MessageItemProps {
   alreadySavedAsWorkspaceNote?: boolean;
   hasPendingWorkspaceMemoryCandidate?: boolean;
   pendingWorkspaceMemoryCandidate?: WorkspaceMemoryCandidate | null;
+  highSignalUserMemorySuggestion?: WorkspaceCaptureSuggestion | null;
   captureSuggestionsEnabled?: boolean;
   memorySuggestionsEnabled?: boolean;
   onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
   onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onSuggestHighSignalUserMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
   onApproveWorkspaceMemoryCandidate?: (
     candidateId: string,
     payload: InlineMemoryConfirmationPayload,
   ) => Promise<void> | void;
   onRejectWorkspaceMemoryCandidate?: (candidateId: string, reason?: string | null) => Promise<void> | void;
+  onDismissHighSignalUserMemorySuggestion?: () => void;
   onTrackWorkspaceCaptureTelemetry?: (payload: {
     event_type: string;
     source?: string;
@@ -179,6 +182,7 @@ export default function MessageItem(props: MessageItemProps) {
   const workspaceCaptureSuggestion = createMemo(() => {
     const streamed = props.msg.workspace_capture_suggestion;
     const baseSuggestion =
+      props.highSignalUserMemorySuggestion ||
       streamed ||
       getWorkspaceCaptureSuggestion(props.msg, {
         hasSelectedWorkspace: props.hasSelectedWorkspace === true,
@@ -186,7 +190,8 @@ export default function MessageItem(props: MessageItemProps) {
         isTyping: props.isTyping,
         alreadySavedAsNote: props.alreadySavedAsWorkspaceNote === true,
         hasPendingMemoryCandidate: props.hasPendingWorkspaceMemoryCandidate === true,
-      });
+      }) ||
+      props.highSignalUserMemorySuggestion;
     if (!baseSuggestion) return null;
     const adjusted = {
       ...baseSuggestion,
@@ -372,8 +377,10 @@ export default function MessageItem(props: MessageItemProps) {
             pendingWorkspaceMemoryCandidate={props.pendingWorkspaceMemoryCandidate}
             onSaveWorkspaceNote={props.onSaveWorkspaceNote}
             onSuggestWorkspaceMemoryCandidate={props.onSuggestWorkspaceMemoryCandidate}
+            onSuggestHighSignalUserMemoryCandidate={props.onSuggestHighSignalUserMemoryCandidate}
             onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
             onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
+            onDismissHighSignalUserMemorySuggestion={props.onDismissHighSignalUserMemorySuggestion}
             onTrackWorkspaceCaptureTelemetry={props.onTrackWorkspaceCaptureTelemetry}
           />
         </Show>

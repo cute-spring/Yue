@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { getWorkspaceCaptureSuggestion } from './helpers';
+import {
+  getHighSignalUserMemorySuggestion,
+  getSessionMemoryDismissalKey,
+  getWorkspaceCaptureSuggestion,
+} from './helpers';
 
 
 describe('workspace capture suggestions', () => {
@@ -103,5 +107,57 @@ describe('workspace capture suggestions', () => {
     expect(suggestion.source).toBe('backend');
     expect(suggestion.show_note_action).toBe(true);
     expect(suggestion.show_memory_action).toBe(false);
+  });
+});
+
+describe('high-signal user memory suggestions', () => {
+  it('detects explicit Chinese preference and default statements', () => {
+    expect(getHighSignalUserMemorySuggestion('以后默认用中文回答。')).toEqual({
+      show_note_action: false,
+      show_memory_action: true,
+      reason: 'This user preference looks worth reviewing for memory.',
+      source: 'high_signal_user_message',
+      suggested_scope_type: 'user',
+      suggested_destination: 'About You',
+      trigger: '以后',
+    });
+
+    expect(getHighSignalUserMemorySuggestion('我不喜欢太营销化的页面。')?.suggested_destination).toBe('About You');
+  });
+
+  it('detects explicit English durable instructions', () => {
+    expect(getHighSignalUserMemorySuggestion('remember that I prefer concise answers')?.trigger).toBe('remember');
+    expect(getHighSignalUserMemorySuggestion("don't use adaptive workspace categories")?.suggested_destination).toBe(
+      'This Workspace',
+    );
+    expect(getHighSignalUserMemorySuggestion('always use bullet points for summaries')?.suggested_scope_type).toBe(
+      'user',
+    );
+  });
+
+  it('does not prompt for ordinary chat', () => {
+    expect(getHighSignalUserMemorySuggestion('这个怎么做？')).toBeNull();
+    expect(getHighSignalUserMemorySuggestion('Thanks, sounds good.')).toBeNull();
+    expect(getHighSignalUserMemorySuggestion('Can you explain this code?')).toBeNull();
+  });
+
+  it('builds a stable session dismissal key for noisy repeated prompts', () => {
+    expect(
+      getSessionMemoryDismissalKey({
+        workspaceId: 'ws_1',
+        chatId: 'chat_1',
+        messageId: 3,
+        content: '以后默认用中文回答。',
+      }),
+    ).toBe('ws_1:chat_1:以后默认用中文回答。');
+
+    expect(
+      getSessionMemoryDismissalKey({
+        workspaceId: 'ws_1',
+        chatId: 'chat_1',
+        messageId: 4,
+        content: '以后默认用中文回答。',
+      }),
+    ).toBe('ws_1:chat_1:以后默认用中文回答。');
   });
 });

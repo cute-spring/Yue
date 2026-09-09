@@ -82,6 +82,65 @@ export const getWorkspaceCaptureSuggestion = (
   };
 };
 
+const HIGH_SIGNAL_USER_MARKERS = [
+  '以后',
+  '默认',
+  '我喜欢',
+  '我不喜欢',
+  'remember',
+  'always',
+  "don't",
+  'dont',
+] as const;
+
+export const getHighSignalUserMemorySuggestion = (content: string): WorkspaceCaptureSuggestion | null => {
+  const compact = (content || '').replace(/\s+/g, ' ').trim();
+  if (!compact) return null;
+
+  const lower = compact.toLowerCase();
+  const trigger = HIGH_SIGNAL_USER_MARKERS.find((marker) => lower.includes(marker.toLowerCase()));
+  if (!trigger) return null;
+
+  const looksLikeQuestion = /[?？]\s*$/.test(compact);
+  if (looksLikeQuestion && !/(remember|always|don't|dont|以后|默认|我喜欢|我不喜欢)/i.test(compact)) return null;
+
+  const workspaceScoped =
+    /(?:workspace|project|repo|repository|codebase|ticket|spec|plan|工作区|项目|仓库|代码库|这张票|这个功能|这个项目|分组|分类)/i.test(compact);
+  const sessionScoped = /(?:just this time|for now|this time only|本次|这次|临时|暂时)/i.test(compact);
+  const suggestedScopeType = sessionScoped ? 'chat' : workspaceScoped ? 'workspace' : 'user';
+  const suggestedDestination =
+    suggestedScopeType === 'chat' ? 'Just this time' : suggestedScopeType === 'workspace' ? 'This Workspace' : 'About You';
+
+  return {
+    show_note_action: false,
+    show_memory_action: true,
+    reason:
+      suggestedScopeType === 'workspace'
+        ? 'This workspace instruction looks worth reviewing for memory.'
+        : suggestedScopeType === 'chat'
+          ? 'This temporary instruction looks worth keeping for this chat.'
+          : 'This user preference looks worth reviewing for memory.',
+    source: 'high_signal_user_message',
+    suggested_scope_type: suggestedScopeType,
+    suggested_destination: suggestedDestination,
+    trigger,
+  };
+};
+
+export const getSessionMemoryDismissalKey = (args: {
+  workspaceId?: string | null;
+  chatId?: string | null;
+  messageId?: number | string | null;
+  content: string;
+}): string => {
+  const compact = (args.content || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  return [
+    args.workspaceId || 'no-workspace',
+    args.chatId || 'no-chat',
+    compact,
+  ].join(':');
+};
+
 export const getVisionBadge = (msg: Pick<Message, 'supports_vision' | 'vision_enabled' | 'vision_fallback_mode' | 'image_count'>) => {
   const imageCount = typeof msg.image_count === 'number' ? msg.image_count : 0;
   if (msg.vision_fallback_mode === 'text_only' && imageCount > 0) {

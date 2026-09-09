@@ -26,6 +26,7 @@ type InlineMemoryConfirmationProps = {
 
 export const getCandidateDestinationLabel = (candidate: WorkspaceMemoryCandidate) => {
   if (candidate.scope_type === 'user') return 'About You';
+  if (candidate.scope_type === 'chat') return 'Just this time';
   return 'This Workspace';
 };
 

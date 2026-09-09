@@ -424,9 +424,9 @@ test('assistant memory review shows inline confirmation before durable save', as
 
   await openWorkspaceDock(page);
 
-  await page.locator('textarea').first().fill('Please remember that I prefer simple Workspace UI.');
+  await page.locator('textarea').first().fill('Please summarize the simple Workspace UI rule.');
   await page.getByRole('button', { name: 'Send Message' }).click();
-  await page.getByRole('button', { name: 'Review as memory' }).click();
+  await page.getByLabel('Assistant message. Press R to read aloud or stop.').last().getByRole('button', { name: 'Review as memory' }).click();
 
   await expect(page.getByText('Confirm Memory')).toBeVisible();
   await expect(page.getByText('Yue can remember this for This Workspace.')).toBeVisible();
@@ -445,12 +445,132 @@ test('assistant memory review shows inline confirmation before durable save', as
 
   await page.locator('textarea').first().fill('Do not save this one durably.');
   await page.getByRole('button', { name: 'Send Message' }).click();
-  await page.getByRole('button', { name: 'Review as memory' }).click();
+  await page.getByLabel('Assistant message. Press R to read aloud or stop.').last().getByRole('button', { name: 'Review as memory' }).click();
   await expect(page.getByText('Confirm Memory')).toBeVisible();
   await page.getByRole('button', { name: 'Just this time' }).click();
 
   await expect(page.getByText('Kept for this chat only.')).toBeVisible();
   expect(rejectedPayload).toMatchObject({ reason: 'Kept as session-only context' });
+});
+
+test('high-signal user statement prompts one memory review and respects session dismissal', async ({ page }) => {
+  const state = {
+    notes: [] as Record<string, unknown>[],
+    candidates: [] as Record<string, unknown>[],
+    memories: [] as Record<string, unknown>[],
+  };
+  const userCandidatePayloads: Record<string, unknown>[] = [];
+
+  await mockChatBootstrap(page, {
+    prefs: {
+      theme: 'light',
+      language: 'en',
+      default_agent: null,
+      capture_suggestions_enabled: true,
+      memory_suggestions_enabled: true,
+      note_recall_enabled: true,
+    },
+    agents: [],
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o-mini');
+  });
+  await routeWorkspaceBootstrap(page, state);
+
+  await page.route('**/api/chat/chat-high-signal/meta', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'chat-high-signal',
+        title: 'High signal memory',
+        summary: null,
+        updated_at: '2026-06-04T00:00:00Z',
+      }),
+    });
+  });
+  await page.route('**/api/chat/chat-high-signal/capture-events', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'success' }) });
+  });
+  await page.route('**/api/workspaces/ws_1/memory-candidates/suggest-from-user-message', async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    userCandidatePayloads.push(body);
+    const candidate = {
+      id: 'cand_user_signal_1',
+      workspace_id: 'ws_1',
+      memory_type: 'preference',
+      scope_type: 'user',
+      scope_ref: null,
+      title: '以后默认用中文回答。',
+      content: '以后默认用中文回答。',
+      status: 'pending',
+      score: 0.9,
+      suggested_action: 'create_new',
+      conflict_memory_id: null,
+      why_saved: 'The user explicitly stated a durable preference.',
+      source_session_id: 'chat-high-signal',
+      source_message_id: null,
+      reviewed_at: null,
+      expires_at: null,
+      source: null,
+      candidate_metadata: { suggested_from: 'user_message' },
+      created_at: '2026-06-04T00:00:00Z',
+      updated_at: '2026-06-04T00:00:00Z',
+    };
+    state.candidates = [candidate];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(candidate) });
+  });
+
+  let streamCallCount = 0;
+  await page.route('**/api/chat/stream', async (route) => {
+    streamCallCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: makeSseBody([
+        { chat_id: 'chat-high-signal' },
+        {
+          meta: {
+            id: 300 + streamCallCount,
+            timestamp: '2026-06-04T00:00:00Z',
+            provider: 'openai',
+            model: 'gpt-4o-mini',
+          },
+          run_id: `run-signal-${streamCallCount}`,
+          assistant_turn_id: `turn-signal-${streamCallCount}`,
+        },
+        { content: streamCallCount === 1 ? '好的，我会按这个偏好处理。' : '收到。' },
+        { finish_reason: 'stop' },
+      ]),
+    });
+  });
+
+  await openWorkspaceDock(page);
+
+  await page.locator('textarea').first().fill('以后默认用中文回答。');
+  await page.getByRole('button', { name: 'Send Message' }).click();
+  const assistantMessage = page.getByLabel('Assistant message. Press R to read aloud or stop.').last();
+  await expect(assistantMessage.getByText('This user preference looks worth reviewing for memory.')).toBeVisible();
+  await expect(assistantMessage.getByText('About You')).toBeVisible();
+  await page.getByRole('button', { name: 'Review as memory' }).click();
+  await expect(page.getByText('Confirm Memory')).toBeVisible();
+  expect(userCandidatePayloads).toHaveLength(1);
+  expect(userCandidatePayloads[0]).toMatchObject({
+    chat_id: 'chat-high-signal',
+    suggested_scope_type: 'user',
+  });
+
+  state.candidates = [];
+  await page.getByRole('button', { name: 'Dismiss' }).click();
+  await page.locator('textarea').first().fill('以后默认用中文回答。');
+  await page.getByRole('button', { name: 'Send Message' }).click();
+  await expect(page.getByText('收到。')).toBeVisible();
+  await expect(
+    page.getByLabel('Assistant message. Press R to read aloud or stop.').last().getByText(
+      'This user preference looks worth reviewing for memory.',
+    ),
+  ).toHaveCount(0);
 });
 
 test('workspace memory protections disable unsafe actions and preserve recurring instruction bulk updates', async ({ page }) => {

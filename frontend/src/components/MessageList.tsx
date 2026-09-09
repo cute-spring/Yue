@@ -1,8 +1,9 @@
-import { For, Show } from 'solid-js';
-import { Message, StructuredChartArtifact, WorkspaceMemoryCandidate, WorkspaceNote } from '../types';
+import { For, Show, createSignal } from 'solid-js';
+import { Message, StructuredChartArtifact, WorkspaceCaptureSuggestion, WorkspaceMemoryCandidate, WorkspaceNote } from '../types';
 import MessageItem from './MessageItem';
 import type { InlineMemoryConfirmationPayload } from './workspace/InlineMemoryConfirmation';
 import { getMergedContinuationContent, hasContinuationSiblings } from '../utils/continuation';
+import { getHighSignalUserMemorySuggestion, getSessionMemoryDismissalKey } from './message-item/helpers';
 
 interface MessageListProps {
   messages: Message[];
@@ -32,6 +33,11 @@ interface MessageListProps {
   memorySuggestionsEnabled?: boolean;
   onSaveWorkspaceNote?: () => Promise<WorkspaceNote | null>;
   onSuggestWorkspaceMemoryCandidate?: () => Promise<WorkspaceMemoryCandidate | null>;
+  onSuggestHighSignalUserMemoryCandidate?: (payload: {
+    messageId?: number | string | null;
+    suggestedScopeType?: string | null;
+    trigger?: string | null;
+  }) => Promise<WorkspaceMemoryCandidate | null>;
   onApproveWorkspaceMemoryCandidate?: (
     candidateId: string,
     payload: InlineMemoryConfirmationPayload,
@@ -52,6 +58,9 @@ interface MessageListProps {
 }
 
 export default function MessageList(props: MessageListProps) {
+  const dismissedHighSignalMemoryKeys = new Set<string>();
+  const [dismissedHighSignalVersion, setDismissedHighSignalVersion] = createSignal(0);
+
   const lastAssistantIndex = () => {
     for (let i = props.messages.length - 1; i >= 0; i -= 1) {
       if (props.messages[i]?.role === 'assistant') return i;
@@ -86,7 +95,6 @@ export default function MessageList(props: MessageListProps) {
   };
 
   const hasPendingCandidate = (msg: Message) => {
-    if (msg.role !== 'assistant') return false;
     const messageId = msg.id;
     if (messageId == null) return false;
     return (props.workspaceMemoryCandidates || []).some((candidate) => {
@@ -95,6 +103,55 @@ export default function MessageList(props: MessageListProps) {
       if (!props.currentChatId || !candidate.source_session_id) return true;
       return candidate.source_session_id === props.currentChatId;
     });
+  };
+
+  const getLatestUserMessageBefore = (assistantIndex: number) => {
+    for (let i = assistantIndex - 1; i >= 0; i -= 1) {
+      const candidate = props.messages[i];
+      if (candidate?.role === 'user') return candidate;
+      if (candidate?.role === 'assistant') return null;
+    }
+    return null;
+  };
+
+  const getHighSignalSuggestionForAssistant = (assistantIndex: number): WorkspaceCaptureSuggestion | null => {
+    dismissedHighSignalVersion();
+    if (!props.selectedWorkspaceId || assistantIndex !== lastAssistantIndex()) return null;
+    const userMessage = getLatestUserMessageBefore(assistantIndex);
+    if (!userMessage || hasPendingCandidate(userMessage)) return null;
+    const suggestion = getHighSignalUserMemorySuggestion(userMessage.content);
+    if (!suggestion) return null;
+    const key = getSessionMemoryDismissalKey({
+      workspaceId: props.selectedWorkspaceId,
+      chatId: props.currentChatId,
+      messageId: userMessage.id,
+      content: userMessage.content,
+    });
+    if (dismissedHighSignalMemoryKeys.has(key)) return null;
+    return suggestion;
+  };
+
+  const dismissHighSignalSuggestionForAssistant = (assistantIndex: number) => {
+    const userMessage = getLatestUserMessageBefore(assistantIndex);
+    if (!userMessage) return;
+    const key = getSessionMemoryDismissalKey({
+      workspaceId: props.selectedWorkspaceId,
+      chatId: props.currentChatId,
+      messageId: userMessage.id,
+      content: userMessage.content,
+    });
+    dismissedHighSignalMemoryKeys.add(key);
+    setDismissedHighSignalVersion((value) => value + 1);
+  };
+
+  const suggestHighSignalUserMemoryForAssistant = (assistantIndex: number) => {
+    const userMessage = getLatestUserMessageBefore(assistantIndex);
+    const suggestion = userMessage ? getHighSignalUserMemorySuggestion(userMessage.content) : null;
+    return props.onSuggestHighSignalUserMemoryCandidate?.({
+      messageId: userMessage?.id ?? null,
+      suggestedScopeType: suggestion?.suggested_scope_type || null,
+      trigger: suggestion?.trigger || null,
+    }) || Promise.resolve(null);
   };
 
   return (
@@ -190,14 +247,19 @@ export default function MessageList(props: MessageListProps) {
                 pendingWorkspaceMemoryCandidate={
                   index() === lastAssistantIndex() ? getPendingCandidateForMessage(msg) : null
                 }
+                highSignalUserMemorySuggestion={getHighSignalSuggestionForAssistant(index())}
                 captureSuggestionsEnabled={props.captureSuggestionsEnabled !== false}
                 memorySuggestionsEnabled={props.memorySuggestionsEnabled !== false}
                 onSaveWorkspaceNote={index() === lastAssistantIndex() ? props.onSaveWorkspaceNote : undefined}
                 onSuggestWorkspaceMemoryCandidate={
                   index() === lastAssistantIndex() ? props.onSuggestWorkspaceMemoryCandidate : undefined
                 }
+                onSuggestHighSignalUserMemoryCandidate={
+                  index() === lastAssistantIndex() ? () => suggestHighSignalUserMemoryForAssistant(index()) : undefined
+                }
                 onApproveWorkspaceMemoryCandidate={props.onApproveWorkspaceMemoryCandidate}
                 onRejectWorkspaceMemoryCandidate={props.onRejectWorkspaceMemoryCandidate}
+                onDismissHighSignalUserMemorySuggestion={() => dismissHighSignalSuggestionForAssistant(index())}
                 onTrackWorkspaceCaptureTelemetry={
                   index() === lastAssistantIndex() ? props.onTrackWorkspaceCaptureTelemetry : undefined
                 }

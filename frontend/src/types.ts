@@ -404,6 +404,9 @@ export type WorkspaceCaptureSuggestion = {
   citation_count?: number;
   recalled_note_count?: number;
   recalled_memory_count?: number;
+  suggested_scope_type?: 'user' | 'workspace' | 'chat' | string;
+  suggested_destination?: 'About You' | 'This Workspace' | 'Just this time' | string;
+  trigger?: string | null;
 };
 
 export type SessionUsedContextSection = {

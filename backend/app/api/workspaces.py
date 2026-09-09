@@ -211,6 +211,10 @@ class MemorySuggestFromMessageCreate(BaseModel):
     citation_refs: list[Dict[str, Any]] = Field(default_factory=list)
 
 
+class MemorySuggestFromUserMessageCreate(MemorySuggestFromMessageCreate):
+    suggested_scope_type: Optional[str] = None
+
+
 class ChartArtifactFromMessageCreate(BaseModel):
     chat_id: str
     artifact_id: str
@@ -709,6 +713,24 @@ async def suggest_workspace_memory_candidate_from_message(
     )
     if candidate is None:
         raise HTTPException(status_code=404, detail="Workspace message not found")
+    return candidate.model_dump(mode="json")
+
+
+@router.post("/{workspace_id}/memory-candidates/suggest-from-user-message")
+async def suggest_workspace_memory_candidate_from_user_message(
+    workspace_id: str,
+    payload: MemorySuggestFromUserMessageCreate,
+):
+    candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace_id,
+        chat_id=payload.chat_id,
+        message_id=payload.message_id,
+        source_ids=payload.source_ids,
+        citation_refs=payload.citation_refs,
+        suggested_scope_type=payload.suggested_scope_type,
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Workspace user message not found")
     return candidate.model_dump(mode="json")
 
 

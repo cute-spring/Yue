@@ -47,6 +47,16 @@ WORKSPACE_MEMORY_TYPES = {
     "recurring_instruction",
     "temporary_state",
 }
+HIGH_SIGNAL_USER_MEMORY_MARKERS = (
+    "以后",
+    "默认",
+    "我喜欢",
+    "我不喜欢",
+    "remember",
+    "always",
+    "don't",
+    "dont",
+)
 
 WORKSPACE_MEMORY_CLASS_BY_TYPE = {
     "term": "term",
@@ -1085,6 +1095,75 @@ class WorkspaceService:
                 reasons.append("Recommend updating the existing memory instead of duplicating it.")
         return best_record, best_action, reasons
 
+    def _is_high_signal_user_memory_content(self, content: str) -> bool:
+        lowered = (content or "").strip().lower()
+        if not lowered:
+            return False
+        return any(marker.lower() in lowered for marker in HIGH_SIGNAL_USER_MEMORY_MARKERS)
+
+    def _create_memory_candidate_from_draft(
+        self,
+        workspace_id: str,
+        draft: WorkspaceMemoryDraft,
+    ) -> Optional[WorkspaceMemoryCandidate]:
+        now = datetime.utcnow()
+        with SessionLocal() as db:
+            workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
+            if workspace is None:
+                return None
+
+            active_memories = (
+                db.query(WorkspaceMemoryCardModel)
+                .filter(
+                    WorkspaceMemoryCardModel.workspace_id == workspace_id,
+                    WorkspaceMemoryCardModel.status.in_(tuple(ACTIVE_MEMORY_STATUSES)),
+                )
+                .all()
+            )
+            conflict_record, suggested_action, conflict_reasons = self._detect_memory_conflict(
+                active_memories,
+                memory_type=draft.memory_type,
+                title=draft.title,
+                content=draft.content,
+            )
+
+            candidate_metadata = dict(draft.memory_metadata or {})
+            candidate_metadata["score_reasons"] = candidate_metadata.get("score_reasons") or []
+            if conflict_reasons:
+                candidate_metadata["conflict_reasons"] = conflict_reasons
+
+            normalized_scope = self._normalize_memory_scope_type(draft.scope_type)
+            row = WorkspaceMemoryCandidateModel(
+                id=str(uuid.uuid4()),
+                workspace_id=workspace_id,
+                memory_type=self._normalize_memory_type(draft.memory_type),
+                scope_type=normalized_scope,
+                scope_ref=self._resolve_memory_scope_ref(
+                    scope_type=normalized_scope,
+                    scope_ref=draft.scope_ref,
+                    workspace_id=workspace_id,
+                    current_chat_id=draft.source_session_id if normalized_scope == "chat" else None,
+                ),
+                title=draft.title.strip(),
+                content=draft.content.strip(),
+                status="pending",
+                score=draft.confidence,
+                suggested_action=suggested_action or "create_new",
+                why_saved=str(draft.why_saved or "").strip() or None,
+                expires_at=self._coerce_datetime(draft.expires_at),
+                conflict_memory_id=conflict_record.id if conflict_record is not None else None,
+                source_session_id=draft.source_session_id,
+                source_message_id=draft.source_message_id,
+                candidate_metadata_json=json.dumps(candidate_metadata),
+                created_at=now,
+                updated_at=now,
+            )
+            workspace.updated_at = now
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return self._to_workspace_memory_candidate(row)
+
     def _build_memory_draft_from_message(
         self,
         workspace_id: str,
@@ -1093,6 +1172,9 @@ class WorkspaceService:
         message_id: Optional[int] = None,
         source_ids: Optional[List[str]] = None,
         citation_refs: Optional[List[Dict[str, Any]]] = None,
+        message_role: str = "assistant",
+        suggested_from: str = "assistant_message",
+        scope_type: str = "workspace",
     ) -> Optional[WorkspaceMemoryDraft]:
         from app.services.chat_service import chat_service
 
@@ -1105,9 +1187,12 @@ class WorkspaceService:
 
         message = None
         if message_id is not None:
-            message = next((item for item in chat.messages if item.id == message_id), None)
+            message = next(
+                (item for item in chat.messages if item.id == message_id and item.role == message_role),
+                None,
+            )
         if message is None:
-            message = next((item for item in reversed(chat.messages) if item.role == "assistant"), None)
+            message = next((item for item in reversed(chat.messages) if item.role == message_role), None)
         if message is None:
             return None
 
@@ -1115,6 +1200,7 @@ class WorkspaceService:
         if not content:
             return None
 
+        scope_ref = workspace_id if scope_type == "workspace" else chat_id if scope_type == "chat" else None
         memory_type, inference_reasons = self._infer_memory_type_from_content(content)
         first_line = next((line.strip() for line in content.splitlines() if line.strip()), content[:80]).strip()
         title = first_line[:80] or "Workspace memory"
@@ -1126,7 +1212,7 @@ class WorkspaceService:
         draft_metadata = {
             "source_ids": [str(item) for item in (source_ids or []) if str(item).strip()],
             "citation_refs": citation_refs or [],
-            "suggested_from": "assistant_message",
+            "suggested_from": suggested_from,
             "score_reasons": score_reasons,
             "type_inference_reasons": inference_reasons,
             "memory_class": self._memory_class_for_type(memory_type),
@@ -1135,8 +1221,8 @@ class WorkspaceService:
             memory_type=memory_type,
             title=title,
             content=content[:500],
-            scope_type="workspace",
-            scope_ref=workspace_id,
+            scope_type=scope_type,
+            scope_ref=scope_ref,
             source_session_id=chat_id,
             source_message_id=getattr(message, "id", None),
             source_ids=draft_metadata["source_ids"],
@@ -1146,8 +1232,8 @@ class WorkspaceService:
         return WorkspaceMemoryDraft(
             workspace_id=workspace_id,
             memory_type=memory_type,
-            scope_type="workspace",
-            scope_ref=workspace_id,
+            scope_type=scope_type,
+            scope_ref=scope_ref,
             title=title,
             content=content[:500],
             confidence=score,
@@ -1944,6 +2030,28 @@ class WorkspaceService:
             citation_refs=citation_refs,
         )
 
+    def suggest_memory_from_user_message(
+        self,
+        workspace_id: str,
+        *,
+        chat_id: str,
+        message_id: Optional[int] = None,
+        source_ids: Optional[List[str]] = None,
+        citation_refs: Optional[List[Dict[str, Any]]] = None,
+        suggested_scope_type: Optional[str] = None,
+    ) -> Optional[WorkspaceMemoryDraft]:
+        scope_type = suggested_scope_type if suggested_scope_type in {"user", "workspace", "chat"} else "user"
+        return self._build_memory_draft_from_message(
+            workspace_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            source_ids=source_ids,
+            citation_refs=citation_refs,
+            message_role="user",
+            suggested_from="user_message",
+            scope_type=scope_type,
+        )
+
     def suggest_memory_from_note(
         self,
         workspace_id: str,
@@ -2088,62 +2196,32 @@ class WorkspaceService:
         if draft is None:
             return None
 
-        now = datetime.utcnow()
-        with SessionLocal() as db:
-            workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
-            if workspace is None:
-                return None
+        return self._create_memory_candidate_from_draft(workspace_id, draft)
 
-            active_memories = (
-                db.query(WorkspaceMemoryCardModel)
-                .filter(
-                    WorkspaceMemoryCardModel.workspace_id == workspace_id,
-                    WorkspaceMemoryCardModel.status.in_(tuple(ACTIVE_MEMORY_STATUSES)),
-                )
-                .all()
-            )
-            conflict_record, suggested_action, conflict_reasons = self._detect_memory_conflict(
-                active_memories,
-                memory_type=draft.memory_type,
-                title=draft.title,
-                content=draft.content,
-            )
+    def suggest_memory_candidate_from_user_message(
+        self,
+        workspace_id: str,
+        *,
+        chat_id: str,
+        message_id: Optional[int] = None,
+        source_ids: Optional[List[str]] = None,
+        citation_refs: Optional[List[Dict[str, Any]]] = None,
+        suggested_scope_type: Optional[str] = None,
+    ) -> Optional[WorkspaceMemoryCandidate]:
+        draft = self.suggest_memory_from_user_message(
+            workspace_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            source_ids=source_ids,
+            citation_refs=citation_refs,
+            suggested_scope_type=suggested_scope_type,
+        )
+        if draft is None:
+            return None
+        if not self._is_high_signal_user_memory_content(draft.content):
+            return None
 
-            candidate_metadata = dict(draft.memory_metadata or {})
-            candidate_metadata["score_reasons"] = candidate_metadata.get("score_reasons") or []
-            if conflict_reasons:
-                candidate_metadata["conflict_reasons"] = conflict_reasons
-
-            row = WorkspaceMemoryCandidateModel(
-                id=str(uuid.uuid4()),
-                workspace_id=workspace_id,
-                memory_type=self._normalize_memory_type(draft.memory_type),
-                scope_type=self._normalize_memory_scope_type(draft.scope_type),
-                scope_ref=self._resolve_memory_scope_ref(
-                    scope_type=self._normalize_memory_scope_type(draft.scope_type),
-                    scope_ref=draft.scope_ref,
-                    workspace_id=workspace_id,
-                    current_chat_id=draft.source_session_id if draft.scope_type == "chat" else None,
-                ),
-                title=draft.title.strip(),
-                content=draft.content.strip(),
-                status="pending",
-                score=draft.confidence,
-                suggested_action=suggested_action or "create_new",
-                why_saved=str(draft.why_saved or "").strip() or None,
-                expires_at=self._coerce_datetime(draft.expires_at),
-                conflict_memory_id=conflict_record.id if conflict_record is not None else None,
-                source_session_id=draft.source_session_id,
-                source_message_id=draft.source_message_id,
-                candidate_metadata_json=json.dumps(candidate_metadata),
-                created_at=now,
-                updated_at=now,
-            )
-            workspace.updated_at = now
-            db.add(row)
-            db.commit()
-            db.refresh(row)
-            return self._to_workspace_memory_candidate(row)
+        return self._create_memory_candidate_from_draft(workspace_id, draft)
 
     def suggest_memory_candidate_from_note(
         self,

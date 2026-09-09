@@ -748,6 +748,51 @@ def test_suggest_workspace_memory_candidate_from_message(client, mock_workspace_
     )
 
 
+def test_suggest_workspace_memory_candidate_from_user_message(client, mock_workspace_service):
+    candidate_payload = {
+        "id": "cand_user_1",
+        "workspace_id": "ws_1",
+        "memory_type": "preference",
+        "scope_type": "user",
+        "title": "以后默认用中文回答。",
+        "content": "以后默认用中文回答。",
+        "status": "pending",
+        "score": 0.82,
+        "suggested_action": "create_new",
+        "conflict_memory_id": None,
+        "source_session_id": "chat_1",
+        "source_message_id": 3,
+        "reviewed_at": None,
+        "candidate_metadata": {"suggested_from": "user_message"},
+        "created_at": "2026-06-03T00:00:00Z",
+        "updated_at": "2026-06-03T00:00:00Z",
+    }
+    mock_candidate = type("WorkspaceMemoryCandidateStub", (), {"model_dump": lambda self, mode="json": candidate_payload})()
+    mock_workspace_service.suggest_memory_candidate_from_user_message.return_value = mock_candidate
+
+    response = client.post(
+        "/api/workspaces/ws_1/memory-candidates/suggest-from-user-message",
+        json={
+            "chat_id": "chat_1",
+            "message_id": 3,
+            "source_ids": [],
+            "citation_refs": [],
+            "suggested_scope_type": "user",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["scope_type"] == "user"
+    mock_workspace_service.suggest_memory_candidate_from_user_message.assert_called_once_with(
+        "ws_1",
+        chat_id="chat_1",
+        message_id=3,
+        source_ids=[],
+        citation_refs=[],
+        suggested_scope_type="user",
+    )
+
+
 def test_approve_workspace_memory_candidate(client, mock_workspace_service):
     memory_payload = {
         "id": "mem_2",

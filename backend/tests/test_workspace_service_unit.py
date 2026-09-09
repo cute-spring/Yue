@@ -726,6 +726,50 @@ def test_workspace_memory_candidate_conflict_and_approval_flow(temp_db):
     assert candidates_after[0].status == "approved"
 
 
+def test_workspace_memory_candidate_can_be_suggested_from_high_signal_user_message(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="User Memory Capture")
+    session = chat_service.create_chat(title="User preference chat", workspace_id=workspace.id)
+    chat_service.add_message(session.id, "user", "以后默认用中文回答。")
+    user_message = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "user")
+
+    candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=user_message.id,
+        suggested_scope_type="user",
+    )
+
+    assert candidate is not None
+    assert candidate.status == "pending"
+    assert candidate.scope_type == "user"
+    assert candidate.source_session_id == session.id
+    assert candidate.source_message_id == user_message.id
+    assert candidate.candidate_metadata["suggested_from"] == "user_message"
+    assert candidate.candidate_metadata["approval_preview"]["durable_write_performed"] is False
+    assert workspace_service.list_memories(workspace.id) == []
+
+
+def test_workspace_memory_candidate_ignores_ordinary_user_message(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Ordinary User Chat")
+    session = chat_service.create_chat(title="Ordinary chat", workspace_id=workspace.id)
+    chat_service.add_message(session.id, "user", "这个怎么做？")
+    user_message = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "user")
+
+    candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=user_message.id,
+        suggested_scope_type="user",
+    )
+
+    assert candidate is None
+    assert workspace_service.list_memory_candidates(workspace.id) == []
+
+
 def test_workspace_memory_candidate_includes_glossary_approval_preview(temp_db):
     workspace_service, chat_service, _ = temp_db
 

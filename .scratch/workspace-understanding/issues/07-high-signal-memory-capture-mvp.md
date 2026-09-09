@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 - Inline confirmation for existing memory candidates.
 
-**Status:** ready
+**Status:** resolved
 
 **Scope:**
 - Add a rule-based detector for explicit markers such as "以后", "默认", "我喜欢", "我不喜欢", "remember", "always", and "don't".
@@ -22,4 +22,3 @@
 - Yue can proactively propose memory when users explicitly state preferences, defaults, corrections, decisions, terms, or constraints.
 - No durable memory is written without confirmation.
 - Prompt frequency stays bounded.
-

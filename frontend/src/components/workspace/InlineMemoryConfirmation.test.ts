@@ -63,6 +63,7 @@ describe('InlineMemoryConfirmation', () => {
 
   it('labels user-scoped memory separately from workspace memory', () => {
     expect(getCandidateDestinationLabel({ ...candidate, scope_type: 'user' })).toBe('About You');
+    expect(getCandidateDestinationLabel({ ...candidate, scope_type: 'chat' })).toBe('Just this time');
     expect(getCandidateDestinationLabel(candidate)).toBe('This Workspace');
   });
 });

@@ -543,6 +543,47 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     return candidate;
   };
 
+  const suggestWorkspaceMemoryCandidateFromUserMessage = async (payload: {
+    messageId?: number | string | null;
+    suggestedScopeType?: string | null;
+    trigger?: string | null;
+  }): Promise<WorkspaceMemoryCandidate | null> => {
+    const workspaceId = args.selectedWorkspaceId();
+    const chatId = args.currentChatId();
+    if (!workspaceId || !chatId) {
+      args.toast.error('No workspace chat message to review as memory.', 3000);
+      return null;
+    }
+
+    const res = await fetch(`/api/workspaces/${workspaceId}/memory-candidates/suggest-from-user-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: typeof payload.messageId === 'number' ? payload.messageId : undefined,
+        source_ids: effectiveWorkspaceSourceIds(),
+        citation_refs: [],
+        suggested_scope_type: payload.suggestedScopeType || undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const candidate = (await res.json()) as WorkspaceMemoryCandidate;
+    await loadWorkspaceMemories(workspaceId);
+    await trackWorkspaceCaptureTelemetry({
+      event_type: 'memory_candidate_created',
+      source: 'high_signal_user_message',
+      workspace_id: workspaceId,
+      candidate_id: candidate.id,
+      accepted: true,
+      metadata: {
+        suggested_action: candidate.suggested_action || null,
+        suggested_scope_type: payload.suggestedScopeType || null,
+        trigger: payload.trigger || null,
+      },
+    });
+    return candidate;
+  };
+
   const suggestWorkspaceMemoryCandidateFromNote = async (noteId: string): Promise<WorkspaceMemoryCandidate | null> => {
     const workspaceId = args.selectedWorkspaceId();
     if (!workspaceId) throw new Error('No workspace selected');
@@ -771,6 +812,7 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     saveChartArtifactToWorkspace,
     suggestWorkspaceMemoryFromLastAssistantMessage,
     suggestWorkspaceMemoryCandidateFromLastAssistantMessage,
+    suggestWorkspaceMemoryCandidateFromUserMessage,
     suggestWorkspaceMemoryCandidateFromNote,
     createWorkspaceMemory,
     updateWorkspaceMemory,
