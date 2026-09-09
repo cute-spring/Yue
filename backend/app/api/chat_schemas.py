@@ -34,6 +34,7 @@ class ChatRequest(BaseModel):
     requested_action_arguments: dict | None = None
     requested_action_approved: bool | None = None
     requested_action_approval_token: str | None = None
+    browser_session_id: str | None = None
     chat_id: str | None = None
     system_prompt: str | None = None
     provider: str | None = None

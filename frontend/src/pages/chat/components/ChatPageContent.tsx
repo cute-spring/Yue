@@ -23,6 +23,7 @@ import { useChatPageEffects } from '../hooks/useChatPageEffects';
 import ChatHeader from './ChatHeader';
 import { useChatContentActions } from '../hooks/useChatContentActions';
 import { buildDiscoveryQuestionnaireArtifact } from '../utils/chatCommands';
+import { useBrowserSessions } from '../../../hooks/useBrowserSessions';
 
 export default function ChatPageContent(props: {
   speechPrefs: () => Preferences;
@@ -50,6 +51,11 @@ export default function ChatPageContent(props: {
   const [showTraceShell, setShowTraceShell] = createSignal(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = createSignal<string | null>(null);
   const [historyWorkspaceFilterId, setHistoryWorkspaceFilterId] = createSignal<string | null>(null);
+  const browserSessions = useBrowserSessions();
+
+  createEffect(() => {
+    void browserSessions.refreshBrowserSessions();
+  });
 
   let textareaRef: HTMLTextAreaElement | undefined;
   let chatContainerRef: HTMLDivElement | undefined;
@@ -373,6 +379,7 @@ export default function ChatPageContent(props: {
     saveDiscoveryQuestionnaireArtifact,
     buildWorkspaceRequestOverrides: () => ({
       ...buildWorkspaceRequestOverrides(),
+      browser_session_id: browserSessions.selectedBrowserSessionId() || undefined,
       note_recall_enabled: props.speechPrefs().note_recall_enabled,
       capture_suggestions_enabled: props.speechPrefs().capture_suggestions_enabled,
       memory_suggestions_enabled: props.speechPrefs().memory_suggestions_enabled,
@@ -567,6 +574,32 @@ export default function ChatPageContent(props: {
           onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidateAndRefresh}
           onTrackWorkspaceCaptureTelemetry={trackWorkspaceCaptureTelemetry}
         />
+
+        <div class="mx-auto w-full max-w-4xl px-4 pb-2">
+          <div class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+            <span class="font-semibold">Browser</span>
+            <select
+              class="min-w-0 flex-1 rounded border border-emerald-200 bg-white px-2 py-1 text-xs dark:border-emerald-800 dark:bg-slate-900"
+              value={browserSessions.selectedBrowserSessionId() || ''}
+              onChange={(event) => browserSessions.setSelectedBrowserSessionId(event.currentTarget.value || null)}
+              aria-label="Authorized browser tab"
+            >
+              <option value="">No tab attached</option>
+              {browserSessions.sessions().map((session) => (
+                <option value={session.id}>
+                  {session.title} — {session.origin} ({session.authorization_mode})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              class="rounded px-2 py-1 font-medium hover:bg-emerald-100 dark:hover:bg-emerald-900"
+              onClick={() => void browserSessions.refreshBrowserSessions()}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
 
         <ChatInput
           showAgentSelector={showAgentSelector()}
