@@ -125,6 +125,14 @@ async def request_browser_action(session_id: str, request: BrowserActionRequest)
         _raise_browser_error(exc)
 
 
+@router.get("/sessions/{session_id}/actions")
+async def list_browser_actions(session_id: str):
+    try:
+        return browser_session_service.list_actions(session_id=session_id)
+    except BrowserSessionError as exc:
+        _raise_browser_error(exc)
+
+
 @router.post("/sessions/{session_id}/actions/{action_id}/decision")
 async def decide_browser_action(session_id: str, action_id: str, request: BrowserActionDecision):
     try:

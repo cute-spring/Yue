@@ -1,4 +1,4 @@
-import { createSignal, Show, createEffect } from 'solid-js';
+import { createSignal, Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { SkillSpec, WorkspaceArtifact } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 import ChatSidebar from '../../../components/ChatSidebar';
@@ -55,6 +55,14 @@ export default function ChatPageContent(props: {
 
   createEffect(() => {
     void browserSessions.refreshBrowserSessions();
+  });
+  createEffect(() => {
+    browserSessions.selectedBrowserSessionId();
+    void browserSessions.refreshBrowserActions();
+  });
+  onMount(() => {
+    const browserActionTimer = window.setInterval(() => void browserSessions.refreshBrowserActions(), 1000);
+    onCleanup(() => window.clearInterval(browserActionTimer));
   });
 
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -581,7 +589,10 @@ export default function ChatPageContent(props: {
             <select
               class="min-w-0 flex-1 rounded border border-emerald-200 bg-white px-2 py-1 text-xs dark:border-emerald-800 dark:bg-slate-900"
               value={browserSessions.selectedBrowserSessionId() || ''}
-              onChange={(event) => browserSessions.setSelectedBrowserSessionId(event.currentTarget.value || null)}
+              onChange={(event) => {
+                browserSessions.setSelectedBrowserSessionId(event.currentTarget.value || null);
+                void browserSessions.refreshBrowserActions();
+              }}
               aria-label="Authorized browser tab"
             >
               <option value="">No tab attached</option>
@@ -599,6 +610,29 @@ export default function ChatPageContent(props: {
               Refresh
             </button>
           </div>
+          <Show when={browserSessions.browserActions().find((action) => action.status === 'awaiting_approval')}>
+            {(action) => (
+              <div class="mt-2 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                <span class="flex-1">
+                  Yue requests approval to {action().action}{action().target ? `: ${action().target}` : ''}.
+                </span>
+                <button
+                  type="button"
+                  class="rounded bg-emerald-700 px-2 py-1 font-semibold text-white"
+                  onClick={() => void browserSessions.decideBrowserAction(action().id, true)}
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-amber-500 px-2 py-1 font-semibold"
+                  onClick={() => void browserSessions.decideBrowserAction(action().id, false)}
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </Show>
         </div>
 
         <ChatInput

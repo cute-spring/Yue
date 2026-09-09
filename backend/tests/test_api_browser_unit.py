@@ -89,6 +89,21 @@ def test_browser_api_returns_pending_submit_then_allows_explicit_approval(client
     assert approved.json()["status"] == "queued"
 
 
+def test_browser_api_lists_pending_actions_without_revealing_fill_values(client):
+    session = register_tab(client)
+    action = client.post(
+        f"/api/browser/sessions/{session['id']}/actions",
+        json={"action": "fill", "target": "Expense description", "value": "Private taxi receipt"},
+    )
+
+    assert action.status_code == 202
+    listed = client.get(f"/api/browser/sessions/{session['id']}/actions")
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["target"] == "Expense description"
+    assert "value" not in listed.json()[0]
+
+
 @pytest.mark.asyncio
 async def test_browser_read_tool_uses_only_the_session_bound_in_context():
     session, token = browser_session_service.register_tab(

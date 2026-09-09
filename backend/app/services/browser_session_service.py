@@ -109,6 +109,11 @@ class BrowserAction:
             "updated_at": self.updated_at.isoformat(),
         }
 
+    def to_public_dict(self) -> Dict[str, Any]:
+        payload = self.to_dict()
+        payload.pop("value", None)
+        return payload
+
 
 @dataclass
 class BrowserSession:
@@ -308,6 +313,14 @@ class BrowserSessionService:
             browser_action.updated_at = _utc_now()
             session.updated_at = _utc_now()
             return browser_action.to_dict()
+
+    def list_actions(self, *, session_id: str) -> list[Dict[str, Any]]:
+        with self._lock:
+            session = self.get_session(session_id)
+            return [
+                item.to_public_dict()
+                for item in sorted(session.actions.values(), key=lambda action: action.created_at, reverse=True)
+            ]
 
     def next_action(self, *, session_id: str, extension_token: Optional[str]) -> Optional[Dict[str, Any]]:
         with self._lock:
