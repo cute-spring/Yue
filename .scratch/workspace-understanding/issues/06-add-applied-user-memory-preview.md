@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 - Implement two-layer Workspace first screen.
 
-**Status:** ready
+**Status:** resolved
 
 **Scope:**
 - Add a small backend interface for user-level memory preview.
@@ -22,4 +22,3 @@
 - Workspace clearly shows which cross-workspace preferences are active.
 - User Memory is not duplicated into Workspace Memory.
 - The implementation can later swap storage behind the user-memory interface.
-

@@ -148,6 +148,17 @@ def test_get_workspace_understanding_uses_service_and_database(client, api_temp_
             )
         )
         db.add(
+            WorkspaceModel(
+                id="ws_other",
+                name="Other Workspace",
+                description=None,
+                default_agent_id=None,
+                source_policy_json="{}",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
             WorkspaceMemoryCardModel(
                 id="mem_1",
                 workspace_id="ws_1",
@@ -158,6 +169,23 @@ def test_get_workspace_understanding_uses_service_and_database(client, api_temp_
                 content="Keep the Workspace Understanding groups predictable.",
                 status="active",
                 confidence=0.88,
+                created_by="user",
+                memory_metadata_json="{}",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
+            WorkspaceMemoryCardModel(
+                id="mem_user_1",
+                workspace_id="ws_other",
+                memory_type="preference",
+                scope_type="user",
+                scope_ref=None,
+                title="Prefers concise answers",
+                content="The user prefers concise answers with clear next steps.",
+                status="active",
+                confidence=0.92,
                 created_by="user",
                 memory_metadata_json="{}",
                 created_at=now,
@@ -195,6 +223,14 @@ def test_get_workspace_understanding_uses_service_and_database(client, api_temp_
     assert by_group["open_questions"]["total_count"] == 0
     assert by_group["open_questions"]["pending_count"] == 1
     assert by_group["open_questions"]["representative_items"][0]["id"] == "cand_1"
+    assert payload["applied_user_memory_preview"][0]["id"] == "mem_user_1"
+    assert payload["applied_user_memory_preview"][0]["scope_type"] == "user"
+    grouped_ids = [
+        item["id"]
+        for group in payload["groups"]
+        for item in group["representative_items"]
+    ]
+    assert "mem_user_1" not in grouped_ids
 
 
 def test_create_workspace(client, mock_workspace_service):

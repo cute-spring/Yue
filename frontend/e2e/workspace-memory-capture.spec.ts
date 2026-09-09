@@ -36,6 +36,11 @@ const routeWorkspaceBootstrap = async (page: Page, state: {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.candidates) });
   });
   await page.route('**/api/workspaces/ws_1/understanding', async (route) => {
+    const userMemories = state.memories.filter(
+      (memory) => memory.scope_type === 'user' && memory.status === 'active',
+    );
+    const workspaceMemories = state.memories.filter((memory) => memory.scope_type !== 'user');
+    const workspaceCandidates = state.candidates.filter((candidate) => candidate.scope_type !== 'user');
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -45,16 +50,16 @@ const routeWorkspaceBootstrap = async (page: Page, state: {
           {
             group: 'background',
             label: 'Background',
-            total_count: state.memories.length,
-            active_count: state.memories.length,
-            pending_count: state.candidates.filter((candidate) => candidate.status === 'pending').length,
+            total_count: workspaceMemories.length,
+            active_count: workspaceMemories.length,
+            pending_count: workspaceCandidates.filter((candidate) => candidate.status === 'pending').length,
             representative_items: [
-              ...state.memories.map((memory) => ({ ...memory, kind: 'memory' })),
-              ...state.candidates.map((candidate) => ({ ...candidate, kind: 'candidate' })),
+              ...workspaceMemories.map((memory) => ({ ...memory, kind: 'memory' })),
+              ...workspaceCandidates.map((candidate) => ({ ...candidate, kind: 'candidate' })),
             ],
           },
         ],
-        applied_user_memory_preview: [],
+        applied_user_memory_preview: userMemories.map((memory) => ({ ...memory, kind: 'memory' })),
       }),
     });
   });
@@ -258,6 +263,7 @@ test('workspace capture flow saves a note, creates a memory candidate, and recal
   });
 
   const workspaceDock = await openWorkspaceDock(page);
+  await expect(workspaceDock.getByText('No cross-workspace preferences are applied here yet.')).toBeVisible();
 
   await page.locator('textarea').first().fill('How should I answer onboarding questions?');
   await page.getByRole('button', { name: 'Send Message' }).click();
@@ -561,6 +567,8 @@ test('workspace memory protections disable unsafe actions and preserve recurring
   });
 
   const workspaceDock = await openWorkspaceDock(page);
+  await expect(workspaceDock.getByText('Applied preferences')).toBeVisible();
+  await expect(workspaceDock.getByText('Protected preference', { exact: true })).toBeVisible();
   await workspaceDock.getByRole('button', { name: /Resources/i }).click();
   await workspaceDock.getByRole('button', { name: /Memory 3 total/i }).click();
 
@@ -581,7 +589,7 @@ test('workspace memory protections disable unsafe actions and preserve recurring
   await expect.poll(() => bulkStatusPayloads.length).toBe(1);
   await workspaceDock.locator('details').filter({ hasText: 'Live instruction' }).click();
   await expect(workspaceDock.getByRole('button', { name: 'Enable', exact: true })).toBeVisible();
-  await expect(workspaceDock.getByText('Protected preference', { exact: true })).toBeVisible();
+  await expect(protectedPreference).toBeVisible();
 
   await expect(workspaceDock.getByText('Keep responses crisp', { exact: true })).toBeVisible();
   await workspaceDock.getByRole('button', { name: 'Replace existing' }).click();

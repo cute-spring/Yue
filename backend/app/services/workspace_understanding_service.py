@@ -72,6 +72,7 @@ UNDERSTANDING_GROUP_BY_MEMORY_TYPE = {
 
 VALID_UNDERSTANDING_GROUPS = {group.key for group in WORKSPACE_UNDERSTANDING_GROUPS}
 REPRESENTATIVE_ITEM_LIMIT = 2
+APPLIED_USER_MEMORY_PREVIEW_LIMIT = 3
 
 
 class WorkspaceUnderstandingService:
@@ -115,6 +116,7 @@ class WorkspaceUnderstandingService:
                 )
                 .all()
             )
+            applied_user_memory_rows = self._list_applied_user_memory_preview(db)
 
             for row in memory_rows:
                 group = group_lookup[self._resolve_understanding_group(row.memory_type, row.memory_metadata_json)]
@@ -131,8 +133,25 @@ class WorkspaceUnderstandingService:
             return WorkspaceUnderstandingSummary(
                 workspace_id=workspace_id,
                 groups=[group_lookup[definition.key] for definition in WORKSPACE_UNDERSTANDING_GROUPS],
-                applied_user_memory_preview=[],
+                applied_user_memory_preview=[self._memory_item(row) for row in applied_user_memory_rows],
             )
+
+    def _list_applied_user_memory_preview(self, db: Any) -> List[WorkspaceMemoryCardModel]:
+        rows = (
+            db.query(WorkspaceMemoryCardModel)
+            .filter(
+                WorkspaceMemoryCardModel.scope_type == "user",
+                WorkspaceMemoryCardModel.status == "active",
+            )
+            .order_by(
+                WorkspaceMemoryCardModel.pinned.desc(),
+                WorkspaceMemoryCardModel.updated_at.desc(),
+                WorkspaceMemoryCardModel.created_at.desc(),
+            )
+            .limit(APPLIED_USER_MEMORY_PREVIEW_LIMIT)
+            .all()
+        )
+        return [row for row in rows if not self._memory_is_expired(row)]
 
     @staticmethod
     def _append_representative_item(
@@ -167,6 +186,14 @@ class WorkspaceUnderstandingService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _memory_is_expired(row: Any) -> bool:
+        expires_at = getattr(row, "expires_at", None)
+        if expires_at is None:
+            return False
+        now = datetime.now(timezone.utc) if expires_at.tzinfo is not None else datetime.utcnow()
+        return expires_at <= now
 
     def _memory_item(self, row: WorkspaceMemoryCardModel) -> WorkspaceUnderstandingItem:
         return WorkspaceUnderstandingItem(

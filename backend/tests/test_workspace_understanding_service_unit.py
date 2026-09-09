@@ -116,6 +116,60 @@ def test_summary_groups_workspace_memories_and_pending_candidates(temp_db):
     )
 
 
+def test_summary_previews_active_user_memories_without_mixing_into_workspace_groups(temp_db):
+    workspace_service, understanding_service, _ = temp_db
+    workspace = workspace_service.create_workspace(name="Two Layer Understanding")
+    other_workspace = workspace_service.create_workspace(name="Other Workspace")
+    workspace_service.create_memory(
+        other_workspace.id,
+        memory_type="preference",
+        scope_type="user",
+        title="Prefers concise answers",
+        content="The user prefers concise answers with clear next steps.",
+        status="active",
+        confidence=0.92,
+    )
+    workspace_service.create_memory(
+        workspace.id,
+        memory_type="preference",
+        scope_type="user",
+        title="Disabled user preference",
+        content="This disabled preference should not be applied.",
+        status="disabled",
+    )
+    workspace_service.create_memory(
+        workspace.id,
+        memory_type="preference",
+        scope_type="user",
+        title="Expired user preference",
+        content="This expired preference should not be applied.",
+        status="active",
+        expires_at=datetime.utcnow() - timedelta(days=1),
+    )
+    workspace_service.create_memory(
+        workspace.id,
+        memory_type="decision",
+        scope_type="workspace",
+        title="Use two-layer model",
+        content="Workspace uses About You and About This Workspace.",
+        status="active",
+    )
+
+    summary = understanding_service.build_summary(workspace.id)
+
+    assert summary is not None
+    assert [item.title for item in summary.applied_user_memory_preview] == ["Prefers concise answers"]
+    preview = summary.applied_user_memory_preview[0]
+    assert preview.scope_type == "user"
+    assert preview.kind == "memory"
+    assert preview.confidence == 0.92
+    grouped_titles = [item.title for group in summary.groups for item in group.representative_items]
+    assert "Prefers concise answers" not in grouped_titles
+    assert "Disabled user preference" not in grouped_titles
+    assert "Expired user preference" not in grouped_titles
+    assert "Use two-layer model" in grouped_titles
+
+
 def test_summary_respects_understanding_group_metadata_override(temp_db):
     workspace_service, understanding_service, _ = temp_db
     workspace = workspace_service.create_workspace(name="Override Understanding")

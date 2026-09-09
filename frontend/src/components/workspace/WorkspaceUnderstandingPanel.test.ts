@@ -30,6 +30,26 @@ const summary: WorkspaceUnderstandingSummary = {
   applied_user_memory_preview: [],
 };
 
+const summaryWithUserPreview: WorkspaceUnderstandingSummary = {
+  ...summary,
+  applied_user_memory_preview: [
+    {
+      id: 'user_memory_1',
+      kind: 'memory',
+      title: 'Prefers concise answers',
+      content: 'The user prefers concise answers with clear next steps.',
+      status: 'active',
+      memory_type: 'preference',
+      scope_type: 'user',
+      scope_ref: null,
+      source_session_id: null,
+      source_message_id: null,
+      confidence: 0.92,
+      updated_at: '2026-09-08T00:00:00Z',
+    },
+  ],
+};
+
 describe('WorkspaceUnderstandingPanel', () => {
   it('exports a stable component function', () => {
     expect(typeof WorkspaceUnderstandingPanel).toBe('function');
@@ -63,4 +83,17 @@ describe('WorkspaceUnderstandingPanel', () => {
       noteArtifactCount: 9,
     });
   });
+
+  it('keeps applied user memory preview separate from workspace group metrics', () => {
+    expect(summaryWithUserPreview.applied_user_memory_preview).toHaveLength(1);
+    expect(summaryWithUserPreview.applied_user_memory_preview[0]).toMatchObject({
+      title: 'Prefers concise answers',
+      scope_type: 'user',
+    });
+    expect(buildWorkspaceUnderstandingMetrics(summaryWithUserPreview, 0, 0, 0, 0, 0)).toMatchObject({
+      savedUnderstandingCount: 2,
+      pendingCount: 1,
+    });
+  });
+
 });
