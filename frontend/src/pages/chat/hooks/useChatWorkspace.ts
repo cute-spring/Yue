@@ -216,18 +216,33 @@ export function useChatWorkspace(args: UseChatWorkspaceArgs) {
     }
 
     setMemoriesLoading(true);
+    const memoryEndpoint = `/api/workspaces/${workspaceId}/memory`;
+    let failedEndpoint = memoryEndpoint;
+    let failedStatus: number | null = null;
     try {
-      const res = await fetch(`/api/workspaces/${workspaceId}/memory`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fetch(memoryEndpoint);
+      if (!res.ok) {
+        failedStatus = res.status;
+        throw new Error(`HTTP ${res.status}`);
+      }
       const data = await res.json();
       setWorkspaceMemories(Array.isArray(data) ? (data as WorkspaceMemoryCard[]) : []);
 
-      const candidateRes = await fetch(`/api/workspaces/${workspaceId}/memory-candidates`);
-      if (!candidateRes.ok) throw new Error(`HTTP ${candidateRes.status}`);
+      failedEndpoint = `/api/workspaces/${workspaceId}/memory-candidates`;
+      const candidateRes = await fetch(failedEndpoint);
+      if (!candidateRes.ok) {
+        failedStatus = candidateRes.status;
+        throw new Error(`HTTP ${candidateRes.status}`);
+      }
       const candidateData = await candidateRes.json();
       setWorkspaceMemoryCandidates(Array.isArray(candidateData) ? (candidateData as WorkspaceMemoryCandidate[]) : []);
     } catch (e) {
-      console.error('Failed to load workspace memories', e);
+      console.error('Failed to load workspace memories', {
+        workspaceId,
+        endpoint: failedEndpoint,
+        status: failedStatus,
+        error: e,
+      });
       args.toast.error('Failed to load workspace memories');
       setWorkspaceMemories([]);
       setWorkspaceMemoryCandidates([]);

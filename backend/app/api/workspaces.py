@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,6 +12,7 @@ from app.services.workspace_service import workspace_service
 from app.services.workspace_understanding_service import workspace_understanding_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _with_note_promotion_hint(note: Any) -> Dict[str, Any]:
@@ -261,8 +263,17 @@ async def list_workspace_artifacts(workspace_id: str):
 
 @router.get("/{workspace_id}/memory")
 async def list_workspace_memory(workspace_id: str, include_disabled: bool = Query(default=True)):
-    memories = workspace_service.list_memories(workspace_id, include_disabled=include_disabled)
+    try:
+        memories = workspace_service.list_memories(workspace_id, include_disabled=include_disabled)
+    except Exception:
+        logger.exception(
+            "Failed to list workspace memory workspace_id=%s include_disabled=%s",
+            workspace_id,
+            include_disabled,
+        )
+        raise HTTPException(status_code=500, detail="Unable to load workspace memory")
     if memories is None:
+        logger.info("Workspace memory list requested for unknown workspace_id=%s", workspace_id)
         raise HTTPException(status_code=404, detail="Workspace not found")
     return [memory.model_dump(mode="json") for memory in memories]
 

@@ -75,6 +75,35 @@ const openWorkspaceDock = async (page: Page) => {
   return page.getByRole('complementary').nth(1);
 };
 
+test('workspace memory loader surfaces GET failures without leaving stale context', async ({ page }) => {
+  const state = {
+    notes: [] as Record<string, unknown>[],
+    candidates: [] as Record<string, unknown>[],
+    memories: [] as Record<string, unknown>[],
+  };
+  let memoryRequests = 0;
+
+  await mockChatBootstrap(page, {
+    prefs: { theme: 'light', language: 'en', default_agent: null, memory_suggestions_enabled: true },
+    agents: [],
+  });
+  await routeWorkspaceBootstrap(page, state);
+  await page.route('**/api/workspaces/ws_1/memory', async (route) => {
+    memoryRequests += 1;
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Unable to load workspace memory' }),
+    });
+  });
+
+  await openWorkspaceDock(page);
+
+  await expect.poll(() => memoryRequests).toBeGreaterThan(0);
+  await expect(page.getByText('Failed to load workspace memories')).toBeVisible();
+  await expect(page.getByText('Loading workspace memory...')).toHaveCount(0);
+});
+
 test('workspace capture flow saves a note, creates a memory candidate, and recalls the note later', async ({ page }) => {
   const telemetryEvents: Record<string, unknown>[] = [];
   const streamPayloads: Record<string, unknown>[] = [];
@@ -728,7 +757,7 @@ test('memory correction reviews conflict inline and updates future workspace sum
   await expect(assistantMessage.getByRole('button', { name: 'View conflict' })).toBeVisible();
   await assistantMessage.getByRole('button', { name: 'View conflict' }).click();
   await expect(assistantMessage.getByText('Default to Chinese responses.')).toBeVisible();
-  await assistantMessage.getByRole('button', { name: 'Replace memory' }).click();
+  await assistantMessage.getByRole('button', { name: 'Replace existing' }).click();
 
   await expect(assistantMessage.getByText('Remembered: Actually, default to English responses now.')).toBeVisible();
   await expect(workspaceDock.getByText('Actually, default to English responses now.', { exact: true }).first()).toBeVisible();

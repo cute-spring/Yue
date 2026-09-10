@@ -3,6 +3,7 @@ import {
   WorkspaceArtifact,
   WorkspaceNote,
   WorkspaceMemoryCandidate,
+  WorkspaceMemoryCandidateAction,
   WorkspaceMemoryCard,
   WorkspaceMemoryDraft,
   WorkspaceSource,
@@ -17,6 +18,7 @@ import {
   getWorkspaceSourceReadinessCounts,
   getWorkspaceSourceToolLabels,
 } from './ChatSidebar.helpers';
+import { formatWorkspaceMemoryCandidateAction, resolveWorkspaceMemoryCandidateAction } from './workspace/memoryActions';
 
 type WorkspaceSourceMode = 'all_ready' | 'selected' | 'none';
 type GroundingMode = 'normal' | 'prefer_sources' | 'require_sources';
@@ -100,7 +102,7 @@ interface ChatSidebarResourcesProps {
   onApproveWorkspaceMemoryCandidate: (
     candidateId: string,
     payload: {
-      approval_mode: string;
+      approval_mode: WorkspaceMemoryCandidateAction;
       target_memory_id?: string | null;
       memory_type?: string | null;
       scope_type?: string | null;
@@ -201,20 +203,7 @@ const formatDateTimeLabel = (value?: string | null) => {
   return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-const formatCandidateActionLabel = (action?: string | null) => {
-  switch (action) {
-    case 'archive_existing':
-      return 'Archive existing';
-    case 'replace_existing':
-      return 'Replace existing';
-    case 'update_existing':
-      return 'Update existing';
-    case 'create_new':
-      return 'Create new';
-    default:
-      return action ? action.replace(/[_-]+/g, ' ') : 'Review';
-  }
-};
+const formatCandidateActionLabel = formatWorkspaceMemoryCandidateAction;
 
 const formatCandidateScore = (score?: number | null) => {
   if (score == null || Number.isNaN(Number(score))) return 'n/a';
@@ -677,12 +666,9 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
 
   const handleApproveCandidate = async (
     candidate: WorkspaceMemoryCandidate,
-    approvalMode?: string | null,
+    approvalMode?: WorkspaceMemoryCandidateAction | null,
   ) => {
-    const resolvedMode =
-      approvalMode ||
-      candidate.suggested_action ||
-      (candidate.conflict_memory_id ? 'update_existing' : 'create_new');
+    const resolvedMode = approvalMode || resolveWorkspaceMemoryCandidateAction(candidate);
     setCandidateActionMemoryId(candidate.id);
     setMemoryError(null);
     try {

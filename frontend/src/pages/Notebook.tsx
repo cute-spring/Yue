@@ -1,21 +1,20 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show } from 'solid-js';
 import { ConfirmModal } from '../components/ConfirmModal';
-import type { Workspace, WorkspaceMemoryCandidate, WorkspaceMemoryCard, WorkspaceNote } from '../types';
+import type {
+  Workspace,
+  WorkspaceMemoryCandidate,
+  WorkspaceMemoryCandidateAction,
+  WorkspaceMemoryCard,
+  WorkspaceNote,
+} from '../types';
+import {
+  formatWorkspaceMemoryCandidateAction,
+  resolveWorkspaceMemoryCandidateAction,
+} from '../components/workspace/memoryActions';
 
 type Note = WorkspaceNote;
 
-const formatCandidateActionLabel = (action?: string | null) => {
-  switch (action) {
-    case 'replace_existing':
-      return 'Replace existing';
-    case 'update_existing':
-      return 'Update existing';
-    case 'create_new':
-      return 'Create new';
-    default:
-      return action ? action.replace(/[_-]+/g, ' ') : 'Review';
-  }
-};
+const formatCandidateActionLabel = formatWorkspaceMemoryCandidateAction;
 
 const formatCandidateStatusLabel = (status?: string | null) => {
   switch (status) {
@@ -118,12 +117,22 @@ export default function Notebook() {
         fetch(`/api/workspaces/${workspaceId}/memory-candidates?include_reviewed=true`),
         fetch(`/api/workspaces/${workspaceId}/memory`),
       ]);
+      if (!candidatesRes.ok || !memoriesRes.ok) {
+        throw new Error(
+          `Workspace memory review request failed (candidates=${candidatesRes.status}, memories=${memoriesRes.status})`,
+        );
+      }
       const candidateData = await candidatesRes.json();
       const memoryData = await memoriesRes.json();
       setWorkspaceCandidates(Array.isArray(candidateData) ? candidateData : []);
       setWorkspaceMemories(Array.isArray(memoryData) ? memoryData : []);
     } catch (e) {
-      console.error('Failed to load workspace memory review context', e);
+      console.error('Failed to load workspace memory review context', {
+        workspaceId,
+        candidatesEndpoint: `/api/workspaces/${workspaceId}/memory-candidates?include_reviewed=true`,
+        memoryEndpoint: `/api/workspaces/${workspaceId}/memory`,
+        error: e,
+      });
       setWorkspaceCandidates([]);
       setWorkspaceMemories([]);
     }
@@ -268,14 +277,11 @@ export default function Notebook() {
     }
   };
 
-  const approveCandidate = async (approvalMode?: string) => {
+  const approveCandidate = async (approvalMode?: WorkspaceMemoryCandidateAction) => {
     const note = selectedNote();
     const candidate = selectedNoteCandidate();
     if (!note?.workspace_id || !candidate) return;
-    const resolvedMode =
-      approvalMode ||
-      candidate.suggested_action ||
-      (candidate.conflict_memory_id ? 'update_existing' : 'create_new');
+    const resolvedMode = approvalMode || resolveWorkspaceMemoryCandidateAction(candidate);
     setMemoryStatus('Approving...');
     try {
       const res = await fetch(`/api/workspaces/${note.workspace_id}/memory-candidates/${candidate.id}/approve`, {

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 import os
 import shutil
 import tempfile
@@ -578,6 +579,28 @@ def test_list_workspace_memory(client, mock_workspace_service):
     assert response.status_code == 200
     assert response.json()[0]["id"] == "mem_1"
     mock_workspace_service.list_memories.assert_called_once_with("ws_1", include_disabled=True)
+
+
+def test_list_workspace_memory_preserves_not_found_and_logs_backend_context(client, mock_workspace_service, caplog):
+    caplog.set_level(logging.INFO, logger="app.api.workspaces")
+    mock_workspace_service.list_memories.return_value = None
+
+    response = client.get("/api/workspaces/missing/memory")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workspace not found"
+    assert "unknown workspace_id=missing" in caplog.text
+
+
+def test_list_workspace_memory_returns_safe_error_and_logs_failure_context(client, mock_workspace_service, caplog):
+    caplog.set_level(logging.ERROR, logger="app.api.workspaces")
+    mock_workspace_service.list_memories.side_effect = RuntimeError("database unavailable")
+
+    response = client.get("/api/workspaces/ws_1/memory")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Unable to load workspace memory"
+    assert "workspace_id=ws_1 include_disabled=True" in caplog.text
 
 
 def test_create_workspace_memory(client, mock_workspace_service):

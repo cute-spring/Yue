@@ -35,7 +35,9 @@ SOURCE_STATUS_MISSING = "missing"
 ACTIVE_MEMORY_STATUSES = {"active"}
 EDITABLE_MEMORY_STATUSES = {"active", "disabled", "archived", "superseded"}
 MEMORY_CANDIDATE_STATUSES = {"pending", "approved", "rejected"}
-MEMORY_APPROVAL_MODES = {"create_new", "replace_existing", "update_existing", "archive_existing"}
+MEMORY_CORRECTION_ACTION_PRECEDENCE = ("archive_existing", "update_existing", "replace_existing")
+MEMORY_CORRECTION_ACTIONS = frozenset(MEMORY_CORRECTION_ACTION_PRECEDENCE)
+MEMORY_APPROVAL_MODES = {"create_new", *MEMORY_CORRECTION_ACTIONS}
 WORKSPACE_MEMORY_SCOPES = {"user", "workspace", "project", "chat"}
 WORKSPACE_MEMORY_TYPES = {
     "project_fact",
@@ -47,6 +49,16 @@ WORKSPACE_MEMORY_TYPES = {
     "recurring_instruction",
     "temporary_state",
 }
+MEMORY_CORRECTION_ACTION_MARKERS = {
+    "archive_existing": (
+        "forget", "remove", "archive", "delete", "stop using", "no longer",
+        "不再", "别再", "忘掉", "删除", "归档",
+    ),
+    "update_existing": ("update", "change", "revise", "改成", "更新", "调整", "补充"),
+    "replace_existing": (
+        "actually", "instead", "wrong", "incorrect", "不是", "不对", "应该是", "而是",
+    ),
+}
 HIGH_SIGNAL_USER_MEMORY_MARKERS = (
     "以后",
     "默认",
@@ -56,65 +68,7 @@ HIGH_SIGNAL_USER_MEMORY_MARKERS = (
     "always",
     "don't",
     "dont",
-    "actually",
-    "instead",
-    "update",
-    "change",
-    "revise",
-    "no longer",
-    "forget",
-    "wrong",
-    "incorrect",
-    "不是",
-    "不对",
-    "改成",
-    "更新",
-    "调整",
-    "补充",
-    "应该是",
-    "不再",
-    "别再",
-)
-MEMORY_CORRECTION_MARKERS = (
-    "actually",
-    "instead",
-    "update",
-    "change",
-    "revise",
-    "no longer",
-    "wrong",
-    "incorrect",
-    "不是",
-    "不对",
-    "改成",
-    "更新",
-    "调整",
-    "补充",
-    "应该是",
-    "不再",
-    "而是",
-)
-MEMORY_UPDATE_CORRECTION_MARKERS = (
-    "update",
-    "change",
-    "revise",
-    "改成",
-    "更新",
-    "调整",
-    "补充",
-)
-MEMORY_ARCHIVE_CORRECTION_MARKERS = (
-    "forget",
-    "remove",
-    "archive",
-    "delete",
-    "stop using",
-    "no longer",
-    "不再",
-    "别再",
-    "忘掉",
-    "删除",
-    "归档",
+    *(marker for markers in MEMORY_CORRECTION_ACTION_MARKERS.values() for marker in markers),
 )
 
 WORKSPACE_MEMORY_CLASS_BY_TYPE = {
@@ -1164,12 +1118,9 @@ class WorkspaceService:
         lowered = (content or "").strip().lower()
         if not lowered:
             return None
-        if any(marker in lowered for marker in MEMORY_ARCHIVE_CORRECTION_MARKERS):
-            return "archive_existing"
-        if any(marker in lowered for marker in MEMORY_UPDATE_CORRECTION_MARKERS):
-            return "update_existing"
-        if any(marker in lowered for marker in MEMORY_CORRECTION_MARKERS):
-            return "replace_existing"
+        for action in MEMORY_CORRECTION_ACTION_PRECEDENCE:
+            if any(marker in lowered for marker in MEMORY_CORRECTION_ACTION_MARKERS[action]):
+                return action
         return None
 
     def _find_correction_target_memory(
@@ -1437,6 +1388,13 @@ class WorkspaceService:
         prompt_memories: List[WorkspacePromptMemory] = []
         lines: List[str] = []
         for record in records:
+            if record.status not in ACTIVE_MEMORY_STATUSES:
+                logger.warning(
+                    "Skipped non-active workspace memory during prompt construction memory_id=%s status=%s",
+                    record.id,
+                    record.status,
+                )
+                continue
             metadata = self._parse_source_policy(record.memory_metadata_json)
             prompt_memories.append(
                 WorkspacePromptMemory(

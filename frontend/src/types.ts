@@ -214,7 +214,7 @@ export type WorkspaceNotePromotionHint = {
   state?: 'ready' | 'note_only' | 'promoted' | 'candidate_pending' | 'candidate_approved' | 'candidate_rejected' | string;
   memory_type?: string | null;
   confidence?: number | null;
-  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | 'archive_existing' | string | null;
+  suggested_action?: WorkspaceMemoryCandidateAction | null;
   candidate_id?: string | null;
   candidate_status?: 'pending' | 'approved' | 'rejected' | string | null;
   conflict_memory_id?: string | null;
@@ -224,6 +224,35 @@ export type WorkspaceNotePromotionHint = {
   conflict_reasons?: string[];
   reason_summary?: string | null;
   promoted_memory_id?: string | null;
+};
+
+export type WorkspaceMemoryCorrectionAction = 'replace_existing' | 'update_existing' | 'archive_existing';
+export type WorkspaceMemoryCandidateAction = 'create_new' | WorkspaceMemoryCorrectionAction;
+
+export type WorkspaceMemoryConflictSnapshot = {
+  id?: string;
+  title: string;
+  content: string;
+  memory_type?: string;
+  scope_type?: string;
+  status: string;
+};
+
+export type WorkspaceMemoryCorrectionMetadata = {
+  action: WorkspaceMemoryCorrectionAction;
+  matched_memory_id: string;
+  matched_memory_title: string;
+};
+
+export type WorkspaceMemoryCandidateMetadata = {
+  correction?: WorkspaceMemoryCorrectionMetadata;
+  conflict_memory_snapshot?: WorkspaceMemoryConflictSnapshot;
+  note_id?: string;
+  suggested_from?: string;
+  score_reasons?: string[];
+  conflict_reasons?: string[];
+  approval_preview?: Record<string, unknown>;
+  [key: string]: unknown;
 };
 
 export type WorkspaceMemoryCard = {
@@ -284,7 +313,7 @@ export type WorkspaceMemoryCandidate = {
   content: string;
   status: 'pending' | 'approved' | 'rejected' | string;
   score?: number | null;
-  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | 'archive_existing' | string | null;
+  suggested_action?: WorkspaceMemoryCandidateAction | null;
   conflict_memory_id?: string | null;
   why_saved?: string | null;
   source_session_id?: string | null;
@@ -299,7 +328,7 @@ export type WorkspaceMemoryCandidate = {
     note_id?: string | null;
     suggested_from?: string | null;
   } | null;
-  candidate_metadata?: Record<string, any>;
+  candidate_metadata?: WorkspaceMemoryCandidateMetadata;
   created_at: string;
   updated_at: string;
 };

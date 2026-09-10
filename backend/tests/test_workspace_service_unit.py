@@ -910,6 +910,83 @@ def test_workspace_memory_correction_can_update_existing_memory(temp_db):
     assert "concrete next steps" in updated.content
 
 
+@pytest.mark.parametrize(
+    ("correction", "approval_mode", "expected_status"),
+    [
+        ("Actually, default to English responses now.", "replace_existing", "superseded"),
+        ("Update the language preference: default to English responses.", "update_existing", "active"),
+        ("Forget the language preference.", "archive_existing", "archived"),
+    ],
+)
+def test_workspace_memory_lifecycle_applies_only_active_memory_in_a_new_conversation(
+    temp_db,
+    correction,
+    approval_mode,
+    expected_status,
+):
+    workspace_service, chat_service, _ = temp_db
+    workspace = workspace_service.create_workspace(name="Lifecycle Workspace")
+    capture_chat = chat_service.create_chat(title="Capture memory", workspace_id=workspace.id)
+    chat_service.add_message(capture_chat.id, "user", "Always use Chinese responses by default.")
+    capture_message = next(message for message in chat_service.get_chat(capture_chat.id).messages if message.role == "user")
+
+    initial_candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace.id,
+        chat_id=capture_chat.id,
+        message_id=capture_message.id,
+        suggested_scope_type="user",
+    )
+    assert initial_candidate is not None
+    original = workspace_service.approve_memory_candidate(
+        workspace.id,
+        initial_candidate.id,
+        approval_mode="create_new",
+        title="Language preference",
+        content="Default to Chinese responses.",
+    )
+    assert original is not None and original.status == "active"
+
+    correction_chat = chat_service.create_chat(title="Correct memory", workspace_id=workspace.id)
+    chat_service.add_message(correction_chat.id, "user", correction)
+    correction_message = next(message for message in chat_service.get_chat(correction_chat.id).messages if message.role == "user")
+    correction_candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace.id,
+        chat_id=correction_chat.id,
+        message_id=correction_message.id,
+        suggested_scope_type="user",
+    )
+    assert correction_candidate is not None
+    assert correction_candidate.suggested_action == approval_mode
+    assert correction_candidate.conflict_memory_id == original.id
+    assert correction_candidate.candidate_metadata["correction"]["action"] == approval_mode
+
+    approved = workspace_service.approve_memory_candidate(
+        workspace.id,
+        correction_candidate.id,
+        approval_mode=approval_mode,
+    )
+    assert approved is not None
+    assert workspace_service.get_memory(workspace.id, original.id).status == expected_status
+
+    new_chat = chat_service.create_chat(title="Fresh context", workspace_id=workspace.id)
+    context = workspace_service.build_prompt_context(
+        workspace.id,
+        current_query="Which language should responses use?",
+        current_chat_id=new_chat.id,
+    )
+    assert context is not None
+    if approval_mode == "archive_existing":
+        assert context.loaded_memory_ids == []
+        assert original.id not in context.loaded_memory_ids
+    elif approval_mode == "update_existing":
+        assert context.loaded_memory_ids == [original.id]
+        assert "English" in context.prompt_block
+    else:
+        assert original.id not in context.loaded_memory_ids
+        assert approved.id in context.loaded_memory_ids
+        assert "English" in context.prompt_block
+
+
 def test_workspace_memory_candidate_includes_glossary_approval_preview(temp_db):
     workspace_service, chat_service, _ = temp_db
 

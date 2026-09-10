@@ -92,8 +92,8 @@ describe('InlineMemoryConfirmation', () => {
 
   it('labels correction actions directly in inline confirmation', () => {
     expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'archive_existing' })).toBe('Archive existing');
-    expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'replace_existing' })).toBe('Replace memory');
-    expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'update_existing' })).toBe('Update memory');
+    expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'replace_existing' })).toBe('Replace existing');
+    expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'update_existing' })).toBe('Update existing');
     expect(getCandidateConfirmationCopy({ ...candidate, suggested_action: 'archive_existing' })).toContain(
       'archive the conflicting memory',
     );

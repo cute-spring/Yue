@@ -1,9 +1,14 @@
 import { Show, createSignal } from 'solid-js';
 
-import type { WorkspaceMemoryCandidate } from '../../types';
+import type { WorkspaceMemoryCandidate, WorkspaceMemoryCandidateAction } from '../../types';
+import {
+  formatWorkspaceMemoryCandidateAction,
+  getWorkspaceMemoryCandidateConfirmationCopy,
+  resolveWorkspaceMemoryCandidateAction,
+} from './memoryActions';
 
 export type InlineMemoryConfirmationPayload = {
-  approval_mode: string;
+  approval_mode: WorkspaceMemoryCandidateAction;
   target_memory_id?: string | null;
   memory_type?: string | null;
   scope_type?: string | null;
@@ -32,39 +37,23 @@ export const getCandidateDestinationLabel = (candidate: WorkspaceMemoryCandidate
 
 export const getCandidateConflictSummary = (candidate: WorkspaceMemoryCandidate) => {
   const snapshot = candidate.candidate_metadata?.conflict_memory_snapshot;
-  if (!snapshot || typeof snapshot !== 'object') return null;
-  const data = snapshot as Record<string, unknown>;
   return {
-    title: String(data.title || 'Existing memory'),
-    content: String(data.content || ''),
-    status: String(data.status || 'active'),
+    title: snapshot?.title || 'Existing memory',
+    content: snapshot?.content || '',
+    status: snapshot?.status || 'active',
   };
 };
 
 export const getCandidatePrimaryActionLabel = (candidate: WorkspaceMemoryCandidate) => {
-  switch (candidate.suggested_action) {
-    case 'archive_existing':
-      return 'Archive existing';
-    case 'replace_existing':
-      return 'Replace memory';
-    case 'update_existing':
-      return 'Update memory';
-    default:
-      return 'Remember';
-  }
+  const action = resolveWorkspaceMemoryCandidateAction(candidate);
+  return action === 'create_new' ? 'Remember' : formatWorkspaceMemoryCandidateAction(action);
 };
 
 export const getCandidateConfirmationCopy = (candidate: WorkspaceMemoryCandidate) => {
-  switch (candidate.suggested_action) {
-    case 'archive_existing':
-      return 'Yue can archive the conflicting memory so it stops shaping future replies.';
-    case 'replace_existing':
-      return `Yue can replace the conflicting memory for ${getCandidateDestinationLabel(candidate)}.`;
-    case 'update_existing':
-      return `Yue can update the conflicting memory for ${getCandidateDestinationLabel(candidate)}.`;
-    default:
-      return `Yue can remember this for ${getCandidateDestinationLabel(candidate)}.`;
-  }
+  return getWorkspaceMemoryCandidateConfirmationCopy(
+    resolveWorkspaceMemoryCandidateAction(candidate),
+    getCandidateDestinationLabel(candidate),
+  );
 };
 
 export const buildInlineMemoryApprovalPayload = (
@@ -74,8 +63,7 @@ export const buildInlineMemoryApprovalPayload = (
   const title = edits?.title?.trim() || candidate.title;
   const content = edits?.content?.trim() || candidate.content;
   return {
-    approval_mode:
-      candidate.suggested_action || (candidate.conflict_memory_id ? 'update_existing' : 'create_new'),
+    approval_mode: resolveWorkspaceMemoryCandidateAction(candidate),
     target_memory_id: candidate.conflict_memory_id || null,
     memory_type: candidate.memory_type || null,
     scope_type: candidate.scope_type || null,
