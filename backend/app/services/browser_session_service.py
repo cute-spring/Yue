@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from app.services.browser_policy_service import BrowserPolicyError, browser_policy_service
+
 
 MAX_SNAPSHOT_TEXT_CHARS = 100_000
 MIN_READ_CHARS = 500
@@ -128,7 +130,6 @@ class BrowserSession:
     status: str = "active"
     chat_id: Optional[str] = None
     snapshot: Optional[BrowserSnapshot] = None
-    trusted_origins: Dict[str, str] = field(default_factory=dict)
     actions: Dict[str, BrowserAction] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
@@ -145,10 +146,6 @@ class BrowserSession:
             "status": self.status,
             "chat_id": self.chat_id,
             "has_snapshot": self.snapshot is not None,
-            "trusted_origins": [
-                {"origin": origin, "purpose": purpose}
-                for origin, purpose in sorted(self.trusted_origins.items())
-            ],
             "snapshot_captured_at": self.snapshot.captured_at.isoformat() if self.snapshot else None,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -180,6 +177,10 @@ class BrowserSessionService:
         url = _bounded_text(url, field_name="url", limit=4096)
         browser_name = _bounded_text(browser_name, field_name="browser_name", limit=100)
         origin = _origin_for_url(url)
+        try:
+            browser_policy_service.require_business_origin(origin)
+        except BrowserPolicyError as exc:
+            raise BrowserSessionUnauthorized(str(exc)) from exc
         if authorization_mode not in {"step_confirm", "session_auto", "site_auto"}:
             raise BrowserSessionError("Unsupported authorization mode.")
 
@@ -233,27 +234,24 @@ class BrowserSessionService:
             self._require_extension_token(session, extension_token)
             if session.status != "active":
                 raise BrowserSessionStateError("Browser session is not active.")
-            if origin != session.origin and origin not in session.trusted_origins:
-                raise BrowserSessionUnauthorized("The page left the authorized website.")
-            if session.trusted_origins.get(origin) == "sso":
+            try:
+                policy_purpose = browser_policy_service.purpose_for(origin)
+            except BrowserPolicyError as exc:
+                self._pause_for_policy_violation(session, str(exc))
+                raise BrowserSessionUnauthorized(str(exc)) from exc
+            if policy_purpose not in {"business", "sso_handoff"}:
+                self._pause_for_policy_violation(session, "The page is no longer policy-approved for browser collaboration.")
+                raise BrowserSessionUnauthorized("The page is no longer policy-approved for browser collaboration.")
+            if origin != _origin_for_url(session.url):
+                session.authorization_mode = "step_confirm"
+            if policy_purpose == "sso_handoff":
                 visible_text = ""
+                title = "SSO handoff"
+                url = origin
             session.title = title
             session.url = url
+            session.origin = origin
             session.snapshot = BrowserSnapshot(url=url, title=title, visible_text=visible_text.strip())
-            session.updated_at = _utc_now()
-            return session.to_public_dict()
-
-    def add_trusted_origin(self, *, session_id: str, origin: str, purpose: str) -> Dict[str, Any]:
-        normalized_origin = _origin_for_url(origin)
-        if normalized_origin != origin.rstrip("/").lower():
-            raise BrowserSessionError("trusted origin must contain only an http or https origin.")
-        if purpose not in {"sso", "business"}:
-            raise BrowserSessionError("Trusted-origin purpose must be sso or business.")
-        with self._lock:
-            session = self.get_session(session_id)
-            if session.status != "active":
-                raise BrowserSessionStateError("Only active browser sessions can trust another origin.")
-            session.trusted_origins[normalized_origin] = purpose
             session.updated_at = _utc_now()
             return session.to_public_dict()
 
@@ -279,14 +277,26 @@ class BrowserSessionService:
             session = self.get_session(session_id)
             if session.status != "active":
                 raise BrowserSessionStateError("Browser session is not active.")
-            if target_origin and target_origin not in {session.origin, *session.trusted_origins.keys()}:
-                raise BrowserSessionUnauthorized("Navigation requires a user-authorized destination origin.")
+            current_origin = _origin_for_url(session.url)
+            try:
+                current_purpose = browser_policy_service.purpose_for(current_origin)
+                target_purpose = browser_policy_service.purpose_for(target_origin) if target_origin else None
+            except BrowserPolicyError as exc:
+                raise BrowserSessionUnauthorized(str(exc)) from exc
+            if current_purpose != "business":
+                self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
+            if current_purpose == "sso_handoff":
+                raise BrowserSessionStateError("Browser actions are blocked during an SSO handoff.")
+            if current_purpose != "business":
+                raise BrowserSessionUnauthorized("The current origin is no longer approved for browser collaboration.")
+            if target_origin and target_purpose is None:
+                raise BrowserSessionUnauthorized("Navigation requires a policy-approved destination origin.")
             browser_action = BrowserAction(
                 id=f"browser_action_{uuid4().hex}",
                 action=action,
                 target=target,
                 value=value,
-                status="awaiting_approval" if self._requires_approval(session, action) else "queued",
+                status="awaiting_approval" if self._requires_approval(session, action, target_origin != current_origin) else "queued",
             )
             session.actions[browser_action.id] = browser_action
             session.updated_at = _utc_now()
@@ -296,8 +306,8 @@ class BrowserSessionService:
             return payload
 
     @staticmethod
-    def _requires_approval(session: BrowserSession, action: str) -> bool:
-        if action in {"submit", "download"}:
+    def _requires_approval(session: BrowserSession, action: str, crosses_origin: bool = False) -> bool:
+        if action in {"submit", "download"} or crosses_origin:
             return True
         return session.authorization_mode == "step_confirm"
 
@@ -328,6 +338,9 @@ class BrowserSessionService:
             self._require_extension_token(session, extension_token)
             if session.status != "active":
                 return None
+            if browser_policy_service.purpose_for(_origin_for_url(session.url)) != "business":
+                self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
+                return None
             queued = next((item for item in session.actions.values() if item.status == "queued"), None)
             if queued is None:
                 return None
@@ -335,6 +348,16 @@ class BrowserSessionService:
             queued.updated_at = _utc_now()
             session.updated_at = _utc_now()
             return queued.to_dict()
+
+    @staticmethod
+    def _pause_for_policy_violation(session: BrowserSession, message: str) -> None:
+        session.status = "paused"
+        for action in session.actions.values():
+            if action.status == "queued":
+                action.status = "failed"
+                action.result = {"error": message}
+                action.updated_at = _utc_now()
+        session.updated_at = _utc_now()
 
     def complete_action(
         self,

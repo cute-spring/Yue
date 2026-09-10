@@ -6,13 +6,22 @@ from app.services.browser_session_service import (
     BrowserSessionUnauthorized,
     browser_session_service,
 )
+from app.services.browser_policy_service import browser_policy_service
 
 
 @pytest.fixture(autouse=True)
 def reset_browser_sessions():
     browser_session_service.reset_for_tests()
+    browser_policy_service.replace_origins_for_tests(
+        [
+            {"origin": "https://reports.example.com", "purpose": "business"},
+            {"origin": "https://erp.example.com", "purpose": "business"},
+            {"origin": "https://login.example-idp.com", "purpose": "sso_handoff"},
+        ]
+    )
     yield
     browser_session_service.reset_for_tests()
+    browser_policy_service.replace_origins_for_tests([])
 
 
 def register_example_tab():
@@ -132,13 +141,8 @@ def test_session_auto_fills_but_submit_requires_explicit_approval():
     assert approved["status"] == "queued"
 
 
-def test_sso_origin_must_be_explicitly_trusted_before_snapshot_can_cross_origin():
+def test_sso_handoff_policy_redacts_snapshot_after_cross_origin_navigation():
     session, token = register_example_tab()
-    browser_session_service.add_trusted_origin(
-        session_id=session.id,
-        origin="https://login.example-idp.com",
-        purpose="sso",
-    )
 
     browser_session_service.submit_snapshot(
         session_id=session.id,
@@ -148,5 +152,95 @@ def test_sso_origin_must_be_explicitly_trusted_before_snapshot_can_cross_origin(
         visible_text="Sign in with your company account",
     )
 
-    assert browser_session_service.get_session(session.id).url == "https://login.example-idp.com/sso"
+    assert browser_session_service.get_session(session.id).url == "https://login.example-idp.com"
     assert browser_session_service.read_snapshot(session_id=session.id)["visible_text"] == ""
+
+
+def test_sso_handoff_redacts_page_identity_blocks_actions_and_disarms_auto_mode():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Expense form",
+        url="https://erp.example.com/expense",
+        authorization_mode="session_auto",
+    )
+    browser_session_service.submit_snapshot(
+        session_id=session.id,
+        extension_token=token,
+        title="Sign in as alex@example.com?code=secret",
+        url="https://login.example-idp.com/sso?code=secret",
+        visible_text="One-time code 123456",
+    )
+
+    snapshot = browser_session_service.read_snapshot(session_id=session.id)
+    assert snapshot["url"] == "https://login.example-idp.com"
+    assert snapshot["title"] == "SSO handoff"
+    assert browser_session_service.get_session(session.id).authorization_mode == "step_confirm"
+    with pytest.raises(BrowserSessionStateError):
+        browser_session_service.request_action(session_id=session.id, action="click", target="Continue")
+
+
+def test_cross_origin_navigation_always_needs_approval():
+    session, _ = register_example_tab()
+
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="navigate",
+            target="https://erp.example.com/expense",
+        )
+
+    assert exc_info.value.pending_action["status"] == "awaiting_approval"
+
+
+def test_revoked_origin_pauses_session_and_prevents_new_or_queued_actions():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        authorization_mode="session_auto",
+    )
+    queued = browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+    browser_policy_service.replace_origins_for_tests([])
+
+    with pytest.raises(BrowserSessionUnauthorized):
+        browser_session_service.submit_snapshot(
+            session_id=session.id,
+            extension_token=token,
+            title="Quarterly dashboard",
+            url="https://reports.example.com/dashboard",
+            visible_text="Revenue: 100",
+        )
+
+    assert browser_session_service.get_session(session.id).status == "paused"
+    assert browser_session_service.get_session(session.id).actions[queued["id"]].status == "failed"
+    with pytest.raises(BrowserSessionStateError):
+        browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+
+
+def test_unapproved_redirect_pauses_session_and_cancels_queued_actions():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        authorization_mode="session_auto",
+    )
+    queued = browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+
+    with pytest.raises(BrowserSessionUnauthorized):
+        browser_session_service.submit_snapshot(
+            session_id=session.id,
+            extension_token=token,
+            title="Unexpected page",
+            url="https://untrusted.example.com/redirect",
+            visible_text="Unexpected content",
+        )
+
+    assert browser_session_service.get_session(session.id).status == "paused"
+    assert browser_session_service.get_session(session.id).actions[queued["id"]].status == "failed"
+
+
+def test_registration_requires_a_locally_approved_business_origin():
+    browser_policy_service.replace_origins_for_tests([])
+
+    with pytest.raises(BrowserSessionUnauthorized):
+        register_example_tab()

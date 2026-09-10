@@ -7,13 +7,16 @@ from fastapi.testclient import TestClient
 from app.api.browser import router
 from app.mcp.builtin.browser import BrowserReadTool
 from app.services.browser_session_service import browser_session_service
+from app.services.browser_policy_service import browser_policy_service
 
 
 @pytest.fixture(autouse=True)
 def reset_browser_sessions():
     browser_session_service.reset_for_tests()
+    browser_policy_service.replace_origins_for_tests([{ "origin": "https://app.example.com", "purpose": "business" }])
     yield
     browser_session_service.reset_for_tests()
+    browser_policy_service.replace_origins_for_tests([])
 
 
 @pytest.fixture
@@ -123,3 +126,31 @@ async def test_browser_read_tool_uses_only_the_session_bound_in_context():
 
     assert '"ok": true' in result
     assert 'Order count: 8' in result
+
+
+def test_browser_policy_api_requires_local_request_then_approval(client):
+    request = client.post(
+        "/api/browser/policy/origin-requests",
+        json={"origin": "https://login.example-idp.com", "purpose": "sso_handoff"},
+    )
+    assert request.status_code == 202
+    assert request.json()["status"] == "awaiting_approval"
+
+    before = client.get("/api/browser/policy/origins")
+    assert before.json() == [{"origin": "https://app.example.com", "purpose": "business", "approved_at": "test"}]
+
+    approved = client.post(
+        f"/api/browser/policy/origin-requests/{request.json()['id']}/decision",
+        json={"approved": True},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+    assert client.get("/api/browser/policy/origins").json()[1]["purpose"] == "sso_handoff"
+
+
+def test_browser_policy_api_rejects_wildcard_and_paths(client):
+    response = client.post(
+        "/api/browser/policy/origin-requests",
+        json={"origin": "https://*.example.com/path", "purpose": "business"},
+    )
+    assert response.status_code == 400

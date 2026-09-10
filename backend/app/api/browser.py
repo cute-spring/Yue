@@ -10,6 +10,7 @@ from app.services.browser_session_service import (
     BrowserActionApprovalRequired,
     browser_session_service,
 )
+from app.services.browser_policy_service import BrowserPolicyError, browser_policy_service
 
 
 router = APIRouter()
@@ -33,9 +34,13 @@ class BrowserChatAttachment(BaseModel):
     chat_id: str
 
 
-class BrowserTrustedOrigin(BaseModel):
+class BrowserOriginPolicyRequest(BaseModel):
     origin: str
-    purpose: Literal["sso", "business"]
+    purpose: Literal["sso_handoff", "business"]
+
+
+class BrowserOriginPolicyDecision(BaseModel):
+    approved: bool
 
 
 class BrowserActionRequest(BaseModel):
@@ -59,6 +64,40 @@ def _raise_browser_error(exc: BrowserSessionError) -> None:
     if isinstance(exc, BrowserSessionUnauthorized):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _raise_browser_policy_error(exc: BrowserPolicyError) -> None:
+    raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/policy/origins")
+async def list_browser_policy_origins():
+    return browser_policy_service.list_origins()
+
+
+@router.post("/policy/origin-requests", status_code=202)
+async def request_browser_policy_origin(request: BrowserOriginPolicyRequest):
+    try:
+        return browser_policy_service.request_origin(**request.model_dump())
+    except BrowserPolicyError as exc:
+        _raise_browser_policy_error(exc)
+
+
+@router.post("/policy/origin-requests/{request_id}/decision")
+async def decide_browser_policy_origin(request_id: str, request: BrowserOriginPolicyDecision):
+    try:
+        return browser_policy_service.decide_origin_request(request_id=request_id, approved=request.approved)
+    except BrowserPolicyError as exc:
+        _raise_browser_policy_error(exc)
+
+
+@router.delete("/policy/origins/{origin:path}", status_code=204)
+async def revoke_browser_policy_origin(origin: str):
+    try:
+        browser_policy_service.revoke_origin(origin=origin)
+        return Response(status_code=204)
+    except BrowserPolicyError as exc:
+        _raise_browser_policy_error(exc)
 
 
 @router.get("/sessions")
@@ -103,14 +142,6 @@ async def upload_browser_snapshot(
 async def attach_browser_session(session_id: str, request: BrowserChatAttachment):
     try:
         return browser_session_service.attach_to_chat(session_id=session_id, chat_id=request.chat_id)
-    except BrowserSessionError as exc:
-        _raise_browser_error(exc)
-
-
-@router.post("/sessions/{session_id}/trusted-origins")
-async def add_browser_trusted_origin(session_id: str, request: BrowserTrustedOrigin):
-    try:
-        return browser_session_service.add_trusted_origin(session_id=session_id, **request.model_dump())
     except BrowserSessionError as exc:
         _raise_browser_error(exc)
 
