@@ -296,7 +296,9 @@ class BrowserSessionService:
                 action=action,
                 target=target,
                 value=value,
-                status="awaiting_approval" if self._requires_approval(session, action, target_origin != current_origin) else "queued",
+                status="awaiting_approval"
+                if self._requires_approval(session, action, bool(target_origin and target_origin != current_origin))
+                else "queued",
             )
             session.actions[browser_action.id] = browser_action
             session.updated_at = _utc_now()
