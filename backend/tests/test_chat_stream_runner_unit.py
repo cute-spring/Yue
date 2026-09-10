@@ -110,6 +110,14 @@ def _make_request(**overrides):
     return SimpleNamespace(**base)
 
 
+def _without_trace_events(outputs):
+    return [
+        output
+        for output in outputs
+        if not (isinstance(output, dict) and output.get("event") == "trace.event")
+    ]
+
+
 def _make_temp_chat_service():
     temp_dir = tempfile.mkdtemp()
     db_file = os.path.join(temp_dir, "test_stream_runner_session_context.db")
@@ -302,6 +310,7 @@ def test_prepare_prompt_runtime_emits_events_and_updates_context():
         ):
             outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill.selected"
         assert outputs[1] == "skill_effectiveness_event"
         assert isinstance(outputs[2], PromptPreparation)
@@ -368,6 +377,7 @@ def test_prepare_prompt_runtime_snapshot_persistence_is_fail_open():
         ):
             outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0] == {"event": "skill_effectiveness"}
         assert isinstance(outputs[1], PromptPreparation)
         deps.logger.exception.assert_called_once()
@@ -427,6 +437,7 @@ def test_prepare_prompt_runtime_applies_request_model_role_resolution():
         ):
             outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
         assert ctx.provider == "deepseek"
@@ -484,6 +495,7 @@ def test_prepare_prompt_runtime_respects_request_provider_model_override():
         ):
             outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
         assert ctx.provider == "openai"
@@ -553,6 +565,7 @@ def test_prepare_prompt_runtime_force_direct_agent_policy_beats_agent_role():
         ):
             outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
         assert ctx.provider == "anthropic"
@@ -621,6 +634,7 @@ def test_prepare_prompt_runtime_injects_session_context_block_when_enabled():
         )
         fake_result = SimpleNamespace(
             plan=fake_plan,
+            inspection={},
             prompt_context=YuePromptContextBridge(
                 exported_context=ExportedPromptContext(blocks=[], prompt_blocks=[]),
                 rendered_prompt_block="### Session Context\n[recent_context:recent_conversation]\nuser_message: hello",
@@ -632,9 +646,12 @@ def test_prepare_prompt_runtime_injects_session_context_block_when_enabled():
         )
 
         with patch(
-                "app.api.chat_stream_runner_preparation.yue_session_context_service.build_prompt_context",
+            "app.api.chat_stream_runner_preparation.yue_session_context_service.build_prompt_context",
             return_value=fake_result,
-        ) as mock_build_prompt_context:
+        ) as mock_build_prompt_context, patch(
+            "app.api.chat_stream_runner_preparation.workspace_service.build_prompt_context",
+            return_value=None,
+        ):
             outputs = []
             async for item in _prepare_prompt_runtime(
                 ctx=ctx,
@@ -644,6 +661,7 @@ def test_prepare_prompt_runtime_injects_session_context_block_when_enabled():
             ):
                 outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
         deps.chat_service.get_chat.assert_called_once_with("chat-1")
@@ -698,7 +716,12 @@ def test_prepare_prompt_runtime_keeps_reference_host_session_context_off_path_un
             deps=deps,
         )
 
-        with patch("app.api.chat_stream_runner_preparation.yue_session_context_service.build_prompt_context") as mock_build:
+        with patch(
+            "app.api.chat_stream_runner_preparation.yue_session_context_service.build_prompt_context"
+        ) as mock_build, patch(
+            "app.api.chat_stream_runner_preparation.workspace_service.build_prompt_context",
+            return_value=None,
+        ):
             outputs = []
             async for item in _prepare_prompt_runtime(
                 ctx=ctx,
@@ -708,6 +731,7 @@ def test_prepare_prompt_runtime_keeps_reference_host_session_context_off_path_un
             ):
                 outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
         mock_build.assert_not_called()
@@ -827,6 +851,7 @@ def test_prepare_prompt_runtime_reference_host_integration_uses_persisted_chat_h
                         ):
                             outputs.append(item)
 
+                    outputs = _without_trace_events(outputs)
                     assert outputs[0]["event"] == "skill_effectiveness"
                     assert isinstance(outputs[1], PromptPreparation)
                     if flag_enabled:
@@ -921,6 +946,7 @@ def test_prepare_prompt_runtime_uses_agent_tier_and_records_model_resolution_met
         ):
             outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
         assert ctx.provider == "anthropic"
@@ -1020,6 +1046,7 @@ def test_prepare_runtime_dependencies_runtime_meta_includes_tier_resolution():
             if isinstance(step, PreparedRuntime):
                 break
 
+        outputs = _without_trace_events(outputs)
         meta_call = deps.build_runtime_meta_payload.call_args
         assert meta_call is not None
         assert meta_call.kwargs["model_resolution"]["tier"] == "heavy"
@@ -1104,6 +1131,7 @@ def test_prepare_prompt_runtime_reassembles_skill_prompt_with_resolved_model_rol
         ):
             outputs.append(item)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert isinstance(outputs[1], PromptPreparation)
         assert ctx.provider == "deepseek"
@@ -1233,6 +1261,7 @@ def test_prepare_runtime_dependencies_requested_action_resume_after_approval():
         ):
             outputs.append(step)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert outputs[1]["event"] == "skill.action.preflight"
         assert outputs[2]["event"] == "skill.action.result"
@@ -1355,6 +1384,7 @@ def test_prepare_runtime_dependencies_requested_action_uses_resolved_request_mod
         ):
             outputs.append(step)
 
+        outputs = _without_trace_events(outputs)
         invocation_request = deps.prompt.skill_action_execution_service.preflight.call_args.args[0]
         assert invocation_request.invocation.provider == "deepseek"
         assert invocation_request.invocation.model_name == "deepseek-reasoner"
@@ -1431,6 +1461,7 @@ def test_prepare_runtime_dependencies_short_circuits_for_requested_action():
         ):
             outputs.append(step)
 
+        outputs = _without_trace_events(outputs)
         assert outputs[0]["event"] == "skill_effectiveness"
         assert outputs[1]["event"] == "skill.action.preflight"
         assert outputs[2]["event"] == "skill.action.result"

@@ -248,7 +248,7 @@ async def prepare_prompt_runtime(
         prompt_result = deps.prompt.assemble_runtime_prompt(
             agent_config=ctx.agent_config,
             request_system_prompt=ctx.system_prompt,
-            request_message=request.message,
+            request_message=effective_request_message,
             provider=resolved_model.provider,
             model_name=resolved_model.model,
             selected_skill_spec=selected_skill_spec,
