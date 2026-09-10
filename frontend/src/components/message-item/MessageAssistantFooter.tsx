@@ -157,7 +157,13 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
     try {
       await props.onApproveWorkspaceMemoryCandidate(candidate.id, payload);
       setInlineCandidate(null);
-      setCaptureFeedback(candidate.title ? `Remembered: ${candidate.title}` : 'Saved to memory.');
+      setCaptureFeedback(
+        payload.approval_mode === 'archive_existing'
+          ? 'Archived conflicting memory.'
+          : candidate.title
+            ? `Remembered: ${candidate.title}`
+            : 'Saved to memory.',
+      );
       setIsDismissed(true);
     } catch (error) {
       setCaptureError(error instanceof Error ? error.message : 'Failed to save memory');

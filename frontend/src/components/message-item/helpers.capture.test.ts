@@ -135,6 +135,29 @@ describe('high-signal user memory suggestions', () => {
     );
   });
 
+  it('detects correction language as high-signal memory review input', () => {
+    const suggestion = getHighSignalUserMemorySuggestion('Actually, default to English responses now.');
+
+    expect(suggestion).toMatchObject({
+      show_memory_action: true,
+      reason: 'This correction looks worth reviewing against existing memory.',
+      source: 'high_signal_user_message',
+      suggested_scope_type: 'user',
+      trigger: 'actually',
+    });
+  });
+
+  it('detects update-style correction language as memory review input', () => {
+    const suggestion = getHighSignalUserMemorySuggestion('Update my default language preference to English.');
+
+    expect(suggestion).toMatchObject({
+      show_memory_action: true,
+      reason: 'This correction looks worth reviewing against existing memory.',
+      suggested_scope_type: 'user',
+      trigger: 'update',
+    });
+  });
+
   it('does not prompt for ordinary chat', () => {
     expect(getHighSignalUserMemorySuggestion('这个怎么做？')).toBeNull();
     expect(getHighSignalUserMemorySuggestion('Thanks, sounds good.')).toBeNull();

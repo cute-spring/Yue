@@ -203,6 +203,8 @@ const formatDateTimeLabel = (value?: string | null) => {
 
 const formatCandidateActionLabel = (action?: string | null) => {
   switch (action) {
+    case 'archive_existing':
+      return 'Archive existing';
     case 'replace_existing':
       return 'Replace existing';
     case 'update_existing':
@@ -1704,6 +1706,16 @@ export default function ChatSidebarResources(props: ChatSidebarResourcesProps) {
                                   Add as new
                                 </button>
                                 <Show when={candidate.conflict_memory_id}>
+                                  <Show when={candidate.suggested_action === 'archive_existing'}>
+                                    <button
+                                      type="button"
+                                      disabled={isActing()}
+                                      onClick={() => void handleApproveCandidate(candidate, 'archive_existing')}
+                                      class="rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-700 hover:border-slate-300 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      Archive existing
+                                    </button>
+                                  </Show>
                                   <button
                                     type="button"
                                     disabled={isActing()}

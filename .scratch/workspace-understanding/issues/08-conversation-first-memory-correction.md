@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 - High-signal memory capture MVP.
 
-**Status:** ready
+**Status:** resolved
 
 **Scope:**
 - Detect correction language in user messages.
@@ -22,4 +22,3 @@
 - Users can correct Yue naturally in chat.
 - Yue proposes the right memory lifecycle action instead of keeping stale memory active.
 - Workspace management remains a review surface, not the only correction path.
-

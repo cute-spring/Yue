@@ -573,6 +573,168 @@ test('high-signal user statement prompts one memory review and respects session 
   ).toHaveCount(0);
 });
 
+test('memory correction reviews conflict inline and updates future workspace summary', async ({ page }) => {
+  const state = {
+    notes: [] as Record<string, unknown>[],
+    candidates: [] as Record<string, unknown>[],
+    memories: [
+      {
+        id: 'mem_language_old',
+        workspace_id: 'ws_1',
+        memory_type: 'preference',
+        scope_type: 'user',
+        scope_ref: null,
+        title: 'Default language',
+        content: 'Default to Chinese responses.',
+        status: 'active',
+        confidence: 0.8,
+        editable: true,
+        revocable: true,
+        created_at: '2026-06-04T00:00:00Z',
+        updated_at: '2026-06-04T00:00:00Z',
+      },
+    ] as Record<string, unknown>[],
+  };
+
+  await mockChatBootstrap(page, {
+    prefs: {
+      theme: 'light',
+      language: 'en',
+      default_agent: null,
+      capture_suggestions_enabled: true,
+      memory_suggestions_enabled: true,
+      note_recall_enabled: true,
+    },
+    agents: [],
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'openai');
+    localStorage.setItem('yue_selected_model', 'gpt-4o-mini');
+  });
+  await routeWorkspaceBootstrap(page, state);
+
+  await page.route('**/api/chat/chat-correction/meta', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'chat-correction',
+        title: 'Memory correction',
+        summary: null,
+        updated_at: '2026-06-04T00:00:00Z',
+      }),
+    });
+  });
+  await page.route('**/api/chat/chat-correction/capture-events', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'success' }) });
+  });
+  await page.route('**/api/workspaces/ws_1/memory-candidates/suggest-from-user-message', async (route) => {
+    const candidate = {
+      id: 'cand_language_correction',
+      workspace_id: 'ws_1',
+      memory_type: 'preference',
+      scope_type: 'user',
+      scope_ref: null,
+      title: 'Actually, default to English responses now.',
+      content: 'Actually, default to English responses now.',
+      status: 'pending',
+      score: 0.92,
+      suggested_action: 'replace_existing',
+      conflict_memory_id: 'mem_language_old',
+      why_saved: 'The user corrected an existing memory.',
+      source_session_id: 'chat-correction',
+      source_message_id: null,
+      reviewed_at: null,
+      expires_at: null,
+      source: null,
+      candidate_metadata: {
+        correction: {
+          action: 'replace_existing',
+          matched_memory_id: 'mem_language_old',
+          matched_memory_title: 'Default language',
+        },
+        conflict_memory_snapshot: {
+          id: 'mem_language_old',
+          title: 'Default language',
+          content: 'Default to Chinese responses.',
+          status: 'active',
+        },
+      },
+      created_at: '2026-06-04T00:01:00Z',
+      updated_at: '2026-06-04T00:01:00Z',
+    };
+    state.candidates = [candidate];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(candidate) });
+  });
+  await page.route('**/api/workspaces/ws_1/memory-candidates/cand_language_correction/approve', async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      approval_mode: 'replace_existing',
+      target_memory_id: 'mem_language_old',
+      content: 'Actually, default to English responses now.',
+    });
+    state.memories = [
+      { ...state.memories[0], status: 'superseded', updated_at: '2026-06-04T00:02:00Z' },
+      {
+        id: 'mem_language_new',
+        workspace_id: 'ws_1',
+        memory_type: 'preference',
+        scope_type: 'user',
+        scope_ref: null,
+        title: 'Actually, default to English responses now.',
+        content: 'Actually, default to English responses now.',
+        status: 'active',
+        confidence: 0.92,
+        supersedes_memory_id: 'mem_language_old',
+        created_at: '2026-06-04T00:02:00Z',
+        updated_at: '2026-06-04T00:02:00Z',
+      },
+    ];
+    state.candidates = [];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.memories[1]) });
+  });
+
+  await page.route('**/api/chat/stream', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: makeSseBody([
+        { chat_id: 'chat-correction' },
+        {
+          meta: {
+            id: 401,
+            timestamp: '2026-06-04T00:01:00Z',
+            provider: 'openai',
+            model: 'gpt-4o-mini',
+          },
+          run_id: 'run-correction-1',
+          assistant_turn_id: 'turn-correction-1',
+        },
+        { content: 'Got it, I will treat that as a correction.' },
+        { finish_reason: 'stop' },
+      ]),
+    });
+  });
+
+  const workspaceDock = await openWorkspaceDock(page);
+  await expect(workspaceDock.getByText('Default language', { exact: true })).toBeVisible();
+
+  await page.locator('textarea').first().fill('Actually, default to English responses now.');
+  await page.getByRole('button', { name: 'Send Message' }).click();
+  const assistantMessage = page.getByLabel('Assistant message. Press R to read aloud or stop.').last();
+  await expect(assistantMessage.getByText('This correction looks worth reviewing against existing memory.')).toBeVisible();
+  await assistantMessage.getByRole('button', { name: 'Review as memory' }).click();
+
+  await expect(assistantMessage.getByText('Confirm Memory')).toBeVisible();
+  await expect(assistantMessage.getByRole('button', { name: 'View conflict' })).toBeVisible();
+  await assistantMessage.getByRole('button', { name: 'View conflict' }).click();
+  await expect(assistantMessage.getByText('Default to Chinese responses.')).toBeVisible();
+  await assistantMessage.getByRole('button', { name: 'Replace memory' }).click();
+
+  await expect(assistantMessage.getByText('Remembered: Actually, default to English responses now.')).toBeVisible();
+  await expect(workspaceDock.getByText('Actually, default to English responses now.', { exact: true }).first()).toBeVisible();
+  await expect(workspaceDock.getByText('Default to Chinese responses.', { exact: true })).toHaveCount(0);
+});
+
 test('workspace memory protections disable unsafe actions and preserve recurring instruction bulk updates', async ({ page }) => {
   const approvalPayloads: Record<string, unknown>[] = [];
   const bulkStatusPayloads: Record<string, unknown>[] = [];

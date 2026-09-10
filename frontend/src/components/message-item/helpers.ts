@@ -91,6 +91,21 @@ const HIGH_SIGNAL_USER_MARKERS = [
   'always',
   "don't",
   'dont',
+  'actually',
+  'instead',
+  'update',
+  'change',
+  'revise',
+  'no longer',
+  'forget',
+  '不是',
+  '不对',
+  '改成',
+  '更新',
+  '调整',
+  '补充',
+  '应该是',
+  '不再',
 ] as const;
 
 export const getHighSignalUserMemorySuggestion = (content: string): WorkspaceCaptureSuggestion | null => {
@@ -107,6 +122,7 @@ export const getHighSignalUserMemorySuggestion = (content: string): WorkspaceCap
   const workspaceScoped =
     /(?:workspace|project|repo|repository|codebase|ticket|spec|plan|工作区|项目|仓库|代码库|这张票|这个功能|这个项目|分组|分类)/i.test(compact);
   const sessionScoped = /(?:just this time|for now|this time only|本次|这次|临时|暂时)/i.test(compact);
+  const correctionScoped = /(?:actually|instead|update|change|revise|no longer|forget|wrong|incorrect|不是|不对|改成|更新|调整|补充|应该是|不再|别再)/i.test(compact);
   const suggestedScopeType = sessionScoped ? 'chat' : workspaceScoped ? 'workspace' : 'user';
   const suggestedDestination =
     suggestedScopeType === 'chat' ? 'Just this time' : suggestedScopeType === 'workspace' ? 'This Workspace' : 'About You';
@@ -115,7 +131,9 @@ export const getHighSignalUserMemorySuggestion = (content: string): WorkspaceCap
     show_note_action: false,
     show_memory_action: true,
     reason:
-      suggestedScopeType === 'workspace'
+      correctionScoped
+        ? 'This correction looks worth reviewing against existing memory.'
+        : suggestedScopeType === 'workspace'
         ? 'This workspace instruction looks worth reviewing for memory.'
         : suggestedScopeType === 'chat'
           ? 'This temporary instruction looks worth keeping for this chat.'

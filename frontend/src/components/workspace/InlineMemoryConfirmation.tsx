@@ -30,6 +30,43 @@ export const getCandidateDestinationLabel = (candidate: WorkspaceMemoryCandidate
   return 'This Workspace';
 };
 
+export const getCandidateConflictSummary = (candidate: WorkspaceMemoryCandidate) => {
+  const snapshot = candidate.candidate_metadata?.conflict_memory_snapshot;
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const data = snapshot as Record<string, unknown>;
+  return {
+    title: String(data.title || 'Existing memory'),
+    content: String(data.content || ''),
+    status: String(data.status || 'active'),
+  };
+};
+
+export const getCandidatePrimaryActionLabel = (candidate: WorkspaceMemoryCandidate) => {
+  switch (candidate.suggested_action) {
+    case 'archive_existing':
+      return 'Archive existing';
+    case 'replace_existing':
+      return 'Replace memory';
+    case 'update_existing':
+      return 'Update memory';
+    default:
+      return 'Remember';
+  }
+};
+
+export const getCandidateConfirmationCopy = (candidate: WorkspaceMemoryCandidate) => {
+  switch (candidate.suggested_action) {
+    case 'archive_existing':
+      return 'Yue can archive the conflicting memory so it stops shaping future replies.';
+    case 'replace_existing':
+      return `Yue can replace the conflicting memory for ${getCandidateDestinationLabel(candidate)}.`;
+    case 'update_existing':
+      return `Yue can update the conflicting memory for ${getCandidateDestinationLabel(candidate)}.`;
+    default:
+      return `Yue can remember this for ${getCandidateDestinationLabel(candidate)}.`;
+  }
+};
+
 export const buildInlineMemoryApprovalPayload = (
   candidate: WorkspaceMemoryCandidate,
   edits?: { title?: string; content?: string },
@@ -53,8 +90,10 @@ export const buildInlineMemoryApprovalPayload = (
 
 export default function InlineMemoryConfirmation(props: InlineMemoryConfirmationProps) {
   const [isEditing, setIsEditing] = createSignal(false);
+  const [showConflict, setShowConflict] = createSignal(false);
   const [title, setTitle] = createSignal(props.candidate.title);
   const [content, setContent] = createSignal(props.candidate.content);
+  const conflictSummary = () => getCandidateConflictSummary(props.candidate);
 
   const handleRemember = () =>
     props.onRemember(
@@ -68,7 +107,7 @@ export default function InlineMemoryConfirmation(props: InlineMemoryConfirmation
         <div class="min-w-0">
           <div class="text-[10px] font-black uppercase tracking-[0.18em] text-blue-700">Confirm Memory</div>
           <div class="mt-1 text-[11px] leading-snug text-slate-600">
-            Yue can remember this for {getCandidateDestinationLabel(props.candidate)}.
+            {getCandidateConfirmationCopy(props.candidate)}
           </div>
         </div>
         <span class="shrink-0 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
@@ -104,6 +143,29 @@ export default function InlineMemoryConfirmation(props: InlineMemoryConfirmation
         </div>
       </Show>
 
+      <Show when={conflictSummary()}>
+        {(conflict) => (
+          <div class="mt-3 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => setShowConflict((prev) => !prev)}
+              class="text-[10px] font-bold uppercase tracking-wide text-amber-700 hover:text-amber-900"
+            >
+              View conflict
+            </button>
+            <Show when={showConflict()}>
+              <div class="mt-2 text-[11px] leading-relaxed text-amber-900">
+                <div class="font-bold">{conflict().title}</div>
+                <p class="mt-1 whitespace-pre-wrap">{conflict().content}</p>
+                <div class="mt-1 text-[10px] uppercase tracking-wide text-amber-700">
+                  {conflict().status}
+                </div>
+              </div>
+            </Show>
+          </div>
+        )}
+      </Show>
+
       <Show when={props.error}>
         <div class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-700">
           {props.error}
@@ -117,7 +179,7 @@ export default function InlineMemoryConfirmation(props: InlineMemoryConfirmation
           onClick={() => void handleRemember()}
           class="rounded-lg border border-blue-200 bg-blue-600 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {props.busy ? 'Saving...' : 'Remember'}
+          {props.busy ? 'Saving...' : getCandidatePrimaryActionLabel(props.candidate)}
         </button>
         <button
           type="button"

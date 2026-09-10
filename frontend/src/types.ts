@@ -214,7 +214,7 @@ export type WorkspaceNotePromotionHint = {
   state?: 'ready' | 'note_only' | 'promoted' | 'candidate_pending' | 'candidate_approved' | 'candidate_rejected' | string;
   memory_type?: string | null;
   confidence?: number | null;
-  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | string | null;
+  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | 'archive_existing' | string | null;
   candidate_id?: string | null;
   candidate_status?: 'pending' | 'approved' | 'rejected' | string | null;
   conflict_memory_id?: string | null;
@@ -284,7 +284,7 @@ export type WorkspaceMemoryCandidate = {
   content: string;
   status: 'pending' | 'approved' | 'rejected' | string;
   score?: number | null;
-  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | string | null;
+  suggested_action?: 'create_new' | 'replace_existing' | 'update_existing' | 'archive_existing' | string | null;
   conflict_memory_id?: string | null;
   why_saved?: string | null;
   source_session_id?: string | null;

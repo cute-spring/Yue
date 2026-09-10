@@ -35,7 +35,7 @@ SOURCE_STATUS_MISSING = "missing"
 ACTIVE_MEMORY_STATUSES = {"active"}
 EDITABLE_MEMORY_STATUSES = {"active", "disabled", "archived", "superseded"}
 MEMORY_CANDIDATE_STATUSES = {"pending", "approved", "rejected"}
-MEMORY_APPROVAL_MODES = {"create_new", "replace_existing", "update_existing"}
+MEMORY_APPROVAL_MODES = {"create_new", "replace_existing", "update_existing", "archive_existing"}
 WORKSPACE_MEMORY_SCOPES = {"user", "workspace", "project", "chat"}
 WORKSPACE_MEMORY_TYPES = {
     "project_fact",
@@ -56,6 +56,65 @@ HIGH_SIGNAL_USER_MEMORY_MARKERS = (
     "always",
     "don't",
     "dont",
+    "actually",
+    "instead",
+    "update",
+    "change",
+    "revise",
+    "no longer",
+    "forget",
+    "wrong",
+    "incorrect",
+    "不是",
+    "不对",
+    "改成",
+    "更新",
+    "调整",
+    "补充",
+    "应该是",
+    "不再",
+    "别再",
+)
+MEMORY_CORRECTION_MARKERS = (
+    "actually",
+    "instead",
+    "update",
+    "change",
+    "revise",
+    "no longer",
+    "wrong",
+    "incorrect",
+    "不是",
+    "不对",
+    "改成",
+    "更新",
+    "调整",
+    "补充",
+    "应该是",
+    "不再",
+    "而是",
+)
+MEMORY_UPDATE_CORRECTION_MARKERS = (
+    "update",
+    "change",
+    "revise",
+    "改成",
+    "更新",
+    "调整",
+    "补充",
+)
+MEMORY_ARCHIVE_CORRECTION_MARKERS = (
+    "forget",
+    "remove",
+    "archive",
+    "delete",
+    "stop using",
+    "no longer",
+    "不再",
+    "别再",
+    "忘掉",
+    "删除",
+    "归档",
 )
 
 WORKSPACE_MEMORY_CLASS_BY_TYPE = {
@@ -1101,10 +1160,66 @@ class WorkspaceService:
             return False
         return any(marker.lower() in lowered for marker in HIGH_SIGNAL_USER_MEMORY_MARKERS)
 
+    def _classify_user_memory_correction(self, content: str) -> Optional[str]:
+        lowered = (content or "").strip().lower()
+        if not lowered:
+            return None
+        if any(marker in lowered for marker in MEMORY_ARCHIVE_CORRECTION_MARKERS):
+            return "archive_existing"
+        if any(marker in lowered for marker in MEMORY_UPDATE_CORRECTION_MARKERS):
+            return "update_existing"
+        if any(marker in lowered for marker in MEMORY_CORRECTION_MARKERS):
+            return "replace_existing"
+        return None
+
+    def _find_correction_target_memory(
+        self,
+        records: List[WorkspaceMemoryCardModel],
+        *,
+        content: str,
+        preferred_scope_type: Optional[str] = None,
+    ) -> Optional[WorkspaceMemoryCardModel]:
+        correction_tokens = set(self._tokenize_memory_query(content))
+        normalized_content = self._normalize_memory_text(content)
+        best_record: Optional[WorkspaceMemoryCardModel] = None
+        best_score = 0.0
+
+        for record in records:
+            if record.status not in ACTIVE_MEMORY_STATUSES:
+                continue
+            scope_type = str(getattr(record, "scope_type", None) or "workspace")
+            if preferred_scope_type and scope_type not in {preferred_scope_type, "user", "workspace"}:
+                continue
+
+            record_text = f"{record.title} {record.content}"
+            record_tokens = set(self._tokenize_memory_query(record_text))
+            if not correction_tokens or not record_tokens:
+                overlap_ratio = 0.0
+            else:
+                overlap_ratio = len(correction_tokens & record_tokens) / max(1, min(len(correction_tokens), len(record_tokens)))
+            normalized_title = self._normalize_memory_text(record.title)
+            normalized_record_content = self._normalize_memory_text(record.content)
+            score = overlap_ratio
+            if normalized_title and normalized_title in normalized_content:
+                score += 0.45
+            if normalized_record_content and normalized_record_content in normalized_content:
+                score += 0.35
+            if scope_type == preferred_scope_type:
+                score += 0.08
+
+            if score > best_score and score >= 0.18:
+                best_score = score
+                best_record = record
+
+        return best_record
+
     def _create_memory_candidate_from_draft(
         self,
         workspace_id: str,
         draft: WorkspaceMemoryDraft,
+        forced_conflict_record: Optional[WorkspaceMemoryCardModel] = None,
+        forced_suggested_action: Optional[str] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[WorkspaceMemoryCandidate]:
         now = datetime.utcnow()
         with SessionLocal() as db:
@@ -1120,14 +1235,20 @@ class WorkspaceService:
                 )
                 .all()
             )
-            conflict_record, suggested_action, conflict_reasons = self._detect_memory_conflict(
-                active_memories,
-                memory_type=draft.memory_type,
-                title=draft.title,
-                content=draft.content,
-            )
+            if forced_conflict_record is not None:
+                conflict_record = forced_conflict_record
+                suggested_action = forced_suggested_action or "update_existing"
+                conflict_reasons = [f"Correction targets existing memory: {forced_conflict_record.title}."]
+            else:
+                conflict_record, suggested_action, conflict_reasons = self._detect_memory_conflict(
+                    active_memories,
+                    memory_type=draft.memory_type,
+                    title=draft.title,
+                    content=draft.content,
+                )
 
             candidate_metadata = dict(draft.memory_metadata or {})
+            candidate_metadata.update(extra_metadata or {})
             candidate_metadata["score_reasons"] = candidate_metadata.get("score_reasons") or []
             if conflict_reasons:
                 candidate_metadata["conflict_reasons"] = conflict_reasons
@@ -2221,7 +2342,51 @@ class WorkspaceService:
         if not self._is_high_signal_user_memory_content(draft.content):
             return None
 
-        return self._create_memory_candidate_from_draft(workspace_id, draft)
+        correction_action = self._classify_user_memory_correction(draft.content)
+        if not correction_action:
+            return self._create_memory_candidate_from_draft(workspace_id, draft)
+
+        with SessionLocal() as db:
+            active_memories = (
+                db.query(WorkspaceMemoryCardModel)
+                .filter(
+                    WorkspaceMemoryCardModel.workspace_id == workspace_id,
+                    WorkspaceMemoryCardModel.status.in_(tuple(ACTIVE_MEMORY_STATUSES)),
+                )
+                .all()
+            )
+            target_memory = self._find_correction_target_memory(
+                active_memories,
+                content=draft.content,
+                preferred_scope_type=draft.scope_type,
+            )
+            if target_memory is None:
+                return self._create_memory_candidate_from_draft(workspace_id, draft)
+
+            conflict_snapshot = {
+                "id": target_memory.id,
+                "title": target_memory.title,
+                "content": target_memory.content,
+                "memory_type": target_memory.memory_type,
+                "scope_type": str(getattr(target_memory, "scope_type", None) or "workspace"),
+                "status": target_memory.status,
+            }
+            correction_metadata = {
+                "correction": {
+                    "action": correction_action,
+                    "matched_memory_id": target_memory.id,
+                    "matched_memory_title": target_memory.title,
+                },
+                "conflict_memory_snapshot": conflict_snapshot,
+            }
+
+        return self._create_memory_candidate_from_draft(
+            workspace_id,
+            draft,
+            forced_conflict_record=target_memory,
+            forced_suggested_action=correction_action,
+            extra_metadata=correction_metadata,
+        )
 
     def suggest_memory_candidate_from_note(
         self,
@@ -2396,12 +2561,14 @@ class WorkspaceService:
                 "updated_at": now.isoformat(),
             }
 
-            if normalized_mode in {"replace_existing", "update_existing"} and target_memory is None:
+            if normalized_mode in {"replace_existing", "update_existing", "archive_existing"} and target_memory is None:
                 return None
             if normalized_mode == "update_existing" and bool(getattr(target_memory, "editable", True)) is False:
                 raise ValueError("memory_not_editable")
             if normalized_mode == "replace_existing" and bool(getattr(target_memory, "revocable", True)) is False:
                 raise ValueError("memory_not_revocable")
+            if normalized_mode == "archive_existing" and bool(getattr(target_memory, "editable", True)) is False:
+                raise ValueError("memory_not_editable")
 
             approved_memory: Optional[WorkspaceMemoryCardModel] = None
             if normalized_mode == "update_existing":
@@ -2433,6 +2600,34 @@ class WorkspaceService:
                 target_memory.pinned = next_pinned
                 target_memory.source_session_id = candidate.source_session_id
                 target_memory.source_message_id = candidate.source_message_id
+                target_memory.memory_metadata_json = json.dumps(target_metadata)
+                target_memory.updated_at = now
+                approved_memory = target_memory
+            elif normalized_mode == "archive_existing":
+                if target_memory is None:
+                    return None
+                target_metadata = self._parse_source_policy(target_memory.memory_metadata_json)
+                history = target_metadata.get("candidate_archive_history")
+                if not isinstance(history, list):
+                    history = []
+                history.append(
+                    {
+                        "candidate_id": candidate.id,
+                        "reviewed_at": now.isoformat(),
+                        "correction_content": next_content,
+                    }
+                )
+                target_metadata.update(
+                    {
+                        **candidate_metadata,
+                        "archived_by_candidate_id": candidate.id,
+                        "archive_reason": next_content,
+                        "candidate_archive_history": history[-10:],
+                        "updated_at": now.isoformat(),
+                    }
+                )
+                target_memory.status = "archived"
+                target_memory.why_saved = next_why_saved or target_memory.why_saved
                 target_memory.memory_metadata_json = json.dumps(target_metadata)
                 target_memory.updated_at = now
                 approved_memory = target_memory

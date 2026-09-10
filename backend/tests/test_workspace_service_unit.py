@@ -770,6 +770,146 @@ def test_workspace_memory_candidate_ignores_ordinary_user_message(temp_db):
     assert workspace_service.list_memory_candidates(workspace.id) == []
 
 
+def test_workspace_memory_correction_suggests_replacing_conflicting_memory(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Correction Workspace")
+    session = chat_service.create_chat(title="Correction chat", workspace_id=workspace.id)
+    stale = workspace_service.create_memory(
+        workspace.id,
+        memory_type="preference",
+        scope_type="user",
+        title="Default language",
+        content="Default to Chinese responses.",
+        source_session_id=session.id,
+    )
+    assert stale is not None
+    chat_service.add_message(session.id, "user", "Actually, default to English responses now.")
+    user_message = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "user")
+
+    candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=user_message.id,
+        suggested_scope_type="user",
+    )
+
+    assert candidate is not None
+    assert candidate.conflict_memory_id == stale.id
+    assert candidate.suggested_action == "replace_existing"
+    assert candidate.candidate_metadata["correction"]["action"] == "replace_existing"
+    assert candidate.candidate_metadata["conflict_memory_snapshot"]["title"] == "Default language"
+
+    approved = workspace_service.approve_memory_candidate(
+        workspace.id,
+        candidate.id,
+        approval_mode="replace_existing",
+    )
+    assert approved is not None
+    assert approved.supersedes_memory_id == stale.id
+    assert "English" in approved.content
+
+    stale_after = workspace_service.get_memory(workspace.id, stale.id)
+    assert stale_after is not None
+    assert stale_after.status == "superseded"
+
+    context = workspace_service.build_prompt_context(
+        workspace.id,
+        current_query="Which language should responses use?",
+        current_chat_id=session.id,
+    )
+    assert context is not None
+    assert approved.id in context.loaded_memory_ids
+    assert stale.id not in context.loaded_memory_ids
+
+
+def test_workspace_memory_correction_can_archive_stale_memory_without_loading_it(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Archive Correction Workspace")
+    session = chat_service.create_chat(title="Archive correction chat", workspace_id=workspace.id)
+    stale = workspace_service.create_memory(
+        workspace.id,
+        memory_type="preference",
+        scope_type="workspace",
+        title="Checklist preference",
+        content="Always include a checklist in onboarding replies.",
+        source_session_id=session.id,
+    )
+    assert stale is not None
+    chat_service.add_message(session.id, "user", "Forget the checklist preference.")
+    user_message = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "user")
+
+    candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=user_message.id,
+        suggested_scope_type="workspace",
+    )
+
+    assert candidate is not None
+    assert candidate.conflict_memory_id == stale.id
+    assert candidate.suggested_action == "archive_existing"
+    assert candidate.candidate_metadata["correction"]["action"] == "archive_existing"
+
+    archived = workspace_service.approve_memory_candidate(
+        workspace.id,
+        candidate.id,
+        approval_mode="archive_existing",
+    )
+    assert archived is not None
+    assert archived.id == stale.id
+    assert archived.status == "archived"
+
+    context = workspace_service.build_prompt_context(
+        workspace.id,
+        current_query="How should onboarding replies look?",
+        current_chat_id=session.id,
+    )
+    assert context is not None
+    assert stale.id not in context.loaded_memory_ids
+
+
+def test_workspace_memory_correction_can_update_existing_memory(temp_db):
+    workspace_service, chat_service, _ = temp_db
+
+    workspace = workspace_service.create_workspace(name="Update Correction Workspace")
+    session = chat_service.create_chat(title="Update correction chat", workspace_id=workspace.id)
+    existing = workspace_service.create_memory(
+        workspace.id,
+        memory_type="preference",
+        scope_type="user",
+        title="Tone preference",
+        content="Prefer concise answers.",
+        source_session_id=session.id,
+    )
+    assert existing is not None
+    chat_service.add_message(session.id, "user", "Update my tone preference: concise answers with concrete next steps.")
+    user_message = next(msg for msg in chat_service.get_chat(session.id).messages if msg.role == "user")
+
+    candidate = workspace_service.suggest_memory_candidate_from_user_message(
+        workspace.id,
+        chat_id=session.id,
+        message_id=user_message.id,
+        suggested_scope_type="user",
+    )
+
+    assert candidate is not None
+    assert candidate.conflict_memory_id == existing.id
+    assert candidate.suggested_action == "update_existing"
+    assert candidate.candidate_metadata["correction"]["action"] == "update_existing"
+
+    updated = workspace_service.approve_memory_candidate(
+        workspace.id,
+        candidate.id,
+        approval_mode="update_existing",
+    )
+    assert updated is not None
+    assert updated.id == existing.id
+    assert updated.status == "active"
+    assert "concrete next steps" in updated.content
+
+
 def test_workspace_memory_candidate_includes_glossary_approval_preview(temp_db):
     workspace_service, chat_service, _ = temp_db
 

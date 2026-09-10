@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import type { WorkspaceMemoryCandidate } from '../../types';
 import InlineMemoryConfirmation, {
   buildInlineMemoryApprovalPayload,
+  getCandidateConfirmationCopy,
   getCandidateDestinationLabel,
+  getCandidateConflictSummary,
+  getCandidatePrimaryActionLabel,
 } from './InlineMemoryConfirmation';
 
 const candidate: WorkspaceMemoryCandidate = {
@@ -65,5 +68,34 @@ describe('InlineMemoryConfirmation', () => {
     expect(getCandidateDestinationLabel({ ...candidate, scope_type: 'user' })).toBe('About You');
     expect(getCandidateDestinationLabel({ ...candidate, scope_type: 'chat' })).toBe('Just this time');
     expect(getCandidateDestinationLabel(candidate)).toBe('This Workspace');
+  });
+
+  it('exposes conflict summary metadata for correction candidates', () => {
+    expect(
+      getCandidateConflictSummary({
+        ...candidate,
+        conflict_memory_id: 'memory_1',
+        candidate_metadata: {
+          conflict_memory_snapshot: {
+            title: 'Default language',
+            content: 'Default to Chinese responses.',
+            status: 'active',
+          },
+        },
+      }),
+    ).toEqual({
+      title: 'Default language',
+      content: 'Default to Chinese responses.',
+      status: 'active',
+    });
+  });
+
+  it('labels correction actions directly in inline confirmation', () => {
+    expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'archive_existing' })).toBe('Archive existing');
+    expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'replace_existing' })).toBe('Replace memory');
+    expect(getCandidatePrimaryActionLabel({ ...candidate, suggested_action: 'update_existing' })).toBe('Update memory');
+    expect(getCandidateConfirmationCopy({ ...candidate, suggested_action: 'archive_existing' })).toContain(
+      'archive the conflicting memory',
+    );
   });
 });
