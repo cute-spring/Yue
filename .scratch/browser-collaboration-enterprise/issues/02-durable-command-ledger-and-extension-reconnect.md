@@ -6,6 +6,10 @@
 
 **Status:** ready-for-agent
 
+## Prototype decision
+
+The throwaway MV3 lifecycle prototype is committed on `codex/mv3-reliability-prototype` at `7d41b6d`. It establishes that the production design must keep the command ledger and lease on the server, persist only minimal extension receipts/results, replay terminal results idempotently, reconcile on page-generation mismatch, and require reauthorization after backend restart. It does not select a transport; ticket implementation must compare managed long-polling and a persistent transport against those invariants.
+
 **Scope:**
 - Persist redacted command metadata, stable command IDs, sequence numbers, idempotency keys, leases, deadlines, receipt/acknowledgement, and terminal results.
 - Add an authenticated managed transport with reconnect/backoff; retain a minimal extension receipt/result queue across service-worker suspension.
