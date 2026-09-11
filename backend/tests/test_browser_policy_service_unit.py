@@ -33,3 +33,12 @@ def test_origin_must_be_exact_https_and_approval_is_single_use(tmp_path):
         pass
     else:
         raise AssertionError("A decided request must not be reusable")
+
+
+def test_legacy_policy_without_a_version_is_loaded_as_version_one(tmp_path):
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text('{"origins": [{"origin": "https://erp.example.com", "purpose": "business"}]}', encoding="utf-8")
+
+    service = BrowserPolicyService(policy_path)
+
+    assert service.purpose_for("https://erp.example.com") == "business"

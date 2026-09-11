@@ -192,6 +192,66 @@ def test_cross_origin_navigation_always_needs_approval():
     assert exc_info.value.pending_action["status"] == "awaiting_approval"
 
 
+def test_sso_handoff_allows_browser_return_but_blocks_actions_and_redacts_result():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        authorization_mode="session_auto",
+    )
+    action = browser_session_service.request_action(session_id=session.id, action="click", target="Company login")
+    dispatched = browser_session_service.next_action(session_id=session.id, extension_token=token)
+    assert dispatched["id"] == action["id"]
+    browser_session_service.submit_snapshot(
+        session_id=session.id,
+        extension_token=token,
+        title="IdP sign in",
+        url="https://login.example-idp.com/sso?state=private",
+        visible_text="secret page text",
+    )
+    completed = browser_session_service.complete_action(
+        session_id=session.id,
+        action_id=action["id"],
+        extension_token=token,
+        succeeded=True,
+        result={"url": "https://login.example-idp.com/sso?state=private", "visible_text": "secret page text"},
+    )
+    assert completed["result"] == {"message": "SSO handoff completed; no page data captured."}
+
+    with pytest.raises(BrowserSessionStateError):
+        browser_session_service.request_action(session_id=session.id, action="click", target="Continue")
+    assert browser_session_service.next_action(session_id=session.id, extension_token=token) is None
+
+    browser_session_service.submit_snapshot(
+        session_id=session.id,
+        extension_token=token,
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        visible_text="Revenue: 100",
+    )
+    assert browser_session_service.get_session(session.id).status == "active"
+
+
+def test_cross_origin_navigation_blocks_following_queued_actions_until_page_changes():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        authorization_mode="session_auto",
+    )
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="navigate",
+            target="https://erp.example.com/expense",
+        )
+    navigation = browser_session_service.decide_action(session_id=session.id, action_id=exc_info.value.pending_action["id"], approved=True)
+    assert browser_session_service.get_session(session.id).pending_navigation_action_id == navigation["id"]
+    with pytest.raises(BrowserSessionStateError):
+        browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+    assert browser_session_service.next_action(session_id=session.id, extension_token=token)["id"] == navigation["id"]
+
+
 def test_revoked_origin_pauses_session_and_prevents_new_or_queued_actions():
     session, token = browser_session_service.register_tab(
         tab_id="123",

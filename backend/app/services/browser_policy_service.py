@@ -51,6 +51,7 @@ class BrowserPolicyService:
     """A JSON-backed policy store owned by the local Yue user."""
 
     _PURPOSES = {"business", "sso_handoff"}
+    _POLICY_VERSION = 1
 
     def __init__(self, policy_path: str | Path | None = None) -> None:
         if policy_path is None:
@@ -71,7 +72,8 @@ class BrowserPolicyService:
             payload = json.loads(self.policy_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise BrowserPolicyError("Browser origin policy could not be read.") from exc
-        for record in payload.get("origins", []):
+        payload = self._migrate_payload(payload)
+        for record in payload["origins"]:
             if not isinstance(record, dict):
                 continue
             try:
@@ -82,10 +84,26 @@ class BrowserPolicyService:
             if purpose in self._PURPOSES:
                 self._origins[origin] = {"origin": origin, "purpose": purpose, "approved_at": record.get("approved_at")}
 
+    def _migrate_payload(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise BrowserPolicyError("Browser origin policy has an invalid format.")
+        version = payload.get("version", 0)
+        if version == 0:
+            origins = payload.get("origins", [])
+            if not isinstance(origins, list):
+                raise BrowserPolicyError("Browser origin policy has an invalid legacy format.")
+            return {"version": self._POLICY_VERSION, "origins": origins}
+        if version != self._POLICY_VERSION:
+            raise BrowserPolicyError("Browser origin policy version is unsupported.")
+        origins = payload.get("origins", [])
+        if not isinstance(origins, list):
+            raise BrowserPolicyError("Browser origin policy has an invalid format.")
+        return {"version": version, "origins": origins}
+
     def _save(self) -> None:
         if self._suppress_writes:
             return
-        payload = {"version": 1, "origins": self.list_origins()}
+        payload = {"version": self._POLICY_VERSION, "origins": self.list_origins()}
         temporary_path = self.policy_path.with_suffix(".tmp")
         temporary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary_path, self.policy_path)

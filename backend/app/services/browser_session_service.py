@@ -130,6 +130,7 @@ class BrowserSession:
     status: str = "active"
     chat_id: Optional[str] = None
     snapshot: Optional[BrowserSnapshot] = None
+    pending_navigation_action_id: Optional[str] = None
     actions: Dict[str, BrowserAction] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
@@ -146,6 +147,7 @@ class BrowserSession:
             "status": self.status,
             "chat_id": self.chat_id,
             "has_snapshot": self.snapshot is not None,
+            "pending_navigation": self.pending_navigation_action_id is not None,
             "snapshot_captured_at": self.snapshot.captured_at.isoformat() if self.snapshot else None,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -244,6 +246,7 @@ class BrowserSessionService:
                 raise BrowserSessionUnauthorized("The page is no longer policy-approved for browser collaboration.")
             if origin != _origin_for_url(session.url):
                 session.authorization_mode = "step_confirm"
+                session.pending_navigation_action_id = None
             if policy_purpose == "sso_handoff":
                 visible_text = ""
                 title = "SSO handoff"
@@ -277,20 +280,23 @@ class BrowserSessionService:
             session = self.get_session(session_id)
             if session.status != "active":
                 raise BrowserSessionStateError("Browser session is not active.")
+            if session.pending_navigation_action_id:
+                raise BrowserSessionStateError("Browser navigation is awaiting page reconciliation.")
             current_origin = _origin_for_url(session.url)
             try:
                 current_purpose = browser_policy_service.purpose_for(current_origin)
                 target_purpose = browser_policy_service.purpose_for(target_origin) if target_origin else None
             except BrowserPolicyError as exc:
                 raise BrowserSessionUnauthorized(str(exc)) from exc
-            if current_purpose != "business":
-                self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
             if current_purpose == "sso_handoff":
                 raise BrowserSessionStateError("Browser actions are blocked during an SSO handoff.")
             if current_purpose != "business":
+                self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
                 raise BrowserSessionUnauthorized("The current origin is no longer approved for browser collaboration.")
             if target_origin and target_purpose is None:
                 raise BrowserSessionUnauthorized("Navigation requires a policy-approved destination origin.")
+            if target_purpose == "sso_handoff":
+                raise BrowserSessionStateError("Yue cannot navigate an SSO handoff. Complete it directly in the browser.")
             browser_action = BrowserAction(
                 id=f"browser_action_{uuid4().hex}",
                 action=action,
@@ -322,6 +328,9 @@ class BrowserSessionService:
             if browser_action.status != "awaiting_approval":
                 raise BrowserSessionStateError("Browser action is not awaiting approval.")
             browser_action.status = "queued" if approved else "rejected"
+            if approved and browser_action.action == "navigate" and browser_action.target:
+                if _origin_for_url(browser_action.target) != _origin_for_url(session.url):
+                    session.pending_navigation_action_id = browser_action.id
             browser_action.updated_at = _utc_now()
             session.updated_at = _utc_now()
             return browser_action.to_dict()
@@ -340,10 +349,21 @@ class BrowserSessionService:
             self._require_extension_token(session, extension_token)
             if session.status != "active":
                 return None
-            if browser_policy_service.purpose_for(_origin_for_url(session.url)) != "business":
+            current_purpose = browser_policy_service.purpose_for(_origin_for_url(session.url))
+            if current_purpose == "sso_handoff":
+                return None
+            if current_purpose != "business":
                 self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
                 return None
-            queued = next((item for item in session.actions.values() if item.status == "queued"), None)
+            queued = next(
+                (
+                    item
+                    for item in session.actions.values()
+                    if item.status == "queued"
+                    and (not session.pending_navigation_action_id or item.id == session.pending_navigation_action_id)
+                ),
+                None,
+            )
             if queued is None:
                 return None
             queued.status = "dispatched"
@@ -379,7 +399,12 @@ class BrowserSessionService:
             if browser_action.status != "dispatched":
                 raise BrowserSessionStateError("Browser action was not dispatched.")
             browser_action.status = "succeeded" if succeeded else "failed"
-            browser_action.result = dict(result or {})
+            if browser_policy_service.purpose_for(_origin_for_url(session.url)) == "sso_handoff":
+                browser_action.result = {"message": "SSO handoff completed; no page data captured."}
+            else:
+                browser_action.result = dict(result or {})
+            if not succeeded and session.pending_navigation_action_id == action_id:
+                session.pending_navigation_action_id = None
             browser_action.updated_at = _utc_now()
             session.updated_at = _utc_now()
             return browser_action.to_dict()
