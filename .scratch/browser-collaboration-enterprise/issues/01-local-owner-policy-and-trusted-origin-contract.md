@@ -4,7 +4,7 @@
 
 **Blocked by:** none.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Scope:**
 - Define one local-owner policy store with a migration, service boundary, API, and settings UI.
@@ -23,3 +23,7 @@
 - A local owner can easily add and revoke one exact origin.
 - No policy operation expands trust to a subdomain or arbitrary destination.
 - An SSO-handoff origin can support browser traversal without Yue receiving usable page content or actions.
+
+## Comments
+
+Resolved on 2026-09-12. Focused backend browser-policy/session/API tests passed (26 tests); frontend origin-policy hook tests passed (2 tests); `npm run build` passed. Final Standards and Spec reviews against `fe1a16c...4bb9587` reported no blocking findings. A full backend-suite run was attempted but its runner was interrupted after unrelated existing failures; it did not invalidate the focused Ticket 01 evidence.
