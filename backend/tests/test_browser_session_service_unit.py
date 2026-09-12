@@ -252,6 +252,51 @@ def test_cross_origin_navigation_blocks_following_queued_actions_until_page_chan
     assert browser_session_service.next_action(session_id=session.id, extension_token=token)["id"] == navigation["id"]
 
 
+def test_cross_origin_snapshot_cancels_following_session_auto_actions():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        authorization_mode="session_auto",
+    )
+    first = browser_session_service.request_action(session_id=session.id, action="click", target="Company login")
+    second = browser_session_service.request_action(session_id=session.id, action="fill", target="Notes", value="private")
+    assert browser_session_service.next_action(session_id=session.id, extension_token=token)["id"] == first["id"]
+
+    browser_session_service.submit_snapshot(
+        session_id=session.id,
+        extension_token=token,
+        title="IdP sign in",
+        url="https://login.example-idp.com/sso",
+        visible_text="secret",
+    )
+
+    assert browser_session_service.get_session(session.id).actions[second["id"]].status == "failed"
+
+
+def test_revoked_origin_discards_inflight_action_result():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        authorization_mode="session_auto",
+    )
+    action = browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+    browser_session_service.next_action(session_id=session.id, extension_token=token)
+    browser_policy_service.replace_origins_for_tests([])
+
+    completed = browser_session_service.complete_action(
+        session_id=session.id,
+        action_id=action["id"],
+        extension_token=token,
+        succeeded=True,
+        result={"url": "https://untrusted.example.com/?secret=1"},
+    )
+
+    assert completed["status"] == "failed"
+    assert completed["result"] == {"message": "Browser action result was discarded after an origin-policy change."}
+
+
 def test_revoked_origin_pauses_session_and_prevents_new_or_queued_actions():
     session, token = browser_session_service.register_tab(
         tab_id="123",

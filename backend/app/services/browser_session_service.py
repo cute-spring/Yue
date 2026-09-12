@@ -247,6 +247,7 @@ class BrowserSessionService:
             if origin != _origin_for_url(session.url):
                 session.authorization_mode = "step_confirm"
                 session.pending_navigation_action_id = None
+                self._fail_queued_actions(session, "The page changed origin and requires fresh confirmation.")
             if policy_purpose == "sso_handoff":
                 visible_text = ""
                 title = "SSO handoff"
@@ -374,12 +375,16 @@ class BrowserSessionService:
     @staticmethod
     def _pause_for_policy_violation(session: BrowserSession, message: str) -> None:
         session.status = "paused"
+        BrowserSessionService._fail_queued_actions(session, message)
+        session.updated_at = _utc_now()
+
+    @staticmethod
+    def _fail_queued_actions(session: BrowserSession, message: str) -> None:
         for action in session.actions.values():
             if action.status == "queued":
                 action.status = "failed"
                 action.result = {"error": message}
                 action.updated_at = _utc_now()
-        session.updated_at = _utc_now()
 
     def complete_action(
         self,
@@ -398,11 +403,20 @@ class BrowserSessionService:
                 raise BrowserSessionNotFound("Browser action not found.")
             if browser_action.status != "dispatched":
                 raise BrowserSessionStateError("Browser action was not dispatched.")
-            browser_action.status = "succeeded" if succeeded else "failed"
-            if browser_policy_service.purpose_for(_origin_for_url(session.url)) == "sso_handoff":
-                browser_action.result = {"message": "SSO handoff completed; no page data captured."}
+            current_purpose = browser_policy_service.purpose_for(_origin_for_url(session.url))
+            if current_purpose != "business":
+                browser_action.status = "failed"
+                if current_purpose is None:
+                    self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
+                browser_action.result = {"message": "Browser action result was discarded after an origin-policy change."}
+            elif not succeeded:
+                browser_action.status = "failed"
+                browser_action.result = {"message": "Browser action failed."}
             else:
-                browser_action.result = dict(result or {})
+                browser_action.status = "succeeded"
+                browser_action.result = {"message": "Browser action completed."}
+            if current_purpose == "sso_handoff":
+                browser_action.result = {"message": "SSO handoff completed; no page data captured."}
             if not succeeded and session.pending_navigation_action_id == action_id:
                 session.pending_navigation_action_id = None
             browser_action.updated_at = _utc_now()
