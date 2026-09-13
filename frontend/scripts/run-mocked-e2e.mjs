@@ -25,6 +25,7 @@ const [backendPort, frontendPort] = await Promise.all([reservePort(), reservePor
 const dataDir = mkdtempSync(join(tmpdir(), 'yue-e2e-mocked-'));
 const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const cleanup = () => rmSync(dataDir, { force: true, recursive: true });
+let requestedExitCode;
 const child = spawn(
   command,
   ['playwright', 'test', '--config=playwright.mocked.config.ts', ...process.argv.slice(2)],
@@ -46,13 +47,15 @@ child.once('error', (error) => {
 });
 child.once('exit', (code, signal) => {
   cleanup();
-  process.exitCode = code ?? (signal ? 1 : 0);
+  process.exitCode = requestedExitCode ?? code ?? (signal ? 1 : 0);
 });
 
 for (const [signal, exitCode] of [['SIGINT', 130], ['SIGTERM', 143]]) {
   process.once(signal, () => {
+    if (requestedExitCode !== undefined) {
+      return;
+    }
+    requestedExitCode = exitCode;
     child.kill(signal);
-    cleanup();
-    process.exit(exitCode);
   });
 }
