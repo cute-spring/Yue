@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -24,6 +24,7 @@ async function reservePort() {
 const [backendPort, frontendPort] = await Promise.all([reservePort(), reservePort()]);
 const dataDir = mkdtempSync(join(tmpdir(), 'yue-e2e-mocked-'));
 const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const cleanup = () => rmSync(dataDir, { force: true, recursive: true });
 const child = spawn(
   command,
   ['playwright', 'test', '--config=playwright.mocked.config.ts', ...process.argv.slice(2)],
@@ -40,8 +41,18 @@ const child = spawn(
 
 child.once('error', (error) => {
   console.error(error);
+  cleanup();
   process.exitCode = 1;
 });
 child.once('exit', (code, signal) => {
+  cleanup();
   process.exitCode = code ?? (signal ? 1 : 0);
 });
+
+for (const [signal, exitCode] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+  process.once(signal, () => {
+    child.kill(signal);
+    cleanup();
+    process.exit(exitCode);
+  });
+}

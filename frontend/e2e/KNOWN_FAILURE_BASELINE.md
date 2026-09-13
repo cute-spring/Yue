@@ -9,6 +9,5 @@ smart paste, multimodal image chat, settings CRUD, and six workspace-grounded
 answer scenarios. The relevant combined regression run reports 17 passing
 tests; settings CRUD also passes independently.
 
-The complete serial 96-test command exceeds the interactive terminal's
-30-second response limit, so it must be run from a persistent CI or local
-terminal session for a single-suite gate result.
+The complete serial gate was run on 2026-09-13 using
+`npm run test:e2e:mocked -- --reporter=dot`: 96 passed in 2.0 minutes.

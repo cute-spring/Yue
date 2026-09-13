@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const isolatedEnvironment = {
   YUE_E2E_BACKEND_PORT: '18421',
@@ -6,9 +6,24 @@ const isolatedEnvironment = {
   YUE_E2E_DATA_DIR: '/tmp/yue-e2e-mocked-contract',
 };
 
-afterEach(() => {
+const originalEnvironment = Object.fromEntries(
+  Object.keys(isolatedEnvironment).map((name) => [name, process.env[name]]),
+);
+
+beforeEach(() => {
   for (const name of Object.keys(isolatedEnvironment)) {
     delete process.env[name];
+  }
+});
+
+afterEach(() => {
+  for (const name of Object.keys(isolatedEnvironment)) {
+    const value = originalEnvironment[name];
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
   }
   vi.resetModules();
 });
