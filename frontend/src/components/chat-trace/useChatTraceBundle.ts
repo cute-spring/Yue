@@ -3,9 +3,9 @@ import type { ChatTraceBundle } from '../../types';
 import { buildTraceTree, normalizeTraceError } from './traceFormatting';
 
 type UseChatTraceBundleOptions = {
-  open: boolean;
-  chatId: string | null;
-  rawEnabled: boolean;
+  open: () => boolean;
+  chatId: () => string | null;
+  rawEnabled: () => boolean;
 };
 
 export function useChatTraceBundle(options: UseChatTraceBundleOptions) {
@@ -24,13 +24,13 @@ export function useChatTraceBundle(options: UseChatTraceBundleOptions) {
   const rootTraces = createMemo(() => traceTree().get(null) || []);
 
   createEffect(() => {
-    if (options.rawEnabled) return;
+    if (options.rawEnabled()) return;
     if (viewMode() === 'raw') setViewMode('summary');
   });
 
   createEffect(() => {
-    const open = options.open;
-    const chatId = options.chatId;
+    const open = options.open();
+    const chatId = options.chatId();
     const mode = viewMode();
     if (!open) {
       setBundle(null);
