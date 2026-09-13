@@ -20,4 +20,8 @@ describe('E2E runtime configuration', () => {
     expect(resolveE2eBackendPort(env)).toBe(8137);
     expect(resolveE2eFrontendPort(env)).toBe(3127);
   });
+
+  it('uses the CI Python executable when no E2E-specific override is set', () => {
+    expect(resolveBackendPython({ PYTHON_BIN: 'python' })).toBe('python');
+  });
 });
