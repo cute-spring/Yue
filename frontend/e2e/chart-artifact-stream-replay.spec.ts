@@ -198,14 +198,15 @@ test('structured chart artifact renders from stream and message history replay',
   await expect(liveWidget.getByTitle('Export chart image')).toBeVisible();
   await expect(liveWidget.getByTitle('Regenerate chart')).toBeVisible();
   await expect(liveWidget.getByTitle('Save chart to workspace')).toBeVisible();
-  await liveWidget.getByRole('button', { name: 'Data' }).click();
-  await expect(liveWidget.getByText('APAC')).toBeVisible();
+  await liveWidget.getByRole('button', { name: 'Data', exact: true }).click();
+  await expect(liveWidget.getByRole('cell', { name: 'APAC', exact: true })).toBeVisible();
   await liveWidget.getByTitle('Copy chart data').click();
   await expect.poll(async () => page.evaluate(() => (window as any).__copiedText || '')).toContain('APAC,120');
   await liveWidget.getByTitle('Switch chart type').selectOption('line');
   await expect(liveChart).toHaveAttribute('data-processed', 'true');
 
   await page.reload();
+  await page.getByRole('button', { name: 'Toggle date group Earlier' }).click();
   await page.getByText('Chart replay session').click();
 
   const replayedChart = page.locator('[data-chart-artifact-id="chart_revenue_region"] .yue-chart-render-target[data-processed="true"]');

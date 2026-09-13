@@ -983,11 +983,13 @@ actions:
 
             with patch("app.api.chat_stream_deps.agent_store") as mock_agent_store, \
                  patch("app.api.chat_stream_deps.tool_registry") as mock_registry, \
+                 patch("app.api.chat_stream_deps.get_model") as mock_get_model, \
                  patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
                 mock_chat_service.create_chat.return_value = MagicMock(id="new-chat-id")
                 mock_chat_service.get_chat.return_value = None
                 mock_registry.get_pydantic_ai_tools_for_agent = AsyncMock(return_value=[])
                 mock_registry.get_tools_for_agent = AsyncMock(return_value=[])
+                mock_get_model.return_value = MagicMock()
 
                 mock_agent_store.get_agent.return_value = AgentConfig(
                     id="builtin-jira",

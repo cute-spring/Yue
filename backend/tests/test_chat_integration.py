@@ -44,7 +44,8 @@ def client(temp_chat_service):
 @pytest.mark.asyncio
 async def test_chat_integration_flow(client, temp_chat_service):
     # The stream runtime constructs agents through chat_stream_deps.
-    with patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
+    with patch("app.api.chat_stream_deps.get_model", return_value=MagicMock()), \
+         patch("app.api.chat_stream_deps.Agent") as mock_agent_cls:
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
         

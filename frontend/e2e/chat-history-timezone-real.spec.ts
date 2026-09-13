@@ -6,7 +6,7 @@ import path from 'node:path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const BACKEND_PYTHON = path.join(REPO_ROOT, 'backend', '.venv', 'bin', 'python');
+const BACKEND_PYTHON = process.env.YUE_E2E_BACKEND_PYTHON || path.join(REPO_ROOT, 'backend', '.venv', 'bin', 'python');
 const SEED_SCRIPT = path.join(REPO_ROOT, 'backend', 'scripts', 'seed_chat_history_timezone_e2e.py');
 const E2E_DATA_DIR = process.env.YUE_E2E_DATA_DIR || '/tmp/yue-e2e-real-data';
 

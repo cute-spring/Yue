@@ -13,14 +13,14 @@ test('Custom Models CRUD UI flow', async ({ page }) => {
   await page.getByRole('button', { name: 'Models' }).click();
 
   // Open overlay and add
-  await page.getByRole('button', { name: /Add Custom \(Overlay\)/i }).click();
+  await page.getByTestId('llm-add-custom-button').click();
   await page.getByTestId('llm-custom-name-input').fill('e2e-custom');
   await page.getByTestId('llm-custom-provider-select').selectOption('openai');
   await page.getByTestId('llm-custom-model-input').fill('x-large');
   await page.getByTestId('llm-custom-base-url-input').fill('https://api.example.com/v1');
   await page.getByRole('button', { name: 'Test' }).last().click();
   await expect(page.getByText('Connection OK')).toBeVisible();
-  await page.getByRole('button', { name: 'Save', exact: true }).last().click();
+  await page.getByTestId('llm-custom-save-button').click();
 
   // Should appear in list
   const item = page.getByTestId('llm-custom-model-e2e-custom');

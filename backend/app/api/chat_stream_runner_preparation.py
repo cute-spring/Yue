@@ -464,13 +464,7 @@ async def prepare_runtime_dependencies(
         },
     )
 
-    try:
-        model = deps.get_model(ctx.provider, ctx.model_name)
-    except Exception as model_err:
-        if deps.env_flag("PYTEST_CURRENT_TEST", False):
-            model = object()
-        else:
-            raise model_err
+    model = deps.get_model(ctx.provider, ctx.model_name)
 
     ctx.deps = deps.build_agent_deps(ctx.agent_config)
 

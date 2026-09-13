@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { mockChatBootstrap } from './chat-test-helpers';
 
 const pngBase64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=';
@@ -6,6 +7,31 @@ const imageFile: { name: string; mimeType: string; buffer: any } = {
   name: 'e2e.png',
   mimeType: 'image/png',
   buffer: (globalThis as any).Buffer.from(pngBase64, 'base64'),
+};
+
+const visionCapabilityProviders = [
+  {
+    name: 'e2e-capability-fixture',
+    configured: true,
+    available_models: ['e2e-vision-model', 'e2e-text-model'],
+    models: ['e2e-vision-model', 'e2e-text-model'],
+    model_capabilities: {
+      'e2e-vision-model': ['vision'],
+      'e2e-text-model': [],
+    },
+  },
+];
+
+const installVisionCapabilityFixture = async (page: any) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('yue_selected_provider', 'e2e-capability-fixture');
+    localStorage.setItem('yue_selected_model', 'e2e-vision-model');
+  });
+  await mockChatBootstrap(page, {
+    prefs: { advanced_mode: true, voice_input_enabled: false },
+    agents: [],
+    providers: visionCapabilityProviders,
+  });
 };
 
 const pasteImageIntoInput = async (page: any, selector: string) => {
@@ -73,6 +99,7 @@ const selectModel = async (page: any, providerName: string, modelName: string) =
 };
 
 test('uploads image with text using a vision-capable model', async ({ page }) => {
+  await installVisionCapabilityFixture(page);
   await page.goto('/');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
@@ -95,6 +122,7 @@ test('uploads image with text using a vision-capable model', async ({ page }) =>
 });
 
 test('sends image-only message using a vision-capable model', async ({ page }) => {
+  await installVisionCapabilityFixture(page);
   await page.goto('/');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
@@ -112,6 +140,7 @@ test('sends image-only message using a vision-capable model', async ({ page }) =
 });
 
 test('pastes screenshot with Ctrl+V flow and sends successfully', async ({ page }) => {
+  await installVisionCapabilityFixture(page);
   await page.goto('/');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible();
@@ -131,6 +160,8 @@ test('pastes screenshot with Ctrl+V flow and sends successfully', async ({ page 
 });
 
 test('shows vision-off badge when model lacks vision capability', async ({ page }) => {
+  await installVisionCapabilityFixture(page);
+  await page.unroute('**/api/chat/stream');
   await page.route('**/api/chat/stream', async route => {
     const stream = [
       `data: ${JSON.stringify({ chat_id: 'chat-vision-off-e2e' })}\n\n`,

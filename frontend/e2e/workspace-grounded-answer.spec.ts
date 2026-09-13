@@ -147,8 +147,18 @@ const routeWorkspaceData = async (
 
 const expectSelectedWorkspace = async (page: Page) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.locator('select').first().selectOption('ws_1');
+  await page.getByTitle('Workspace').click();
+  await page.getByTitle('Client Research').click();
+
+  const resources = page.getByRole('button', { name: /^Resources/i });
+  if ((await resources.getAttribute('aria-expanded')) === 'false') await resources.click();
+  const sources = page.getByRole('button', { name: /^Sources/i });
+  if ((await sources.getAttribute('aria-expanded')) === 'false') await sources.click();
+  await expect(workspaceSourceControls(page)).toHaveCount(2);
 };
+
+const workspaceSourceControls = (page: Page) =>
+  page.getByRole('button', { name: /^Sources/i }).locator('xpath=following-sibling::div//select');
 
 const sendPrompt = async (page: Page, prompt: string) => {
   await page.locator('textarea').first().fill(prompt);
@@ -225,7 +235,7 @@ test.describe('workspace grounded answer smoke', () => {
     ] as const;
 
     for (const { mode, summary, expectPanel } of modeCases) {
-      await page.locator('select').nth(2).selectOption(mode);
+      await workspaceSourceControls(page).nth(1).selectOption(mode);
       await sendPrompt(page, `Scenario A prompt for ${mode}`);
       await expect(page.getByText(`Scenario A ${mode} response.`)).toBeVisible();
       if (expectPanel) {
@@ -271,7 +281,7 @@ test.describe('workspace grounded answer smoke', () => {
 
     await expectSelectedWorkspace(page);
     await expect(page.getByText('1 ready source · 2 sources needing attention · 1 saved artifact')).toBeVisible();
-    await page.locator('select').nth(2).selectOption('require_sources');
+    await workspaceSourceControls(page).nth(1).selectOption('require_sources');
     await sendPrompt(page, 'What changed in the ready report?');
 
     await expect(page.getByText('Mixed readiness answer grounded only in Report.pdf.')).toBeVisible();
@@ -312,8 +322,8 @@ test.describe('workspace grounded answer smoke', () => {
     });
 
     await expectSelectedWorkspace(page);
-    await page.locator('select').nth(1).selectOption('selected');
-    await page.locator('select').nth(2).selectOption('require_sources');
+    await workspaceSourceControls(page).nth(0).selectOption('selected');
+    await workspaceSourceControls(page).nth(1).selectOption('require_sources');
     await page.locator('input[type="checkbox"]').first().check();
     await sendPrompt(page, 'Answer a question that only the excluded source could answer.');
 
@@ -354,8 +364,8 @@ test.describe('workspace grounded answer smoke', () => {
     });
 
     await expectSelectedWorkspace(page);
-    await page.locator('select').nth(1).selectOption('none');
-    await page.locator('select').nth(2).selectOption('require_sources');
+    await workspaceSourceControls(page).nth(0).selectOption('none');
+    await workspaceSourceControls(page).nth(1).selectOption('require_sources');
     await sendPrompt(page, 'Use workspace evidence even though sources are disabled.');
 
     await expect(page.getByText('Citation-required mode cannot proceed because workspace sources are disabled for this turn.')).toBeVisible();
@@ -413,7 +423,7 @@ test.describe('workspace grounded answer smoke', () => {
     await expectSelectedWorkspace(page);
     await expect(page.getByRole('button', { name: /^Resources/i })).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('button', { name: /^Sources/i })).toHaveAttribute('aria-expanded', 'true');
-    await page.locator('select').nth(2).selectOption('require_sources');
+    await workspaceSourceControls(page).nth(1).selectOption('require_sources');
     await sendPrompt(page, 'Summarize the missing evidence state.');
 
     await expect(page.getByText('This answer needs follow-up verification.')).toBeVisible();

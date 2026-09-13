@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('Stop generation functionality', async ({ page }) => {
-  await page.goto('http://localhost:3000/');
+  await page.goto('/');
   await page.waitForLoadState('networkidle');
   const input = page.getByPlaceholder(/You are chatting with/i);
   await expect(input).toBeVisible({ timeout: 15000 });

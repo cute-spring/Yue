@@ -49,6 +49,12 @@ def isolated_runtime_context_seam():
     with patch("app.api.chat_stream_deps.get_stage4_lite_runtime_context", return_value=runtime_context):
         yield runtime_context
 
+
+@pytest.fixture(autouse=True)
+def mock_provider_adapter():
+    with patch("app.api.chat_stream_deps.get_model", return_value=MagicMock()):
+        yield
+
 @pytest.mark.asyncio
 async def test_skill_runtime_integration_auto_mode(client, isolated_runtime_context_seam):
     """

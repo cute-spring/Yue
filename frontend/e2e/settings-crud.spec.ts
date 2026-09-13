@@ -367,7 +367,7 @@ test('Settings page supports create, edit, and delete flows across tabs', async 
   await expect(page.getByText('streamable_http')).toBeVisible();
 
   await page.getByRole('button', { name: 'Models' }).click();
-  await page.getByRole('button', { name: 'Edit' }).click();
+  await page.getByRole('article').filter({ hasText: 'openai' }).getByRole('button', { name: 'Edit Settings' }).click();
   await page.getByTestId('llm-provider-edit-modal').getByTestId('llm-openai-model-input').fill('gpt-4.1');
   await page.getByTestId('llm-provider-edit-modal').getByTestId('llm-provider-save-button').click();
   await expect.poll(() => llmConfig.openai_model).toBe('gpt-4.1');

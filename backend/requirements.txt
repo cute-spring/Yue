@@ -26,3 +26,4 @@ alembic>=1.18.4
 python-json-logger
 pyyaml
 sqlite-vec
+session-context-manager @ git+https://github.com/cute-spring/session-context-manager.git@fcc07a62f23df1060b50d6ef499756f1b4eee13f

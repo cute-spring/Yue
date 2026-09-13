@@ -218,10 +218,10 @@ test('smart paste detects sensitive values and replaces before parsing', async (
   await page.getByTestId('smart-paste-textarea').fill('JIRA_TOKEN=sk-abc12345678901234567\nnpx -y test-pkg');
   await page.getByTestId('smart-paste-parse-btn').click();
 
-  await expect(page.getByText('检测到 1 处疑似敏感信息')).toBeVisible();
+  await expect(page.getByText('Detected 1 potential sensitive values')).toBeVisible();
   await expect(page.getByText('sk-abc12345678901234567')).toBeVisible();
 
-  await page.getByText('一键全部替换').click();
+  await page.getByRole('button', { name: 'Replace All' }).click();
 
   await expect(page.getByTestId('smart-paste-name-input')).toHaveValue('secure-service');
 });
@@ -321,8 +321,8 @@ test('smart paste allows skipping sensitive detection', async ({ page }) => {
   await page.getByTestId('smart-paste-textarea').fill('JIRA_TOKEN=sk-abc12345678901234567\nnpx -y test-pkg');
   await page.getByTestId('smart-paste-parse-btn').click();
 
-  await expect(page.getByText('检测到 1 处疑似敏感信息')).toBeVisible();
-  await page.getByText('跳过，直接发送').click();
+  await expect(page.getByText('Detected 1 potential sensitive values')).toBeVisible();
+  await page.getByRole('button', { name: 'Skip and Send' }).click();
 
   await expect(page.getByTestId('smart-paste-name-input')).toHaveValue('test-srv');
 });

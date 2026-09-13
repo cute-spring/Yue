@@ -6,9 +6,10 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const BACKEND_PYTHON = path.join(REPO_ROOT, 'backend', '.venv', 'bin', 'python');
+const BACKEND_PYTHON = process.env.YUE_E2E_BACKEND_PYTHON || path.join(REPO_ROOT, 'backend', '.venv', 'bin', 'python');
 const TRACE_SEED_SCRIPT = path.join(REPO_ROOT, 'backend', 'scripts', 'seed_trace_smoke_e2e.py');
 const E2E_DATA_DIR = process.env.YUE_E2E_DATA_DIR || '/tmp/yue-e2e-real-data';
+const E2E_BACKEND_URL = `http://127.0.0.1:${process.env.YUE_E2E_BACKEND_PORT || '8013'}`;
 
 const seedTraceSmokeData = () => {
   execFileSync(BACKEND_PYTHON, [TRACE_SEED_SCRIPT, '--data-dir', E2E_DATA_DIR], {
@@ -24,7 +25,7 @@ const seedTraceSmokeData = () => {
 
 test('Trace Inspector renders seeded summary and raw trace data', async ({ page, request }) => {
   seedTraceSmokeData();
-  await request.post('http://127.0.0.1:8003/api/config/feature_flags', {
+  await request.post(`${E2E_BACKEND_URL}/api/config/feature_flags`, {
     data: {
       chat_trace_ui_enabled: true,
       chat_trace_raw_enabled: true,
@@ -35,10 +36,15 @@ test('Trace Inspector renders seeded summary and raw trace data', async ({ page,
   await expect(page).toHaveTitle(/Yue/i);
 
   await page.getByText('Trace Smoke Chat').first().click();
+  await expect(page.getByText('Please inspect the last tool chain for this historical run.').first()).toBeVisible();
 
   const traceButton = page.getByRole('button', { name: /Open trace inspector/i });
   await expect(traceButton).toBeVisible();
+  const traceBundleResponse = page.waitForResponse((response) =>
+    response.url().includes('/trace/bundle?mode=summary'),
+  );
   await traceButton.click();
+  expect((await traceBundleResponse).status()).toBe(200);
 
   const dialog = page.getByRole('dialog', { name: 'Trace Inspector' });
   await expect(dialog).toBeVisible();

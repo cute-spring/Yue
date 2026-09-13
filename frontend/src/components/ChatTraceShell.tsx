@@ -14,9 +14,9 @@ type ChatTraceShellProps = {
 
 export default function ChatTraceShell(props: ChatTraceShellProps) {
   const { bundle, loading, error, viewMode, setViewMode, toolCountLabel, traceTree, rootTraces } = useChatTraceBundle({
-    open: props.open,
-    chatId: props.chatId,
-    rawEnabled: props.rawEnabled,
+    get open() { return props.open; },
+    get chatId() { return props.chatId; },
+    get rawEnabled() { return props.rawEnabled; },
   });
 
   return (

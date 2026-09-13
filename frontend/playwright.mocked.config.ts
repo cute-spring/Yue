@@ -1,6 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
-const frontendPort = process.env.YUE_E2E_FRONTEND_PORT || '3020';
+import { resolveE2eFrontendPort } from './src/utils/backendPython';
+
+const frontendPort = resolveE2eFrontendPort(process.env);
 const frontendUrl = `http://127.0.0.1:${frontendPort}`;
 
 export default defineConfig({
@@ -17,7 +19,7 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
     url: frontendUrl,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 });
