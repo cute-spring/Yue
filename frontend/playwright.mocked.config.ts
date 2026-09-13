@@ -1,10 +1,18 @@
 import { defineConfig } from '@playwright/test';
 
-import { resolveBackendPython, resolveE2eBackendPort, resolveE2eFrontendPort } from './src/utils/backendPython';
+import { resolveBackendPython } from './src/utils/backendPython';
 
-const e2eDataDir = process.env.YUE_E2E_DATA_DIR || '/tmp/yue-e2e-mocked-data';
-const backendPort = resolveE2eBackendPort(process.env);
-const frontendPort = resolveE2eFrontendPort(process.env);
+function requireIsolationEnvironment(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required isolated mocked E2E environment variable: ${name}`);
+  }
+  return value;
+}
+
+const e2eDataDir = requireIsolationEnvironment('YUE_E2E_DATA_DIR');
+const backendPort = requireIsolationEnvironment('YUE_E2E_BACKEND_PORT');
+const frontendPort = requireIsolationEnvironment('YUE_E2E_FRONTEND_PORT');
 const backendPython = resolveBackendPython(process.env);
 const backendUrl = `http://127.0.0.1:${backendPort}`;
 const frontendUrl = `http://127.0.0.1:${frontendPort}`;
