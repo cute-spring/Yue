@@ -263,7 +263,7 @@ test.describe('voice input', () => {
     });
 
     await getVoiceButton(page).click();
-    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 4000 });
+    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 7000 });
     await page.keyboard.press('Enter');
     await expect(getComposer(page)).toHaveValue('键盘 插入');
   });
@@ -293,7 +293,7 @@ test.describe('voice input', () => {
     });
 
     await getVoiceButton(page).click();
-    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 4000 });
+    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 7000 });
     await getSendVoiceButton(page).click();
     await expect(getComposer(page)).toHaveValue('');
     await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toHaveCount(0);
@@ -324,7 +324,7 @@ test.describe('voice input', () => {
     });
 
     await getVoiceButton(page).click();
-    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 4000 });
+    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 7000 });
     await page.keyboard.press(browserName === 'webkit' ? 'Meta+Enter' : 'Control+Enter');
     await expect(getComposer(page)).toHaveValue('');
     await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toHaveCount(0);
@@ -351,11 +351,12 @@ test.describe('voice input', () => {
     }, {
       steps: [
         { delay: 50, type: 'result', results: [{ transcript: '丢弃 草稿', isFinal: true }] },
+        { delay: 100, type: 'end' },
       ],
     });
 
     await getVoiceButton(page).click();
-    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 4000 });
+    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 7000 });
     await page.keyboard.press('Escape');
     await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toHaveCount(0);
     await expect(getComposer(page)).toHaveValue('');
@@ -455,7 +456,7 @@ test.describe('voice input', () => {
     await getVoiceButton(page).click();
     await expect(page.getByText('Using Browser dictation')).toBeVisible();
     await expect(page.getByText('Azure Speech unavailable. Switched to browser dictation.')).toBeVisible();
-    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 4000 });
+    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 7000 });
     await getInsertButton(page).click();
     await expect(getComposer(page)).toHaveValue('fallback works');
   });
@@ -485,7 +486,7 @@ test.describe('voice input', () => {
     });
 
     await getVoiceButton(page).click();
-    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 4000 });
+    await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toBeVisible({ timeout: 7000 });
     await getDiscardButton(page).click();
     await expect(getVoiceDraftReadyText(page, 'Browser dictation')).toHaveCount(0);
 

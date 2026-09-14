@@ -326,7 +326,7 @@ export default function Settings() {
       </div>
 
       <Show when={toast()}>
-        <div class="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300" role="status" aria-live="polite">
+        <div class="pointer-events-none fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300" role="status" aria-live="polite">
           <div
             class={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border transition-all ${
               toast()?.type === 'success'
@@ -353,12 +353,12 @@ export default function Settings() {
                   toast()?.action?.();
                   setToast(null);
                 }}
-                class="ml-2 px-3 py-1 bg-white/50 hover:bg-white rounded-lg text-sm font-bold transition-colors"
+                class="pointer-events-auto ml-2 px-3 py-1 bg-white/50 hover:bg-white rounded-lg text-sm font-bold transition-colors"
               >
                 {toast()?.actionLabel}
               </button>
             </Show>
-            <button class="ml-auto text-gray-400 hover:text-gray-600" onClick={() => setToast(null)}>
+            <button class="pointer-events-auto ml-auto text-gray-400 hover:text-gray-600" onClick={() => setToast(null)}>
               ✕
             </button>
           </div>
