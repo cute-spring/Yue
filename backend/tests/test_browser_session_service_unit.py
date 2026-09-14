@@ -133,7 +133,7 @@ def test_empty_page_snapshot_is_valid_and_readable():
     assert browser_session_service.read_snapshot(session_id=session.id)["visible_text"] == ""
 
 
-def test_session_auto_fills_but_submit_requires_explicit_approval():
+def test_fill_requires_explicit_approval_even_for_session_auto_mode():
     session, token = browser_session_service.register_tab(
         tab_id="123",
         title="Expense form",
@@ -142,13 +142,14 @@ def test_session_auto_fills_but_submit_requires_explicit_approval():
     )
     capture_current_page(browser_session_service, session=session, token=token)
 
-    fill = browser_session_service.request_action(
-        session_id=session.id,
-        action="fill",
-        target="Taxi amount",
-        value="42.50",
-    )
-    assert fill["status"] == "queued"
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="fill",
+            target="Taxi amount",
+            value="42.50",
+        )
+    assert exc_info.value.pending_action["status"] == "awaiting_approval"
 
     with pytest.raises(BrowserActionApprovalRequired) as exc_info:
         browser_session_service.request_action(session_id=session.id, action="submit")
@@ -258,18 +259,25 @@ def test_only_one_browser_command_can_be_inflight_per_tab():
         authorization_mode="session_auto",
     )
     capture_current_page(browser_session_service, session=session, token=token)
-    first = browser_session_service.request_action(
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="fill",
+            target="Expense description",
+            value="Client visit",
+        )
+    first = browser_session_service.decide_action(
         session_id=session.id,
-        action="fill",
-        target="Expense description",
-        value="Client visit",
+        action_id=exc_info.value.pending_action["id"],
+        approved=True,
     )
-    browser_session_service.request_action(
-        session_id=session.id,
-        action="fill",
-        target="Amount",
-        value="42.50",
-    )
+    with pytest.raises(BrowserActionApprovalRequired):
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="fill",
+            target="Amount",
+            value="42.50",
+        )
 
     assert browser_session_service.next_action(session_id=session.id, extension_token=token)["id"] == first["id"]
     assert browser_session_service.next_action(session_id=session.id, extension_token=token) is None
@@ -287,17 +295,29 @@ def test_unacknowledged_dispatched_command_needs_reconciliation_after_lease(tmp_
         authorization_mode="session_auto",
     )
     capture_current_page(service, session=session, token=token)
-    command = service.request_action(
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        service.request_action(
+            session_id=session.id,
+            action="fill",
+            target="Expense description",
+            value="Client visit",
+        )
+    command = service.decide_action(
         session_id=session.id,
-        action="fill",
-        target="Expense description",
-        value="Client visit",
+        action_id=exc_info.value.pending_action["id"],
+        approved=True,
     )
-    service.request_action(
+    with pytest.raises(BrowserActionApprovalRequired) as second_exc_info:
+        service.request_action(
+            session_id=session.id,
+            action="fill",
+            target="Amount",
+            value="42.50",
+        )
+    service.decide_action(
         session_id=session.id,
-        action="fill",
-        target="Amount",
-        value="42.50",
+        action_id=second_exc_info.value.pending_action["id"],
+        approved=True,
     )
     assert service.next_action(session_id=session.id, extension_token=token)["id"] == command["id"]
 
@@ -439,7 +459,13 @@ def test_cross_origin_snapshot_cancels_following_session_auto_actions():
     )
     capture_current_page(browser_session_service, session=session, token=token)
     first = approve_click(browser_session_service, session_id=session.id, target="Company login")
-    second = browser_session_service.request_action(session_id=session.id, action="fill", target="Notes", value="private")
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        browser_session_service.request_action(session_id=session.id, action="fill", target="Notes", value="private")
+    second = browser_session_service.decide_action(
+        session_id=session.id,
+        action_id=exc_info.value.pending_action["id"],
+        approved=True,
+    )
     assert browser_session_service.next_action(session_id=session.id, extension_token=token)["id"] == first["id"]
 
     browser_session_service.submit_snapshot(

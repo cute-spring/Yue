@@ -11,7 +11,7 @@ This unpacked Chrome/Chromium extension explicitly shares the current HTTP/S tab
 
 The extension registers one ephemeral browser session and uploads the current visible-text snapshot. A Yue backend restart, a user disconnect, or an extension re-authorisation creates a new session.
 
-In this Beta, Yue may prepare ordinary `fill` and `select` changes while you share a tab. It always asks for an explicit, per-command confirmation before it saves, submits, downloads, or navigates. A command that loses its browser response is marked for reconciliation and is never retried automatically.
+In this Beta, Yue asks for an explicit, per-command confirmation before every form change, save, submit, download, or navigation. A command that loses its browser response is marked for reconciliation and is never retried automatically.
 
 ## Privacy boundary
 

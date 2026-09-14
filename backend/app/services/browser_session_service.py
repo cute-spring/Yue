@@ -444,7 +444,7 @@ class BrowserSessionService:
 
     @staticmethod
     def _requires_approval(session: BrowserSession, action: str, crosses_origin: bool = False) -> bool:
-        if action in {"click", "submit", "download", "navigate"} or crosses_origin:
+        if action in {"click", "fill", "select", "submit", "download", "navigate"} or crosses_origin:
             return True
         return session.authorization_mode == "step_confirm"
 

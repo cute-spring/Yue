@@ -1,10 +1,8 @@
 const endpointInput = document.querySelector('#endpoint');
-const authorizationInput = document.querySelector('#authorization');
 const status = document.querySelector('#status');
 
-chrome.storage.local.get({ endpoint: 'http://127.0.0.1:8003/api/browser', authorization: 'step_confirm' }, ({ endpoint, authorization }) => {
+chrome.storage.local.get({ endpoint: 'http://127.0.0.1:8003/api/browser' }, ({ endpoint }) => {
   endpointInput.value = endpoint;
-  authorizationInput.value = authorization;
 });
 
 function setStatus(message, isError = false) {
@@ -14,8 +12,8 @@ function setStatus(message, isError = false) {
 
 document.querySelector('#share').addEventListener('click', async () => {
   const endpoint = endpointInput.value.replace(/\/$/, '');
-  const authorization = authorizationInput.value;
-  await chrome.storage.local.set({ endpoint, authorization });
+  const authorization = 'step_confirm';
+  await chrome.storage.local.set({ endpoint });
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url || !/^https?:/.test(tab.url)) {
     setStatus('Open an HTTP/S webpage before sharing.', true);

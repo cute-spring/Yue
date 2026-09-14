@@ -1,6 +1,6 @@
 # Yue Browser Collaboration: Local-Owner Enterprise Execution Specification
 
-**Status:** confirmed, staged for implementation
+**Status:** confirmed; staged implementation with a controlled-write Beta exception
 **Date:** 2026-09-09
 **Extends:** `2026-09-08-browser-collaboration-product-spec.md` (currently in the primary worktree)
 
@@ -9,6 +9,14 @@
 This specification turns the existing browser-extension foundation into a reliable execution channel for a locally administered Yue installation. It does not change the established limits: Yue never stores or exports passwords, cookies, tokens, MFA/verification codes, or authentication-page content; the user completes authentication in the browser; and browser authority is explicitly granted per session.
 
 The existing `BrowserSessionService` is an in-memory P1 foundation. It is not a production execution protocol: its polling command channel can lose work across extension/service-worker interruption, action completion is not connected to a recoverable chat run, and it has no durable approval or audit model.
+
+## Controlled-write Beta exception
+
+The current mainline milestone is a local-owner controlled-write Beta, not completion of this enterprise execution specification. It may share an explicitly authorized tab, fill or select a form field, and invoke a save or submit only after the local owner confirms **each command**. This stricter per-command rule overrides the routine-execution auto modes for the Beta.
+
+The Beta must retain a local redacted command-state record, bind a command to the current page snapshot, allow only one command in flight per tab, and enter Reconciliation on a lost response, lease expiry, or missing post-command snapshot. It must never automatically retry an uncertain command. Form values must not be written to the local record.
+
+The following enterprise requirements are explicitly deferred and must be completed before a production or generally available execution release: append-only hash-linked audit events; semantic page contracts and verified postconditions; sensitive-value classification and dedicated paste/upload consent; a managed reconnect transport with durable receipt queues, sequence numbers, and idempotency/deadline metadata; chat-run recovery; batch Approval Envelopes; and reusable form templates. The Beta must not enable batch execution, scheduling, background execution, or automatic write approval.
 
 ## Confirmed governance decisions
 

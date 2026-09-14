@@ -15,13 +15,7 @@
   <body>
     <label for="endpoint">Yue backend URL</label>
     <input id="endpoint" value="http://127.0.0.1:8003/api/browser" />
-    <label for="authorization">Routine fill permission</label>
-    <select id="authorization">
-      <option value="step_confirm">Confirm each action</option>
-      <option value="session_auto">Prepare fills and selects this session</option>
-      <option value="site_auto">Prepare fills and selects while this tab is shared</option>
-    </select>
-    <span class="notice">Fill and select may be prepared automatically. Save, submit, download, and navigation always require your confirmation.</span>
+    <span class="notice">Every change, save, submit, download, and navigation requires your confirmation.</span>
     <button id="share">Share current tab</button>
     <span id="status" role="status"></span>
     <script src="popup.js"></script>
