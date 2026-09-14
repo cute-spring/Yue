@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Yue Browser Companion",
+  "version": "0.1.0",
+  "description": "Explicitly share the current tab's visible page content with Yue.",
+  "permissions": ["activeTab", "storage", "tabs"],
+  "background": { "service_worker": "background.js" },
+  "host_permissions": ["http://127.0.0.1:8003/*", "http://localhost:8003/*"],
+  "action": {
+    "default_title": "Share this tab with Yue",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

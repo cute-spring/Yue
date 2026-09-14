@@ -50,7 +50,7 @@ test('real backend + real db: cross-midnight UTC history is grouped into local d
   seedScenario('cross_midnight');
   await freezeNow(page, '2026-04-11T01:00:00+08:00');
 
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
 
   const todayGroup = page.getByRole('button', { name: 'Toggle date group Today' });
   const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
@@ -70,12 +70,12 @@ test('real backend + real db: new session is grouped into Today after refresh', 
   seedScenario('new_chat_base');
   await freezeNow(page, '2026-04-11T01:00:00+08:00');
 
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toHaveCount(0);
 
   seedScenario('append_today_new_chat');
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
 
   const todayGroup = page.getByRole('button', { name: 'Toggle date group Today' });
   const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
@@ -88,7 +88,7 @@ test('real backend + real db: date groups expand and collapse correctly', async 
   seedScenario('expand_collapse');
   await freezeNow(page, '2026-04-11T12:00:00+08:00');
 
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
 
   const todayGroup = page.getByRole('button', { name: 'Toggle date group Today' });
   const yesterdayGroup = page.getByRole('button', { name: 'Toggle date group Yesterday' });
@@ -117,7 +117,7 @@ test('real backend + real db: date presets respect local day boundaries', async 
   seedScenario('date_presets');
   await freezeNow(page, '2026-04-11T12:00:00+08:00');
 
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
 
   await page.getByRole('button', { name: 'TODAY', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
@@ -141,7 +141,7 @@ test('real backend + real db: tag filter works under date grouping', async ({ pa
   seedScenario('tag_filter_search');
   await freezeNow(page, '2026-04-11T12:00:00+08:00');
 
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
 
   await page.getByPlaceholder('Search chats...').fill('api');
 
@@ -157,7 +157,7 @@ test('real backend + real db: search and date grouping stay consistent', async (
   seedScenario('tag_filter_search');
   await freezeNow(page, '2026-04-11T12:00:00+08:00');
 
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.getByPlaceholder('Search chats...').fill('design');
 
   await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toBeVisible();
@@ -174,7 +174,7 @@ test.describe('timezone matrix for cross-midnight grouping', () => {
   test('asia/shanghai: split into Today and Yesterday groups', async ({ page }) => {
     seedScenario('cross_midnight');
     await freezeNow(page, '2026-04-11T01:00:00+08:00');
-    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toBeVisible();
   });
@@ -185,7 +185,7 @@ test.describe('timezone matrix for cross-midnight grouping in UTC', () => {
   test('utc: merged into 4/10 group as local today', async ({ page }) => {
     seedScenario('cross_midnight');
     await freezeNow(page, '2026-04-11T01:00:00+08:00');
-    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveCount(0);
     await expect(page.getByText('Timezone Today Session')).toBeVisible();
@@ -198,7 +198,7 @@ test.describe('timezone matrix for cross-midnight grouping in America/Los_Angele
   test('los_angeles: merged into 4/10 group as local today', async ({ page }) => {
     seedScenario('cross_midnight');
     await freezeNow(page, '2026-04-11T01:00:00+08:00');
-    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('button', { name: 'Toggle date group Today' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Toggle date group Yesterday' })).toHaveCount(0);
     await expect(page.getByText('Timezone Today Session')).toBeVisible();

@@ -146,7 +146,7 @@ const routeWorkspaceData = async (
 };
 
 const expectSelectedWorkspace = async (page: Page) => {
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.getByTitle('Workspace').click();
   await page.getByTitle('Client Research').click();
 

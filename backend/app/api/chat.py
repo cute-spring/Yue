@@ -16,6 +16,7 @@ from app.api.chat_schemas import (
     TruncateRequest,
 )
 from app.services.chat_service import chat_service, ChatSession
+from app.services.browser_session_service import BrowserSessionError, browser_session_service
 from app.services.session_meta_service import session_meta_service
 from app.api.chat_stream_deps import (
     MultimodalService,
@@ -171,6 +172,14 @@ async def chat_stream(request: ChatRequest):
         chat_id = chat.id
     
     existing_chat = chat_service.get_chat(chat_id)
+    if request.browser_session_id:
+        try:
+            browser_session_service.attach_to_chat(
+                session_id=request.browser_session_id,
+                chat_id=chat_id,
+            )
+        except BrowserSessionError as exc:
+            raise HTTPException(status_code=400, detail=f"Browser session is unavailable: {exc}") from exc
     history = _build_history_from_chat(existing_chat)
 
     multimodal_service = MultimodalService.from_config(config_service.get_config())

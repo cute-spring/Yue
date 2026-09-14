@@ -3,6 +3,7 @@ import type { Agent, DocAccess, FeatureFlags, Preferences } from '../types';
 import { DocumentAccessSection } from './general/DocumentAccessSection';
 import { FeatureFlagsSection } from './general/FeatureFlagsSection';
 import { UserPreferencesForm } from './general/UserPreferencesForm';
+import { BrowserOriginPolicySection } from './general/BrowserOriginPolicySection';
 
 type GeneralSettingsTabProps = {
   prefs: Accessor<Preferences>;
@@ -96,6 +97,7 @@ export function GeneralSettingsTab(props: GeneralSettingsTabProps) {
         isSavingDocAccess={props.isSavingDocAccess}
         onSave={props.saveDocAccess}
       />
+      <BrowserOriginPolicySection />
     </div>
   );
 }

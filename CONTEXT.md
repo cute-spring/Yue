@@ -4,6 +4,44 @@ Yue is an AI chat-agent platform that combines provider-backed agents, MCP tools
 
 ## Language
 
+### Browser Collaboration
+
+**Browser Policy**:
+The locally owned durable set of exact HTTPS origins approved for browser collaboration, classified as business or SSO handoff.
+_Avoid_: Session trust, website allowlist
+
+**Trusted Origin**:
+One canonical exact HTTPS origin in the Browser Policy. It never includes a wildcard, path, query, or implicit subdomain.
+_Avoid_: Domain, host pattern
+
+**SSO Handoff**:
+The browser's temporary traversal of a Trusted Origin classified for authentication. Yue neither captures its page identity/content nor automates its controls.
+_Avoid_: Trusted SSO page, login session
+
+**Browser Session**:
+An ephemeral, user-authorized binding between Yue and one browser tab. It holds live control authority but is not durable permission.
+_Avoid_: Browser connection, persistent tab authorization
+
+**Browser Execution**:
+The recoverable record of a user goal being carried out through a Browser Session, including its commands, approvals, state, and evidence.
+_Avoid_: Tool call, browser task
+
+**Browser Command**:
+One ordered, idempotently identified instruction issued within a Browser Execution for a specific Browser Session.
+_Avoid_: Browser action, message
+
+**Reconciliation**:
+The user-visible state entered when Yue cannot safely establish whether a Browser Command took effect or still matches the page.
+_Avoid_: Retry, assumed failure
+
+**Approval Envelope**:
+A short-lived, session-scoped approval for a reviewed set of materially similar irreversible Browser Commands.
+_Avoid_: Auto approval, blanket consent
+
+**Audit Event**:
+A redacted, append-only local record of browser-policy, Browser Session, Browser Execution, or Approval Envelope state change.
+_Avoid_: Raw activity log, page capture
+
 **Chat execution boundary**:
 The backend boundary that converts an incoming chat request into provider execution, tool activity, streamed events, and persisted chat state.
 _Avoid_: Chat pipeline, agent loop

@@ -479,6 +479,9 @@ async def prepare_runtime_dependencies(
         )
 
     if isinstance(ctx.deps, dict):
+        ctx.deps["chat_id"] = ctx.chat_id
+        if getattr(request, "browser_session_id", None):
+            ctx.deps["browser_session_id"] = request.browser_session_id
         ctx.deps["emit_chart_artifact"] = emit_chart_artifact_payload
     ctx.model_settings = deps.patch_model_settings(
         deps.config_service.get_model_settings(ctx.provider, ctx.model_name)

@@ -1,4 +1,4 @@
-import { createSignal, Show, createEffect } from 'solid-js';
+import { createSignal, Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { SkillSpec, WorkspaceArtifact } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 import ChatSidebar from '../../../components/ChatSidebar';
@@ -23,6 +23,7 @@ import { useChatPageEffects } from '../hooks/useChatPageEffects';
 import ChatHeader from './ChatHeader';
 import { useChatContentActions } from '../hooks/useChatContentActions';
 import { buildDiscoveryQuestionnaireArtifact } from '../utils/chatCommands';
+import { useBrowserSessions } from '../../../hooks/useBrowserSessions';
 
 export default function ChatPageContent(props: {
   speechPrefs: () => Preferences;
@@ -50,6 +51,19 @@ export default function ChatPageContent(props: {
   const [showTraceShell, setShowTraceShell] = createSignal(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = createSignal<string | null>(null);
   const [historyWorkspaceFilterId, setHistoryWorkspaceFilterId] = createSignal<string | null>(null);
+  const browserSessions = useBrowserSessions();
+
+  createEffect(() => {
+    void browserSessions.refreshBrowserSessions();
+  });
+  createEffect(() => {
+    browserSessions.selectedBrowserSessionId();
+    void browserSessions.refreshBrowserActions();
+  });
+  onMount(() => {
+    const browserActionTimer = window.setInterval(() => void browserSessions.refreshBrowserActions(), 1000);
+    onCleanup(() => window.clearInterval(browserActionTimer));
+  });
 
   let textareaRef: HTMLTextAreaElement | undefined;
   let chatContainerRef: HTMLDivElement | undefined;
@@ -373,6 +387,7 @@ export default function ChatPageContent(props: {
     saveDiscoveryQuestionnaireArtifact,
     buildWorkspaceRequestOverrides: () => ({
       ...buildWorkspaceRequestOverrides(),
+      browser_session_id: browserSessions.selectedBrowserSessionId() || undefined,
       note_recall_enabled: props.speechPrefs().note_recall_enabled,
       capture_suggestions_enabled: props.speechPrefs().capture_suggestions_enabled,
       memory_suggestions_enabled: props.speechPrefs().memory_suggestions_enabled,
@@ -567,6 +582,81 @@ export default function ChatPageContent(props: {
           onRejectWorkspaceMemoryCandidate={rejectWorkspaceMemoryCandidateAndRefresh}
           onTrackWorkspaceCaptureTelemetry={trackWorkspaceCaptureTelemetry}
         />
+
+        <div class="mx-auto w-full max-w-4xl px-4 pb-2">
+          <div class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+            <span class="font-semibold">Browser</span>
+            <select
+              class="min-w-0 flex-1 rounded border border-emerald-200 bg-white px-2 py-1 text-xs dark:border-emerald-800 dark:bg-slate-900"
+              value={browserSessions.selectedBrowserSessionId() || ''}
+              onChange={(event) => {
+                browserSessions.setSelectedBrowserSessionId(event.currentTarget.value || null);
+                void browserSessions.refreshBrowserActions();
+              }}
+              aria-label="Authorized browser tab"
+            >
+              <option value="">No tab attached</option>
+              {browserSessions.sessions().map((session) => (
+                <option value={session.id}>
+                  {session.title} — {session.origin} ({session.authorization_mode})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              class="rounded px-2 py-1 font-medium hover:bg-emerald-100 dark:hover:bg-emerald-900"
+              onClick={() => void browserSessions.refreshBrowserSessions()}
+            >
+              Refresh
+            </button>
+          </div>
+          <Show when={browserSessions.browserActions().find((action) => action.status === 'awaiting_approval')}>
+            {(action) => (
+              <div class="mt-2 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                <span class="flex-1">
+                  Yue requests approval to {action().action}{action().target ? `: ${action().target}` : ''}.
+                </span>
+                <button
+                  type="button"
+                  class="rounded bg-emerald-700 px-2 py-1 font-semibold text-white"
+                  onClick={() => void browserSessions.decideBrowserAction(action().id, true)}
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-amber-500 px-2 py-1 font-semibold"
+                  onClick={() => void browserSessions.decideBrowserAction(action().id, false)}
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </Show>
+          <Show when={browserSessions.browserActions().find((action) => action.status === 'needs_reconciliation')}>
+            {(action) => (
+              <div class="mt-2 flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-950 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100">
+                <span class="flex-1">
+                  Yue could not verify {action().action}{action().target ? `: ${action().target}` : ''}. Check the page, then confirm the outcome.
+                </span>
+                <button
+                  type="button"
+                  class="rounded bg-emerald-700 px-2 py-1 font-semibold text-white"
+                  onClick={() => void browserSessions.reconcileBrowserAction(action().id, 'completed')}
+                >
+                  Applied
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-rose-500 px-2 py-1 font-semibold"
+                  onClick={() => void browserSessions.reconcileBrowserAction(action().id, 'not_applied')}
+                >
+                  Not Applied
+                </button>
+              </div>
+            )}
+          </Show>
+        </div>
 
         <ChatInput
           showAgentSelector={showAgentSelector()}
