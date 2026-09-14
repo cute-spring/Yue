@@ -9,6 +9,14 @@ async function saveSessions(value) {
   await chrome.storage.local.set({ [SESSION_KEY]: value });
 }
 
+async function reportCommandResult(session, commandId, succeeded, result) {
+  await fetch(`${session.endpoint}/sessions/${session.id}/actions/${commandId}/result`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Yue-Browser-Token': session.token },
+    body: JSON.stringify({ succeeded, result }),
+  });
+}
+
 async function pollSession(session) {
   try {
     const response = await fetch(`${session.endpoint}/sessions/${session.id}/commands/next`, {
@@ -17,19 +25,31 @@ async function pollSession(session) {
     if (response.status === 204) return;
     if (!response.ok) throw new Error('Yue browser session is unavailable.');
     const command = await response.json();
-    const result = await chrome.tabs.sendMessage(session.tabId, { type: 'yue.action', command });
-    if (result?.ok && result.url && result.title && typeof result.visible_text === 'string') {
-      await fetch(`${session.endpoint}/sessions/${session.id}/snapshot`, {
+    let result;
+    try {
+      result = await chrome.tabs.sendMessage(session.tabId, { type: 'yue.action', command });
+    } catch {
+      await reportCommandResult(session, command.id, null, { error: 'The browser command response was lost.' });
+      return;
+    }
+    if (!result?.ok) {
+      await reportCommandResult(session, command.id, Boolean(result?.ok), result || {});
+      return;
+    }
+    if (result.command_id !== command.id || !result.url || !result.title || typeof result.visible_text !== 'string') {
+      await reportCommandResult(session, command.id, null, { error: 'The browser command receipt is incomplete.' });
+      return;
+    }
+    const snapshotResponse = await fetch(`${session.endpoint}/sessions/${session.id}/snapshot`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'X-Yue-Browser-Token': session.token },
         body: JSON.stringify({ title: result.title, url: result.url, visible_text: result.visible_text }),
-      });
-    }
-    await fetch(`${session.endpoint}/sessions/${session.id}/actions/${command.id}/result`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Yue-Browser-Token': session.token },
-      body: JSON.stringify({ succeeded: Boolean(result?.ok), result: result || {} }),
     });
+    if (!snapshotResponse.ok) {
+      await reportCommandResult(session, command.id, null, { error: 'The post-command page snapshot could not be recorded.' });
+      return;
+    }
+    await reportCommandResult(session, command.id, true, result);
   } catch (error) {
     console.warn('Yue Browser Companion could not run a command.', error);
   }

@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
 import secrets
+import sqlite3
 from threading import RLock
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
@@ -22,6 +26,7 @@ from app.services.browser_policy_service import BrowserPolicyError, browser_poli
 MAX_SNAPSHOT_TEXT_CHARS = 100_000
 MIN_READ_CHARS = 500
 MAX_READ_CHARS = 50_000
+DEFAULT_COMMAND_LEASE_SECONDS = 30
 
 
 class BrowserSessionError(ValueError):
@@ -44,6 +49,101 @@ class BrowserActionApprovalRequired(BrowserSessionError):
     def __init__(self, pending_action: Dict[str, Any]) -> None:
         super().__init__("This browser action requires user approval.")
         self.pending_action = pending_action
+
+
+class BrowserCommandLedger:
+    """Durable local record of browser commands without sensitive field values."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = str(path)
+        if self.path != ":memory:":
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._connection = sqlite3.connect(self.path, check_same_thread=False)
+        self._connection.row_factory = sqlite3.Row
+        self._lock = RLock()
+        with self._connection:
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS browser_command_ledger (
+                    command_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    command_type TEXT NOT NULL,
+                    target TEXT,
+                    snapshot_id TEXT,
+                    status TEXT NOT NULL,
+                    result_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            columns = {
+                row["name"]
+                for row in self._connection.execute("PRAGMA table_info(browser_command_ledger)").fetchall()
+            }
+            if "snapshot_id" not in columns:
+                self._connection.execute("ALTER TABLE browser_command_ledger ADD COLUMN snapshot_id TEXT")
+            self._connection.execute(
+                """
+                UPDATE browser_command_ledger
+                SET status = 'needs_reconciliation', updated_at = ?
+                WHERE status = 'dispatched'
+                """,
+                (_utc_now().isoformat(),),
+            )
+
+    def record(self, *, session_id: str, command: "BrowserAction") -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO browser_command_ledger (
+                    command_id, session_id, command_type, target, snapshot_id,
+                    status, result_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(command_id) DO UPDATE SET
+                    target = excluded.target,
+                    snapshot_id = excluded.snapshot_id,
+                    status = excluded.status,
+                    result_json = excluded.result_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    command.id,
+                    session_id,
+                    command.action,
+                    command.target,
+                    command.snapshot_id,
+                    command.status,
+                    json.dumps(command.result, ensure_ascii=False) if command.result is not None else None,
+                    command.created_at.isoformat(),
+                    command.updated_at.isoformat(),
+                ),
+            )
+
+    def list_for_session(self, session_id: str) -> list[Dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT command_id, command_type, target, snapshot_id, status, result_json, created_at, updated_at
+                FROM browser_command_ledger
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                """,
+                (session_id,),
+            ).fetchall()
+        return [
+            {
+                "id": row["command_id"],
+                "action": row["command_type"],
+                "target": row["target"],
+                "snapshot_id": row["snapshot_id"],
+                "status": row["status"],
+                "result": json.loads(row["result_json"]) if row["result_json"] else None,
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
 
 
 def _utc_now() -> datetime:
@@ -70,6 +170,7 @@ def _bounded_text(value: str, *, field_name: str, limit: int) -> str:
 
 @dataclass
 class BrowserSnapshot:
+    id: str
     url: str
     title: str
     visible_text: str
@@ -79,6 +180,7 @@ class BrowserSnapshot:
         limit = max_chars if max_chars is not None else len(self.visible_text)
         visible_text = self.visible_text[:limit]
         return {
+            "id": self.id,
             "url": self.url,
             "title": self.title,
             "visible_text": visible_text,
@@ -94,6 +196,7 @@ class BrowserAction:
     action: str
     target: Optional[str] = None
     value: Optional[str] = None
+    snapshot_id: Optional[str] = None
     status: str = "queued"
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
@@ -105,6 +208,7 @@ class BrowserAction:
             "action": self.action,
             "target": self.target,
             "value": self.value,
+            "snapshot_id": self.snapshot_id,
             "status": self.status,
             "result": self.result,
             "created_at": self.created_at.isoformat(),
@@ -161,9 +265,21 @@ class BrowserSessionService:
     every session and requires an explicit re-authorisation in the extension.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        ledger_path: str | Path | None = None,
+        command_lease_seconds: int = DEFAULT_COMMAND_LEASE_SECONDS,
+    ) -> None:
         self._sessions: Dict[str, BrowserSession] = {}
         self._lock = RLock()
+        if command_lease_seconds < 0:
+            raise ValueError("command_lease_seconds must not be negative.")
+        self.command_lease_seconds = command_lease_seconds
+        if ledger_path is None:
+            data_dir = Path(os.path.expanduser(os.getenv("YUE_DATA_DIR", "~/.yue/data")))
+            ledger_path = data_dir / "browser-command-ledger.sqlite3"
+        self.command_ledger = BrowserCommandLedger(ledger_path)
 
     def register_tab(
         self,
@@ -255,7 +371,15 @@ class BrowserSessionService:
             session.title = title
             session.url = url
             session.origin = origin
-            session.snapshot = BrowserSnapshot(url=url, title=title, visible_text=visible_text.strip())
+            previous_snapshot_id = session.snapshot.id if session.snapshot else None
+            session.snapshot = BrowserSnapshot(
+                id=f"browser_snapshot_{uuid4().hex}",
+                url=url,
+                title=title,
+                visible_text=visible_text.strip(),
+            )
+            if previous_snapshot_id:
+                self._cancel_stale_commands(session, previous_snapshot_id)
             session.updated_at = _utc_now()
             return session.to_public_dict()
 
@@ -281,6 +405,8 @@ class BrowserSessionService:
             session = self.get_session(session_id)
             if session.status != "active":
                 raise BrowserSessionStateError("Browser session is not active.")
+            if session.snapshot is None:
+                raise BrowserSessionStateError("A current page snapshot is required before requesting a browser command.")
             if session.pending_navigation_action_id:
                 raise BrowserSessionStateError("Browser navigation is awaiting page reconciliation.")
             current_origin = _origin_for_url(session.url)
@@ -303,11 +429,13 @@ class BrowserSessionService:
                 action=action,
                 target=target,
                 value=value,
+                snapshot_id=session.snapshot.id if session.snapshot else None,
                 status="awaiting_approval"
                 if self._requires_approval(session, action, bool(target_origin and target_origin != current_origin))
                 else "queued",
             )
             session.actions[browser_action.id] = browser_action
+            self.command_ledger.record(session_id=session.id, command=browser_action)
             session.updated_at = _utc_now()
             payload = browser_action.to_dict()
             if browser_action.status == "awaiting_approval":
@@ -316,7 +444,7 @@ class BrowserSessionService:
 
     @staticmethod
     def _requires_approval(session: BrowserSession, action: str, crosses_origin: bool = False) -> bool:
-        if action in {"submit", "download"} or crosses_origin:
+        if action in {"click", "submit", "download", "navigate"} or crosses_origin:
             return True
         return session.authorization_mode == "step_confirm"
 
@@ -326,23 +454,27 @@ class BrowserSessionService:
             browser_action = session.actions.get(action_id)
             if browser_action is None:
                 raise BrowserSessionNotFound("Browser action not found.")
+            if browser_action.status == "cancelled" and browser_action.result == {"error": "The page changed before approval."}:
+                raise BrowserSessionStateError("The page changed before browser command approval.")
             if browser_action.status != "awaiting_approval":
                 raise BrowserSessionStateError("Browser action is not awaiting approval.")
+            if not session.snapshot or browser_action.snapshot_id != session.snapshot.id:
+                browser_action.status = "cancelled"
+                browser_action.result = {"error": "The page changed before approval."}
+                browser_action.updated_at = _utc_now()
+                self.command_ledger.record(session_id=session.id, command=browser_action)
+                raise BrowserSessionStateError("The page changed before browser command approval.")
             browser_action.status = "queued" if approved else "rejected"
             if approved and browser_action.action == "navigate" and browser_action.target:
                 if _origin_for_url(browser_action.target) != _origin_for_url(session.url):
                     session.pending_navigation_action_id = browser_action.id
             browser_action.updated_at = _utc_now()
+            self.command_ledger.record(session_id=session.id, command=browser_action)
             session.updated_at = _utc_now()
             return browser_action.to_dict()
 
     def list_actions(self, *, session_id: str) -> list[Dict[str, Any]]:
-        with self._lock:
-            session = self.get_session(session_id)
-            return [
-                item.to_public_dict()
-                for item in sorted(session.actions.values(), key=lambda action: action.created_at, reverse=True)
-            ]
+        return self.command_ledger.list_for_session(session_id)
 
     def next_action(self, *, session_id: str, extension_token: Optional[str]) -> Optional[Dict[str, Any]]:
         with self._lock:
@@ -355,6 +487,9 @@ class BrowserSessionService:
                 return None
             if current_purpose != "business":
                 self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
+                return None
+            self._expire_dispatched_commands(session)
+            if any(item.status in {"dispatched", "needs_reconciliation"} for item in session.actions.values()):
                 return None
             queued = next(
                 (
@@ -369,22 +504,43 @@ class BrowserSessionService:
                 return None
             queued.status = "dispatched"
             queued.updated_at = _utc_now()
+            self.command_ledger.record(session_id=session.id, command=queued)
             session.updated_at = _utc_now()
             return queued.to_dict()
 
-    @staticmethod
-    def _pause_for_policy_violation(session: BrowserSession, message: str) -> None:
+    def _pause_for_policy_violation(self, session: BrowserSession, message: str) -> None:
         session.status = "paused"
-        BrowserSessionService._fail_queued_actions(session, message)
+        self._fail_queued_actions(session, message)
         session.updated_at = _utc_now()
 
-    @staticmethod
-    def _fail_queued_actions(session: BrowserSession, message: str) -> None:
+    def _fail_queued_actions(self, session: BrowserSession, message: str) -> None:
         for action in session.actions.values():
             if action.status == "queued":
                 action.status = "failed"
                 action.result = {"error": message}
                 action.updated_at = _utc_now()
+                self.command_ledger.record(session_id=session.id, command=action)
+
+    def _cancel_stale_commands(self, session: BrowserSession, previous_snapshot_id: str) -> None:
+        for command in session.actions.values():
+            if command.snapshot_id != previous_snapshot_id or command.status not in {"awaiting_approval", "queued"}:
+                continue
+            command.status = "cancelled"
+            command.result = {"error": "The page changed before approval."}
+            command.updated_at = _utc_now()
+            self.command_ledger.record(session_id=session.id, command=command)
+
+    def _expire_dispatched_commands(self, session: BrowserSession) -> None:
+        now = _utc_now()
+        for command in session.actions.values():
+            if command.status != "dispatched":
+                continue
+            if (now - command.updated_at).total_seconds() < self.command_lease_seconds:
+                continue
+            command.status = "needs_reconciliation"
+            command.result = {"error": "The browser command lease expired without a completion receipt."}
+            command.updated_at = now
+            self.command_ledger.record(session_id=session.id, command=command)
 
     def complete_action(
         self,
@@ -392,7 +548,7 @@ class BrowserSessionService:
         session_id: str,
         action_id: str,
         extension_token: Optional[str],
-        succeeded: bool,
+        succeeded: Optional[bool],
         result: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         with self._lock:
@@ -409,9 +565,17 @@ class BrowserSessionService:
                 if current_purpose is None:
                     self._pause_for_policy_violation(session, "The current origin is no longer approved for browser collaboration.")
                 browser_action.result = {"message": "Browser action result was discarded after an origin-policy change."}
+            elif succeeded is None:
+                browser_action.status = "needs_reconciliation"
+                browser_action.result = {"message": "Browser command completion is uncertain and requires user reconciliation."}
             elif not succeeded:
                 browser_action.status = "failed"
                 browser_action.result = {"message": "Browser action failed."}
+            elif not session.snapshot or session.snapshot.captured_at <= browser_action.updated_at:
+                browser_action.status = "needs_reconciliation"
+                browser_action.result = {
+                    "message": "Browser command completion needs a fresh post-command page snapshot."
+                }
             else:
                 browser_action.status = "succeeded"
                 browser_action.result = {"message": "Browser action completed."}
@@ -420,6 +584,32 @@ class BrowserSessionService:
             if not succeeded and session.pending_navigation_action_id == action_id:
                 session.pending_navigation_action_id = None
             browser_action.updated_at = _utc_now()
+            self.command_ledger.record(session_id=session.id, command=browser_action)
+            session.updated_at = _utc_now()
+            return browser_action.to_dict()
+
+    def reconcile_action(self, *, session_id: str, action_id: str, outcome: str) -> Dict[str, Any]:
+        if outcome not in {"completed", "not_applied"}:
+            raise BrowserSessionError("Unsupported browser command reconciliation outcome.")
+        with self._lock:
+            session = self.get_session(session_id)
+            browser_action = session.actions.get(action_id)
+            if browser_action is None:
+                raise BrowserSessionNotFound("Browser action not found.")
+            if browser_action.status != "needs_reconciliation":
+                raise BrowserSessionStateError("Browser action does not need reconciliation.")
+            browser_action.status = "succeeded" if outcome == "completed" else "cancelled"
+            browser_action.result = {
+                "message": (
+                    "The user confirmed that the browser command completed."
+                    if outcome == "completed"
+                    else "The user confirmed that the browser command was not applied."
+                )
+            }
+            browser_action.updated_at = _utc_now()
+            self.command_ledger.record(session_id=session.id, command=browser_action)
+            if browser_action.snapshot_id:
+                self._cancel_stale_commands(session, browser_action.snapshot_id)
             session.updated_at = _utc_now()
             return browser_action.to_dict()
 

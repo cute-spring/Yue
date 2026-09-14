@@ -633,6 +633,29 @@ export default function ChatPageContent(props: {
               </div>
             )}
           </Show>
+          <Show when={browserSessions.browserActions().find((action) => action.status === 'needs_reconciliation')}>
+            {(action) => (
+              <div class="mt-2 flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-950 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100">
+                <span class="flex-1">
+                  Yue could not verify {action().action}{action().target ? `: ${action().target}` : ''}. Check the page, then confirm the outcome.
+                </span>
+                <button
+                  type="button"
+                  class="rounded bg-emerald-700 px-2 py-1 font-semibold text-white"
+                  onClick={() => void browserSessions.reconcileBrowserAction(action().id, 'completed')}
+                >
+                  Applied
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-rose-500 px-2 py-1 font-semibold"
+                  onClick={() => void browserSessions.reconcileBrowserAction(action().id, 'not_applied')}
+                >
+                  Not Applied
+                </button>
+              </div>
+            )}
+          </Show>
         </div>
 
         <ChatInput

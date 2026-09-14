@@ -38,6 +38,15 @@ def register_tab(client):
     return response.json()
 
 
+def upload_current_snapshot(client, session):
+    response = client.post(
+        f"/api/browser/sessions/{session['id']}/snapshot",
+        headers={"X-Yue-Browser-Token": session["extension_token"]},
+        json={"title": "Orders", "url": "https://app.example.com/orders", "visible_text": "Save changes"},
+    )
+    assert response.status_code == 200
+
+
 def test_browser_api_registers_snapshot_and_never_lists_extension_token(client):
     session = register_tab(client)
     snapshot_response = client.post(
@@ -78,6 +87,7 @@ def test_browser_api_returns_pending_submit_then_allows_explicit_approval(client
             "authorization_mode": "session_auto",
         },
     ).json()
+    upload_current_snapshot(client, session)
 
     pending = client.post(f"/api/browser/sessions/{session['id']}/actions", json={"action": "submit"})
 
@@ -94,6 +104,7 @@ def test_browser_api_returns_pending_submit_then_allows_explicit_approval(client
 
 def test_browser_api_lists_pending_actions_without_revealing_fill_values(client):
     session = register_tab(client)
+    upload_current_snapshot(client, session)
     action = client.post(
         f"/api/browser/sessions/{session['id']}/actions",
         json={"action": "fill", "target": "Expense description", "value": "Private taxi receipt"},
@@ -105,6 +116,38 @@ def test_browser_api_lists_pending_actions_without_revealing_fill_values(client)
     assert listed.status_code == 200
     assert listed.json()[0]["target"] == "Expense description"
     assert "value" not in listed.json()[0]
+
+
+def test_browser_api_reconciles_an_uncertain_submitted_command(client):
+    session = register_tab(client)
+    upload_current_snapshot(client, session)
+    pending = client.post(
+        f"/api/browser/sessions/{session['id']}/actions",
+        json={"action": "click", "target": "Save changes"},
+    ).json()["action"]
+    client.post(
+        f"/api/browser/sessions/{session['id']}/actions/{pending['id']}/decision",
+        json={"approved": True},
+    )
+    dispatched = client.get(
+        f"/api/browser/sessions/{session['id']}/commands/next",
+        headers={"X-Yue-Browser-Token": session["extension_token"]},
+    ).json()
+
+    uncertain = client.post(
+        f"/api/browser/sessions/{session['id']}/actions/{dispatched['id']}/result",
+        headers={"X-Yue-Browser-Token": session["extension_token"]},
+        json={"succeeded": None, "result": {"error": "The browser response was lost."}},
+    )
+
+    assert uncertain.status_code == 200
+    assert uncertain.json()["status"] == "needs_reconciliation"
+    reconciled = client.post(
+        f"/api/browser/sessions/{session['id']}/actions/{dispatched['id']}/reconciliation",
+        json={"outcome": "not_applied"},
+    )
+    assert reconciled.status_code == 200
+    assert reconciled.json()["status"] == "cancelled"
 
 
 @pytest.mark.asyncio

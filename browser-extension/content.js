@@ -11,7 +11,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type !== 'yue.action') return;
   try {
-    const { action, target, value } = message.command;
+    const { id, action, target, value } = message.command;
+    const beforeUrl = location.href;
     const element = target ? yueFindTarget(target) : null;
     if (action === 'fill' || action === 'select') {
       if (!element || element instanceof HTMLInputElement && element.type === 'password') throw new Error('Target field is unavailable or protected.');
@@ -31,18 +32,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     } else if (action === 'navigate') {
       location.assign(target);
     }
-    sendResponse({ ok: true, title: document.title || location.hostname, url: location.href, visible_text: yueVisibleText() });
+    sendResponse({
+      ok: true,
+      command_id: id,
+      before_url: beforeUrl,
+      after_url: location.href,
+      title: document.title || location.hostname,
+      url: location.href,
+      visible_text: yueVisibleText(),
+    });
   } catch (error) {
-    sendResponse({ ok: false, error: error instanceof Error ? error.message : 'Browser action failed.' });
+    sendResponse({
+      ok: false,
+      command_id: message.command?.id,
+      error: error instanceof Error ? error.message : 'Browser action failed.',
+    });
   }
 });
 
 function yueFindTarget(target) {
   const normalized = target.trim().toLowerCase();
   const candidates = [...document.querySelectorAll('button, a, input, select, textarea, [role="button"], [aria-label]')];
-  return candidates.find((element) => {
+  const matches = candidates.filter((element) => {
     const labels = [element.getAttribute('aria-label'), element.getAttribute('placeholder'), element.getAttribute('name'), element.innerText, element.value]
       .filter(Boolean).map((label) => label.trim().toLowerCase());
     return labels.includes(normalized);
-  }) || null;
+  });
+  if (matches.length > 1) throw new Error('Multiple controls match the browser command target.');
+  return matches[0] || null;
 }

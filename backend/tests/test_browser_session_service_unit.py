@@ -2,6 +2,7 @@ import pytest
 
 from app.services.browser_session_service import (
     BrowserActionApprovalRequired,
+    BrowserSessionService,
     BrowserSessionStateError,
     BrowserSessionUnauthorized,
     browser_session_service,
@@ -29,6 +30,26 @@ def register_example_tab():
         tab_id="123",
         title="Quarterly dashboard",
         url="https://reports.example.com/dashboard",
+    )
+
+
+def approve_click(service, *, session_id: str, target: str):
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        service.request_action(session_id=session_id, action="click", target=target)
+    return service.decide_action(
+        session_id=session_id,
+        action_id=exc_info.value.pending_action["id"],
+        approved=True,
+    )
+
+
+def capture_current_page(service, *, session, token, visible_text: str = "Page ready"):
+    service.submit_snapshot(
+        session_id=session.id,
+        extension_token=token,
+        title=session.title,
+        url=session.url,
+        visible_text=visible_text,
     )
 
 
@@ -119,6 +140,7 @@ def test_session_auto_fills_but_submit_requires_explicit_approval():
         url="https://erp.example.com/expense",
         authorization_mode="session_auto",
     )
+    capture_current_page(browser_session_service, session=session, token=token)
 
     fill = browser_session_service.request_action(
         session_id=session.id,
@@ -139,6 +161,159 @@ def test_session_auto_fills_but_submit_requires_explicit_approval():
         approved=True,
     )
     assert approved["status"] == "queued"
+
+
+def test_session_auto_click_still_requires_explicit_approval():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Expense form",
+        url="https://erp.example.com/expense",
+        authorization_mode="session_auto",
+    )
+    capture_current_page(browser_session_service, session=session, token=token)
+
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="click",
+            target="Save changes",
+        )
+
+    assert exc_info.value.pending_action["status"] == "awaiting_approval"
+
+
+def test_dispatched_command_restarts_as_needs_reconciliation(tmp_path):
+    ledger_path = tmp_path / "browser-command-ledger.sqlite3"
+    service = BrowserSessionService(ledger_path=ledger_path)
+    session, token = service.register_tab(
+        tab_id="123",
+        title="Expense form",
+        url="https://erp.example.com/expense",
+        authorization_mode="session_auto",
+    )
+    capture_current_page(service, session=session, token=token)
+
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        service.request_action(session_id=session.id, action="click", target="Save changes")
+    command_id = exc_info.value.pending_action["id"]
+    service.decide_action(session_id=session.id, action_id=command_id, approved=True)
+    assert service.next_action(session_id=session.id, extension_token=token)["status"] == "dispatched"
+
+    restarted = BrowserSessionService(ledger_path=ledger_path)
+
+    assert restarted.list_actions(session_id=session.id)[0]["status"] == "needs_reconciliation"
+
+
+def test_page_change_invalidates_pending_command_approval():
+    session, token = register_example_tab()
+    browser_session_service.submit_snapshot(
+        session_id=session.id,
+        extension_token=token,
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard",
+        visible_text="Save changes",
+    )
+    with pytest.raises(BrowserActionApprovalRequired) as exc_info:
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="click",
+            target="Save changes",
+        )
+    command_id = exc_info.value.pending_action["id"]
+
+    browser_session_service.submit_snapshot(
+        session_id=session.id,
+        extension_token=token,
+        title="Quarterly dashboard",
+        url="https://reports.example.com/dashboard?version=2",
+        visible_text="Different page state",
+    )
+
+    with pytest.raises(BrowserSessionStateError, match="page changed"):
+        browser_session_service.decide_action(
+            session_id=session.id,
+            action_id=command_id,
+            approved=True,
+        )
+    assert browser_session_service.list_actions(session_id=session.id)[0]["status"] == "cancelled"
+
+
+def test_browser_command_requires_a_current_page_snapshot():
+    session, _ = register_example_tab()
+
+    with pytest.raises(BrowserSessionStateError, match="snapshot"):
+        browser_session_service.request_action(
+            session_id=session.id,
+            action="fill",
+            target="Expense description",
+            value="Client visit",
+        )
+
+
+def test_only_one_browser_command_can_be_inflight_per_tab():
+    session, token = browser_session_service.register_tab(
+        tab_id="123",
+        title="Expense form",
+        url="https://erp.example.com/expense",
+        authorization_mode="session_auto",
+    )
+    capture_current_page(browser_session_service, session=session, token=token)
+    first = browser_session_service.request_action(
+        session_id=session.id,
+        action="fill",
+        target="Expense description",
+        value="Client visit",
+    )
+    browser_session_service.request_action(
+        session_id=session.id,
+        action="fill",
+        target="Amount",
+        value="42.50",
+    )
+
+    assert browser_session_service.next_action(session_id=session.id, extension_token=token)["id"] == first["id"]
+    assert browser_session_service.next_action(session_id=session.id, extension_token=token) is None
+
+
+def test_unacknowledged_dispatched_command_needs_reconciliation_after_lease(tmp_path):
+    service = BrowserSessionService(
+        ledger_path=tmp_path / "browser-command-ledger.sqlite3",
+        command_lease_seconds=0,
+    )
+    session, token = service.register_tab(
+        tab_id="123",
+        title="Expense form",
+        url="https://erp.example.com/expense",
+        authorization_mode="session_auto",
+    )
+    capture_current_page(service, session=session, token=token)
+    command = service.request_action(
+        session_id=session.id,
+        action="fill",
+        target="Expense description",
+        value="Client visit",
+    )
+    service.request_action(
+        session_id=session.id,
+        action="fill",
+        target="Amount",
+        value="42.50",
+    )
+    assert service.next_action(session_id=session.id, extension_token=token)["id"] == command["id"]
+
+    assert service.next_action(session_id=session.id, extension_token=token) is None
+    statuses = {item["id"]: item["status"] for item in service.list_actions(session_id=session.id)}
+    assert statuses[command["id"]] == "needs_reconciliation"
+    assert "dispatched" not in statuses.values()
+
+    reconciled = service.reconcile_action(
+        session_id=session.id,
+        action_id=command["id"],
+        outcome="not_applied",
+    )
+
+    assert reconciled["status"] == "cancelled"
+    assert all(item["status"] == "cancelled" for item in service.list_actions(session_id=session.id))
 
 
 def test_sso_handoff_policy_redacts_snapshot_after_cross_origin_navigation():
@@ -180,7 +355,8 @@ def test_sso_handoff_redacts_page_identity_blocks_actions_and_disarms_auto_mode(
 
 
 def test_cross_origin_navigation_always_needs_approval():
-    session, _ = register_example_tab()
+    session, token = register_example_tab()
+    capture_current_page(browser_session_service, session=session, token=token)
 
     with pytest.raises(BrowserActionApprovalRequired) as exc_info:
         browser_session_service.request_action(
@@ -199,7 +375,8 @@ def test_sso_handoff_allows_browser_return_but_blocks_actions_and_redacts_result
         url="https://reports.example.com/dashboard",
         authorization_mode="session_auto",
     )
-    action = browser_session_service.request_action(session_id=session.id, action="click", target="Company login")
+    capture_current_page(browser_session_service, session=session, token=token)
+    action = approve_click(browser_session_service, session_id=session.id, target="Company login")
     dispatched = browser_session_service.next_action(session_id=session.id, extension_token=token)
     assert dispatched["id"] == action["id"]
     browser_session_service.submit_snapshot(
@@ -239,6 +416,7 @@ def test_cross_origin_navigation_blocks_following_queued_actions_until_page_chan
         url="https://reports.example.com/dashboard",
         authorization_mode="session_auto",
     )
+    capture_current_page(browser_session_service, session=session, token=token)
     with pytest.raises(BrowserActionApprovalRequired) as exc_info:
         browser_session_service.request_action(
             session_id=session.id,
@@ -259,7 +437,8 @@ def test_cross_origin_snapshot_cancels_following_session_auto_actions():
         url="https://reports.example.com/dashboard",
         authorization_mode="session_auto",
     )
-    first = browser_session_service.request_action(session_id=session.id, action="click", target="Company login")
+    capture_current_page(browser_session_service, session=session, token=token)
+    first = approve_click(browser_session_service, session_id=session.id, target="Company login")
     second = browser_session_service.request_action(session_id=session.id, action="fill", target="Notes", value="private")
     assert browser_session_service.next_action(session_id=session.id, extension_token=token)["id"] == first["id"]
 
@@ -281,7 +460,8 @@ def test_revoked_origin_discards_inflight_action_result():
         url="https://reports.example.com/dashboard",
         authorization_mode="session_auto",
     )
-    action = browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+    capture_current_page(browser_session_service, session=session, token=token)
+    action = approve_click(browser_session_service, session_id=session.id, target="Refresh")
     browser_session_service.next_action(session_id=session.id, extension_token=token)
     browser_policy_service.replace_origins_for_tests([])
 
@@ -304,7 +484,8 @@ def test_revoked_origin_pauses_session_and_prevents_new_or_queued_actions():
         url="https://reports.example.com/dashboard",
         authorization_mode="session_auto",
     )
-    queued = browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+    capture_current_page(browser_session_service, session=session, token=token)
+    queued = approve_click(browser_session_service, session_id=session.id, target="Refresh")
     browser_policy_service.replace_origins_for_tests([])
 
     with pytest.raises(BrowserSessionUnauthorized):
@@ -329,7 +510,8 @@ def test_unapproved_redirect_pauses_session_and_cancels_queued_actions():
         url="https://reports.example.com/dashboard",
         authorization_mode="session_auto",
     )
-    queued = browser_session_service.request_action(session_id=session.id, action="click", target="Refresh")
+    capture_current_page(browser_session_service, session=session, token=token)
+    queued = approve_click(browser_session_service, session_id=session.id, target="Refresh")
 
     with pytest.raises(BrowserSessionUnauthorized):
         browser_session_service.submit_snapshot(
@@ -349,3 +531,37 @@ def test_registration_requires_a_locally_approved_business_origin():
 
     with pytest.raises(BrowserSessionUnauthorized):
         register_example_tab()
+
+
+def test_successful_command_requires_a_fresh_post_command_snapshot():
+    session, token = register_example_tab()
+    capture_current_page(browser_session_service, session=session, token=token)
+    approved = approve_click(browser_session_service, session_id=session.id, target="Save changes")
+    dispatched = browser_session_service.next_action(session_id=session.id, extension_token=token)
+
+    completed = browser_session_service.complete_action(
+        session_id=session.id,
+        action_id=dispatched["id"],
+        extension_token=token,
+        succeeded=True,
+    )
+
+    assert completed["id"] == approved["id"]
+    assert completed["status"] == "needs_reconciliation"
+
+
+def test_successful_command_accepts_a_fresh_post_command_snapshot():
+    session, token = register_example_tab()
+    capture_current_page(browser_session_service, session=session, token=token)
+    approve_click(browser_session_service, session_id=session.id, target="Save changes")
+    dispatched = browser_session_service.next_action(session_id=session.id, extension_token=token)
+    capture_current_page(browser_session_service, session=session, token=token, visible_text="Saved")
+
+    completed = browser_session_service.complete_action(
+        session_id=session.id,
+        action_id=dispatched["id"],
+        extension_token=token,
+        succeeded=True,
+    )
+
+    assert completed["status"] == "succeeded"

@@ -13,7 +13,7 @@ export type BrowserAction = {
   id: string;
   action: string;
   target?: string | null;
-  status: 'awaiting_approval' | 'queued' | 'dispatched' | 'succeeded' | 'failed' | 'rejected';
+  status: 'awaiting_approval' | 'queued' | 'dispatched' | 'needs_reconciliation' | 'succeeded' | 'failed' | 'cancelled' | 'rejected';
 };
 
 export type BrowserPolicyOrigin = {
@@ -81,6 +81,18 @@ export function useBrowserSessions() {
     await refreshBrowserActions();
   };
 
+  const reconcileBrowserAction = async (actionId: string, outcome: 'completed' | 'not_applied') => {
+    const sessionId = selectedBrowserSessionId();
+    if (!sessionId) return;
+    const response = await fetch(`/api/browser/sessions/${sessionId}/actions/${actionId}/reconciliation`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ outcome }),
+    });
+    if (!response.ok) throw new Error('Could not reconcile browser command.');
+    await refreshBrowserActions();
+  };
+
   const refreshPolicyOrigins = async () => {
     const response = await fetch('/api/browser/policy/origins');
     if (!response.ok) throw new Error('Browser origin policy is unavailable.');
@@ -124,6 +136,7 @@ export function useBrowserSessions() {
     refreshBrowserSessions,
     refreshBrowserActions,
     decideBrowserAction,
+    reconcileBrowserAction,
     refreshPolicyOrigins,
     requestPolicyOrigin,
     decidePolicyOrigin,

@@ -8,18 +8,20 @@
       body { font: 13px system-ui, sans-serif; margin: 14px; width: 280px; color: #172033; }
       button { width: 100%; border: 0; border-radius: 7px; background: #059669; color: white; cursor: pointer; padding: 9px; }
       input { box-sizing: border-box; margin: 6px 0 10px; padding: 6px; width: 100%; }
-      label, #status { display: block; } #status { margin-top: 10px; line-height: 1.4; }
+      label, #status, .notice { display: block; } #status { margin-top: 10px; line-height: 1.4; }
+      .notice { color: #475569; font-size: 12px; line-height: 1.4; margin: 0 0 10px; }
     </style>
   </head>
   <body>
     <label for="endpoint">Yue backend URL</label>
     <input id="endpoint" value="http://127.0.0.1:8003/api/browser" />
-    <label for="authorization">Automation permission</label>
+    <label for="authorization">Routine fill permission</label>
     <select id="authorization">
       <option value="step_confirm">Confirm each action</option>
-      <option value="session_auto">Automate ordinary actions this session</option>
-      <option value="site_auto">Automate ordinary actions for this site</option>
+      <option value="session_auto">Prepare fills and selects this session</option>
+      <option value="site_auto">Prepare fills and selects while this tab is shared</option>
     </select>
+    <span class="notice">Fill and select may be prepared automatically. Save, submit, download, and navigation always require your confirmation.</span>
     <button id="share">Share current tab</button>
     <span id="status" role="status"></span>
     <script src="popup.js"></script>

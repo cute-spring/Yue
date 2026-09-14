@@ -34,4 +34,21 @@ describe('browser origin policy controls', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/browser/policy/origins/https%3A%2F%2Ferp.example.com', { method: 'DELETE' });
     expect(browser.policyOrigins()).toEqual([]);
   });
+
+  it('reconciles an uncertain browser command and refreshes its visible state', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ status: 'cancelled' }))
+      .mockResolvedValueOnce(response([]));
+    vi.stubGlobal('fetch', fetchMock);
+    const browser = useBrowserSessions();
+    browser.setSelectedBrowserSessionId('session-1');
+
+    await browser.reconcileBrowserAction('command-1', 'not_applied');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/browser/sessions/session-1/actions/command-1/reconciliation',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
 });

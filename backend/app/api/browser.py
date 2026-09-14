@@ -54,8 +54,12 @@ class BrowserActionDecision(BaseModel):
 
 
 class BrowserActionResult(BaseModel):
-    succeeded: bool
+    succeeded: bool | None
     result: dict = Field(default_factory=dict)
+
+
+class BrowserActionReconciliation(BaseModel):
+    outcome: Literal["completed", "not_applied"]
 
 
 def _raise_browser_error(exc: BrowserSessionError) -> None:
@@ -201,6 +205,22 @@ async def complete_browser_action(
             action_id=action_id,
             extension_token=x_yue_browser_token,
             **request.model_dump(),
+        )
+    except BrowserSessionError as exc:
+        _raise_browser_error(exc)
+
+
+@router.post("/sessions/{session_id}/actions/{action_id}/reconciliation")
+async def reconcile_browser_action(
+    session_id: str,
+    action_id: str,
+    request: BrowserActionReconciliation,
+):
+    try:
+        return browser_session_service.reconcile_action(
+            session_id=session_id,
+            action_id=action_id,
+            outcome=request.outcome,
         )
     except BrowserSessionError as exc:
         _raise_browser_error(exc)
