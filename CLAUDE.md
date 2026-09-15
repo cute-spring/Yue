@@ -46,7 +46,7 @@ PYTHONPATH=. pytest                        # Run all tests
 ### Environment
 - Backend `.env` is at `backend/.env` (copied from `backend/.env.example` by setup.sh)
 - On macOS: `DYLD_FALLBACK_LIBRARY_PATH` may need to be set to `/opt/homebrew/lib` for WeasyPrint
-- Session context manager dependency: local dev uses a sibling `session-context-manager/src/` directory; production uses a wheel
+- Session context is implemented in `backend/app/modules/session_context/`; it has no separate runtime package or checkout.
 
 ## Architecture
 

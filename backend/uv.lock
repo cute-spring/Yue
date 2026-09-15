@@ -3202,11 +3202,6 @@ wheels = [
 ]
 
 [[package]]
-name = "session-context-manager"
-version = "0.1.0"
-source = { git = "https://github.com/cute-spring/session-context-manager.git?rev=fcc07a62f23df1060b50d6ef499756f1b4eee13f#fcc07a62f23df1060b50d6ef499756f1b4eee13f" }
-
-[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3840,7 +3835,6 @@ dependencies = [
     { name = "python-json-logger" },
     { name = "python-pptx" },
     { name = "pyyaml" },
-    { name = "session-context-manager" },
     { name = "sqlalchemy" },
     { name = "sqlite-vec" },
     { name = "uvicorn" },
@@ -3881,7 +3875,6 @@ requires-dist = [
     { name = "python-json-logger" },
     { name = "python-pptx" },
     { name = "pyyaml" },
-    { name = "session-context-manager", git = "https://github.com/cute-spring/session-context-manager.git?rev=fcc07a62f23df1060b50d6ef499756f1b4eee13f" },
     { name = "sqlalchemy", specifier = ">=2.0.48" },
     { name = "sqlite-vec" },
     { name = "uvicorn" },

@@ -33,11 +33,8 @@
 ./check.sh
 ```
 
-### 4. 记忆依赖部署
-`Yue` 的 session-context 能力依赖 `session-context-manager` 这个独立 Python 包。  
-本地开发可以直接使用同级源码仓库；远端或正式环境建议安装内部 wheel。
-
-详细说明见 [Session Context Deployment Guide](docs/guides/developer/SESSION_CONTEXT_DEPLOYMENT_GUIDE.md)。
+### 4. 会话上下文
+`Yue` 内置 session-context 模块；无需下载或安装额外仓库。详细说明见 [Session Context Deployment Guide](docs/guides/developer/SESSION_CONTEXT_DEPLOYMENT_GUIDE.md)。
 
 ---
 

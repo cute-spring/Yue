@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Sequence
 
-from session_context_manager import (
+from app.modules.session_context import (
     ChunkBuilder,
     ContextEvent,
     ContextResolutionConfig,

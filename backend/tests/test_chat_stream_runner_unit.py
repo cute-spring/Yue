@@ -26,7 +26,7 @@ from app.core.database import Base
 from app.services.chat_service import ChatService
 from app.services.memory.session_context_host import YuePromptContextBridge, YueSessionContextService
 from app.services import chat_prompting
-from session_context_manager import ExportedPromptContext, PromptContextBlock, ResolutionCandidate, export_prompt_context
+from app.modules.session_context import ExportedPromptContext, PromptContextBlock, ResolutionCandidate, export_prompt_context
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
