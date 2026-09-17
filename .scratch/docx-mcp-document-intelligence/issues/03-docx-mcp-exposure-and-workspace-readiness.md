@@ -6,13 +6,13 @@
 
 **Blocked by:** 02: Deliver the DOCX reader MVP.
 
-**Status:** ready-for-agent
+**Status:** completed
 
 **Affected backend areas:** Built-in tool registration/catalog; workspace source readiness; agent/tool discovery guidance; source metadata and citations.
 
 **Tests:** Tool registry tests; workspace source readiness tests for DOCX uploads/local sources; regression tests for existing XLSX, PDF, Markdown, and text source capability lists.
 
-- [ ] Built-in MCP discovery exposes the three reader MVP tool names and descriptions to enabled agents.
-- [ ] A ready `.docx` workspace source advertises only the delivered DOCX reader capabilities and remains citation-capable.
-- [ ] Unsupported, absent, or failed DOCX sources do not claim reader readiness.
-- [ ] Existing workspace capability mappings remain unchanged for non-DOCX files.
+- [x] Built-in MCP discovery exposes the three reader MVP tool names and descriptions to enabled agents.
+- [x] A ready `.docx` workspace source advertises only the delivered DOCX reader capabilities and remains citation-capable.
+- [x] Unsupported, absent, or failed DOCX sources do not claim reader readiness.
+- [x] Existing workspace capability mappings remain unchanged for non-DOCX files.

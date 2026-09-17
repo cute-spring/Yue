@@ -289,6 +289,190 @@ def test_workspace_source_readiness_marks_existing_excel_upload_ready(temp_db, t
     )
 
 
+def test_workspace_source_readiness_marks_existing_docx_upload_ready(temp_db, tmp_path, monkeypatch):
+    workspace_service, _, _ = temp_db
+    upload_file = tmp_path / "uploads" / "chat" / "2026" / "05" / "30" / "brief.docx"
+    upload_file.parent.mkdir(parents=True)
+    upload_file.write_bytes(b"fake docx payload")
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path))
+    workspace = workspace_service.create_workspace(name="Upload DOCX")
+    source = workspace_service.create_source(
+        workspace.id,
+        source_type="upload",
+        source_ref="uploads/chat/2026/05/30/brief.docx",
+        display_name="brief.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    result = workspace_service.check_source(workspace.id, source.id)
+
+    assert result is not None
+    assert result.status == "ready"
+    assert result.source.source_metadata["citation_capable"] is True
+    assert result.source.source_metadata["available_tools"] == [
+        "docx_profile",
+        "docx_read",
+        "docx_extract_tables",
+    ]
+
+
+def test_workspace_source_readiness_marks_allowed_local_docx_ready(temp_db, tmp_path):
+    workspace_service, _, _ = temp_db
+    source_file = tmp_path / "brief.docx"
+    source_file.write_bytes(b"fake docx payload")
+    workspace = workspace_service.create_workspace(name="Local DOCX")
+    source = workspace_service.create_source(
+        workspace.id,
+        source_type="local_file",
+        source_ref=str(source_file),
+        display_name="brief.docx",
+    )
+
+    with patch("app.services.workspace_service.config_service.get_doc_access_roots", return_value=([str(tmp_path)], [])):
+        result = workspace_service.check_source(workspace.id, source.id)
+
+    assert result is not None
+    assert result.status == "ready"
+    assert result.source.source_metadata["citation_capable"] is True
+    assert result.source.source_metadata["available_tools"] == [
+        "docx_profile",
+        "docx_read",
+        "docx_extract_tables",
+    ]
+
+
+def test_workspace_source_readiness_does_not_advertise_missing_docx_tools(temp_db, tmp_path, monkeypatch):
+    workspace_service, _, _ = temp_db
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path))
+    workspace = workspace_service.create_workspace(name="Missing DOCX")
+    source = workspace_service.create_source(
+        workspace.id,
+        source_type="upload",
+        source_ref="uploads/chat/2026/05/30/missing.docx",
+        display_name="missing.docx",
+    )
+
+    result = workspace_service.check_source(workspace.id, source.id)
+
+    assert result is not None
+    assert result.status == "missing"
+    assert result.source.source_metadata["citation_capable"] is False
+    assert result.source.source_metadata["available_tools"] == []
+
+
+def test_workspace_source_readiness_does_not_advertise_denied_docx_tools(temp_db, tmp_path):
+    workspace_service, _, _ = temp_db
+    source_file = tmp_path / "denied.docx"
+    source_file.write_bytes(b"fake docx payload")
+    workspace = workspace_service.create_workspace(name="Denied DOCX")
+    source = workspace_service.create_source(
+        workspace.id,
+        source_type="local_file",
+        source_ref=str(source_file),
+        display_name="denied.docx",
+    )
+
+    with patch("app.services.workspace_service.config_service.get_doc_access_roots", return_value=([], [])):
+        result = workspace_service.check_source(workspace.id, source.id)
+
+    assert result is not None
+    assert result.status == "needs_permission"
+    assert result.source.source_metadata["citation_capable"] is False
+    assert result.source.source_metadata["available_tools"] == []
+
+
+def test_workspace_source_readiness_does_not_advertise_failed_docx_tools_until_reregistered(temp_db, tmp_path, monkeypatch):
+    workspace_service, _, _ = temp_db
+    upload_file = tmp_path / "uploads" / "chat" / "2026" / "05" / "30" / "failed.docx"
+    upload_file.parent.mkdir(parents=True)
+    upload_file.write_bytes(b"fake docx payload")
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path))
+    workspace = workspace_service.create_workspace(name="Failed DOCX")
+    source = workspace_service.create_source(
+        workspace.id,
+        source_type="upload",
+        source_ref="uploads/chat/2026/05/30/failed.docx",
+        display_name="failed.docx",
+        status="failed",
+    )
+
+    failed_result = workspace_service.check_source(workspace.id, source.id)
+
+    assert failed_result is not None
+    assert failed_result.status == "failed"
+    assert failed_result.source.source_metadata["citation_capable"] is False
+    assert failed_result.source.source_metadata["available_tools"] == []
+
+    reregistered = workspace_service.create_source(
+        workspace.id,
+        source_type="upload",
+        source_ref="uploads/chat/2026/05/30/failed.docx",
+        display_name="failed.docx",
+        status="ready",
+    )
+    recovered_result = workspace_service.check_source(workspace.id, reregistered.id)
+
+    assert recovered_result is not None
+    assert recovered_result.status == "ready"
+    assert recovered_result.source.source_metadata["available_tools"] == [
+        "docx_profile",
+        "docx_read",
+        "docx_extract_tables",
+    ]
+
+
+def test_workspace_source_readiness_keeps_non_docx_capability_mapping_on_missing_file(temp_db, tmp_path, monkeypatch):
+    workspace_service, _, _ = temp_db
+    monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path))
+    workspace = workspace_service.create_workspace(name="Missing PDF")
+    source = workspace_service.create_source(
+        workspace.id,
+        source_type="upload",
+        source_ref="uploads/chat/2026/05/30/missing.pdf",
+        display_name="missing.pdf",
+    )
+
+    result = workspace_service.check_source(workspace.id, source.id)
+
+    assert result is not None
+    assert result.status == "missing"
+    assert result.source.source_metadata["citation_capable"] is True
+    assert result.source.source_metadata["available_tools"] == ["docs_read_pdf", "docs_search_pdf"]
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_tools"),
+    [
+        ("notes.md", ["docs_read", "docs_search"]),
+        ("notes.txt", ["docs_read", "docs_search"]),
+    ],
+)
+def test_workspace_source_readiness_keeps_text_source_capability_mappings(
+    temp_db,
+    tmp_path,
+    filename,
+    expected_tools,
+):
+    workspace_service, _, _ = temp_db
+    source_file = tmp_path / filename
+    source_file.write_text("notes")
+    workspace = workspace_service.create_workspace(name=f"Text source {filename}")
+    source = workspace_service.create_source(
+        workspace.id,
+        source_type="local_file",
+        source_ref=str(source_file),
+        display_name=filename,
+    )
+
+    with patch("app.services.workspace_service.config_service.get_doc_access_roots", return_value=([str(tmp_path)], [])):
+        result = workspace_service.check_source(workspace.id, source.id)
+
+    assert result is not None
+    assert result.status == "ready"
+    assert result.source.source_metadata["citation_capable"] is True
+    assert result.source.source_metadata["available_tools"] == expected_tools
+
+
 def test_workspace_source_readiness_marks_missing_upload_unavailable(temp_db, tmp_path, monkeypatch):
     workspace_service, _, _ = temp_db
     monkeypatch.setenv("YUE_DATA_DIR", str(tmp_path))

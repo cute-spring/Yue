@@ -26,12 +26,13 @@ from app.utils.upload_storage import get_uploads_root
 
 logger = logging.getLogger(__name__)
 _UNSET = object()
-READY_SOURCE_EXTENSIONS = {".pdf", ".xlsx", ".xls", ".csv", ".md", ".txt"}
-READABLE_UPLOAD_EXTENSIONS = {".pdf", ".xlsx", ".xls", ".csv"}
+READY_SOURCE_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xls", ".csv", ".md", ".txt"}
+READABLE_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xls", ".csv"}
 SOURCE_STATUS_READY = "ready"
 SOURCE_STATUS_NEEDS_PERMISSION = "needs_permission"
 SOURCE_STATUS_UNSUPPORTED_TYPE = "unsupported_type"
 SOURCE_STATUS_MISSING = "missing"
+SOURCE_STATUS_FAILED = "failed"
 ACTIVE_MEMORY_STATUSES = {"active"}
 EDITABLE_MEMORY_STATUSES = {"active", "disabled", "archived", "superseded"}
 MEMORY_CANDIDATE_STATUSES = {"pending", "approved", "rejected"}
@@ -514,6 +515,8 @@ class WorkspaceService:
             return []
         if extension == ".pdf":
             return ["docs_read_pdf", "docs_search_pdf"]
+        if extension == ".docx":
+            return ["docx_profile", "docx_read", "docx_extract_tables"]
         if extension in {".xlsx", ".xls", ".csv"}:
             return ["excel_profile", "excel_read", "excel_query"]
         if extension in {".md", ".txt"}:
@@ -527,12 +530,13 @@ class WorkspaceService:
         source_type = str(source.source_type or "").strip()
         absolute_path = self._source_absolute_path(source)
         available_tools = self._tools_for_source(source, extension)
+        is_docx = extension == ".docx"
         result: Dict[str, Any] = {
             **metadata,
             "extension": extension or metadata.get("extension"),
             "storage_path": metadata.get("storage_path") or (source.source_ref if source_type == "upload" else None),
-            "available_tools": available_tools,
-            "citation_capable": bool(available_tools),
+            "available_tools": [] if is_docx else available_tools,
+            "citation_capable": False if is_docx else bool(available_tools),
             "doc_access_checked_at": now if source_type in {"local_file", "local_doc_root"} else metadata.get("doc_access_checked_at"),
             "readiness_error_code": None,
             "readiness_error_message": None,
@@ -541,6 +545,11 @@ class WorkspaceService:
         if source_type in {"note", "chat"}:
             result["last_ready_at"] = now
             return SOURCE_STATUS_READY, result
+
+        if is_docx and source.status == SOURCE_STATUS_FAILED:
+            result["readiness_error_code"] = SOURCE_STATUS_FAILED
+            result["readiness_error_message"] = "DOCX source is marked failed and must be re-registered before use."
+            return SOURCE_STATUS_FAILED, result
 
         if extension and extension not in READY_SOURCE_EXTENSIONS:
             result["readiness_error_code"] = SOURCE_STATUS_UNSUPPORTED_TYPE
@@ -556,6 +565,8 @@ class WorkspaceService:
                 result["readiness_error_code"] = SOURCE_STATUS_MISSING
                 result["readiness_error_message"] = "Uploaded file is missing from local storage."
                 return SOURCE_STATUS_MISSING, result
+            result["available_tools"] = available_tools
+            result["citation_capable"] = bool(available_tools)
             result["last_ready_at"] = now
             return SOURCE_STATUS_READY, result
 
@@ -580,6 +591,8 @@ class WorkspaceService:
                 result["readiness_error_code"] = SOURCE_STATUS_NEEDS_PERMISSION
                 result["readiness_error_message"] = "Source is outside allowed document roots or under a denied root."
                 return SOURCE_STATUS_NEEDS_PERMISSION, result
+            result["available_tools"] = available_tools
+            result["citation_capable"] = bool(available_tools)
             result["last_ready_at"] = now
             return SOURCE_STATUS_READY, result
 
