@@ -18,6 +18,9 @@ from . import doc_retrieval
 
 
 DOCX_EXTENSIONS = [".docx"]
+READ_BLOCK_LIMIT = 500
+TABLE_LIMIT = 100
+TABLE_ROW_CELL_LIMIT = 500
 logger = logging.getLogger(__name__)
 
 
@@ -109,6 +112,98 @@ class DocxService:
         )
         return result
 
+    def profile(
+        self,
+        path: str,
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        blocks_result = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
+        if not blocks_result["ok"]:
+            return blocks_result
+        document = Document(self._resolve_path(path, root_dir, allow_roots, deny_roots))
+        blocks = blocks_result["blocks"]
+        return {
+            "ok": True,
+            "file": path,
+            "metadata": {
+                "title": document.core_properties.title or "",
+                "author": document.core_properties.author or "",
+            },
+            "counts": {
+                "headings": sum(block["kind"] == "heading" for block in blocks),
+                "paragraphs": sum(block["kind"] in {"heading", "paragraph", "list_item"} for block in blocks),
+                "tables": sum(block["kind"] == "table" for block in blocks),
+                "sections": len(document.sections),
+            },
+            "heading_outline": [{"text": block["text"], "level": block["level"], "block_id": block["block_id"]} for block in blocks if block["kind"] == "heading"],
+            "features": {"has_tables": any(block["kind"] == "table" for block in blocks), "has_fidelity_warnings": bool(blocks_result["fidelity_warnings"])},
+            "fidelity_warnings": blocks_result["fidelity_warnings"],
+        }
+
+    def read(
+        self,
+        path: str,
+        cursor: int = 0,
+        limit: int = 200,
+        mode: str = "json",
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        result = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
+        if not result["ok"]:
+            return result
+        start = max(cursor, 0)
+        end = min(start + min(max(limit, 1), READ_BLOCK_LIMIT), len(result["blocks"]))
+        blocks = result["blocks"][start:end]
+        is_truncated = end < len(result["blocks"])
+        return {
+            "ok": True,
+            "file": path,
+            "data": self._markdown(blocks) if mode == "markdown" else blocks,
+            "is_truncated": is_truncated,
+            "next_cursor": end if is_truncated else None,
+            "citations": [block["locator"] for block in blocks],
+            "fidelity_warnings": result["fidelity_warnings"],
+        }
+
+    def extract_tables(
+        self,
+        path: str,
+        table_id: Optional[str] = None,
+        table_index: Optional[int] = None,
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        result = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
+        if not result["ok"]:
+            return result
+        tables = [block for block in result["blocks"] if block["kind"] == "table"]
+        if table_id:
+            tables = [table for table in tables if table["table_id"] == table_id]
+        elif table_index is not None:
+            tables = tables[table_index - 1:table_index]
+        is_truncated = len(tables) > TABLE_LIMIT
+        tables = tables[:TABLE_LIMIT]
+        bounded_tables = []
+        for table in tables:
+            bounded_rows = []
+            for row in table["rows"]:
+                if len(row) > TABLE_ROW_CELL_LIMIT:
+                    is_truncated = True
+                bounded_rows.append(row[:TABLE_ROW_CELL_LIMIT])
+            bounded_tables.append({**table, "rows": bounded_rows})
+        return {
+            "ok": True,
+            "file": path,
+            "tables": bounded_tables,
+            "is_truncated": is_truncated,
+            "fidelity_warnings": result["fidelity_warnings"],
+        }
+
     @staticmethod
     def _log_audit(path: str, started_at: float, status: str = "success", **details: Any) -> None:
         logger.info(
@@ -129,6 +224,19 @@ class DocxService:
             "source_index": source_index,
             "heading_path": list(heading_path),
         }
+
+    @staticmethod
+    def _markdown(blocks: List[Dict[str, Any]]) -> str:
+        lines: List[str] = []
+        for block in blocks:
+            if block["kind"] == "heading":
+                lines.append(f"{'#' * block['level']} {block['text']}")
+            elif block["kind"] == "table":
+                for row in block["rows"]:
+                    lines.append("| " + " | ".join(cell["text"] for cell in row) + " |")
+            else:
+                lines.append(block["text"])
+        return "\n\n".join(lines)
 
     @staticmethod
     def _paragraph_block(paragraph: Paragraph, index: int) -> Dict[str, Any]:
