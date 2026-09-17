@@ -1,5 +1,6 @@
-import { For, Show } from 'solid-js';
+import { For, Show, createEffect, createSignal } from 'solid-js';
 import { TraceTreeNode } from './chat-trace/TraceTreeNode';
+import { copyTraceTextToClipboard } from './chat-trace/clipboard';
 import { formatBytes, formatJson, formatTimestamp, policyTone, statusTone } from './chat-trace/traceFormatting';
 import { useChatTraceBundle } from './chat-trace/useChatTraceBundle';
 
@@ -18,6 +19,19 @@ export default function ChatTraceShell(props: ChatTraceShellProps) {
     chatId: () => props.chatId,
     rawEnabled: () => props.rawEnabled,
   });
+  const [userMessageCopied, setUserMessageCopied] = createSignal(false);
+
+  createEffect(() => {
+    bundle()?.run_id;
+    setUserMessageCopied(false);
+  });
+
+  const handleCopyUserMessage = async () => {
+    const ok = await copyTraceTextToClipboard(bundle()?.snapshot.user_message || '');
+    if (!ok) return;
+    setUserMessageCopied(true);
+    window.setTimeout(() => setUserMessageCopied(false), 1800);
+  };
 
   return (
     <Show when={props.open}>
@@ -143,11 +157,21 @@ export default function ChatTraceShell(props: ChatTraceShellProps) {
                   </section>
 
                   <section class="rounded-2xl border border-border bg-background/70 p-5 space-y-3">
-                    <div>
-                      <p class="text-[11px] uppercase tracking-[0.2em] text-text-secondary font-semibold">
-                        Request Snapshot
-                      </p>
-                      <h3 class="text-base font-semibold text-text-primary">User Message</h3>
+                    <div class="flex items-start justify-between gap-4">
+                      <div>
+                        <p class="text-[11px] uppercase tracking-[0.2em] text-text-secondary font-semibold">
+                          Request Snapshot
+                        </p>
+                        <h3 class="text-base font-semibold text-text-primary">User Message</h3>
+                      </div>
+                      <button
+                        type="button"
+                        class="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-primary/10 hover:text-primary"
+                        aria-label="Copy historic user message"
+                        onClick={() => void handleCopyUserMessage()}
+                      >
+                        {userMessageCopied() ? 'Copied' : 'Copy User Message'}
+                      </button>
                     </div>
                     <div class="max-h-48 overflow-auto rounded-xl bg-surface px-4 py-3 border border-border text-sm text-text-primary whitespace-pre-wrap break-words">
                       {resolvedBundle().snapshot.user_message || '(empty)'}

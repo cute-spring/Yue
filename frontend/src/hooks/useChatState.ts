@@ -15,6 +15,7 @@ import {
 } from './chat/chatStream';
 import { submitChatText } from './chat/chatSubmission';
 import { createChatHistoryState } from './chat/useChatHistoryState';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 export {
   applyActionEventToStates,
@@ -329,8 +330,12 @@ export function useChatState(
     setImageAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const copyUserMessage = (content: string, index: number) => {
-    navigator.clipboard.writeText(content);
+  const copyUserMessage = async (content: string, index: number) => {
+    const ok = await copyTextToClipboard(content);
+    if (!ok) {
+      toast.error('Unable to copy message');
+      return;
+    }
     setCopiedMessageIndex(index);
     setTimeout(() => setCopiedMessageIndex(null), 2000);
     toast.success("Copied to clipboard");

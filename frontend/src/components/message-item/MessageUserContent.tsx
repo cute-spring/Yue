@@ -21,7 +21,7 @@ interface MessageUserContentProps {
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSubmitEdit: () => void;
-  copyUserMessage: (content: string, index: number) => void;
+  copyUserMessage: (content: string, index: number) => void | Promise<void>;
   quoteUserMessage: (content: string) => void;
 }
 
@@ -68,6 +68,7 @@ export default function MessageUserContent(props: MessageUserContentProps) {
         <div class="mt-4 flex items-center justify-between border-t border-primary/10 pt-3">
           <div class="export-exclude flex items-center gap-1.5 -ml-2">
             <button
+              type="button"
               class={`rounded-lg p-1.5 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                 props.copiedMessageIndex === props.index
                   ? 'bg-emerald-500/10 text-emerald-500'
@@ -75,7 +76,7 @@ export default function MessageUserContent(props: MessageUserContentProps) {
               }`}
               title={props.copiedMessageIndex === props.index ? 'Copied' : 'Copy'}
               aria-label="Copy message"
-              onClick={() => props.copyUserMessage(props.msg.content, props.index)}
+              onClick={() => void props.copyUserMessage(props.msg.content, props.index)}
             >
               <Show
                 when={props.copiedMessageIndex === props.index}
@@ -91,6 +92,7 @@ export default function MessageUserContent(props: MessageUserContentProps) {
               </Show>
             </button>
             <button
+              type="button"
               class="rounded-lg p-1.5 text-text-secondary/50 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 hover:bg-primary/10 hover:text-primary"
               title="Quote"
               aria-label="Quote message"
@@ -101,6 +103,7 @@ export default function MessageUserContent(props: MessageUserContentProps) {
               </svg>
             </button>
             <button
+              type="button"
               class="rounded-lg p-1.5 text-text-secondary/50 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 hover:bg-primary/10 hover:text-primary"
               title="Edit"
               aria-label="Edit message"

@@ -3,6 +3,7 @@ import { Show, createEffect, createSignal } from 'solid-js';
 import { Message, WorkspaceCaptureSuggestion, WorkspaceMemoryCandidate, WorkspaceNote } from '../../types';
 import InlineMemoryConfirmation, { type InlineMemoryConfirmationPayload } from '../workspace/InlineMemoryConfirmation';
 import MessageAssistantMetaBadges from './MessageAssistantMetaBadges';
+import { copyAssistantMessageToClipboard } from './footerClipboard';
 
 interface MessageAssistantFooterProps {
   content: string;
@@ -49,6 +50,7 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
   const [trackedSuggestionKey, setTrackedSuggestionKey] = createSignal<string | null>(null);
   const [inlineCandidate, setInlineCandidate] = createSignal<WorkspaceMemoryCandidate | null>(null);
   const [isCandidateActionBusy, setIsCandidateActionBusy] = createSignal(false);
+  const [isCopied, setIsCopied] = createSignal(false);
   const visibleCandidate = () => props.pendingWorkspaceMemoryCandidate || inlineCandidate();
 
   createEffect(() => {
@@ -60,6 +62,7 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
     setIsCreatingCandidate(false);
     setIsDismissed(false);
     setInlineCandidate(null);
+    setIsCopied(false);
   });
 
   createEffect(() => {
@@ -188,6 +191,13 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
     }
   };
 
+  const handleCopyContent = async () => {
+    const ok = await copyAssistantMessageToClipboard(props.content);
+    if (!ok) return;
+    setIsCopied(true);
+    window.setTimeout(() => setIsCopied(false), 1800);
+  };
+
   return (
     <div class="export-exclude mt-4 border-t border-border/10 pt-3">
       <Show when={props.workspaceCaptureSuggestion && !isDismissed()}>
@@ -271,13 +281,23 @@ export default function MessageAssistantFooter(props: MessageAssistantFooterProp
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-1.5 -ml-1.5">
           <button
+            type="button"
             class="rounded-lg p-1.5 text-text-secondary/40 transition-all hover:bg-black/5 hover:text-primary dark:hover:bg-white/5"
-            title="Copy"
-            onClick={() => navigator.clipboard.writeText(props.content)}
+            title={isCopied() ? 'Copied' : 'Copy'}
+            onClick={() => void handleCopyContent()}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
+            <Show
+              when={isCopied()}
+              fallback={
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                </svg>
+              }
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </Show>
           </button>
           {props.speechControl}
           <Show when={props.speechState === 'speaking' || props.speechState === 'paused'}>
