@@ -21,6 +21,9 @@ DOCX_EXTENSIONS = [".docx"]
 READ_BLOCK_LIMIT = 500
 TABLE_LIMIT = 100
 TABLE_ROW_CELL_LIMIT = 500
+RETRIEVAL_RESULT_LIMIT = 200
+SEARCH_DOMAINS = {"body", "headings", "table_cells"}
+QUERY_FIELDS = {"kind", "heading_path", "style", "section", "table_id", "text", "limit"}
 logger = logging.getLogger(__name__)
 
 
@@ -204,6 +207,158 @@ class DocxService:
             "fidelity_warnings": result["fidelity_warnings"],
         }
 
+    def search(
+        self,
+        path: str,
+        query: str,
+        domains: Optional[List[str]] = None,
+        regex: bool = False,
+        limit: int = 50,
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Search a fixed, visible DOCX content domain with stable citations."""
+        result = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
+        if not result["ok"]:
+            return result
+        requested_domains = set(domains or ["body", "headings", "table_cells"])
+        unsupported = sorted(requested_domains - SEARCH_DOMAINS)
+        if unsupported:
+            return {
+                "ok": False,
+                "error_code": "DOCX_SEARCH_INVALID",
+                "message": f"Unsupported search domain: {unsupported[0]}",
+            }
+        try:
+            matcher = re.compile(query if regex else re.escape(query), flags=re.IGNORECASE)
+        except re.error as error:
+            return {"ok": False, "error_code": "DOCX_SEARCH_INVALID", "message": f"Invalid regex: {error}"}
+        if not query:
+            return {"ok": False, "error_code": "DOCX_SEARCH_INVALID", "message": "Search query must not be empty."}
+
+        matches: List[Dict[str, Any]] = []
+        for text, citation, domain in self._searchable_items(result["blocks"]):
+            if domain not in requested_domains:
+                continue
+            spans = [{"start": match.start(), "end": match.end()} for match in matcher.finditer(text)]
+            if not spans:
+                continue
+            matches.append(
+                {
+                    "text": text,
+                    "snippet": self._snippet(text, spans[0]),
+                    "match_spans": spans,
+                    "score": 1.0,
+                    "citation": citation,
+                }
+            )
+        bounded_limit = min(max(limit, 1), RETRIEVAL_RESULT_LIMIT)
+        return {
+            "ok": True,
+            "file": path,
+            "query": query,
+            "domains": sorted(requested_domains),
+            "matches": matches[:bounded_limit],
+            "total_matches": len(matches),
+            "is_truncated": len(matches) > bounded_limit,
+            "limit": bounded_limit,
+            "fidelity_warnings": result["fidelity_warnings"],
+        }
+
+    def query(
+        self,
+        path: str,
+        query: Dict[str, Any],
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Apply a deliberately closed, document-native filter grammar."""
+        unknown_fields = sorted(set(query) - QUERY_FIELDS)
+        if unknown_fields:
+            return {"ok": False, "error_code": "DOCX_QUERY_INVALID", "message": f"Unsupported query field: {unknown_fields[0]}"}
+        if query.get("kind") not in {None, "heading", "paragraph", "list_item", "table"}:
+            return {"ok": False, "error_code": "DOCX_QUERY_INVALID", "message": "Unsupported kind filter."}
+        if "heading_path" in query and not isinstance(query["heading_path"], list):
+            return {"ok": False, "error_code": "DOCX_QUERY_INVALID", "message": "heading_path must be an array."}
+        result = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
+        if not result["ok"]:
+            return result
+        applied_filters = {key: value for key, value in query.items() if key != "limit"}
+        rows = []
+        document = Document(self._resolve_path(path, root_dir, allow_roots, deny_roots))
+        block_sections = self._block_sections(document, result["blocks"])
+        for ordinal, block in enumerate(result["blocks"], start=1):
+            locator = block["locator"]
+            if query.get("kind") and block["kind"] != query["kind"]:
+                continue
+            if query.get("heading_path") is not None and locator["heading_path"] != query["heading_path"]:
+                continue
+            if query.get("style") and block.get("style") != query["style"]:
+                continue
+            if query.get("table_id") and block.get("table_id") != query["table_id"]:
+                continue
+            if query.get("section") is not None and block_sections[ordinal] != query["section"]:
+                continue
+            text = self._block_text(block)
+            if query.get("text") and str(query["text"]).casefold() not in text.casefold():
+                continue
+            rows.append({"block_id": block["block_id"], "kind": block["kind"], "text": text, "citation": locator})
+        bounded_limit = min(max(int(query.get("limit", 50)), 1), RETRIEVAL_RESULT_LIMIT)
+        return {
+            "ok": True,
+            "file": path,
+            "applied_filters": applied_filters,
+            "results": rows[:bounded_limit],
+            "total_results": len(rows),
+            "is_truncated": len(rows) > bounded_limit,
+            "limit": bounded_limit,
+            "fidelity_warnings": result["fidelity_warnings"],
+        }
+
+    def structure(
+        self,
+        path: str,
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Describe the hierarchy already represented by the ordered block model."""
+        result = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
+        if not result["ok"]:
+            return result
+        document = Document(self._resolve_path(path, root_dir, allow_roots, deny_roots))
+        blocks = result["blocks"]
+        headings = []
+        for position, block in enumerate(blocks):
+            if block["kind"] != "heading":
+                continue
+            end = len(blocks)
+            for later_position, later in enumerate(blocks[position + 1:], start=position + 2):
+                if later["kind"] == "heading" and later["level"] <= block["level"]:
+                    end = later_position - 1
+                    break
+            headings.append({
+                "block_id": block["block_id"], "text": block["text"], "level": block["level"],
+                "heading_path": block["locator"]["heading_path"],
+                "block_range": {"start": position + 1, "end": end},
+            })
+        return {
+            "ok": True,
+            "file": path,
+            "headings": headings,
+            "sections": self._section_ranges(document, blocks),
+            "lists": [{"block_id": block["block_id"], "level": block.get("list_level", 1), "text": block["text"]} for block in blocks if block["kind"] == "list_item"],
+            "tables": [{"table_id": block["table_id"], "source_index": block["locator"]["source_index"], "heading_path": block["locator"]["heading_path"]} for block in blocks if block["kind"] == "table"],
+            "bookmarks": self._bookmarks(document, blocks),
+            "headers_footers": {
+                "has_headers": any(section.header.paragraphs and any(p.text for p in section.header.paragraphs) for section in document.sections),
+                "has_footers": any(section.footer.paragraphs and any(p.text for p in section.footer.paragraphs) for section in document.sections),
+            },
+            "fidelity_warnings": result["fidelity_warnings"],
+        }
+
     @staticmethod
     def _log_audit(path: str, started_at: float, status: str = "success", **details: Any) -> None:
         logger.info(
@@ -215,6 +370,74 @@ class DocxService:
                 **details,
             },
         )
+
+    @staticmethod
+    def _searchable_items(blocks: List[Dict[str, Any]]):
+        for block in blocks:
+            if block["kind"] == "table":
+                for row in block["rows"]:
+                    for cell in row:
+                        yield cell["text"], cell["locator"], "table_cells"
+            elif block["kind"] == "heading":
+                yield block["text"], block["locator"], "headings"
+            else:
+                yield block["text"], block["locator"], "body"
+
+    @staticmethod
+    def _block_text(block: Dict[str, Any]) -> str:
+        if block["kind"] == "table":
+            return "\n".join(cell["text"] for row in block["rows"] for cell in row)
+        return block["text"]
+
+    @staticmethod
+    def _snippet(text: str, span: Dict[str, int], radius: int = 80) -> str:
+        start = max(span["start"] - radius, 0)
+        end = min(span["end"] + radius, len(text))
+        return text[start:end]
+
+    @staticmethod
+    def _bookmarks(document: Any, blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        body_elements = list(document.element.body.iterchildren())
+        locator_by_source = {block["locator"]["source_index"]: block["locator"] for block in blocks}
+        bookmarks = []
+        for bookmark in document.element.body.iter(f"{namespace}bookmarkStart"):
+            owner = next((ancestor for ancestor in bookmark.iterancestors() if ancestor in body_elements), None)
+            item: Dict[str, Any] = {
+                "name": bookmark.get(f"{namespace}name", ""),
+                "id": bookmark.get(f"{namespace}id", ""),
+            }
+            if owner is not None:
+                item["citation"] = locator_by_source.get(body_elements.index(owner) + 1)
+            bookmarks.append(item)
+        return bookmarks
+
+    @staticmethod
+    def _section_ranges(document: Any, blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Map OOXML paragraph section breaks to the stable body-block coordinates."""
+        block_count = len(blocks)
+        if not block_count:
+            return [{"index": index, "block_range": {"start": 1, "end": 0}} for index, _ in enumerate(document.sections, start=1)]
+        source_to_ordinal = {block["locator"]["source_index"]: ordinal for ordinal, block in enumerate(blocks, start=1)}
+        section_ends = []
+        for source_index, element in enumerate(document.element.body.iterchildren(), start=1):
+            if isinstance(element, CT_P) and element.pPr is not None and element.pPr.sectPr is not None:
+                section_ends.append(source_to_ordinal[source_index])
+        ranges = []
+        start = 1
+        for index, end in enumerate(section_ends, start=1):
+            ranges.append({"index": index, "block_range": {"start": start, "end": end}})
+            start = end + 1
+        ranges.append({"index": len(ranges) + 1, "block_range": {"start": start, "end": block_count}})
+        return ranges
+
+    @classmethod
+    def _block_sections(cls, document: Any, blocks: List[Dict[str, Any]]) -> Dict[int, int]:
+        result = {}
+        for section in cls._section_ranges(document, blocks):
+            for ordinal in range(section["block_range"]["start"], section["block_range"]["end"] + 1):
+                result[ordinal] = section["index"]
+        return result
 
     @staticmethod
     def _locator(block_id: str, kind: str, source_index: int, heading_path: List[str]) -> Dict[str, Any]:
@@ -258,6 +481,10 @@ class DocxService:
         }
         if heading:
             block["level"] = int(heading.group(1))
+        if kind == "list_item":
+            number_properties = getattr(getattr(paragraph._p, "pPr", None), "numPr", None)
+            nesting_level = getattr(number_properties, "ilvl", None)
+            block["list_level"] = int(nesting_level.val) + 1 if nesting_level is not None and nesting_level.val is not None else 1
         return block
 
     @staticmethod

@@ -70,6 +70,92 @@ class DocxExtractTablesTool(_DocxTool):
         return await self._execute(args)
 
 
+class DocxSearchTool(_DocxTool):
+    error_code = "DOCX_SEARCH_FAILED"
+
+    def __init__(self):
+        super().__init__(
+            "docx_search",
+            "Search visible DOCX text and table cells with stable citations.",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "query": {"type": "string", "minLength": 1},
+                    "domains": {"type": "array", "items": {"type": "string", "enum": ["body", "headings", "table_cells"]}},
+                    "regex": {"type": "boolean"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                    "root_dir": {"type": "string"},
+                },
+                "required": ["path", "query"],
+            },
+        )
+
+    def handler(self, args: Dict[str, Any], allow_roots: List[str], deny_roots: List[str]) -> Dict[str, Any]:
+        return docx_service.search(
+            args["path"], args["query"], args.get("domains"), args.get("regex", False), args.get("limit", 50),
+            args.get("root_dir"), allow_roots, deny_roots,
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        return await self._execute(args)
+
+
+class DocxQueryTool(_DocxTool):
+    error_code = "DOCX_QUERY_FAILED"
+
+    def __init__(self):
+        super().__init__(
+            "docx_query",
+            "Run a constrained, deterministic query over DOCX body blocks.",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "query": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["heading", "paragraph", "list_item", "table"]},
+                            "heading_path": {"type": "array", "items": {"type": "string"}},
+                            "style": {"type": "string"}, "section": {"type": "integer", "minimum": 1},
+                            "table_id": {"type": "string"}, "text": {"type": "string"},
+                            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                        },
+                        "additionalProperties": False,
+                    },
+                    "root_dir": {"type": "string"},
+                },
+                "required": ["path", "query"],
+            },
+        )
+
+    def handler(self, args: Dict[str, Any], allow_roots: List[str], deny_roots: List[str]) -> Dict[str, Any]:
+        return docx_service.query(args["path"], args["query"], args.get("root_dir"), allow_roots, deny_roots)
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        return await self._execute(args)
+
+
+class DocxStructureTool(_DocxTool):
+    error_code = "DOCX_STRUCTURE_FAILED"
+
+    def __init__(self):
+        super().__init__(
+            "docx_structure",
+            "Describe DOCX headings, sections, lists, tables, bookmarks, headers, and footers.",
+            {"type": "object", "properties": {"path": {"type": "string"}, "root_dir": {"type": "string"}}, "required": ["path"]},
+        )
+
+    def handler(self, args: Dict[str, Any], allow_roots: List[str], deny_roots: List[str]) -> Dict[str, Any]:
+        return docx_service.structure(args["path"], args.get("root_dir"), allow_roots, deny_roots)
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        return await self._execute(args)
+
+
 builtin_tool_registry.register(DocxProfileTool())
 builtin_tool_registry.register(DocxReadTool())
 builtin_tool_registry.register(DocxExtractTablesTool())
+builtin_tool_registry.register(DocxSearchTool())
+builtin_tool_registry.register(DocxQueryTool())
+builtin_tool_registry.register(DocxStructureTool())

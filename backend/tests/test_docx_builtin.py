@@ -6,7 +6,14 @@ import pytest
 from docx import Document
 from pydantic_ai import RunContext
 
-from app.mcp.builtin.docx import DocxExtractTablesTool, DocxProfileTool, DocxReadTool
+from app.mcp.builtin.docx import (
+    DocxExtractTablesTool,
+    DocxProfileTool,
+    DocxQueryTool,
+    DocxReadTool,
+    DocxSearchTool,
+    DocxStructureTool,
+)
 from app.mcp.builtin.registry import builtin_tool_registry
 
 
@@ -107,3 +114,38 @@ async def test_docx_extract_tables_bounds_large_table_cells(mock_ctx, tmp_path: 
 def test_registry_contains_docx_reader_tools():
     names = [tool.name for tool in builtin_tool_registry.get_all_tools()]
     assert {"docx_profile", "docx_read", "docx_extract_tables"}.issubset(names)
+
+
+@pytest.mark.asyncio
+async def test_docx_retrieval_tools_return_cited_and_structured_results(mock_ctx, sample_docx):
+    with patch("app.mcp.builtin.docx._get_doc_access", return_value=([str(sample_docx.parent)], [])):
+        search = json.loads(
+            await DocxSearchTool().execute(
+                mock_ctx,
+                {"path": sample_docx.name, "root_dir": str(sample_docx.parent), "query": "ready", "domains": ["table_cells"]},
+            )
+        )
+        query = json.loads(
+            await DocxQueryTool().execute(
+                mock_ctx,
+                {"path": sample_docx.name, "root_dir": str(sample_docx.parent), "query": {"kind": "paragraph"}},
+            )
+        )
+        structure = json.loads(
+            await DocxStructureTool().execute(
+                mock_ctx,
+                {"path": sample_docx.name, "root_dir": str(sample_docx.parent)},
+            )
+        )
+
+    assert search["tool"] == "docx_search"
+    assert search["matches"][0]["citation"]["kind"] == "table_cell"
+    assert query["tool"] == "docx_query"
+    assert query["applied_filters"] == {"kind": "paragraph"}
+    assert structure["tool"] == "docx_structure"
+    assert structure["headings"][0]["text"] == "Summary"
+
+
+def test_registry_contains_docx_retrieval_tools():
+    names = [tool.name for tool in builtin_tool_registry.get_all_tools()]
+    assert {"docx_search", "docx_query", "docx_structure"}.issubset(names)
