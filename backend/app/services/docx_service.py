@@ -28,8 +28,13 @@ TABLE_LIMIT = 100
 TABLE_ROW_CELL_LIMIT = 500
 RETRIEVAL_RESULT_LIMIT = 200
 RENDER_PAGE_LIMIT = 20
+REVIEW_RESULT_LIMIT = 200
 SEARCH_DOMAINS = {"body", "headings", "table_cells"}
 QUERY_FIELDS = {"kind", "heading_path", "style", "section", "table_id", "text", "limit"}
+READ_SCOPES = {"comments", "changes", "notes"}
+WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+NSMAP = {"w": WORD_NS, "r": REL_NS}
 logger = logging.getLogger(__name__)
 
 
@@ -160,7 +165,12 @@ class DocxService:
         root_dir: Optional[str] = None,
         allow_roots: Optional[List[str]] = None,
         deny_roots: Optional[List[str]] = None,
+        scopes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        requested_scopes = set(scopes or [])
+        unsupported = sorted(requested_scopes - READ_SCOPES)
+        if unsupported:
+            return {"ok": False, "error_code": "DOCX_READ_INVALID", "message": f"Unsupported read scope: {unsupported[0]}", "hint": "Use comments, changes, or notes."}
         result = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
         if not result["ok"]:
             return result
@@ -168,7 +178,7 @@ class DocxService:
         end = min(start + min(max(limit, 1), READ_BLOCK_LIMIT), len(result["blocks"]))
         blocks = result["blocks"][start:end]
         is_truncated = end < len(result["blocks"])
-        return {
+        response = {
             "ok": True,
             "file": path,
             "data": self._markdown(blocks) if mode == "markdown" else blocks,
@@ -177,6 +187,12 @@ class DocxService:
             "citations": [block["locator"] for block in blocks],
             "fidelity_warnings": result["fidelity_warnings"],
         }
+        if requested_scopes:
+            response["layers"] = {
+                scope: getattr(self, scope)(path, limit=limit, root_dir=root_dir, allow_roots=allow_roots, deny_roots=deny_roots)
+                for scope in sorted(requested_scopes)
+            }
+        return response
 
     def extract_tables(
         self,
@@ -271,6 +287,218 @@ class DocxService:
             "limit": bounded_limit,
             "fidelity_warnings": result["fidelity_warnings"],
         }
+
+    def comments(self, path: str, limit: int = 50, author: Optional[str] = None, root_dir: Optional[str] = None, allow_roots: Optional[List[str]] = None, deny_roots: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Read comment metadata and anchors without changing the package."""
+        context = self._review_context(path, root_dir, allow_roots, deny_roots)
+        if not context["ok"]:
+            return context
+        root = context["parts"].get("word/comments.xml")
+        extensions = context["parts"].get("word/commentsExtended.xml")
+        extension_by_para = {item.get("{http://schemas.microsoft.com/office/word/2012/wordml}paraId", ""): item for item in (list(extensions) if extensions is not None else [])}
+        comments = []
+        if root is not None:
+            for item in root.findall("w:comment", NSMAP):
+                comment: Dict[str, Any] = {"id": item.get(f"{{{WORD_NS}}}id", "")}
+                for attribute, key in (("author", "author"), ("date", "date")):
+                    value = item.get(f"{{{WORD_NS}}}{attribute}")
+                    if value:
+                        comment[key] = value
+                comment["text"] = self._xml_text(item)
+                para_id = item.get("{http://schemas.microsoft.com/office/word/2012/wordml}paraId", "")
+                extension = extension_by_para.get(para_id)
+                if extension is not None:
+                    parent = extension.get("{http://schemas.microsoft.com/office/word/2012/wordml}paraIdParent")
+                    if parent:
+                        comment["reply_to"] = parent
+                    done = extension.get("{http://schemas.microsoft.com/office/word/2012/wordml}done")
+                    if done is not None:
+                        comment["status"] = "resolved" if done in {"1", "true", "True"} else "open"
+                citation = context["comment_anchors"].get(comment["id"])
+                if citation:
+                    comment["citation"] = citation
+                if author is None or comment.get("author") == author:
+                    comments.append(comment)
+        return self._bounded_review_result(path, "comments", comments, limit, context["started_at"])
+
+    def changes(self, path: str, limit: int = 50, view: str = "markup", author: Optional[str] = None, root_dir: Optional[str] = None, allow_roots: Optional[List[str]] = None, deny_roots: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Return tracked insertions and deletions as inert markup records."""
+        context = self._review_context(path, root_dir, allow_roots, deny_roots)
+        if not context["ok"]:
+            return context
+        if view not in {"final", "original", "markup"}:
+            return {"ok": False, "error_code": "DOCX_CHANGES_INVALID", "message": "Unsupported change view.", "hint": "Use final, original, or markup."}
+        changes = []
+        for element in context["document"].xpath(".//w:ins | .//w:del | .//w:rPrChange | .//w:pPrChange", namespaces=NSMAP):
+            local_name = etree.QName(element).localname
+            change: Dict[str, Any] = {
+                "id": element.get(f"{{{WORD_NS}}}id", ""),
+                "kind": {"ins": "insertion", "del": "deletion"}.get(local_name, "formatting"),
+            }
+            for attribute, key in (("author", "author"), ("date", "date")):
+                value = element.get(f"{{{WORD_NS}}}{attribute}")
+                if value:
+                    change[key] = value
+            change["text"] = self._xml_text(element)
+            citation = self._node_citation(element, context["body_children"], context["locators"])
+            if citation:
+                change["citation"] = citation
+            if author is None or change.get("author") == author:
+                changes.append(change)
+        if view == "final":
+            changes = [change for change in changes if change["kind"] != "deletion"]
+        elif view == "original":
+            changes = [change for change in changes if change["kind"] != "insertion"]
+        return {**self._bounded_review_result(path, "changes", changes, limit, context["started_at"]), "view": view}
+
+    def notes(self, path: str, limit: int = 50, kind: Optional[str] = None, root_dir: Optional[str] = None, allow_roots: Optional[List[str]] = None, deny_roots: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Return footnotes and endnotes with their body references when present."""
+        context = self._review_context(path, root_dir, allow_roots, deny_roots)
+        if not context["ok"]:
+            return context
+        if kind not in {None, "footnote", "endnote"}:
+            return {"ok": False, "error_code": "DOCX_NOTES_INVALID", "message": "Unsupported note kind.", "hint": "Use footnote or endnote."}
+        notes = []
+        for kind, member, tag in (("footnote", "word/footnotes.xml", "footnote"), ("endnote", "word/endnotes.xml", "endnote")):
+            root = context["parts"].get(member)
+            if root is None:
+                continue
+            for element in root.findall(f"w:{tag}", NSMAP):
+                note = {"id": element.get(f"{{{WORD_NS}}}id", ""), "kind": kind, "text": self._xml_text(element)}
+                citation = context["note_anchors"].get((kind, note["id"]))
+                if citation:
+                    note["citation"] = citation
+                if kind is None or note["kind"] == kind:
+                    notes.append(note)
+        return self._bounded_review_result(path, "notes", notes, limit, context["started_at"])
+
+    def media(self, path: str, limit: int = 50, root_dir: Optional[str] = None, allow_roots: Optional[List[str]] = None, deny_roots: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Inventory package media by name only; payloads are never extracted or opened."""
+        context = self._review_context(path, root_dir, allow_roots, deny_roots)
+        if not context["ok"]:
+            return context
+        items = []
+        for member in context["members"]:
+            if member.startswith("word/media/"):
+                item: Dict[str, Any] = {"kind": "image", "path": member, "mime_type": self._media_mime(member), "extracted": False}
+                anchor = self._relationship_anchor(context, member)
+                if anchor:
+                    item.update(anchor)
+                items.append(item)
+            elif member.startswith("word/charts/"):
+                items.append({"kind": "chart", "path": member, "mime_type": "application/vnd.openxmlformats-officedocument.drawingml.chart+xml", **(self._relationship_anchor(context, member) or {}), "extracted": False})
+            elif member.startswith("word/embeddings/"):
+                items.append({"kind": "embedded_file", "path": member, "mime_type": "application/octet-stream", **(self._relationship_anchor(context, member) or {}), "extracted": False})
+        items.sort(key=lambda item: {"image": 0, "chart": 1, "embedded_file": 2}[item["kind"]])
+        return self._bounded_review_result(path, "items", items, limit, context["started_at"])
+
+    def links(self, path: str, limit: int = 50, root_dir: Optional[str] = None, allow_roots: Optional[List[str]] = None, deny_roots: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Inventory links and references without following any external target."""
+        context = self._review_context(path, root_dir, allow_roots, deny_roots)
+        if not context["ok"]:
+            return context
+        links = []
+        for hyperlink in context["document"].xpath(".//w:hyperlink", namespaces=NSMAP):
+            citation = self._node_citation(hyperlink, context["body_children"], context["locators"])
+            rel_id = hyperlink.get(f"{{{REL_NS}}}id")
+            if rel_id and rel_id in context["relationships"]:
+                target = context["relationships"][rel_id].get("target")
+                links.append({"kind": "external", "destination": target, "followed": False, **({"citation": citation} if citation else {})})
+            elif hyperlink.get(f"{{{WORD_NS}}}anchor"):
+                links.append({"kind": "internal_anchor", "anchor": hyperlink.get(f"{{{WORD_NS}}}anchor"), **({"citation": citation} if citation else {})})
+        for bookmark in context["document"].xpath(".//w:bookmarkStart", namespaces=NSMAP):
+            citation = self._node_citation(bookmark, context["body_children"], context["locators"])
+            links.append({"kind": "bookmark", "anchor": bookmark.get(f"{{{WORD_NS}}}name", ""), **({"citation": citation} if citation else {})})
+        for field in context["document"].xpath(".//w:fldSimple", namespaces=NSMAP):
+            match = re.search(r"\bREF\s+([^\s]+)", field.get(f"{{{WORD_NS}}}instr", ""))
+            if match:
+                citation = self._node_citation(field, context["body_children"], context["locators"])
+                links.append({"kind": "cross_reference", "anchor": match.group(1), **({"citation": citation} if citation else {})})
+        result = self._bounded_review_result(path, "links", links, limit, context["started_at"])
+        relationship_items = [
+            {"id": identifier, **relationship, "followed": False}
+            for identifier, relationship in sorted(context["relationships"].items())
+        ]
+        result["relationships"] = relationship_items[:REVIEW_RESULT_LIMIT]
+        if len(relationship_items) > REVIEW_RESULT_LIMIT:
+            result["is_truncated"] = True
+            result["next_cursor"] = "narrow relationship inspection by link type"
+        return result
+
+    def _review_context(self, path: str, root_dir: Optional[str], allow_roots: Optional[List[str]], deny_roots: Optional[List[str]]) -> Dict[str, Any]:
+        started_at = time.monotonic()
+        blocks = self.extract_blocks(path, root_dir, allow_roots, deny_roots)
+        if not blocks["ok"]:
+            return blocks
+        try:
+            with ZipFile(self._resolve_path(path, root_dir, allow_roots, deny_roots)) as package:
+                members = package.namelist()
+                parts = {member: self._package_xml(package, member) for member in ("word/document.xml", "word/comments.xml", "word/commentsExtended.xml", "word/footnotes.xml", "word/endnotes.xml", "word/_rels/document.xml.rels")}
+        except (BadZipFile, OSError, ValueError, XMLSyntaxError, etree.LxmlError):
+            self._log_audit(path, started_at, status="failed", tool="docx_review", error_code="DOCX_PARSE_FAILED")
+            return {"ok": False, "error_code": "DOCX_PARSE_FAILED", "message": "The file is not a readable DOCX package.", "hint": "Verify the file is an unencrypted DOCX package."}
+        document = parts["word/document.xml"]
+        if document is None:
+            self._log_audit(path, started_at, status="failed", tool="docx_review", error_code="DOCX_PARSE_FAILED")
+            return {"ok": False, "error_code": "DOCX_PARSE_FAILED", "message": "The file is not a readable DOCX package.", "hint": "Verify the file is an unencrypted DOCX package."}
+        body = document.find(f"{{{WORD_NS}}}body")
+        body_children = list(body) if body is not None else []
+        locators = {block["locator"]["source_index"]: block["locator"] for block in blocks["blocks"]}
+        relationship_root = parts["word/_rels/document.xml.rels"]
+        relationships = {
+            item.get("Id", ""): {"target": item.get("Target", ""), "target_mode": item.get("TargetMode", ""), "type": item.get("Type", "")}
+            for item in (list(relationship_root) if relationship_root is not None else [])
+        }
+        comment_anchors, note_anchors = {}, {}
+        for element in document.xpath(".//w:commentRangeStart | .//w:footnoteReference | .//w:endnoteReference", namespaces=NSMAP):
+            citation = self._node_citation(element, body_children, locators)
+            if citation is None:
+                continue
+            name, identifier = etree.QName(element).localname, element.get(f"{{{WORD_NS}}}id", "")
+            if name == "commentRangeStart":
+                comment_anchors[identifier] = citation
+            else:
+                note_anchors[("footnote" if name == "footnoteReference" else "endnote", identifier)] = citation
+        return {"ok": True, "started_at": started_at, "parts": parts, "members": members, "document": document, "body_children": body_children, "locators": locators, "relationships": relationships, "comment_anchors": comment_anchors, "note_anchors": note_anchors}
+
+    def _bounded_review_result(self, path: str, key: str, items: List[Dict[str, Any]], limit: int, started_at: float) -> Dict[str, Any]:
+        bounded_limit = min(max(int(limit), 1), REVIEW_RESULT_LIMIT)
+        result = {"ok": True, "file": path, key: items[:bounded_limit], "is_truncated": len(items) > bounded_limit, "limit": bounded_limit}
+        self._log_audit(path, started_at, tool={"items": "docx_media"}.get(key, f"docx_{key.rstrip('s')}"), count=len(result[key]), is_truncated=result["is_truncated"])
+        return result
+
+    @staticmethod
+    def _xml_text(element: Any) -> str:
+        return "".join(element.xpath(".//w:t/text() | .//w:delText/text()", namespaces=NSMAP))
+
+    @staticmethod
+    def _node_citation(element: Any, body_children: List[Any], locators: Dict[int, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        owner = next((ancestor for ancestor in (element, *element.iterancestors()) if ancestor in body_children), None)
+        return locators.get(body_children.index(owner) + 1) if owner is not None else None
+
+    @staticmethod
+    def _media_mime(member: str) -> str:
+        return {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".svg": "image/svg+xml"}.get(Path(member).suffix.lower(), "application/octet-stream")
+
+    def _relationship_anchor(self, context: Dict[str, Any], member: str) -> Optional[Dict[str, Any]]:
+        rel_id = next((identifier for identifier, relationship in context["relationships"].items() if relationship["target"] == member.removeprefix("word/")), None)
+        if rel_id is None:
+            return None
+        node = next((element for element in context["document"].iter() if rel_id in element.attrib.values()), None)
+        if node is None:
+            return None
+        citation = self._node_citation(node, context["body_children"], context["locators"])
+        result: Dict[str, Any] = {}
+        drawing_ns = {**NSMAP, "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"}
+        doc_properties = next(iter(node.xpath("ancestor::w:drawing//wp:docPr | .//wp:docPr", namespaces=drawing_ns)), None)
+        extent = next(iter(node.xpath("ancestor::w:drawing//wp:extent | .//wp:extent", namespaces=drawing_ns)), None)
+        if doc_properties is not None and doc_properties.get("descr"):
+            result["alt_text"] = doc_properties.get("descr")
+        if extent is not None:
+            result["dimensions"] = {"cx": int(extent.get("cx", "0")), "cy": int(extent.get("cy", "0"))}
+        if citation:
+            result["citation"] = citation
+        return result
 
     def metadata(
         self,

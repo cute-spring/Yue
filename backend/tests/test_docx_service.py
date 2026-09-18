@@ -8,6 +8,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from docx import Document
 from docx.oxml import OxmlElement
+from lxml import etree
 
 from app.services import doc_retrieval
 from app.services.docx_service import docx_service
@@ -65,6 +66,41 @@ def _add_package_metadata(path: Path) -> None:
     <w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
       <w:documentProtection w:edit="readOnly" w:enforcement="1" w:formatting="0"/>
     </w:settings>'''
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+
+
+def _add_review_and_embedded_content(path: Path) -> None:
+    """Add inert OOXML review, relationship, and package parts for read-only tests."""
+    with ZipFile(path) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    document = etree.fromstring(members["word/document.xml"])
+    namespaces = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+    paragraph = document.find(".//w:body/w:p", namespaces)
+    paragraph.append(etree.fromstring(b'<w:commentRangeStart xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:id="0"/>'))
+    paragraph.append(etree.fromstring(b'<w:hyperlink xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rIdExternal"><w:r><w:t>External</w:t></w:r></w:hyperlink>'))
+    paragraph.append(etree.fromstring(b'<w:hyperlink xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:anchor="target"><w:r><w:t>Internal</w:t></w:r></w:hyperlink>'))
+    paragraph.append(etree.fromstring(b'<w:bookmarkStart xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:id="7" w:name="target"/>'))
+    paragraph.append(etree.fromstring(b'<w:fldSimple xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:instr=" REF target "><w:r><w:t>Cross reference</w:t></w:r></w:fldSimple>'))
+    paragraph.append(etree.fromstring(b'<w:ins xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:id="4" w:author="Editor" w:date="2026-09-18T10:00:00Z"><w:r><w:t>added</w:t></w:r></w:ins>'))
+    paragraph.append(etree.fromstring(b'<w:del xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:id="5" w:author="Editor" w:date="2026-09-18T10:01:00Z"><w:r><w:delText>removed</w:delText></w:r></w:del>'))
+    paragraph.append(etree.fromstring(b'<w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnoteReference w:id="1"/><w:endnoteReference w:id="2"/></w:r>'))
+    paragraph.append(etree.fromstring(b'<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><wp:inline><wp:extent cx="914400" cy="457200"/><wp:docPr id="1" name="Logo" descr="Product logo"/><a:graphic><a:graphicData><a:blip r:embed="rIdImage"/></a:graphicData></a:graphic></wp:inline></w:drawing>'))
+    members["word/document.xml"] = etree.tostring(document, xml_declaration=True, encoding="UTF-8", standalone=True)
+    members["word/comments.xml"] = b'<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="0" w:author="Reviewer" w:date="2026-09-18T09:00:00Z"><w:p><w:r><w:t>Needs revision</w:t></w:r></w:p></w:comment></w:comments>'
+    members["word/footnotes.xml"] = b'<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:id="1"><w:p><w:r><w:t>Footnote text</w:t></w:r></w:p></w:footnote></w:footnotes>'
+    members["word/endnotes.xml"] = b'<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:endnote w:id="2"><w:p><w:r><w:t>Endnote text</w:t></w:r></w:p></w:endnote></w:endnotes>'
+    members["word/media/logo.png"] = b"PNG"
+    members["word/charts/chart1.xml"] = b"<chart/>"
+    members["word/embeddings/object.bin"] = b"INERT"
+    relationships = etree.fromstring(members["word/_rels/document.xml.rels"])
+    relationships.append(etree.fromstring(b'<Relationship xmlns="http://schemas.openxmlformats.org/package/2006/relationships" Id="rIdExternal" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.test/never-follow" TargetMode="External"/>'))
+    relationships.append(etree.fromstring(b'<Relationship xmlns="http://schemas.openxmlformats.org/package/2006/relationships" Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>'))
+    members["word/_rels/document.xml.rels"] = etree.tostring(relationships, xml_declaration=True, encoding="UTF-8", standalone=True)
+    content_types = etree.fromstring(members["[Content_Types].xml"])
+    content_types.append(etree.fromstring(b'<Default xmlns="http://schemas.openxmlformats.org/package/2006/content-types" Extension="png" ContentType="image/png"/>'))
+    members["[Content_Types].xml"] = etree.tostring(content_types, xml_declaration=True, encoding="UTF-8", standalone=True)
     with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
         for name, content in members.items():
             archive.writestr(name, content)
@@ -550,3 +586,71 @@ def test_render_smoke_produces_inspection_artifacts_without_modifying_source(tmp
     assert result["provenance"]["backend"]["version"] != "unavailable"
     assert all(artifact["provenance"] == result["provenance"] for artifact in result["artifacts"])
     assert hashlib.sha256(path.read_bytes()).hexdigest() == source_digest
+
+
+def test_review_layers_are_bounded_cited_and_read_only(tmp_path: Path):
+    path = tmp_path / "review.docx"
+    document = Document()
+    document.add_paragraph("Anchored body text")
+    document.save(path)
+    _add_review_and_embedded_content(path)
+    source_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    comments = docx_service.comments("review.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+    changes = docx_service.changes("review.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+    notes = docx_service.notes("review.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert comments["comments"] == [{"id": "0", "author": "Reviewer", "date": "2026-09-18T09:00:00Z", "text": "Needs revision", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}}]
+    assert changes["changes"] == [
+        {"id": "4", "kind": "insertion", "author": "Editor", "date": "2026-09-18T10:00:00Z", "text": "added", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+        {"id": "5", "kind": "deletion", "author": "Editor", "date": "2026-09-18T10:01:00Z", "text": "removed", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+    ]
+    assert notes["notes"] == [
+        {"id": "1", "kind": "footnote", "text": "Footnote text", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+        {"id": "2", "kind": "endnote", "text": "Endnote text", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+    ]
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == source_digest
+
+
+def test_media_and_links_inventory_never_extract_or_follow_destinations(tmp_path: Path):
+    path = tmp_path / "content.docx"
+    document = Document()
+    document.add_paragraph("Anchored body text")
+    document.save(path)
+    _add_review_and_embedded_content(path)
+    source_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    media = docx_service.media("content.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+    links = docx_service.links("content.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert media["items"] == [
+        {"kind": "image", "path": "word/media/logo.png", "mime_type": "image/png", "alt_text": "Product logo", "dimensions": {"cx": 914400, "cy": 457200}, "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}, "extracted": False},
+        {"kind": "chart", "path": "word/charts/chart1.xml", "mime_type": "application/vnd.openxmlformats-officedocument.drawingml.chart+xml", "extracted": False},
+        {"kind": "embedded_file", "path": "word/embeddings/object.bin", "mime_type": "application/octet-stream", "extracted": False},
+    ]
+    assert links["links"] == [
+        {"kind": "external", "destination": "https://example.test/never-follow", "followed": False, "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+        {"kind": "internal_anchor", "anchor": "target", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+        {"kind": "bookmark", "anchor": "target", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+        {"kind": "cross_reference", "anchor": "target", "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []}},
+    ]
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == source_digest
+
+
+def test_read_excludes_review_layers_unless_explicitly_scoped(tmp_path: Path):
+    path = tmp_path / "scoped.docx"
+    document = Document()
+    document.add_paragraph("Anchored body text")
+    document.save(path)
+    _add_review_and_embedded_content(path)
+
+    default = docx_service.read("scoped.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+    scoped = docx_service.read("scoped.docx", scopes=["comments", "notes"], limit=1, root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+    invalid = docx_service.read("scoped.docx", scopes=["media"], root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert "layers" not in default
+    assert "added" not in default["data"][0]["text"]
+    assert "removed" not in default["data"][0]["text"]
+    assert scoped["layers"]["comments"]["is_truncated"] is False
+    assert scoped["layers"]["notes"]["is_truncated"] is True
+    assert invalid == {"ok": False, "error_code": "DOCX_READ_INVALID", "message": "Unsupported read scope: media", "hint": "Use comments, changes, or notes."}

@@ -48,10 +48,10 @@ class DocxReadTool(_DocxTool):
     error_code = "DOCX_READ_FAILED"
 
     def __init__(self):
-        super().__init__("docx_read", "Read bounded DOCX body blocks in JSON or Markdown.", {"type": "object", "properties": {"path": {"type": "string"}, "cursor": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}, "mode": {"type": "string", "enum": ["json", "markdown"]}, "root_dir": {"type": "string"}}, "required": ["path"]})
+        super().__init__("docx_read", "Read bounded DOCX body blocks in JSON or Markdown. Review layers require an explicit scope.", {"type": "object", "properties": {"path": {"type": "string"}, "cursor": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}, "mode": {"type": "string", "enum": ["json", "markdown"]}, "scopes": {"type": "array", "items": {"type": "string", "enum": ["comments", "changes", "notes"]}, "uniqueItems": True}, "root_dir": {"type": "string"}}, "required": ["path"]})
 
     def handler(self, args: Dict[str, Any], allow_roots: List[str], deny_roots: List[str]) -> Dict[str, Any]:
-        return docx_service.read(args["path"], args.get("cursor", 0), args.get("limit", 200), args.get("mode", "json"), args.get("root_dir"), allow_roots, deny_roots)
+        return docx_service.read(args["path"], args.get("cursor", 0), args.get("limit", 200), args.get("mode", "json"), args.get("root_dir"), allow_roots, deny_roots, args.get("scopes"))
 
     async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
         return await self._execute(args)
@@ -68,6 +68,79 @@ class DocxExtractTablesTool(_DocxTool):
 
     async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
         return await self._execute(args)
+
+
+class _DocxReviewTool(_DocxTool):
+    handler_name = ""
+
+    def __init__(self, name: str, description: str):
+        properties = {
+            "path": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "author": {"type": "string"},
+            "root_dir": {"type": "string"},
+        }
+        if name == "docx_changes":
+            properties["view"] = {"type": "string", "enum": ["final", "original", "markup"]}
+        if name == "docx_notes":
+            properties["kind"] = {"type": "string", "enum": ["footnote", "endnote"]}
+        super().__init__(
+            name,
+            description,
+            {
+                "type": "object",
+                "properties": properties,
+                "required": ["path"],
+            },
+        )
+
+    def handler(self, args: Dict[str, Any], allow_roots: List[str], deny_roots: List[str]) -> Dict[str, Any]:
+        keyword_args = {"limit": args.get("limit", 50), "root_dir": args.get("root_dir"), "allow_roots": allow_roots, "deny_roots": deny_roots}
+        if self.handler_name in {"comments", "changes"}:
+            keyword_args["author"] = args.get("author")
+        if self.handler_name == "changes":
+            keyword_args["view"] = args.get("view", "markup")
+        if self.handler_name == "notes":
+            keyword_args["kind"] = args.get("kind")
+        return getattr(docx_service, self.handler_name)(args["path"], **keyword_args)
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        return await self._execute(args)
+
+
+class DocxCommentsTool(_DocxReviewTool):
+    handler_name = "comments"
+
+    def __init__(self):
+        super().__init__("docx_comments", "Inspect bounded DOCX comment threads and anchors without modifying the document.")
+
+
+class DocxChangesTool(_DocxReviewTool):
+    handler_name = "changes"
+
+    def __init__(self):
+        super().__init__("docx_changes", "Inspect bounded DOCX tracked changes without accepting or rejecting them.")
+
+
+class DocxNotesTool(_DocxReviewTool):
+    handler_name = "notes"
+
+    def __init__(self):
+        super().__init__("docx_notes", "Inspect bounded DOCX footnotes and endnotes with source anchors.")
+
+
+class DocxMediaTool(_DocxReviewTool):
+    handler_name = "media"
+
+    def __init__(self):
+        super().__init__("docx_media", "Inventory DOCX images, charts, and embedded files without extracting them.")
+
+
+class DocxLinksTool(_DocxReviewTool):
+    handler_name = "links"
+
+    def __init__(self):
+        super().__init__("docx_links", "Inspect DOCX links and anchors without following external destinations.")
 
 
 class DocxSearchTool(_DocxTool):
@@ -210,6 +283,11 @@ class DocxRenderTool(_DocxTool):
 builtin_tool_registry.register(DocxProfileTool())
 builtin_tool_registry.register(DocxReadTool())
 builtin_tool_registry.register(DocxExtractTablesTool())
+builtin_tool_registry.register(DocxCommentsTool())
+builtin_tool_registry.register(DocxChangesTool())
+builtin_tool_registry.register(DocxNotesTool())
+builtin_tool_registry.register(DocxMediaTool())
+builtin_tool_registry.register(DocxLinksTool())
 builtin_tool_registry.register(DocxSearchTool())
 builtin_tool_registry.register(DocxQueryTool())
 builtin_tool_registry.register(DocxStructureTool())

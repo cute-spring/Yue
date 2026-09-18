@@ -6,7 +6,7 @@
 
 **Blocked by:** 02: Deliver the DOCX reader MVP.
 
-**Status:** ready-for-agent
+**Status:** completed
 
 **Affected backend areas:** DOCX review/media/relationship parsers; built-in MCP DOCX tools; locator/citation models; artifact extraction boundary.
 

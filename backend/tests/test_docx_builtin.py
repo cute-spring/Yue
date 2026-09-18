@@ -8,7 +8,12 @@ from pydantic_ai import RunContext
 
 from app.mcp.builtin.docx import (
     DocxExtractTablesTool,
+    DocxChangesTool,
+    DocxCommentsTool,
+    DocxLinksTool,
+    DocxMediaTool,
     DocxMetadataTool,
+    DocxNotesTool,
     DocxProfileTool,
     DocxQueryTool,
     DocxReadTool,
@@ -166,3 +171,26 @@ async def test_docx_metadata_and_render_tools_register_schema_and_return_structu
     assert DocxRenderTool().parameters["properties"]["page_end"]["minimum"] == 1
     names = [tool.name for tool in builtin_tool_registry.get_all_tools()]
     assert {"docx_metadata", "docx_render"}.issubset(names)
+
+
+@pytest.mark.asyncio
+async def test_docx_review_content_tools_register_bound_schemas_and_execute(mock_ctx, sample_docx, monkeypatch):
+    monkeypatch.setattr("app.mcp.builtin.docx.docx_service.comments", lambda *_args, **_kwargs: {"ok": True, "comments": []})
+    monkeypatch.setattr("app.mcp.builtin.docx.docx_service.changes", lambda *_args, **_kwargs: {"ok": True, "changes": []})
+    monkeypatch.setattr("app.mcp.builtin.docx.docx_service.notes", lambda *_args, **_kwargs: {"ok": True, "notes": []})
+    monkeypatch.setattr("app.mcp.builtin.docx.docx_service.media", lambda *_args, **_kwargs: {"ok": True, "items": []})
+    monkeypatch.setattr("app.mcp.builtin.docx.docx_service.links", lambda *_args, **_kwargs: {"ok": True, "links": []})
+    with patch("app.mcp.builtin.docx._get_doc_access", return_value=([str(sample_docx.parent)], [])):
+        payloads = [
+            json.loads(await tool.execute(mock_ctx, {"path": sample_docx.name, "limit": 1, "root_dir": str(sample_docx.parent)}))
+            for tool in (DocxCommentsTool(), DocxChangesTool(), DocxNotesTool(), DocxMediaTool(), DocxLinksTool())
+        ]
+
+    assert [payload["tool"] for payload in payloads] == ["docx_comments", "docx_changes", "docx_notes", "docx_media", "docx_links"]
+    assert all(tool.parameters["properties"]["limit"]["maximum"] == 200 for tool in (DocxCommentsTool(), DocxChangesTool(), DocxNotesTool(), DocxMediaTool(), DocxLinksTool()))
+    assert {"docx_comments", "docx_changes", "docx_notes", "docx_media", "docx_links"}.issubset({tool.name for tool in builtin_tool_registry.get_all_tools()})
+
+
+def test_docx_read_schema_requires_explicit_review_scopes_only():
+    scopes = DocxReadTool().parameters["properties"]["scopes"]
+    assert scopes == {"type": "array", "items": {"type": "string", "enum": ["comments", "changes", "notes"]}, "uniqueItems": True}
