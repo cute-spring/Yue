@@ -8,11 +8,13 @@ from pydantic_ai import RunContext
 
 from app.mcp.builtin.docx import (
     DocxExtractTablesTool,
+    DocxMetadataTool,
     DocxProfileTool,
     DocxQueryTool,
     DocxReadTool,
     DocxSearchTool,
     DocxStructureTool,
+    DocxRenderTool,
 )
 from app.mcp.builtin.registry import builtin_tool_registry
 
@@ -149,3 +151,18 @@ async def test_docx_retrieval_tools_return_cited_and_structured_results(mock_ctx
 def test_registry_contains_docx_retrieval_tools():
     names = [tool.name for tool in builtin_tool_registry.get_all_tools()]
     assert {"docx_search", "docx_query", "docx_structure"}.issubset(names)
+
+
+@pytest.mark.asyncio
+async def test_docx_metadata_and_render_tools_register_schema_and_return_structured_results(mock_ctx, sample_docx, monkeypatch):
+    monkeypatch.setattr("app.mcp.builtin.docx.docx_service.metadata", lambda *_: {"ok": True, "core": {}})
+    monkeypatch.setattr("app.mcp.builtin.docx.docx_service.render", lambda *_: {"ok": False, "error_code": "DOCX_RENDERER_UNAVAILABLE", "message": "Install LibreOffice."})
+    with patch("app.mcp.builtin.docx._get_doc_access", return_value=([str(sample_docx.parent)], [])):
+        metadata = json.loads(await DocxMetadataTool().execute(mock_ctx, {"path": sample_docx.name, "root_dir": str(sample_docx.parent)}))
+        rendered = json.loads(await DocxRenderTool().execute(mock_ctx, {"path": sample_docx.name, "page_start": 1, "page_end": 2, "root_dir": str(sample_docx.parent)}))
+
+    assert metadata == {"ok": True, "core": {}, "tool": "docx_metadata"}
+    assert rendered == {"ok": False, "error_code": "DOCX_RENDERER_UNAVAILABLE", "message": "Install LibreOffice.", "tool": "docx_render"}
+    assert DocxRenderTool().parameters["properties"]["page_end"]["minimum"] == 1
+    names = [tool.name for tool in builtin_tool_registry.get_all_tools()]
+    assert {"docx_metadata", "docx_render"}.issubset(names)

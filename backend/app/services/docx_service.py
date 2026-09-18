@@ -2,9 +2,13 @@
 
 import logging
 import re
+import shutil
+import subprocess
+import tempfile
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-from zipfile import BadZipFile
+from zipfile import BadZipFile, ZipFile
 
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
@@ -12,6 +16,7 @@ from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from lxml import etree
 from lxml.etree import XMLSyntaxError
 
 from . import doc_retrieval
@@ -22,6 +27,7 @@ READ_BLOCK_LIMIT = 500
 TABLE_LIMIT = 100
 TABLE_ROW_CELL_LIMIT = 500
 RETRIEVAL_RESULT_LIMIT = 200
+RENDER_PAGE_LIMIT = 20
 SEARCH_DOMAINS = {"body", "headings", "table_cells"}
 QUERY_FIELDS = {"kind", "heading_path", "style", "section", "table_id", "text", "limit"}
 logger = logging.getLogger(__name__)
@@ -265,6 +271,238 @@ class DocxService:
             "limit": bounded_limit,
             "fidelity_warnings": result["fidelity_warnings"],
         }
+
+    def metadata(
+        self,
+        path: str,
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Read package properties without extracting document body blocks."""
+        started_at = time.monotonic()
+        try:
+            source = self._resolve_path(path, root_dir, allow_roots, deny_roots)
+        except doc_retrieval.DocAccessError:
+            self._log_audit(path, started_at, status="failed", tool="docx_metadata", error_code="DOCX_ACCESS_DENIED")
+            raise
+        try:
+            with ZipFile(source) as package:
+                core = self._package_core_properties(package)
+                application = self._package_application_properties(package)
+                custom = self._package_custom_properties(package)
+                protection = self._package_protection(package)
+        except (BadZipFile, KeyError, OSError, ValueError, XMLSyntaxError, etree.LxmlError):
+            self._log_audit(path, started_at, status="failed", tool="docx_metadata", error_code="DOCX_PARSE_FAILED")
+            return {"ok": False, "error_code": "DOCX_PARSE_FAILED", "message": "The file is not a readable DOCX package."}
+        result = {
+            "ok": True,
+            "file": path,
+            "core": core,
+            "application": application,
+            "custom": custom,
+            "protection": protection,
+        }
+        self._log_audit(path, started_at, tool="docx_metadata", core_fields=len(core), custom_fields=len(custom))
+        return result
+
+    def render(
+        self,
+        path: str,
+        page_start: int = 1,
+        page_end: Optional[int] = None,
+        root_dir: Optional[str] = None,
+        allow_roots: Optional[List[str]] = None,
+        deny_roots: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Render a bounded DOCX page range through LibreOffice and Poppler."""
+        started_at = time.monotonic()
+        if page_start < 1:
+            return self._render_error(path, started_at, "DOCX_RENDER_INVALID", "page_start must be at least 1.")
+        if page_end is not None and page_end < page_start:
+            return self._render_error(path, started_at, "DOCX_RENDER_INVALID", "page_end must be greater than or equal to page_start.")
+        final_page = page_end or page_start
+        if final_page - page_start + 1 > RENDER_PAGE_LIMIT:
+            return self._render_error(path, started_at, "DOCX_RENDER_INVALID", f"Render requests are limited to {RENDER_PAGE_LIMIT} pages.")
+        try:
+            source = self._resolve_path(path, root_dir, allow_roots, deny_roots)
+        except doc_retrieval.DocAccessError:
+            self._log_audit(path, started_at, status="failed", tool="docx_render", error_code="DOCX_ACCESS_DENIED")
+            raise
+        renderer = self._renderer_path()
+        if not renderer:
+            return self._render_error(path, started_at, "DOCX_RENDERER_UNAVAILABLE", "DOCX rendering requires LibreOffice (soffice).")
+        converter = shutil.which("pdftoppm")
+        if not converter:
+            return self._render_error(path, started_at, "DOCX_RENDERER_UNAVAILABLE", "DOCX rendering requires pdftoppm for page images.")
+        try:
+            output_dir = Path(tempfile.mkdtemp(prefix="yue-docx-render-"))
+            profile_dir = output_dir / "libreoffice-profile"
+            profile_dir.mkdir()
+            completed = subprocess.run(
+                [
+                    renderer,
+                    "--headless",
+                    "--norestore",
+                    "--nodefault",
+                    "--nolockcheck",
+                    f"-env:UserInstallation={profile_dir.as_uri()}",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    str(output_dir),
+                    source,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            pdf = output_dir / f"{Path(source).stem}.pdf"
+            if completed.returncode or not pdf.exists():
+                return self._render_error(path, started_at, "DOCX_RENDER_FAILED", "LibreOffice could not render this DOCX.")
+            prefix = output_dir / "page"
+            converted = subprocess.run(
+                [converter, "-png", "-f", str(page_start), "-l", str(final_page), str(pdf), str(prefix)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if converted.returncode:
+                return self._render_error(path, started_at, "DOCX_RENDER_FAILED", "Poppler could not convert rendered pages to PNG images.")
+            pages = {int(item.stem.rsplit("-", 1)[-1]): item for item in output_dir.glob("page-*.png")}
+            requested_pages = list(range(page_start, final_page + 1))
+            if any(page not in pages for page in requested_pages):
+                return self._render_error(path, started_at, "DOCX_RENDER_FAILED", "Image conversion did not produce the requested pages.")
+            renderer_version = self._renderer_version(renderer)
+            converter_version = self._renderer_version(converter)
+            if not renderer_version or not converter_version:
+                return self._render_error(
+                    path,
+                    started_at,
+                    "DOCX_RENDER_PROVENANCE_UNAVAILABLE",
+                    "Renderer version provenance is unavailable; no page artifacts were returned.",
+                )
+            provenance = {
+                "backend": {"name": "LibreOffice", "version": renderer_version},
+                "image_converter": {"name": "pdftoppm", "version": converter_version},
+                "page_to_source": {"status": "unavailable"},
+            }
+            artifacts = [
+                {
+                    "page": page,
+                    "path": str(pages[page]),
+                    "mime_type": "image/png",
+                    "temporary": True,
+                    "provenance": provenance,
+                }
+                for page in requested_pages
+            ]
+            result = {"ok": True, "file": path, "artifacts": artifacts, "is_truncated": False, "provenance": provenance}
+            self._log_audit(path, started_at, tool="docx_render", pages=len(artifacts), backend="LibreOffice")
+            return result
+        except (OSError, subprocess.SubprocessError):
+            return self._render_error(path, started_at, "DOCX_RENDER_FAILED", "DOCX rendering could not be completed.")
+
+    def _render_error(self, path: str, started_at: float, error_code: str, message: str) -> Dict[str, Any]:
+        self._log_audit(path, started_at, status="failed", tool="docx_render", error_code=error_code)
+        return {"ok": False, "error_code": error_code, "message": message}
+
+    @staticmethod
+    def _package_xml(package: ZipFile, member: str) -> Optional[Any]:
+        try:
+            return etree.fromstring(package.read(member))
+        except KeyError:
+            return None
+
+    @classmethod
+    def _package_core_properties(cls, package: ZipFile) -> Dict[str, Any]:
+        root = cls._package_xml(package, "docProps/core.xml")
+        if root is None:
+            return {}
+        field_names = {
+            "title": "title", "subject": "subject", "creator": "author", "keywords": "keywords",
+            "description": "comments", "lastModifiedBy": "last_modified_by", "revision": "revision",
+            "category": "category", "contentStatus": "content_status", "identifier": "identifier",
+            "language": "language", "version": "version", "created": "created", "modified": "modified",
+            "lastPrinted": "last_printed",
+        }
+        properties: Dict[str, Any] = {}
+        for element in root:
+            name = etree.QName(element).localname
+            if name in field_names and element.text:
+                value: Any = element.text
+                if name == "revision":
+                    try:
+                        value = int(value)
+                    except ValueError:
+                        pass
+                properties[field_names[name]] = value
+        return properties
+
+    @classmethod
+    def _package_application_properties(cls, package: ZipFile) -> Dict[str, str]:
+        root = cls._package_xml(package, "docProps/app.xml")
+        if root is None:
+            return {}
+        fields = {"Application": "application", "Template": "template", "AppVersion": "app_version"}
+        return {fields[etree.QName(element).localname]: element.text for element in root if etree.QName(element).localname in fields and element.text}
+
+    @classmethod
+    def _package_custom_properties(cls, package: ZipFile) -> Dict[str, Any]:
+        root = cls._package_xml(package, "docProps/custom.xml")
+        if root is None:
+            return {}
+        properties: Dict[str, Any] = {}
+        for property_element in root:
+            name = property_element.get("name")
+            if not name or not len(property_element):
+                continue
+            value_element = property_element[0]
+            value: Any = value_element.text or ""
+            type_name = etree.QName(value_element).localname
+            if type_name == "bool":
+                value = value.casefold() == "true"
+            elif type_name in {"i1", "i2", "i4", "i8", "int", "ui1", "ui2", "ui4", "ui8"}:
+                try:
+                    value = int(value)
+                except ValueError:
+                    pass
+            elif type_name in {"r4", "r8", "decimal"}:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass
+            properties[name] = value
+        return properties
+
+    @classmethod
+    def _package_protection(cls, package: ZipFile) -> Dict[str, Any]:
+        root = cls._package_xml(package, "word/settings.xml")
+        if root is None:
+            return {"enabled": False}
+        protection = root.find(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}documentProtection")
+        if protection is None:
+            return {"enabled": False}
+        values = {etree.QName(name).localname: value for name, value in protection.attrib.items()}
+        return {
+            "enabled": values.get("enforcement", "1") not in {"0", "false", "False"},
+            **({"edit": values["edit"]} if "edit" in values else {}),
+            **({"enforcement": values["enforcement"].casefold() not in {"0", "false"}} if "enforcement" in values else {}),
+            **({"formatting": values["formatting"].casefold() not in {"0", "false"}} if "formatting" in values else {}),
+        }
+
+    @staticmethod
+    def _renderer_path() -> Optional[str]:
+        return shutil.which("soffice")
+
+    @staticmethod
+    def _renderer_version(renderer: str) -> Optional[str]:
+        try:
+            completed = subprocess.run([renderer, "--version"], capture_output=True, text=True, timeout=10)
+            version = (completed.stdout or completed.stderr).strip()
+            return version or None
+        except (OSError, subprocess.SubprocessError):
+            return None
 
     def query(
         self,

@@ -6,13 +6,13 @@
 
 **Blocked by:** 02: Deliver the DOCX reader MVP.
 
-**Status:** ready-for-agent
+**Status:** completed
 
 **Affected backend areas:** DOCX metadata reader; document rendering adapter/artifact delivery; built-in MCP DOCX tools; artifact/citation plumbing.
 
 **Tests:** Core/custom metadata tests; render smoke tests for requested page ranges; provenance/failure tests when renderer support is unavailable; visual/golden checks for representative layout fixtures.
 
-- [ ] `docx_metadata` returns core/custom properties, template/application fields where present, language, revision values, and protection state without a full content read.
-- [ ] `docx_render` returns requested pages as artifacts and identifies the rendering backend/version used.
-- [ ] Render requests have bounded page/range limits and fail with an actionable structured error when rendering cannot be completed.
-- [ ] Tests verify that page-level assertions are never emitted without rendering provenance.
+- [x] `docx_metadata` returns core/custom properties, template/application fields where present, language, revision values, and protection state without a full content read.
+- [x] `docx_render` returns requested pages as artifacts and identifies the rendering backend/version used.
+- [x] Render requests have bounded page/range limits and fail with an actionable structured error when rendering cannot be completed.
+- [x] Tests verify that page-level assertions are never emitted without rendering provenance.

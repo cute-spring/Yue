@@ -153,9 +153,65 @@ class DocxStructureTool(_DocxTool):
         return await self._execute(args)
 
 
+class DocxMetadataTool(_DocxTool):
+    error_code = "DOCX_METADATA_FAILED"
+
+    def __init__(self):
+        super().__init__(
+            "docx_metadata",
+            "Inspect DOCX package properties and protection state without reading body content.",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "root_dir": {"type": "string"}},
+                "required": ["path"],
+            },
+        )
+
+    def handler(self, args: Dict[str, Any], allow_roots: List[str], deny_roots: List[str]) -> Dict[str, Any]:
+        return docx_service.metadata(args["path"], args.get("root_dir"), allow_roots, deny_roots)
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        return await self._execute(args)
+
+
+class DocxRenderTool(_DocxTool):
+    error_code = "DOCX_RENDER_FAILED"
+
+    def __init__(self):
+        super().__init__(
+            "docx_render",
+            "Render up to 20 DOCX pages into inspection image artifacts with provenance.",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "page_start": {"type": "integer", "minimum": 1},
+                    "page_end": {"type": "integer", "minimum": 1},
+                    "root_dir": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+        )
+
+    def handler(self, args: Dict[str, Any], allow_roots: List[str], deny_roots: List[str]) -> Dict[str, Any]:
+        return docx_service.render(
+            args["path"],
+            args.get("page_start", 1),
+            args.get("page_end"),
+            args.get("root_dir"),
+            allow_roots,
+            deny_roots,
+        )
+
+    async def execute(self, ctx: RunContext, args: Dict[str, Any]) -> str:
+        return await self._execute(args)
+
+
 builtin_tool_registry.register(DocxProfileTool())
 builtin_tool_registry.register(DocxReadTool())
 builtin_tool_registry.register(DocxExtractTablesTool())
 builtin_tool_registry.register(DocxSearchTool())
 builtin_tool_registry.register(DocxQueryTool())
 builtin_tool_registry.register(DocxStructureTool())
+builtin_tool_registry.register(DocxMetadataTool())
+builtin_tool_registry.register(DocxRenderTool())

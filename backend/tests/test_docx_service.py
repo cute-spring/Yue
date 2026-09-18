@@ -1,4 +1,7 @@
 import logging
+import hashlib
+import shutil
+import subprocess
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -39,6 +42,29 @@ def _write_malformed_xml_docx(path: Path) -> None:
     with ZipFile(path) as archive:
         members = {name: archive.read(name) for name in archive.namelist()}
     members["word/document.xml"] = b"<w:document>"
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+
+
+def _add_package_metadata(path: Path) -> None:
+    with ZipFile(path) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    members["docProps/app.xml"] = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+      <Template>Normal.dotm</Template><Application>Microsoft Office Word</Application>
+      <AppVersion>16.0000</AppVersion>
+    </Properties>'''
+    members["docProps/custom.xml"] = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+      xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+      <property fmtid="{00000000-0000-0000-0000-000000000000}" pid="2" name="Classification"><vt:lpwstr>Internal</vt:lpwstr></property>
+      <property fmtid="{00000000-0000-0000-0000-000000000000}" pid="3" name="Retained"><vt:bool>true</vt:bool></property>
+    </Properties>'''
+    members["word/settings.xml"] = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:documentProtection w:edit="readOnly" w:enforcement="1" w:formatting="0"/>
+    </w:settings>'''
     with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
         for name, content in members.items():
             archive.writestr(name, content)
@@ -370,3 +396,157 @@ def test_structure_anchors_bookmarks_to_their_containing_block(tmp_path: Path):
         "name": "target", "id": "7",
         "citation": {"block_id": "p-0001", "kind": "paragraph", "source_index": 1, "heading_path": []},
     }]
+
+
+def test_metadata_reads_package_properties_without_reading_body(tmp_path: Path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    path = tmp_path / "metadata.docx"
+    document = Document()
+    document.core_properties.title = "Metadata brief"
+    document.core_properties.author = "Yue"
+    document.core_properties.subject = "Release"
+    document.core_properties.revision = 4
+    document.core_properties.language = "en-US"
+    document.save(path)
+    _add_package_metadata(path)
+    source_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr("app.services.docx_service.Document", lambda *_: pytest.fail("metadata must not load body"))
+
+    result = docx_service.metadata("metadata.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert result["ok"] is True
+    assert result["core"]["title"] == "Metadata brief"
+    assert result["core"]["author"] == "Yue"
+    assert result["core"]["subject"] == "Release"
+    assert result["core"]["revision"] == 4
+    assert result["core"]["language"] == "en-US"
+    assert result["application"] == {
+        "application": "Microsoft Office Word",
+        "template": "Normal.dotm",
+        "app_version": "16.0000",
+    }
+    assert result["custom"] == {"Classification": "Internal", "Retained": True}
+    assert result["protection"] == {"enabled": True, "edit": "readOnly", "enforcement": True, "formatting": False}
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == source_digest
+    assert any("[DocxAudit]" in message and "docx_metadata" in message for message in caplog.messages)
+
+
+def test_render_returns_actionable_error_without_a_renderer(tmp_path: Path, monkeypatch):
+    path = tmp_path / "render.docx"
+    Document().save(path)
+    monkeypatch.setattr(docx_service, "_renderer_path", lambda: None, raising=False)
+
+    result = docx_service.render("render.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert result == {"ok": False, "error_code": "DOCX_RENDERER_UNAVAILABLE", "message": "DOCX rendering requires LibreOffice (soffice)."}
+
+
+def test_render_rejects_invalid_range_before_checking_renderer(tmp_path: Path, monkeypatch):
+    path = tmp_path / "render.docx"
+    Document().save(path)
+    monkeypatch.setattr(docx_service, "_renderer_path", lambda: None)
+
+    result = docx_service.render("render.docx", page_start=3, page_end=2, root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert result == {"ok": False, "error_code": "DOCX_RENDER_INVALID", "message": "page_end must be greater than or equal to page_start."}
+
+
+def test_render_returns_page_artifacts_with_renderer_provenance(tmp_path: Path, monkeypatch):
+    path = tmp_path / "render.docx"
+    Document().save(path)
+    source_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(docx_service, "_renderer_path", lambda: "/mock/soffice")
+    monkeypatch.setattr(
+        docx_service,
+        "_renderer_version",
+        lambda command: "LibreOffice 25.2" if command == "/mock/soffice" else "unavailable",
+    )
+    monkeypatch.setattr("app.services.docx_service.shutil.which", lambda name: "/mock/pdftoppm" if name == "pdftoppm" else None)
+
+    def fake_run(command, **kwargs):
+        if command[0] == "/mock/soffice":
+            output_dir = Path(command[command.index("--outdir") + 1])
+            (output_dir / "render.pdf").write_bytes(b"%PDF-1.4")
+        else:
+            prefix = Path(command[-1])
+            for page in range(int(command[command.index("-f") + 1]), int(command[command.index("-l") + 1]) + 1):
+                prefix.parent.joinpath(f"{prefix.name}-{page}.png").write_bytes(b"PNG")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("app.services.docx_service.subprocess.run", fake_run)
+
+    result = docx_service.render("render.docx", page_start=2, page_end=3, root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert result["ok"] is True
+    assert [artifact["page"] for artifact in result["artifacts"]] == [2, 3]
+    assert all(Path(artifact["path"]).is_file() for artifact in result["artifacts"])
+    assert result["provenance"] == {
+        "backend": {"name": "LibreOffice", "version": "LibreOffice 25.2"},
+        "image_converter": {"name": "pdftoppm", "version": "unavailable"},
+        "page_to_source": {"status": "unavailable"},
+    }
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == source_digest
+
+
+def test_render_never_returns_pages_when_conversion_does_not_create_them(tmp_path: Path, monkeypatch):
+    path = tmp_path / "render.docx"
+    Document().save(path)
+    monkeypatch.setattr(docx_service, "_renderer_path", lambda: "/mock/soffice")
+    monkeypatch.setattr("app.services.docx_service.shutil.which", lambda name: "/mock/pdftoppm" if name == "pdftoppm" else None)
+
+    def fake_run(command, **kwargs):
+        if "--convert-to" in command:
+            Path(command[command.index("--outdir") + 1], "render.pdf").write_bytes(b"%PDF-1.4")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("app.services.docx_service.subprocess.run", fake_run)
+
+    result = docx_service.render("render.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert result == {"ok": False, "error_code": "DOCX_RENDER_FAILED", "message": "Image conversion did not produce the requested pages."}
+
+
+def test_render_refuses_page_results_when_renderer_versions_are_unavailable(tmp_path: Path, monkeypatch):
+    path = tmp_path / "render.docx"
+    Document().save(path)
+    monkeypatch.setattr(docx_service, "_renderer_path", lambda: "/mock/soffice")
+    monkeypatch.setattr("app.services.docx_service.shutil.which", lambda name: "/mock/pdftoppm" if name == "pdftoppm" else None)
+    monkeypatch.setattr(docx_service, "_renderer_version", lambda _: None)
+
+    def fake_run(command, **kwargs):
+        if "--convert-to" in command:
+            Path(command[command.index("--outdir") + 1], "render.pdf").write_bytes(b"%PDF-1.4")
+        elif "-png" in command:
+            Path(f"{command[-1]}-1.png").write_bytes(b"PNG")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("app.services.docx_service.subprocess.run", fake_run)
+
+    result = docx_service.render("render.docx", root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert result == {
+        "ok": False,
+        "error_code": "DOCX_RENDER_PROVENANCE_UNAVAILABLE",
+        "message": "Renderer version provenance is unavailable; no page artifacts were returned.",
+    }
+
+
+def test_render_smoke_produces_inspection_artifacts_without_modifying_source(tmp_path: Path):
+    if not docx_service._renderer_path() or not shutil.which("pdftoppm"):
+        pytest.skip("LibreOffice and pdftoppm are required for the render smoke test")
+    path = tmp_path / "render-smoke.docx"
+    document = Document()
+    document.add_paragraph("First page")
+    document.add_page_break()
+    document.add_paragraph("Second page")
+    document.save(path)
+    source_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    result = docx_service.render("render-smoke.docx", page_start=1, page_end=2, root_dir=str(tmp_path), allow_roots=[str(tmp_path)])
+
+    assert result["ok"] is True
+    assert [artifact["page"] for artifact in result["artifacts"]] == [1, 2]
+    assert all(Path(artifact["path"]).is_file() for artifact in result["artifacts"])
+    assert result["provenance"]["backend"]["version"] != "unavailable"
+    assert all(artifact["provenance"] == result["provenance"] for artifact in result["artifacts"])
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == source_digest
