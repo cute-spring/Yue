@@ -19,6 +19,7 @@ class BuiltinAgentCatalog:
         "builtin-docs",
         "builtin-local-docs",
         "builtin-architect",
+        "builtin-learning-coach",
         "builtin-excel-analyst",
         "builtin-jira",
         "builtin-pdf-research",

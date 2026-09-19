@@ -14,6 +14,7 @@ def test_builtin_agent_catalog_loads_default_agents():
         "builtin-docs",
         "builtin-local-docs",
         "builtin-architect",
+        "builtin-learning-coach",
         "builtin-confluence-pm",
         "builtin-excel-analyst",
         "builtin-json-canvas",
