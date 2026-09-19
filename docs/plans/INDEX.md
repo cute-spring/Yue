@@ -154,6 +154,7 @@
 > - 已完成功能计划：`PDF_BUILTIN_TOOLS_HIGH_ROI.md`, `MS_EXCEL_SUPPORT_PLAN.md`, `2026-03-24-auto-speech-synthesis.md`
 > - 已被替代计划：`reasoning_tools_execution_enhancement_plan_20260308.md` (已被 Epic 4 替代)
 > - 分析参考文档：`REASONING_CHAIN_OPTIMIZATION.md`, `SMART_DOC_PROCESSING_PLAN.md`, `Docs_Tooling_Enhancement_Plan.md`, `MCP_DOC_AGENT_PLAN.md`
+> - **agent-browser continuity 设计稿（未实现，仅参考）**：`archive/agent-browser-continuity/` — 4 份 2026-03-28 设计文档 + `browser-operator` skill 契约参考，来自已删除分支 `feat/skill-browser-continuity-integration`。浏览器能力最终按 `browser_session_service.py` 的方案落地，此套 design 未采用。
 
 ---
 

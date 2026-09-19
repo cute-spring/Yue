@@ -1,0 +1,289 @@
+format_version: 1
+name: browser-operator
+version: 1.0.0
+description: Tool-backed browser operator contract for Yue-managed browser actions.
+entrypoint: system_prompt
+capabilities:
+  - browser-navigation
+  - browser-inspection
+  - browser-interaction
+  - evidence-capture
+
+actions:
+  - id: open_page
+    tool: builtin:browser_open
+    approval_policy: auto
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+        new_tab:
+          type: boolean
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle]
+      required: [url]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        operation:
+          type: string
+        status:
+          type: string
+        browser_context:
+          type: object
+      required: [ok, operation, status, browser_context]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: open
+      runtime_metadata_expectations:
+        required: [operation, url]
+        optional: [session_id, tab_id, wait_until]
+  - id: snapshot_page
+    tool: builtin:browser_snapshot
+    approval_policy: auto
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle]
+        include_text:
+          type: boolean
+        include_interactive_elements:
+          type: boolean
+        max_nodes:
+          type: integer
+          minimum: 1
+          maximum: 500
+      required: [url]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        operation:
+          type: string
+        status:
+          type: string
+        snapshot:
+          type: object
+      required: [ok, operation, status, snapshot]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: snapshot
+      runtime_metadata_expectations:
+        required: [operation, url]
+        optional: [session_id, tab_id, url, wait_until, max_nodes, binding_source, binding_session_id, binding_tab_id, binding_url, binding_dom_version]
+  - id: click_element
+    tool: builtin:browser_click
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle]
+        binding_session_id:
+          type: string
+        binding_source:
+          type: string
+        binding_tab_id:
+          type: string
+        binding_url:
+          type: string
+        binding_dom_version:
+          type: string
+        active_dom_version:
+          type: string
+        url:
+          type: string
+        element_ref:
+          type: string
+        wait_after:
+          type: boolean
+      required: [element_ref]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        operation:
+          type: string
+        status:
+          type: string
+        browser_context:
+          type: object
+        target:
+          type: object
+      required: [ok, operation, status, browser_context, target]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: click
+      runtime_metadata_expectations:
+        required: [operation, element_ref]
+        optional: [session_id, tab_id, url, binding_source, binding_session_id, binding_tab_id, binding_url, binding_dom_version, active_dom_version]
+      structured_failure_codes: [browser_session_required, browser_tab_required, browser_target_required, browser_target_stale, browser_target_context_mismatch]
+  - id: type_into_field
+    tool: builtin:browser_type
+    safety: browser_write
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle]
+        binding_session_id:
+          type: string
+        binding_source:
+          type: string
+        binding_tab_id:
+          type: string
+        binding_url:
+          type: string
+        binding_dom_version:
+          type: string
+        active_dom_version:
+          type: string
+        element_ref:
+          type: string
+        text:
+          type: string
+        clear_first:
+          type: boolean
+      required: [element_ref, text]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        operation:
+          type: string
+        status:
+          type: string
+        target:
+          type: object
+      required: [ok, operation, status, target]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: type
+      runtime_metadata_expectations:
+        required: [operation, element_ref]
+        optional: [session_id, tab_id, url, wait_until, text, binding_source, binding_session_id, binding_tab_id, binding_url, binding_dom_version, active_dom_version]
+      structured_failure_codes: [browser_session_required, browser_tab_required, browser_target_required, browser_target_stale, browser_target_context_mismatch]
+  - id: press_key
+    tool: builtin:browser_press
+    safety: browser_mutation
+    approval_policy: manual
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle]
+        element_ref:
+          type: string
+        key:
+          type: string
+      required: [url, key]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        operation:
+          type: string
+        status:
+          type: string
+        target:
+          type: object
+      required: [ok, operation, status, target]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: press
+      runtime_metadata_expectations:
+        required: [operation, url, key]
+        optional: [session_id, tab_id, url, wait_until, element_ref]
+  - id: capture_screenshot
+    tool: builtin:browser_screenshot
+    approval_policy: auto
+    input_schema:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle]
+        full_page:
+          type: boolean
+        label:
+          type: string
+      required: [url]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        operation:
+          type: string
+        status:
+          type: string
+        artifact:
+          type: object
+      required: [ok, operation, status, artifact]
+      additionalProperties: false
+    metadata:
+      tool_family: agent_browser
+      operation: screenshot
+      runtime_metadata_expectations:
+        required: [operation, url]
+        optional: [session_id, tab_id, url, wait_until, label]
